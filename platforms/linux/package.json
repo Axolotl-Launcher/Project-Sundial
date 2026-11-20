@@ -1,0 +1,17 @@
+{
+  "name": "@superlogical/platform-linux",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cargo build --release -p superlogical_platform_linux",
+    "dev": "cargo run -p superlogical_platform_linux",
+    "lint": "cargo clippy -p superlogical_platform_linux --all-targets -- -D warnings",
+    "test": "cargo test -p superlogical_platform_linux"
+  },
+  "dependencies": {
+    "@superlogical/ui": "workspace:*"
+  },
+  "os": [
+    "linux"
+  ]
+}

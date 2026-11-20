@@ -1,0 +1,8 @@
+[package]
+name = "superlogical_core"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Superlogical domain logic (UI-independent)"
+
+[dependencies]

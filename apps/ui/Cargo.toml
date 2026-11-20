@@ -1,0 +1,10 @@
+[package]
+name = "superlogical_ui"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Superlogical gpui user interface (library)"
+
+[dependencies]
+gpui = { workspace = true }
+superlogical_core = { workspace = true }

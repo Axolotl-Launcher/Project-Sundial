@@ -1,0 +1,17 @@
+{
+  "name": "@superlogical/platform-windows",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cargo build --release -p superlogical_platform_windows",
+    "dev": "cargo run -p superlogical_platform_windows",
+    "lint": "cargo clippy -p superlogical_platform_windows --all-targets -- -D warnings",
+    "test": "cargo test -p superlogical_platform_windows"
+  },
+  "dependencies": {
+    "@superlogical/ui": "workspace:*"
+  },
+  "os": [
+    "win32"
+  ]
+}
