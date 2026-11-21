@@ -5,6 +5,7 @@
 
 pub mod arguments;
 pub mod classpath;
+pub mod flow;
 mod jar;
 mod java;
 pub mod natives;
@@ -15,6 +16,7 @@ pub mod rules;
 pub mod version;
 
 pub use arguments::Values;
+pub use flow::{FlowError, LaunchOutcome, LaunchRequest};
 pub use jar::JarReader;
 pub use java::SystemJava;
 pub use plan::{Layout, Session};

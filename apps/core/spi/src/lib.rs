@@ -117,11 +117,26 @@ pub struct LaunchCommand {
     pub environment: Vec<(String, Option<String>)>,
 }
 
+/// Why a launch did not reach a successful exit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LaunchError {
+    /// The program could not be started, with the reason the platform gave.
     NotFound(String),
+    /// The game ran and exited non-zero; `None` means it was killed.
     Exited { code: Option<i32> },
 }
+
+impl std::fmt::Display for LaunchError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound(reason) => write!(formatter, "cannot start the program: {reason}"),
+            Self::Exited { code: Some(code) } => write!(formatter, "exited with code {code}"),
+            Self::Exited { code: None } => write!(formatter, "was terminated without an exit code"),
+        }
+    }
+}
+
+impl std::error::Error for LaunchError {}
 
 /// Persists and loads application state.
 ///
