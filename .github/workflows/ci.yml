@@ -32,6 +32,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # gpui-pre links fontconfig, Wayland/X11 and Vulkan at build time. The
+      # list mirrors gpui-kit's own script/install-linux.sh, minus the pieces
+      # only needed for its webview shell.
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libfontconfig-dev libfreetype-dev libwayland-dev \
+            libxkbcommon-x11-dev libx11-xcb-dev libxcb1-dev \
+            libvulkan1 mesa-vulkan-drivers libdbus-1-dev pkg-config
+
       # Installs the channel named in rust-toolchain.toml, so the pin lives in
       # exactly one file. `rustup show` would install it implicitly, but being
       # explicit keeps the failure obvious when the pin is wrong.
