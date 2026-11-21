@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "superlogical_domain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Domain types shared by every system: identifiers, versions, and the error taxonomy. No I/O, no dependencies beyond serde."
+repository.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

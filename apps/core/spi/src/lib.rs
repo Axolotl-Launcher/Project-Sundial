@@ -1,0 +1,115 @@
+// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-License-Identifier: GPL-3.0-only
+
+//! Service provider interfaces.
+//!
+//! A port is a trait a system implements and the rest of the program calls.
+//! Callers depend on this crate only; a concrete provider is chosen once at
+//! startup in `superlogical_frontend`. That keeps a swap — a real HTTP client
+//! for a test double, a local store for a remote one — a wiring change rather
+//! than an edit to every call site.
+//!
+//! Traits here use return-position `impl Trait` rather than the `async_trait`
+//! macro: the workspace's MSRV supports it, and it avoids a box per call.
+
+pub use superlogical_domain::Id;
+
+/// Fetches bytes over the network.
+pub trait Network {
+    /// Resolves a URL's body. The error is the provider's own type, boxed so
+    /// callers need not name it.
+    fn fetch(&self, url: &str) -> impl Future<Output = Result<Vec<u8>, FetchError>>;
+}
+
+/// Why a fetch failed, reduced to what a caller can act on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FetchError {
+    /// Worth retrying: a timeout, a 5xx, a dropped connection.
+    Retryable(String),
+    /// Not worth retrying: a 404, a malformed URL.
+    Fatal(String),
+}
+
+/// Reads and writes bytes under the launcher's data directory.
+pub trait Storage {
+    fn read(&self, path: &str) -> Result<Vec<u8>, StorageError>;
+    fn write(&self, path: &str, bytes: &[u8]) -> Result<(), StorageError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StorageError {
+    NotFound(String),
+    Denied(String),
+}
+
+/// Offers content a user can install.
+pub trait ContentProvider {
+    /// The items this provider lists, as the launcher would show them.
+    fn list(&self) -> impl Future<Output = Result<Vec<ContentSummary>, FetchError>>;
+}
+
+/// What a provider knows about one item before it is installed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContentSummary {
+    pub id: Id,
+    pub name: String,
+}
+
+/// Carries an install plan to the code that writes it to disk.
+pub trait Installer {
+    fn install(&self, plan: InstallPlan) -> impl Future<Output = Result<(), InstallError>>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallPlan {
+    pub instance: Id,
+    pub steps: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstallError {
+    /// A step failed; the plan can be retried from the start.
+    StepFailed { step: String, reason: String },
+}
+
+/// Starts a prepared process and reports when it exits.
+pub trait Launcher {
+    fn launch(&self, command: LaunchCommand) -> impl Future<Output = Result<(), LaunchError>>;
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LaunchCommand {
+    pub program: String,
+    pub args: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LaunchError {
+    NotFound(String),
+    Exited { code: Option<i32> },
+}
+
+/// Persists and loads application state.
+///
+/// Saving takes `&mut self`: a store that silently discards a write is worse
+/// than one that cannot be written to at all.
+pub trait StateStore {
+    fn load_instance(&self, id: Id) -> Result<Option<InstanceRecord>, StorageError>;
+    fn save_instance(&mut self, instance: &InstanceRecord) -> Result<(), StorageError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceRecord {
+    pub id: Id,
+    pub name: String,
+}
+
+/// Records what the launcher did.
+pub trait Telemetry {
+    fn record(&self, event: Event);
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Event {
+    pub name: String,
+}

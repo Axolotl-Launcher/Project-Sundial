@@ -8,29 +8,43 @@ Rust + [GPUI Kit](https://gpui-kit.com) 桌面应用骨架，pnpm + Turbo 负责
 ## 结构
 
 ```
-apps/core          superlogical_core          —— 领域逻辑，不依赖 UI 工具包
-apps/ui            superlogical_ui            —— 调色板 + 允许使用的 gpui-kit 组件词表
-apps/frontend      superlogical_frontend      —— 应用状态、布局与窗口装配
-platforms/windows  superlogical_platform_windows —— 产出 superlogical.exe
-platforms/linux    superlogical_platform_linux   —— 产出 Linux 可执行文件
-platforms/macos    superlogical_platform_macos   —— 产出 macOS 可执行文件
+apps/core/spi         superlogical_spi       —— 端口 trait（SPI）与跨界类型
+apps/core/domain      superlogical_domain    —— 领域标识与基础类型
+apps/core/content     superlogical_content   —— 内容模型与 provider
+apps/core/install     superlogical_install   —— 安装计划与执行
+apps/core/launch      superlogical_launch    —— 启动、Java 发现、进程
+apps/core/state       superlogical_state     —— 应用状态与持久化
+apps/core/storage     superlogical_storage   —— 文件系统与缓存原语
+apps/core/network     superlogical_network   —— HTTP 与协议客户端
+apps/core/telemetry   superlogical_telemetry —— 事件与 span
+apps/core/scheduler   superlogical_scheduler —— 后台任务调度
+apps/core/resources   superlogical_resources —— 收藏、历史、指纹
+apps/core/mod_metadata superlogical_mod_metadata —— 加载器与 mod 元数据
+apps/core/observability superlogical_observability —— 命令指标与诊断
+apps/core             superlogical_core      —— 聚合层，re-export 全部系统
+apps/ui               superlogical_ui        —— 调色板 + 允许使用的 gpui-kit 词表
+apps/frontend         superlogical_frontend  —— 应用状态、布局与窗口装配、provider 选择
+platforms/*                                  —— 各平台可执行文件
+tests                                        —— 仓库级策略测试与 SPI 契约测试
 ```
 
-各平台壳共用 `superlogical_frontend::run()`，只有 macOS 额外需要 `.app`
-打包（见 `packaging/macos/README.md`）。
+### 分层与 SPI
 
-依赖方向严格单向：
+每个系统是独立 crate，因此**依赖方向由 Cargo 强制**，而不是目录约定：
 
 ```
-core  <-  ui        （ui 只依赖 gpui-kit，不认识 core）
-core  <-  frontend  ->  ui
-platforms/*  ->  frontend
+apps/core/*  ->  spi  ->  domain
+apps/frontend  ->  ui, core（选择具体 provider）
+platforms/*    ->  frontend
 ```
 
-- `apps/ui` 不自己画控件，只把 gpui-kit 的组件按单一导入路径重新导出，并持有
-  应用调色板（`Palette`）。换组件体系时只改这一个 crate。
-- `apps/frontend` 是唯一同时组合 `core` 与 `ui` 的 crate，持有 `RootView` 等实体与事件处理。
-- `platforms/*` 只调用 `superlogical_frontend::run()`，后续按平台追加图标、清单、打包与发布。
+`spi` 定义端口（`Network`、`Storage`、`ContentProvider`、`Installer`、`Launcher`、
+`StateStore`、`Telemetry`），各系统提供实现，`frontend` 在启动时决定装配哪一个。
+调用方只依赖 `spi`，替换实现是装配改动而非逐处修改。
+
+异步端口用返回位置 `impl Trait` 而非 `async_trait`，不产生每次调用的装箱。
+`tests/tests/spi_contract.rs` 验证：一个只针对端口编写的调用方，能与任意
+provider 配合工作。
 
 ## gpui-kit 版本
 

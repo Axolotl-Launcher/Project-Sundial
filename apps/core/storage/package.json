@@ -1,0 +1,10 @@
+{
+  "name": "@superlogical/storage",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cargo build -p superlogical_storage",
+    "lint": "cargo clippy -p superlogical_storage --all-targets -- -D warnings",
+    "test": "cargo test -p superlogical_storage"
+  }
+}

@@ -6023,7 +6023,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
+name = "superlogical_content"
+version = "0.1.0"
+dependencies = [
+ "superlogical_spi",
+]
+
+[[package]]
 name = "superlogical_core"
+version = "0.1.0"
+dependencies = [
+ "superlogical_content",
+ "superlogical_domain",
+ "superlogical_install",
+ "superlogical_launch",
+ "superlogical_mod_metadata",
+ "superlogical_network",
+ "superlogical_observability",
+ "superlogical_resources",
+ "superlogical_scheduler",
+ "superlogical_state",
+ "superlogical_storage",
+ "superlogical_telemetry",
+]
+
+[[package]]
+name = "superlogical_domain"
 version = "0.1.0"
 
 [[package]]
@@ -6033,6 +6058,35 @@ dependencies = [
  "superlogical_core",
  "superlogical_ui",
 ]
+
+[[package]]
+name = "superlogical_install"
+version = "0.1.0"
+dependencies = [
+ "superlogical_spi",
+]
+
+[[package]]
+name = "superlogical_launch"
+version = "0.1.0"
+dependencies = [
+ "superlogical_spi",
+]
+
+[[package]]
+name = "superlogical_mod_metadata"
+version = "0.1.0"
+
+[[package]]
+name = "superlogical_network"
+version = "0.1.0"
+dependencies = [
+ "superlogical_spi",
+]
+
+[[package]]
+name = "superlogical_observability"
+version = "0.1.0"
 
 [[package]]
 name = "superlogical_platform_linux"
@@ -6058,6 +6112,50 @@ dependencies = [
 [[package]]
 name = "superlogical_policy_tests"
 version = "0.1.0"
+dependencies = [
+ "superlogical_content",
+ "superlogical_spi",
+ "superlogical_state",
+]
+
+[[package]]
+name = "superlogical_resources"
+version = "0.1.0"
+dependencies = [
+ "superlogical_domain",
+]
+
+[[package]]
+name = "superlogical_scheduler"
+version = "0.1.0"
+
+[[package]]
+name = "superlogical_spi"
+version = "0.1.0"
+dependencies = [
+ "superlogical_domain",
+]
+
+[[package]]
+name = "superlogical_state"
+version = "0.1.0"
+dependencies = [
+ "superlogical_spi",
+]
+
+[[package]]
+name = "superlogical_storage"
+version = "0.1.0"
+dependencies = [
+ "superlogical_spi",
+]
+
+[[package]]
+name = "superlogical_telemetry"
+version = "0.1.0"
+dependencies = [
+ "superlogical_spi",
+]
 
 [[package]]
 name = "superlogical_ui"

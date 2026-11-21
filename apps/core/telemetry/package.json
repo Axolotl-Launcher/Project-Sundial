@@ -1,0 +1,10 @@
+{
+  "name": "@superlogical/telemetry",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cargo build -p superlogical_telemetry",
+    "lint": "cargo clippy -p superlogical_telemetry --all-targets -- -D warnings",
+    "test": "cargo test -p superlogical_telemetry"
+  }
+}

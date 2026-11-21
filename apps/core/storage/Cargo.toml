@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "superlogical_storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Filesystem and cache primitives: paths, atomic writes, locks, and the content-addressed store."
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+superlogical_spi = { workspace = true }
+
+[lints]
+workspace = true

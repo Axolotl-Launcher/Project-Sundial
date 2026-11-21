@@ -1,0 +1,10 @@
+{
+  "name": "@superlogical/resources",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cargo build -p superlogical_resources",
+    "lint": "cargo clippy -p superlogical_resources --all-targets -- -D warnings",
+    "test": "cargo test -p superlogical_resources"
+  }
+}

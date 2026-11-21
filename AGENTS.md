@@ -22,23 +22,18 @@ platforms/windows  superlogical_platform_windows  produces superlogical.exe
 platforms/linux    superlogical_platform_linux    produces a Linux binary
 ```
 
-Dependencies point one way only:
+Dependencies point one way only, and Cargo enforces it:
 
 ```
-core <- ui
-core <- frontend -> ui
+apps/core/* -> spi -> domain
+apps/frontend -> ui, core
 platforms/* -> frontend
 ```
 
-Breaking that shape is the main mistake to avoid:
-
-- `ui` must not depend on `core` or on application state. It re-exports
-  gpui-kit components and owns the palette; that is all.
-- `frontend` is the only crate that combines domain logic with components.
-- `platforms/*` contain no UI: they call `superlogical_frontend::run()`.
-- Only `ui` may name `gpui_kit` paths. Everything else goes through
-  `superlogical_ui`'s re-exports, so swapping the component system touches one
-  crate.
+Each system under `apps/core/` is its own crate. Callers depend on
+`superlogical_spi` ports, never on a concrete provider; `apps/frontend` picks
+which provider to wire at startup. Adding a capability means adding a trait to
+`spi` and an implementation in the owning system, not calling across systems.
 
 ## Code rules
 

@@ -1,0 +1,10 @@
+{
+  "name": "@superlogical/state",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cargo build -p superlogical_state",
+    "lint": "cargo clippy -p superlogical_state --all-targets -- -D warnings",
+    "test": "cargo test -p superlogical_state"
+  }
+}

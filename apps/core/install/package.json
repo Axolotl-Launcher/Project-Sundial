@@ -1,0 +1,10 @@
+{
+  "name": "@superlogical/install",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cargo build -p superlogical_install",
+    "lint": "cargo clippy -p superlogical_install --all-targets -- -D warnings",
+    "test": "cargo test -p superlogical_install"
+  }
+}

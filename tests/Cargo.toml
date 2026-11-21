@@ -14,5 +14,10 @@ publish = false
 [lib]
 path = "src/lib.rs"
 
+[dev-dependencies]
+superlogical_content = { workspace = true }
+superlogical_spi = { workspace = true }
+superlogical_state = { workspace = true }
+
 [lints]
 workspace = true

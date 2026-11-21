@@ -1,0 +1,10 @@
+{
+  "name": "@superlogical/launch",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cargo build -p superlogical_launch",
+    "lint": "cargo clippy -p superlogical_launch --all-targets -- -D warnings",
+    "test": "cargo test -p superlogical_launch"
+  }
+}

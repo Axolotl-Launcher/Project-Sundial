@@ -5,6 +5,19 @@
 resolver = "3"
 members = [
   "apps/core",
+  "apps/core/content",
+  "apps/core/domain",
+  "apps/core/install",
+  "apps/core/launch",
+  "apps/core/mod_metadata",
+  "apps/core/network",
+  "apps/core/observability",
+  "apps/core/resources",
+  "apps/core/scheduler",
+  "apps/core/spi",
+  "apps/core/state",
+  "apps/core/storage",
+  "apps/core/telemetry",
   "apps/frontend",
   "apps/ui",
   "platforms/linux",
@@ -29,8 +42,21 @@ license = "GPL-3.0-only"
 # gpui-component 与 Lucide 资源），是 Zed crates/gpui 的长期跟进快照。
 # 升级时须整体升级 gpui-kit，不要单独改 gpui-pre。
 gpui-kit = "0.10.0"
+superlogical_content = { path = "apps/core/content" }
 superlogical_core = { path = "apps/core" }
+superlogical_domain = { path = "apps/core/domain" }
 superlogical_frontend = { path = "apps/frontend" }
+superlogical_install = { path = "apps/core/install" }
+superlogical_launch = { path = "apps/core/launch" }
+superlogical_mod_metadata = { path = "apps/core/mod_metadata" }
+superlogical_network = { path = "apps/core/network" }
+superlogical_observability = { path = "apps/core/observability" }
+superlogical_resources = { path = "apps/core/resources" }
+superlogical_scheduler = { path = "apps/core/scheduler" }
+superlogical_spi = { path = "apps/core/spi" }
+superlogical_state = { path = "apps/core/state" }
+superlogical_storage = { path = "apps/core/storage" }
+superlogical_telemetry = { path = "apps/core/telemetry" }
 superlogical_ui = { path = "apps/ui" }
 
 # Add further dependencies here when a feature needs them, and only then:

@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "superlogical_install"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Installation planning and execution: resolving what a version needs, then writing it to disk with progress and recovery."
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+superlogical_spi = { workspace = true }
+
+[lints]
+workspace = true
