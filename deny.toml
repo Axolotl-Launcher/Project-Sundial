@@ -31,6 +31,9 @@ allow = [
   "bzip2-1.0.6",
   "BSL-1.0",
   "CC0-1.0",
+  # CDLA-Permissive-2.0: the root-certificate data crate that
+  # rustls-platform-verifier pulls in through reqwest's rustls provider.
+  "CDLA-Permissive-2.0",
   # This workspace's own crates (see Cargo.toml `license`). A GPL dependency
   # would need an explicit decision, so it is not on this list by extension.
   "GPL-3.0-only",

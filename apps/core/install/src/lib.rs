@@ -3,6 +3,8 @@
 
 //! Installation planning and execution.
 
+pub mod assets;
+
 use superlogical_spi::{InstallError, InstallPlan, Installer};
 
 /// Runs each planned step in order, stopping at the first failure.

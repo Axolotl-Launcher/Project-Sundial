@@ -90,7 +90,7 @@ trash = "5.4.0"
 walkdir = "2.5.1"
 
 # Networking.
-reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls-tls-native-roots", "stream"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "stream"] }
 rustls = "0.23.46"
 url = "2.5.9"
 uuid = { version = "1.29.3", features = ["serde", "v4"] }
@@ -192,8 +192,6 @@ ignored = [
   "encoding_rs",
   "flate2",
   "fs4",
-  "futures",
-  "hex",
   "indicatif",
   "itertools",
   "keyring",
@@ -201,16 +199,13 @@ ignored = [
   "parking_lot",
   "quick-xml",
   "regex",
-  "reqwest",
   "rustls",
   "semver",
   "serde_with",
-  "sha1_smol",
   "sha2",
   "shlex",
   "sysinfo",
   "tar",
-  "tempfile",
   "thiserror",
   "tokio",
   "toml",

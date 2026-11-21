@@ -11,6 +11,9 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+hex = { workspace = true }
+reqwest = { workspace = true }
+sha1_smol = { workspace = true }
 superlogical_spi = { workspace = true }
 
 [lints]
