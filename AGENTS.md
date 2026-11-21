@@ -35,6 +35,23 @@ Each system under `apps/core/` is its own crate. Callers depend on
 which provider to wire at startup. Adding a capability means adding a trait to
 `spi` and an implementation in the owning system, not calling across systems.
 
+## Compatibility boundaries
+
+This project reads and writes only its own data formats. It must not grow an
+importer, converter or migration layer for another launcher's data — not for
+the reference implementation, and not for MultiMC, PCL, HMCL or anything else.
+
+A foreign format is converted by a separate, independent tool that reads that
+format and writes this project's format. Keeping the conversion outside means
+this codebase has one schema and one set of invariants, with no compatibility
+branches to test or to regress.
+
+The structural half is enforced by `tests/tests/external_formats.rs`: no file
+or directory under `apps/` or `platforms/` may be named for compatibility,
+legacy data, migration, importing or conversion. The behavioural half is
+`schema_version`: a manifest this build does not know is rejected with
+`DiscoveryError::UnsupportedSchema`, never migrated in place.
+
 ## Code rules
 
 These are binding. The table says how each one is enforced, because a rule that
