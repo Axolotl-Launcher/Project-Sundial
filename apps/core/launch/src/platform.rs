@@ -7,9 +7,17 @@
 //! never branches on the target.
 
 use std::ffi::OsStr;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use superlogical_spi::JavaMode;
+
+/// Win32's `CREATE_NO_WINDOW` process creation flag, whose value is given in
+/// the Process Creation Flags reference (WinBase.h).
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Java's console executable, as this platform spells it.
 #[cfg(windows)]
@@ -55,6 +63,17 @@ pub(crate) fn search(search_path: &OsStr, mode: JavaMode) -> Option<PathBuf> {
 pub(crate) fn sibling(path: &Path, mode: JavaMode) -> Option<PathBuf> {
     let candidate = path.with_file_name(name(mode));
     candidate.is_file().then_some(candidate)
+}
+
+/// Suppresses the console window a freshly started child would otherwise open.
+///
+/// Only Windows has such a window; elsewhere the child shares the terminal's
+/// console, so there is nothing to turn off.
+pub(crate) fn hide_console(command: &mut Command) {
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    #[cfg(not(windows))]
+    let _ = command;
 }
 
 #[cfg(test)]
