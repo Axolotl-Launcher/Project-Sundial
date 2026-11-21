@@ -181,6 +181,23 @@ mod tests {
         }
     }
 
+    fn sample_library() -> crate::version::Library {
+        crate::version::Library {
+            name: "org.example:lib:1.0".into(),
+            downloads: Some(crate::version::LibraryDownloads {
+                artifact: Some(crate::version::Artifact {
+                    path: "org/example/lib/1.0/lib-1.0.jar".into(),
+                    sha1: None,
+                    size: None,
+                    url: None,
+                }),
+                classifiers: None,
+            }),
+            natives: None,
+            rules: None,
+        }
+    }
+
     fn fixture(root: &Path, version_id: &str) -> (Version, Layout) {
         let jar = client_jar(root, version_id);
         fs::create_dir_all(jar.parent().expect("parent")).expect("versions");
@@ -193,7 +210,7 @@ mod tests {
             id: version_id.into(),
             kind: "release".into(),
             main_class: "net.minecraft.client.main.Main".into(),
-            libraries: Vec::new(),
+            libraries: vec![sample_library()],
             arguments: Some(Arguments {
                 game: vec![
                     Argument::Plain("--username".into()),
