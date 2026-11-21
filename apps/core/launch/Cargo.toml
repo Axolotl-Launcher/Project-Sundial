@@ -15,6 +15,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 superlogical_spi = { workspace = true }
 superlogical_storage = { workspace = true }
+zip = { workspace = true }
 
 [lints]
 workspace = true

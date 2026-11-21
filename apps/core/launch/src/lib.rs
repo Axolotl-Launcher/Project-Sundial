@@ -5,6 +5,7 @@
 
 pub mod arguments;
 pub mod classpath;
+mod jar;
 mod java;
 pub mod natives;
 pub mod plan;
@@ -14,6 +15,7 @@ pub mod rules;
 pub mod version;
 
 pub use arguments::Values;
+pub use jar::JarReader;
 pub use java::SystemJava;
 pub use plan::{Layout, Session};
 pub use rules::Target;

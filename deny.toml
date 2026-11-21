@@ -26,6 +26,9 @@ allow = [
   "Apache-2.0 WITH LLVM-exception",
   "BSD-2-Clause",
   "BSD-3-Clause",
+  # bzip2-1.0.6: a permissive licence from the bzip2 library, reached through
+  # the zip decoder's bzip2 support.
+  "bzip2-1.0.6",
   "BSL-1.0",
   "CC0-1.0",
   # This workspace's own crates (see Cargo.toml `license`). A GPL dependency
