@@ -6055,6 +6055,7 @@ version = "0.1.0"
 name = "superlogical_frontend"
 version = "0.1.0"
 dependencies = [
+ "dirs 5.0.1",
  "superlogical_core",
  "superlogical_ui",
 ]
@@ -6140,6 +6141,8 @@ dependencies = [
 name = "superlogical_state"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_json",
  "superlogical_spi",
 ]
 

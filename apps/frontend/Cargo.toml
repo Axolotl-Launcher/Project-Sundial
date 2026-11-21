@@ -11,6 +11,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+dirs = { workspace = true }
 superlogical_core = { workspace = true }
 superlogical_ui = { workspace = true }
 

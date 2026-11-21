@@ -38,10 +38,13 @@ repository = "https://github.com/Axolotl-Launcher/Axolotl-Superlogical"
 license = "GPL-3.0-only"
 
 [workspace.dependencies]
+dirs = "5"
 # gpui-kit 0.10.0 一揽子锁定 GPUI 家族（gpui-pre 0.3.12 快照、gpui-base、
 # gpui-component 与 Lucide 资源），是 Zed crates/gpui 的长期跟进快照。
 # 升级时须整体升级 gpui-kit，不要单独改 gpui-pre。
 gpui-kit = "0.10.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 superlogical_content = { path = "apps/core/content" }
 superlogical_core = { path = "apps/core" }
 superlogical_domain = { path = "apps/core/domain" }

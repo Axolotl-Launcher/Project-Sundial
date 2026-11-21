@@ -8,7 +8,13 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
-const IGNORED = ["node_modules/**", "target/**", "dist/**", ".turbo/**"];
+const IGNORED = [
+  "node_modules/**",
+  "target/**",
+  "dist/**",
+  ".turbo/**",
+  ".gitnexus/**",
+];
 
 // Rules this repository applies to its own TypeScript. The coding rules in
 // AGENTS.md appear here where a lint can express them.

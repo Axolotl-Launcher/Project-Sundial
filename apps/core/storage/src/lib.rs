@@ -3,16 +3,55 @@
 
 //! Filesystem and cache primitives.
 
+use std::path::{Path, PathBuf};
+
 use superlogical_spi::{Storage, StorageError};
+
+/// The launcher's on-disk root and the directories under it.
+///
+/// One type owns the layout so a path is never assembled from string literals
+/// at a call site. Adding a directory means adding a method here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataDir {
+    root: PathBuf,
+}
+
+impl DataDir {
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self { root: root.into() }
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// One directory per instance, each holding an `instance.json`.
+    pub fn instances(&self) -> PathBuf {
+        self.root.join("instances")
+    }
+
+    /// Minecraft version folders, as the game itself lays them out.
+    pub fn versions(&self) -> PathBuf {
+        self.root.join("versions")
+    }
+
+    pub fn libraries(&self) -> PathBuf {
+        self.root.join("libraries")
+    }
+
+    pub fn assets(&self) -> PathBuf {
+        self.root.join("assets")
+    }
+}
 
 /// Stores blobs under a caller-supplied root.
 #[derive(Debug)]
 pub struct RootedStorage {
-    root: std::path::PathBuf,
+    root: PathBuf,
 }
 
 impl RootedStorage {
-    pub fn new(root: impl Into<std::path::PathBuf>) -> Self {
+    pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
     }
 }
