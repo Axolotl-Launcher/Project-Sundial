@@ -5055,17 +5055,26 @@ name = "superlogical_core"
 version = "0.1.0"
 
 [[package]]
+name = "superlogical_frontend"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "superlogical_core",
+ "superlogical_ui",
+]
+
+[[package]]
 name = "superlogical_platform_linux"
 version = "0.1.0"
 dependencies = [
- "superlogical_ui",
+ "superlogical_frontend",
 ]
 
 [[package]]
 name = "superlogical_platform_windows"
 version = "0.1.0"
 dependencies = [
- "superlogical_ui",
+ "superlogical_frontend",
 ]
 
 [[package]]
@@ -5073,7 +5082,6 @@ name = "superlogical_ui"
 version = "0.1.0"
 dependencies = [
  "gpui",
- "superlogical_core",
 ]
 
 [[package]]

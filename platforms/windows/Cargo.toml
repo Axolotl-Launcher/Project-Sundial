@@ -10,4 +10,4 @@ name = "superlogical"
 path = "src/main.rs"
 
 [dependencies]
-superlogical_ui = { workspace = true }
+superlogical_frontend = { workspace = true }

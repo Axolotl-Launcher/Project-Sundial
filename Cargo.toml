@@ -1,6 +1,12 @@
 [workspace]
 resolver = "3"
-members = ["apps/core", "apps/ui", "platforms/linux", "platforms/windows"]
+members = [
+    "apps/core",
+    "apps/frontend",
+    "apps/ui",
+    "platforms/linux",
+    "platforms/windows",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -13,4 +19,5 @@ repository = "https://github.com/Axolotl-Launcher/Axolotl-Superlogical"
 # 未发布的内部 crate（如 gpui_platform）带来的不稳定性。
 gpui = "0.2.2"
 superlogical_core = { path = "apps/core" }
+superlogical_frontend = { path = "apps/frontend" }
 superlogical_ui = { path = "apps/ui" }
