@@ -106,6 +106,25 @@ pnpm nojs     # rejects any tracked .js/.mjs/.cjs/.jsx file
 config before TypeScript tooling exists. It is allowlisted by exact path in
 `scripts/check-language.ts`.
 
+## Issues and pull requests
+
+Issue forms (`.github/ISSUE_TEMPLATE/`) ask for the platform, the affected
+module and the version. `.github/workflows/triage.yml` turns those answers into
+`platform:`, `module:` and `version:` labels; pull requests get `module:` labels
+from the paths they touch and `version:` from the workspace version, plus
+`status: unreviewed` until a maintainer submits a review.
+
+The label vocabulary lives in `scripts/sync-labels.ts`. Run it after changing
+it:
+
+```bash
+gh auth login          # once
+node scripts/sync-labels.ts
+```
+
+Every dropdown option must have an entry in `scripts/issue-labels.ts`;
+`scripts/forms.test.ts` fails when one does not.
+
 ## Commits
 
 Conventional Commits, `Signed-off-by` required, plus `Assisted-by:` when a tool

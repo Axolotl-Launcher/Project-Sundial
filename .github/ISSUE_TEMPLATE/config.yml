@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/Axolotl-Launcher/Axolotl-Superlogical/security/advisories/new
+    about: Report a vulnerability privately instead of opening an issue.

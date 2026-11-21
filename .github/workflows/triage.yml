@@ -1,0 +1,86 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
+name: Triage
+
+# Labels are applied from what the issue form says and from which paths a pull
+# request touches. Issue forms can only apply the static `labels:` list in
+# their front matter, so the answer a reporter picks in a dropdown has to be
+# read back from the rendered body.
+on:
+  issues:
+    types: [opened, edited]
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: triage-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  issue:
+    name: Label issue
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+
+      - name: Apply labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: node scripts/apply-issue-labels.ts
+
+  pull-request:
+    name: Label pull request
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+
+      - name: Apply labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/apply-pull-request-labels.ts
+
+  review:
+    name: Review state
+    if: github.event_name == 'pull_request_review'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark reviewed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEW_STATE: ${{ github.event.review.state }}
+        run: |
+          set -euo pipefail
+          if [ "$REVIEW_STATE" = "dismissed" ]; then
+            gh pr edit "$PR_NUMBER" --remove-label "status: reviewed" --add-label "status: unreviewed"
+          elif [ "$REVIEW_STATE" != "commented" ]; then
+            gh pr edit "$PR_NUMBER" --remove-label "status: unreviewed" --add-label "status: reviewed"
+          fi

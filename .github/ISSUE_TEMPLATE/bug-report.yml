@@ -1,0 +1,106 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
+name: Bug report
+description: Something in Superlogical behaves incorrectly.
+title: "bug: "
+labels: ["type: bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please remove account names, tokens and private
+        paths from logs and screenshots before attaching them.
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and found no duplicate.
+          required: true
+        - label: I reproduced this on the newest version, or confirmed it still happens there.
+          required: true
+        - label: I removed credentials and personal data from everything I attached.
+          required: true
+
+  - type: dropdown
+    id: platforms
+    attributes:
+      label: Platforms affected
+      description: Labels are applied automatically from this answer.
+      options:
+        - Windows
+        - Linux
+        - macOS
+        - All platforms
+    validations:
+      required: true
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Affected module
+      description: Pick the system that misbehaves. Choose "Not sure" if you cannot tell.
+      options:
+        - Domain
+        - Content
+        - Install
+        - Launch
+        - State
+        - Storage
+        - Network
+        - Telemetry
+        - Scheduler
+        - Resources
+        - Mod metadata
+        - Observability
+        - UI
+        - Frontend
+        - Platform shells
+        - Build and tooling
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The launcher version, as shown in About. A tag such as 0.1.0 is fine.
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+      placeholder: |
+        1. Opened ...
+        2. Clicked ...
+        Expected ..., got ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The shortest sequence that shows the problem.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and screenshots
+      description: Attach or paste relevant output. Remove credentials first.
+      render: shell
+    validations:
+      required: false

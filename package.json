@@ -13,7 +13,7 @@
     "dev:linux": "turbo run dev --filter=@superlogical/platform-linux",
     "lint": "node scripts/turbo.ts lint",
     "test": "node scripts/turbo.ts test",
-    "check": "pnpm lint && pnpm test && pnpm fmt:check && pnpm toml:check && pnpm spell && pnpm reuse && pnpm tsc && pnpm nojs && pnpm eslint && prek run --all-files",
+    "check": "pnpm lint && pnpm test && pnpm fmt:check && pnpm toml:check && pnpm spell && pnpm reuse && pnpm tsc && pnpm nojs && pnpm eslint && prek run --all-files && pnpm test:scripts",
     "fmt": "cargo fmt --all && tombi format",
     "fmt:check": "cargo fmt --all --check && tombi format --check",
     "toml:check": "tombi lint",
@@ -26,7 +26,8 @@
     "nojs": "node scripts/check-language.ts",
     "eslint": "eslint .",
     "hooks": "prek run --all-files",
-    "hooks:install": "prek install"
+    "hooks:install": "prek install",
+    "test:scripts": "node --test scripts/*.test.ts"
   },
   "devDependencies": {
     "turbo": "~2.11.11",
@@ -34,7 +35,8 @@
     "@types/node": "26.6.6",
     "eslint": "10.15.0",
     "typescript-eslint": "8.72.2",
-    "@eslint/js": "9.39.5"
+    "@eslint/js": "9.39.5",
+    "yaml": "2.9.1"
   },
   "type": "module"
 }

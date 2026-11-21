@@ -138,6 +138,12 @@ jobs:
             node -e "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'))" "$file"
           done
 
+      # The scripts the triage workflow runs. Their tests also check that every
+      # dropdown option in the issue forms maps to a label, so a new option
+      # cannot silently lose its label.
+      - name: Script tests
+        run: node --test scripts/*.test.ts
+
   # The hook list developers run locally, executed in CI. Its job is to prove
   # that `prek.toml` still works and that the hooks nobody runs locally (the
   # commit-message policy) behave — not to duplicate clippy or the test suite,

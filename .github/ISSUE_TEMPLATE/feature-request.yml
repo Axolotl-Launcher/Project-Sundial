@@ -1,0 +1,83 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
+name: Feature request
+description: Propose a capability or a change in behaviour.
+title: "feat: "
+labels: ["type: feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem before the solution. A request that states the
+        situation is easier to evaluate than one that prescribes an API.
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and found no duplicate.
+          required: true
+        - label: This concerns the launcher itself, not a mod or a third-party service.
+          required: true
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Affected module
+      description: Which system would own this change?
+      options:
+        - Domain
+        - Content
+        - Install
+        - Launch
+        - State
+        - Storage
+        - Network
+        - Telemetry
+        - Scheduler
+        - Resources
+        - Mod metadata
+        - Observability
+        - UI
+        - Frontend
+        - Platform shells
+        - Build and tooling
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The launcher version you are using today.
+      placeholder: 0.1.0
+    validations:
+      required: false
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and where does it currently fall short?
+      placeholder: When I ..., I have to ..., which means ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What would you like to happen? Alternatives you considered are welcome.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Screenshots, links, or anything else that helps.
+    validations:
+      required: false
