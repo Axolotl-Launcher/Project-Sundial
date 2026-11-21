@@ -5,9 +5,11 @@
 //! against a port works with any provider, including a test double it has
 //! never seen. If this stops compiling, the port has leaked a concrete type.
 
+use std::path::{Path, PathBuf};
+
 use superlogical_spi::{
-    ContentProvider, ContentSummary, FetchError, InstanceRecord, Network, StateStore, Storage,
-    StorageError, Telemetry,
+    ContentProvider, ContentSummary, FetchError, InstanceRecord, Java, Network, StateStore,
+    Storage, StorageError, Telemetry,
 };
 use superlogical_state::MemoryState;
 
@@ -110,4 +112,22 @@ fn futures_lite_block_on<F: std::future::Future>(future: F) -> F::Output {
             Poll::Pending => std::thread::yield_now(),
         }
     }
+}
+
+struct FixedJava(PathBuf);
+
+impl Java for FixedJava {
+    fn executable(&self, _preferred: Option<&Path>) -> Option<PathBuf> {
+        Some(self.0.clone())
+    }
+}
+
+#[test]
+fn a_java_provider_satisfies_the_port() {
+    let java: &dyn Java = &FixedJava(PathBuf::from("/opt/jdk/bin/java"));
+
+    assert_eq!(
+        java.executable(None),
+        Some(PathBuf::from("/opt/jdk/bin/java"))
+    );
 }

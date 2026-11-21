@@ -14,6 +14,8 @@
 
 pub use superlogical_domain::Id;
 
+use std::path::{Path, PathBuf};
+
 /// Fetches bytes over the network.
 pub trait Network {
     /// Resolves a URL's body. The error is the provider's own type, boxed so
@@ -75,6 +77,20 @@ pub enum InstallError {
 /// Starts a prepared process and reports when it exits.
 pub trait Launcher {
     fn launch(&self, command: LaunchCommand) -> impl Future<Output = Result<(), LaunchError>>;
+}
+
+/// Locates the Java runtime the game will run on.
+///
+/// Discovery differs per platform — the variable names and search locations are
+/// not shared — so callers ask this port instead of inspecting the environment
+/// themselves.
+pub trait Java {
+    /// Resolves the executable to run.
+    ///
+    /// `preferred` is the user's configured path and wins when it exists.
+    /// Otherwise the provider falls back to what this platform offers, and
+    /// `None` means nothing was found.
+    fn executable(&self, preferred: Option<&Path>) -> Option<PathBuf>;
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

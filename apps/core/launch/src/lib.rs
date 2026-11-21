@@ -3,6 +3,11 @@
 
 //! Launching: arguments, Java discovery and process lifecycle.
 
+mod java;
+mod platform;
+
+pub use java::SystemJava;
+
 use superlogical_spi::{LaunchCommand, LaunchError, Launcher};
 
 /// Starts the command as a child process and waits for it.
