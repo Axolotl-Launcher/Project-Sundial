@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
 # cargo-deny policy: advisories, licences, duplicate versions and sources.
 #
 # Run locally:  cargo deny check

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
 [toolchain]
 # Pinned exactly, and kept equal to `rust-version` in Cargo.toml and `msrv` in
 # clippy.toml. Change all three together or they will drift.

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
 // Runs a turbo task, scoped to the platform shell of the current OS.
 //
 // turbo has no notion of the host OS, so `turbo run build` would otherwise

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
 # typos spellchecker. Only exceptions live here; add a word only after typos
 # flags it on text that is genuinely correct.
 [files]

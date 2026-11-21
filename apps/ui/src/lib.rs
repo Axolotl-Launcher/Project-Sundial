@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-License-Identifier: GPL-3.0-only
+
 //! Superlogical UI layer: design tokens and the component vocabulary the
 //! frontend is allowed to use.
 //!

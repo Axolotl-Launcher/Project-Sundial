@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
 # Keeping these settings in one file means local runs and CI behave identically,
 # instead of each invocation repeating its own flags.
 [profile.default]

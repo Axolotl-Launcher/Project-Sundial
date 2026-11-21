@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-License-Identifier: GPL-3.0-only
+
 //! Superlogical core: domain logic that is independent of any UI toolkit.
 
 /// Product name shown by the platform shells.

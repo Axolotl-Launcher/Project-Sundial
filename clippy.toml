@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
 # Must equal `rust-version` in Cargo.toml and the channel in rust-toolchain.toml.
 msrv = "1.100.0"
 allow-dbg-in-tests = true

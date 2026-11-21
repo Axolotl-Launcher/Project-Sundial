@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-License-Identifier: GPL-3.0-only
+
 //! Superlogical frontend: application state, layout and window wiring.
 //!
 //! This crate owns the root view platform shells open, and is the only crate

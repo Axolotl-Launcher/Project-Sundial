@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 The Superlogical Authors -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 # AGENTS.md
 
 Instructions for anyone — human or agent — changing this repository. Read this
@@ -49,6 +52,7 @@ cargo shear          # no declared-but-unused dependencies
 cargo deny check     # advisories, licences, duplicate versions, sources
 typos
 tombi format --check && tombi lint
+reuse lint           # every file carries SPDX tags or a REUSE.toml entry
 ```
 
 `pnpm check` runs the whole list except clippy and cargo-deny; `pnpm lint` and

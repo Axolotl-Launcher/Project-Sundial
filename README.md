@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 The Superlogical Authors -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 # Superlogical
 
 Rust + [GPUI Kit](https://gpui-kit.com) 桌面应用骨架，pnpm + Turbo 负责任务编排。
@@ -92,6 +95,15 @@ cargo build --config 'source.crates-io.replace-with="mirror"' \
 ```
 
 `Cargo.lock` 已提交，日常构建不需要重新解析索引。
+
+## 许可与 REUSE
+
+全仓 GPL-3.0-only，许可证全文在 `LICENSES/GPL-3.0-only.txt`。每个文件都带有
+SPDX 标签，或（对 JSON、锁文件等无法写注释的格式）在 `REUSE.toml` 中声明。
+
+```bash
+reuse lint
+```
 
 ## 平台渠道
 

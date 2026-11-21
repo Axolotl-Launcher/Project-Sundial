@@ -1,0 +1,47 @@
+# REUSE 3.3 configuration.
+#
+# Files that can carry a comment hold their own SPDX tags. This file covers the
+# rest: generated lockfiles, JSON (which has no comment syntax), and formats
+# where a comment would corrupt the file.
+
+version = 1
+
+# The root README carries SPDX tags in an HTML comment, but reuse 6.3.0 treats
+# the top-level README as a licence notice and skips parsing it. Declaring it
+# here as well keeps `reuse lint` green; the in-file tags stay for humans and
+# for tools that do read Markdown comments.
+[[annotations]]
+path = "README.md"
+SPDX-FileCopyrightText = "2026 The Superlogical Authors"
+SPDX-License-Identifier = "GPL-3.0-only"
+
+[[annotations]]
+path = "Cargo.lock"
+SPDX-FileCopyrightText = "2026 The Superlogical Authors"
+SPDX-License-Identifier = "GPL-3.0-only"
+
+[[annotations]]
+path = "pnpm-lock.yaml"
+SPDX-FileCopyrightText = "2026 The Superlogical Authors"
+SPDX-License-Identifier = "GPL-3.0-only"
+
+# JSON cannot carry comments. turbo.jsonc is listed separately below because it
+# is JSONC and does accept `//`.
+[[annotations]]
+path = ["package.json", "**/package.json"]
+SPDX-FileCopyrightText = "2026 The Superlogical Authors"
+SPDX-License-Identifier = "GPL-3.0-only"
+
+# Dotfiles whose tooling rejects leading comments (npm reads .npmrc strictly as
+# key=value) or that are matched by exact name in several places.
+[[annotations]]
+path = [".npmrc", ".editorconfig", ".gitattributes", ".gitignore"]
+SPDX-FileCopyrightText = "2026 The Superlogical Authors"
+SPDX-License-Identifier = "GPL-3.0-only"
+
+# XML: a comment before the XML declaration is illegal, so the bundle metadata
+# carries its licensing here.
+[[annotations]]
+path = "packaging/macos/Info.plist"
+SPDX-FileCopyrightText = "2026 The Superlogical Authors"
+SPDX-License-Identifier = "GPL-3.0-only"

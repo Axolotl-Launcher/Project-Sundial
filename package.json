@@ -13,11 +13,12 @@
     "dev:linux": "turbo run dev --filter=@superlogical/platform-linux",
     "lint": "node scripts/turbo.mjs lint",
     "test": "node scripts/turbo.mjs test",
-    "check": "pnpm lint && pnpm test && pnpm fmt:check && pnpm toml:check && pnpm spell",
+    "check": "pnpm lint && pnpm test && pnpm fmt:check && pnpm toml:check && pnpm spell && pnpm reuse",
     "fmt": "cargo fmt --all && tombi format",
     "fmt:check": "cargo fmt --all --check && tombi format --check",
     "toml:check": "tombi lint",
     "spell": "typos",
+    "reuse": "reuse lint",
     "deny": "cargo deny check",
     "shear": "cargo shear",
     "nextest": "cargo nextest run --workspace"

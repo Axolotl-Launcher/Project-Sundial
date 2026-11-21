@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 The Superlogical Authors -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 # macOS packaging
 
 The Rust binary is `superlogical` from `platforms/macos`. A `.app` bundle needs
