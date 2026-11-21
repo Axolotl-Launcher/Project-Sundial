@@ -8,8 +8,8 @@
 use std::path::{Path, PathBuf};
 
 use superlogical_spi::{
-    ContentProvider, ContentSummary, FetchError, InstanceRecord, Java, Network, StateStore,
-    Storage, StorageError, Telemetry,
+    ContentProvider, ContentSummary, FetchError, InstanceRecord, Java, JavaMode, Network,
+    StateStore, Storage, StorageError, Telemetry,
 };
 use superlogical_state::MemoryState;
 
@@ -117,7 +117,7 @@ fn futures_lite_block_on<F: std::future::Future>(future: F) -> F::Output {
 struct FixedJava(PathBuf);
 
 impl Java for FixedJava {
-    fn executable(&self, _preferred: Option<&Path>) -> Option<PathBuf> {
+    fn executable(&self, _preferred: Option<&Path>, _mode: JavaMode) -> Option<PathBuf> {
         Some(self.0.clone())
     }
 }
@@ -127,7 +127,7 @@ fn a_java_provider_satisfies_the_port() {
     let java: &dyn Java = &FixedJava(PathBuf::from("/opt/jdk/bin/java"));
 
     assert_eq!(
-        java.executable(None),
+        java.executable(None, JavaMode::Windowed),
         Some(PathBuf::from("/opt/jdk/bin/java"))
     );
 }

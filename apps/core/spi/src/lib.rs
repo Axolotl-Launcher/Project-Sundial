@@ -79,6 +79,19 @@ pub trait Launcher {
     fn launch(&self, command: LaunchCommand) -> impl Future<Output = Result<(), LaunchError>>;
 }
 
+/// Which of the platform's Java executables to run.
+///
+/// Windows ships two: `javaw.exe` opens no console window, which is what the
+/// game wants, while `java.exe` keeps stdout available for a probe or helper
+/// whose output is read. Elsewhere they are the same binary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JavaMode {
+    /// No console window; for the game itself.
+    Windowed,
+    /// Console attached; for probes and helpers whose output is read.
+    Console,
+}
+
 /// Locates the Java runtime the game will run on.
 ///
 /// Discovery differs per platform — the variable names and search locations are
@@ -89,8 +102,8 @@ pub trait Java {
     ///
     /// `preferred` is the user's configured path and wins when it exists.
     /// Otherwise the provider falls back to what this platform offers, and
-    /// `None` means nothing was found.
-    fn executable(&self, preferred: Option<&Path>) -> Option<PathBuf>;
+    /// `None` means nothing was found. The result suits `mode`.
+    fn executable(&self, preferred: Option<&Path>, mode: JavaMode) -> Option<PathBuf>;
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
