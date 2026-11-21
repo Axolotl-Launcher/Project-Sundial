@@ -6,6 +6,5 @@ repository.workspace = true
 description = "Superlogical application state, layout and window wiring"
 
 [dependencies]
-gpui = { workspace = true }
 superlogical_core = { workspace = true }
 superlogical_ui = { workspace = true }

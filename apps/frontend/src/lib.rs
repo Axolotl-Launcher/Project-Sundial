@@ -1,43 +1,43 @@
 //! Superlogical frontend: application state, layout and window wiring.
 //!
-//! This crate owns the [`RootView`] that platform shells open, and is the only
-//! crate that combines `superlogical_core` (domain) with `superlogical_ui`
-//! (components). Components stay stateless; state lives here in gpui entities.
+//! This crate owns the root view platform shells open, and is the only crate
+//! that combines `superlogical_core` (domain) with `superlogical_ui` (kit
+//! vocabulary + palette). State lives here in GPUI entities; components stay
+//! stateless recipes.
 
-use gpui::{
-    App, Application, Bounds, Context, IntoElement, Render, SharedString, TitlebarOptions, Window,
-    WindowBounds, WindowOptions, div, prelude::*, px, size,
-};
 use superlogical_core::{BRAND_NAME, Counter};
-use superlogical_ui::{Button, ButtonVariant, Card, Divider, Label, TextSize, Theme};
+use superlogical_ui::{
+    ActiveTheme, Button, ButtonVariants, Disableable, GroupBox, GroupBoxVariants, Label, Separator,
+    StyledExt,
+};
+use superlogical_ui::{
+    Bounds, Context, IntoElement, Render, Window, WindowBounds, WindowOptions, div, px, size,
+};
+use superlogical_ui::{kit, prelude::*};
 
-/// Opens the Superlogical window and runs the gpui event loop.
+/// Opens the Superlogical window and runs the GPUI event loop.
 ///
 /// A platform shell calls this once from `main`; it never returns.
 pub fn run() {
-    Application::new().run(|cx: &mut App| {
-        Theme::dark().install(cx);
+    kit::application()
+        .with_assets(kit::assets::Assets)
+        .run(|cx| {
+            superlogical_ui::Palette::Dark.install(cx);
 
-        cx.open_window(
-            WindowOptions {
-                titlebar: Some(TitlebarOptions {
-                    title: Some(SharedString::from(BRAND_NAME)),
-                    appears_transparent: false,
+            kit::open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                        None,
+                        size(px(720.), px(480.)),
+                        cx,
+                    ))),
                     ..Default::default()
-                }),
-                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                    None,
-                    size(px(720.), px(480.)),
-                    cx,
-                ))),
-                ..Default::default()
-            },
-            |_, cx| cx.new(RootView::new),
-        )
-        .expect("failed to open the Superlogical window");
-
-        cx.activate(true);
-    });
+                },
+                cx,
+                |_, cx| cx.new(RootView::new),
+            )
+            .expect("failed to open the Superlogical window");
+        });
 }
 
 /// The application root: owns state and lays components out.
@@ -55,80 +55,75 @@ impl RootView {
 
 impl Render for RootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = *Theme::global(cx);
+        let theme = cx.theme();
+        let background = theme.background;
+        let muted = theme.muted_foreground;
         let value = self.counter.value();
 
         div()
-            .flex()
-            .flex_col()
+            .v_flex()
             .size_full()
             .gap_6()
             .p_8()
-            .bg(theme.canvas)
+            .bg(background)
             .child(
                 div()
-                    .flex()
-                    .flex_col()
+                    .v_flex()
                     .gap_1()
+                    .child(Label::new(BRAND_NAME).text_xl())
+                    .child(Label::new("superlogical_core + gpui-kit").text_sm()),
+            )
+            .child(
+                GroupBox::new()
+                    .outline()
+                    .title(Label::new("Counter").text_sm())
                     .child(
-                        Label::new(BRAND_NAME)
-                            .size(TextSize::Title)
-                            .weight(gpui::FontWeight::SEMIBOLD),
-                    )
-                    .child(
-                        Label::new("superlogical_core + superlogical_ui")
-                            .size(TextSize::Small)
-                            .color(theme.text_muted),
+                        div()
+                            .v_flex()
+                            .items_center()
+                            .gap_4()
+                            .child(Label::new(value.to_string()).text_3xl())
+                            .child(Separator::horizontal())
+                            .child(
+                                div()
+                                    .h_flex()
+                                    .gap_3()
+                                    .child(
+                                        Button::new("decrement")
+                                            .secondary()
+                                            .label("Decrement")
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.counter.decrement();
+                                                cx.notify();
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("increment")
+                                            .primary()
+                                            .label("Increment")
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.counter.increment();
+                                                cx.notify();
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("reset")
+                                            .ghost()
+                                            .label("Reset")
+                                            .disabled(value == 0)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.counter.reset();
+                                                cx.notify();
+                                            })),
+                                    ),
+                            ),
                     ),
             )
             .child(
-                Card::new().title("Counter").child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .items_center()
-                        .gap_4()
-                        .child(
-                            Label::new(value.to_string())
-                                .size(TextSize::Display)
-                                .weight(gpui::FontWeight::SEMIBOLD),
-                        )
-                        .child(Divider)
-                        .child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .gap_3()
-                                .child(
-                                    Button::new("decrement", "Decrement")
-                                        .variant(ButtonVariant::Secondary)
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.counter.decrement();
-                                            cx.notify();
-                                        })),
-                                )
-                                .child(Button::new("increment", "Increment").on_click(cx.listener(
-                                    |this, _, _, cx| {
-                                        this.counter.increment();
-                                        cx.notify();
-                                    },
-                                )))
-                                .child(
-                                    Button::new("reset", "Reset")
-                                        .variant(ButtonVariant::Ghost)
-                                        .disabled(value == 0)
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.counter.reset();
-                                            cx.notify();
-                                        })),
-                                ),
-                        ),
+                div().text_color(muted).child(
+                    Label::new("State lives in superlogical_core; rendering comes from gpui-kit.")
+                        .text_xs(),
                 ),
-            )
-            .child(
-                Label::new("State lives in superlogical_core; superlogical_ui only draws.")
-                    .size(TextSize::Small)
-                    .color(theme.text_muted),
             )
     }
 }
