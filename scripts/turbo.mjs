@@ -5,9 +5,11 @@
 // for a binary only one of them can use.
 import { spawnSync } from "node:child_process";
 
+// A host builds only its own shell.
 const PLATFORM_PACKAGES = {
-  win32: "@superlogical/platform-windows",
-  linux: "@superlogical/platform-linux",
+  win32: ["@superlogical/platform-windows"],
+  linux: ["@superlogical/platform-linux"],
+  darwin: ["@superlogical/platform-macos"],
 };
 
 const [task, ...rest] = process.argv.slice(2);
@@ -17,8 +19,7 @@ if (!task) {
 }
 
 const filters = ["--filter=./apps/*"];
-const platformPackage = PLATFORM_PACKAGES[process.platform];
-if (platformPackage) {
+for (const platformPackage of PLATFORM_PACKAGES[process.platform] ?? []) {
   filters.push(`--filter=${platformPackage}`);
 }
 

@@ -10,7 +10,11 @@ apps/ui            superlogical_ui            —— 调色板 + 允许使用的
 apps/frontend      superlogical_frontend      —— 应用状态、布局与窗口装配
 platforms/windows  superlogical_platform_windows —— 产出 superlogical.exe
 platforms/linux    superlogical_platform_linux   —— 产出 Linux 可执行文件
+platforms/macos    superlogical_platform_macos   —— 产出 macOS 可执行文件
 ```
+
+各平台壳共用 `superlogical_frontend::run()`，只有 macOS 额外需要 `.app`
+打包（见 `packaging/macos/README.md`）。
 
 依赖方向严格单向：
 
@@ -89,8 +93,22 @@ cargo build --config 'source.crates-io.replace-with="mirror"' \
 
 `Cargo.lock` 已提交，日常构建不需要重新解析索引。
 
+## 平台渠道
+
+| 渠道 | 构建主机 | 产物 | 验证状态 |
+|---|---|---|---|
+| `platforms/windows` | Windows | `superlogical.exe` | 本机实测编译与运行 |
+| `platforms/linux` | Linux | ELF 可执行文件 | CI（ubuntu-24.04）实测 |
+| `platforms/macos` | macOS | Mach-O 可执行文件，可打包为 `.app` | 仅 Windows 上 `cargo check` 通过；首次 macOS CI 运行为实际编译验证 |
+
+`apps/*` 与三个平台壳在同一 workspace 内，`cargo check --workspace` 可在任一主机
+对全部壳做类型检查（macOS 壳无平台专属代码，因此跨主机可检查；但链接与运行需要
+对应主机）。
+
 ## 平台依赖
 
 - **Windows**：无额外依赖；gpui-pre 走 Win32 + DirectWrite + DirectX。
-- **Linux**：需要 fontconfig、X11/Wayland 开发库与可用的 Vulkan 驱动；在 Linux 主机上
-  构建即可，交叉编译不受支持。
+- **Linux**：fontconfig、Wayland/X11 开发库与 Vulkan；`libdbus-1-dev`（oo7
+  secret service 依赖）。CI 已列出完整 apt 清单。
+- **macOS**：需要 Xcode 命令行工具；Metal 渲染。打包、签名与公证见
+  `packaging/macos/README.md`。

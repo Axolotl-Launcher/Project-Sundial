@@ -1,0 +1,18 @@
+[package]
+name = "superlogical_platform_macos"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "macOS executable shell for Superlogical"
+repository.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "superlogical"
+path = "src/main.rs"
+
+[dependencies]
+superlogical_frontend = { workspace = true }
+
+[lints]
+workspace = true

@@ -6042,6 +6042,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "superlogical_platform_macos"
+version = "0.1.0"
+dependencies = [
+ "superlogical_frontend",
+]
+
+[[package]]
 name = "superlogical_platform_windows"
 version = "0.1.0"
 dependencies = [
