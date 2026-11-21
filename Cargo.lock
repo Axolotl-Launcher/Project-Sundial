@@ -6144,6 +6144,7 @@ dependencies = [
  "serde",
  "serde_json",
  "superlogical_spi",
+ "superlogical_storage",
 ]
 
 [[package]]

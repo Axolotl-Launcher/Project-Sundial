@@ -8,12 +8,14 @@
 //! vocabulary + palette). State lives here in GPUI entities; components stay
 //! stateless recipes.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use superlogical_core::BRAND_NAME;
-use superlogical_core::state::{Instance, discover_instances};
+use superlogical_core::state::{Instance, SettingsOrigin, ThemeChoice, discover, load_settings};
 use superlogical_core::storage::DataDir;
-use superlogical_ui::{ActiveTheme, ElementId, GroupBox, GroupBoxVariants, Hsla, Label, StyledExt};
+use superlogical_ui::{
+    ActiveTheme, ElementId, GroupBox, GroupBoxVariants, Hsla, Label, Palette, StyledExt,
+};
 use superlogical_ui::{
     Bounds, Context, IntoElement, Render, Window, WindowBounds, WindowOptions, div, px, size,
 };
@@ -21,7 +23,6 @@ use superlogical_ui::{kit, prelude::*};
 
 const WINDOW_WIDTH: f32 = 720.;
 const WINDOW_HEIGHT: f32 = 480.;
-const PALETTE: superlogical_ui::Palette = superlogical_ui::Palette::Dark;
 
 /// Overrides the data directory; the platform data directory is used otherwise.
 const DATA_DIR_ENV: &str = "SUPERLOGICAL_DATA_DIR";
@@ -33,15 +34,17 @@ const APP_DIR: &str = "Superlogical";
 ///
 /// A platform shell calls this once from `main`; it never returns.
 pub fn run() {
+    let startup = Startup::load();
+
     kit::application()
         .with_assets(kit::assets::Assets)
-        .run(|cx| {
-            PALETTE.install(cx);
-            open_main_window(cx);
+        .run(move |cx| {
+            startup.palette.install(cx);
+            open_main_window(cx, startup);
         });
 }
 
-fn open_main_window(cx: &mut kit::App) {
+fn open_main_window(cx: &mut kit::App, startup: Startup) {
     let bounds = Bounds::centered(None, size(px(WINDOW_WIDTH), px(WINDOW_HEIGHT)), cx);
 
     kit::open_window(
@@ -50,9 +53,41 @@ fn open_main_window(cx: &mut kit::App) {
             ..Default::default()
         },
         cx,
-        |_, cx| cx.new(RootView::new),
+        |_, cx| cx.new(|_| RootView::new(startup)),
     )
     .expect("failed to open the Superlogical window");
+}
+
+/// What the window needs, read once before the event loop starts.
+struct Startup {
+    palette: Palette,
+    notice: Option<String>,
+    instances: Instances,
+}
+
+impl Startup {
+    fn load() -> Self {
+        let Some(root) = data_root() else {
+            return Self {
+                palette: Palette::Dark,
+                notice: Some(format!(
+                    "Cannot determine the data directory. Set {DATA_DIR_ENV} to choose one."
+                )),
+                instances: Instances::unavailable(),
+            };
+        };
+
+        let (palette, notice) = match load_settings(&root) {
+            Ok(loaded) => (palette_for(loaded.data.theme), notice_for(&loaded.origin)),
+            Err(error) => (Palette::Dark, Some(error.to_string())),
+        };
+
+        Self {
+            palette,
+            notice,
+            instances: Instances::load(&root),
+        }
+    }
 }
 
 /// The launcher's data root: the override when set, else the platform data
@@ -64,48 +99,38 @@ fn data_root() -> Option<PathBuf> {
     dirs::data_dir().map(|base| base.join(APP_DIR))
 }
 
-struct RootView {
-    instances: Instances,
-}
-
-struct Instances {
-    root: PathBuf,
-    items: Vec<Instance>,
-    error: Option<String>,
-}
-
-impl Instances {
-    fn load() -> Self {
-        let Some(root) = data_root() else {
-            return Self {
-                root: PathBuf::new(),
-                items: Vec::new(),
-                error: Some(format!(
-                    "Cannot determine the data directory. Set {DATA_DIR_ENV} to choose one."
-                )),
-            };
-        };
-        let directory = DataDir::new(&root).instances();
-
-        match discover_instances(&directory) {
-            Ok(items) => Self {
-                root: directory,
-                items,
-                error: None,
-            },
-            Err(error) => Self {
-                root: directory,
-                items: Vec::new(),
-                error: Some(error.to_string()),
-            },
-        }
+fn palette_for(theme: ThemeChoice) -> Palette {
+    match theme {
+        ThemeChoice::Dark => Palette::Dark,
+        ThemeChoice::Light => Palette::Light,
     }
 }
 
+/// Text for the one settings outcome a user needs to know about.
+fn notice_for(origin: &SettingsOrigin) -> Option<String> {
+    match origin {
+        SettingsOrigin::Created | SettingsOrigin::Stored => None,
+        SettingsOrigin::Quarantined { path } => Some(format!(
+            "settings.json was unreadable; moved to {} and defaults applied.",
+            path.display()
+        )),
+        SettingsOrigin::ReadOnlyOtherSchema { found } => Some(format!(
+            "settings.json uses schema {found}; this build writes schema 1, so defaults are in \
+             use and the file was left untouched."
+        )),
+    }
+}
+
+struct RootView {
+    notice: Option<String>,
+    instances: Instances,
+}
+
 impl RootView {
-    fn new(_cx: &mut Context<'_, Self>) -> Self {
+    fn new(startup: Startup) -> Self {
         Self {
-            instances: Instances::load(),
+            notice: startup.notice,
+            instances: startup.instances,
         }
     }
 }
@@ -123,17 +148,51 @@ impl Render for RootView {
             .p_8()
             .bg(background)
             .child(header(muted))
+            .when_some(self.notice.clone(), |view, notice| {
+                view.child(Label::new(notice).text_sm().text_color(muted))
+            })
             .child(self.instances.panel(muted))
+    }
+}
+
+struct Instances {
+    root: PathBuf,
+    items: Vec<Instance>,
+    error: Option<String>,
+}
+
+impl Instances {
+    fn load(root: &Path) -> Self {
+        let directory = DataDir::new(root).instances();
+
+        match discover(&directory) {
+            Ok(items) => Self {
+                root: directory,
+                items,
+                error: None,
+            },
+            Err(error) => Self {
+                root: directory,
+                items: Vec::new(),
+                error: Some(error.to_string()),
+            },
+        }
+    }
+
+    fn unavailable() -> Self {
+        Self {
+            root: PathBuf::new(),
+            items: Vec::new(),
+            error: None,
+        }
     }
 }
 
 impl Instances {
     fn panel(&self, muted: Hsla) -> impl IntoElement {
-        let count = self.items.len();
-        let heading = match count {
+        let heading = match self.items.len() {
             0 => "Instances".to_string(),
-            1 => "Instances · 1".to_string(),
-            other => format!("Instances · {other}"),
+            count => format!("Instances · {count}"),
         };
 
         GroupBox::new()
@@ -143,11 +202,7 @@ impl Instances {
                 div()
                     .v_flex()
                     .gap_3()
-                    .child(
-                        Label::new(self.root.display().to_string())
-                            .text_xs()
-                            .text_color(muted),
-                    )
+                    .child(Label::new(self.root_label()).text_xs().text_color(muted))
                     .when_some(self.error.clone(), |panel, error| {
                         panel.child(Label::new(error).text_sm().text_color(muted))
                     })
@@ -167,6 +222,14 @@ impl Instances {
                             .map(|(index, instance)| row(index, instance, muted)),
                     ),
             )
+    }
+
+    fn root_label(&self) -> String {
+        if self.root.as_os_str().is_empty() {
+            "data directory unknown".to_string()
+        } else {
+            self.root.display().to_string()
+        }
     }
 }
 
