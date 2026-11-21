@@ -21,6 +21,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use superlogical_storage::write_atomic;
 
+use crate::document::{self, Existing};
+
 /// The only settings schema this build writes.
 pub const SETTINGS_SCHEMA_VERSION: u32 = 1;
 
@@ -114,12 +116,6 @@ impl std::error::Error for SettingsError {
     }
 }
 
-enum Existing {
-    Missing,
-    Unreadable,
-    Schema(u32),
-}
-
 /// Reads the settings under `root`, creating the file with defaults when none
 /// exists.
 ///
@@ -182,7 +178,11 @@ fn quarantine(root: &Path, path: PathBuf) -> Result<LoadedSettings, SettingsErro
 pub fn save_settings(root: &Path, data: &SettingsData) -> Result<(), SettingsError> {
     let path = root.join(SETTINGS_FILE);
 
-    match inspect(&path)? {
+    let existing = document::inspect(&path).map_err(|source| SettingsError::Read {
+        path: path.clone(),
+        source,
+    })?;
+    match existing {
         Existing::Missing | Existing::Schema(SETTINGS_SCHEMA_VERSION) => {}
         Existing::Schema(found) => {
             return Err(SettingsError::RefusedSchema { path, found });
@@ -196,24 +196,6 @@ pub fn save_settings(root: &Path, data: &SettingsData) -> Result<(), SettingsErr
     };
     let bytes = serde_json::to_vec_pretty(&document).expect("settings document serializes");
     write_atomic(&path, &bytes).map_err(|source| SettingsError::Write { path, source })
-}
-
-fn inspect(path: &Path) -> Result<Existing, SettingsError> {
-    let bytes = match fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Existing::Missing),
-        Err(source) => {
-            return Err(SettingsError::Read {
-                path: path.to_path_buf(),
-                source,
-            });
-        }
-    };
-
-    Ok(match serde_json::from_slice::<SettingsDocument>(&bytes) {
-        Ok(document) => Existing::Schema(document.schema_version),
-        Err(_) => Existing::Unreadable,
-    })
 }
 
 #[cfg(test)]

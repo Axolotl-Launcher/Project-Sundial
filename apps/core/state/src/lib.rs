@@ -8,12 +8,16 @@
 //! format belongs to a separate tool (see AGENTS.md), and a newer build's data
 //! must not be damaged by an older one.
 
+mod document;
 mod instance;
 mod settings;
 #[cfg(test)]
 mod test_support;
 
-pub use instance::{DiscoveryError, INSTANCE_SCHEMA_VERSION, Instance, InstanceManifest, discover};
+pub use instance::{
+    DiscoveryError, INSTANCE_SCHEMA_VERSION, Instance, InstanceError, InstanceManifest, create,
+    discover, save,
+};
 pub use settings::{
     LoadedSettings, SETTINGS_FILE, SETTINGS_SCHEMA_VERSION, SettingsData, SettingsError,
     SettingsOrigin, ThemeChoice, load_settings, save_settings,

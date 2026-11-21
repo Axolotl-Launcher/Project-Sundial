@@ -9,6 +9,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use superlogical_storage::write_atomic;
+
+use crate::document::{self, Existing};
 
 /// The only manifest version this build reads.
 pub const INSTANCE_SCHEMA_VERSION: u32 = 1;
@@ -153,6 +156,183 @@ fn read_manifest(path: &Path, id: String) -> Result<Instance, DiscoveryError> {
     })
 }
 
+/// Longest instance id accepted; also keeps the directory name short on every
+/// filesystem this project targets.
+const MAX_ID_LEN: usize = 64;
+
+/// Longest display name accepted.
+const MAX_NAME_LEN: usize = 120;
+
+/// Why a manifest was not written.
+#[derive(Debug)]
+pub enum InstanceError {
+    InvalidId { id: String },
+    InvalidName { name: String },
+    AlreadyExists { path: PathBuf },
+    NotFound { path: PathBuf },
+    Read { path: PathBuf, source: io::Error },
+    Write { path: PathBuf, source: io::Error },
+    RefusedSchema { path: PathBuf, found: u32 },
+    RefusedUnreadable { path: PathBuf },
+}
+
+impl fmt::Display for InstanceError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidId { id } => write!(
+                formatter,
+                "\"{id}\" is not a valid instance id: use 1-{MAX_ID_LEN} characters from a-z, 0-9, '-' and '_'"
+            ),
+            Self::InvalidName { name } => write!(
+                formatter,
+                "\"{name}\" is not a valid name: use 1-{MAX_NAME_LEN} visible characters"
+            ),
+            Self::AlreadyExists { path } => {
+                write!(formatter, "{} already exists", path.display())
+            }
+            Self::NotFound { path } => write!(formatter, "{} does not exist", path.display()),
+            Self::Read { path, source } => {
+                write!(formatter, "cannot read {}: {source}", path.display())
+            }
+            Self::Write { path, source } => {
+                write!(formatter, "cannot write {}: {source}", path.display())
+            }
+            Self::RefusedSchema { path, found } => write!(
+                formatter,
+                "{} uses schema {found}; this build writes schema {INSTANCE_SCHEMA_VERSION}",
+                path.display()
+            ),
+            Self::RefusedUnreadable { path } => {
+                write!(
+                    formatter,
+                    "{} is unreadable; refusing to replace it",
+                    path.display()
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for InstanceError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Read { source, .. } | Self::Write { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+}
+
+/// Writes a new instance directory and its manifest.
+///
+/// The directory must not exist: writing into a folder that already holds
+/// something would mix the launcher's files with a user's.
+pub fn create(root: &Path, instance: &Instance) -> Result<(), InstanceError> {
+    let instance = normalise(instance)?;
+    let directory = root.join(&instance.id);
+    let manifest = directory.join(MANIFEST);
+
+    fs::create_dir_all(root).map_err(|source| InstanceError::Write {
+        path: root.to_path_buf(),
+        source,
+    })?;
+
+    if let Err(source) = fs::create_dir(&directory) {
+        return Err(if source.kind() == io::ErrorKind::AlreadyExists {
+            InstanceError::AlreadyExists { path: directory }
+        } else {
+            InstanceError::Write {
+                path: directory,
+                source,
+            }
+        });
+    }
+
+    if let Err(error) = write_manifest(&manifest, &instance) {
+        let _ = fs::remove_dir_all(&directory);
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// Rewrites an instance's manifest.
+///
+/// The instance must already exist, and its manifest must be one this build
+/// owns: replacing another schema's document would destroy that build's data.
+pub fn save(root: &Path, instance: &Instance) -> Result<(), InstanceError> {
+    let instance = normalise(instance)?;
+    let manifest = root.join(&instance.id).join(MANIFEST);
+
+    let existing = document::inspect(&manifest).map_err(|source| InstanceError::Read {
+        path: manifest.clone(),
+        source,
+    })?;
+
+    match existing {
+        Existing::Missing => Err(InstanceError::NotFound { path: manifest }),
+        Existing::Unreadable => Err(InstanceError::RefusedUnreadable { path: manifest }),
+        Existing::Schema(found) if found != INSTANCE_SCHEMA_VERSION => {
+            Err(InstanceError::RefusedSchema {
+                path: manifest,
+                found,
+            })
+        }
+        Existing::Schema(_) => write_manifest(&manifest, &instance),
+    }
+}
+
+fn write_manifest(path: &Path, instance: &Instance) -> Result<(), InstanceError> {
+    let manifest = InstanceManifest {
+        schema_version: INSTANCE_SCHEMA_VERSION,
+        name: instance.name.clone(),
+        game_version: instance.game_version.clone(),
+        loader: instance.loader.clone(),
+    };
+    let bytes = serde_json::to_vec_pretty(&manifest).expect("instance manifest serializes");
+    write_atomic(path, &bytes).map_err(|source| InstanceError::Write {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+/// Trims input and rejects anything that cannot be a directory name.
+///
+/// The id becomes a directory on disk, so it is limited to characters that
+/// cannot leave the root and cannot collide on a case-insensitive filesystem.
+fn normalise(instance: &Instance) -> Result<Instance, InstanceError> {
+    let id = instance.id.trim();
+    let allowed = id.chars().all(|character| {
+        character.is_ascii_lowercase()
+            || character.is_ascii_digit()
+            || matches!(character, '-' | '_')
+    });
+    if id.is_empty() || id.len() > MAX_ID_LEN || !allowed {
+        return Err(InstanceError::InvalidId {
+            id: instance.id.clone(),
+        });
+    }
+
+    let name = instance.name.trim();
+    if name.is_empty() || name.len() > MAX_NAME_LEN {
+        return Err(InstanceError::InvalidName {
+            name: instance.name.clone(),
+        });
+    }
+
+    Ok(Instance {
+        id: id.to_string(),
+        name: name.to_string(),
+        game_version: trimmed(instance.game_version.as_deref()),
+        loader: trimmed(instance.loader.as_deref()),
+    })
+}
+
+fn trimmed(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,5 +427,122 @@ mod tests {
             discover(temp.path()).expect_err("must fail"),
             DiscoveryError::Parse { .. }
         ));
+    }
+
+    fn sample(id: &str, name: &str) -> Instance {
+        Instance {
+            id: id.into(),
+            name: name.into(),
+            game_version: Some("1.21".into()),
+            loader: Some("fabric".into()),
+        }
+    }
+
+    #[test]
+    fn create_writes_a_manifest_that_discovery_finds() {
+        let temp = TempRoot::new();
+
+        create(temp.path(), &sample("survival", "Survival")).expect("create");
+
+        assert_eq!(
+            discover(temp.path()).expect("discovery"),
+            vec![sample("survival", "Survival")]
+        );
+    }
+
+    #[test]
+    fn create_trims_the_name_and_blank_optional_fields() {
+        let temp = TempRoot::new();
+        let mut instance = sample("padded", "  Padded  ");
+        instance.loader = Some("   ".into());
+
+        create(temp.path(), &instance).expect("create");
+
+        let found = discover(temp.path()).expect("discovery");
+        assert_eq!(found[0].name, "Padded");
+        assert_eq!(found[0].loader, None);
+    }
+
+    #[test]
+    fn create_refuses_an_existing_directory() {
+        let temp = TempRoot::new();
+        fs::create_dir(temp.path().join("taken")).expect("directory");
+
+        let error = create(temp.path(), &sample("taken", "Taken")).expect_err("must refuse");
+
+        assert!(matches!(error, InstanceError::AlreadyExists { .. }));
+    }
+
+    #[test]
+    fn ids_that_could_leave_the_root_are_rejected() {
+        let temp = TempRoot::new();
+
+        for id in ["", "..", "a/b", "a\\b", "UPPER", "with space"] {
+            let error = create(temp.path(), &sample(id, "Bad")).expect_err(id);
+            assert!(matches!(error, InstanceError::InvalidId { .. }), "{id}");
+        }
+    }
+
+    #[test]
+    fn an_empty_name_is_rejected() {
+        let temp = TempRoot::new();
+
+        let error = create(temp.path(), &sample("ok", "   ")).expect_err("must refuse");
+
+        assert!(matches!(error, InstanceError::InvalidName { .. }));
+    }
+
+    #[test]
+    fn save_rewrites_the_manifest() {
+        let temp = TempRoot::new();
+        create(temp.path(), &sample("survival", "Survival")).expect("create");
+        let mut renamed = sample("survival", "Renamed");
+        renamed.loader = None;
+
+        save(temp.path(), &renamed).expect("save");
+
+        assert_eq!(discover(temp.path()).expect("discovery"), vec![renamed]);
+    }
+
+    #[test]
+    fn save_refuses_a_missing_instance() {
+        let temp = TempRoot::new();
+
+        let error = save(temp.path(), &sample("absent", "Absent")).expect_err("must fail");
+
+        assert!(matches!(error, InstanceError::NotFound { .. }));
+    }
+
+    #[test]
+    fn save_refuses_another_schema_and_leaves_it_alone() {
+        let temp = TempRoot::new();
+        let directory = temp.path().join("future");
+        fs::create_dir_all(&directory).expect("directory");
+        let manifest = directory.join(MANIFEST);
+        fs::write(&manifest, r#"{"schema_version":2,"name":"Future"}"#).expect("seed");
+        let before = fs::read(&manifest).expect("before");
+
+        let error = save(temp.path(), &sample("future", "Renamed")).expect_err("must refuse");
+
+        assert!(matches!(
+            error,
+            InstanceError::RefusedSchema { found: 2, .. }
+        ));
+        assert_eq!(fs::read(&manifest).expect("after"), before);
+    }
+
+    #[test]
+    fn save_refuses_an_unreadable_manifest_and_leaves_it_alone() {
+        let temp = TempRoot::new();
+        let directory = temp.path().join("broken");
+        fs::create_dir_all(&directory).expect("directory");
+        let manifest = directory.join(MANIFEST);
+        fs::write(&manifest, "{ broken").expect("seed");
+        let before = fs::read(&manifest).expect("before");
+
+        let error = save(temp.path(), &sample("broken", "Broken")).expect_err("must refuse");
+
+        assert!(matches!(error, InstanceError::RefusedUnreadable { .. }));
+        assert_eq!(fs::read(&manifest).expect("after"), before);
     }
 }

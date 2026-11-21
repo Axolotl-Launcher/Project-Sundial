@@ -11,10 +11,13 @@
 use std::path::{Path, PathBuf};
 
 use superlogical_core::BRAND_NAME;
-use superlogical_core::state::{Instance, SettingsOrigin, ThemeChoice, discover, load_settings};
+use superlogical_core::state::{
+    Instance, SettingsOrigin, ThemeChoice, create, discover, load_settings,
+};
 use superlogical_core::storage::DataDir;
 use superlogical_ui::{
-    ActiveTheme, ElementId, GroupBox, GroupBoxVariants, Hsla, Label, Palette, StyledExt,
+    ActiveTheme, Button, ButtonVariants, ElementId, GroupBox, GroupBoxVariants, Hsla, Label,
+    Palette, StyledExt,
 };
 use superlogical_ui::{
     Bounds, Context, IntoElement, Render, Window, WindowBounds, WindowOptions, div, px, size,
@@ -29,6 +32,9 @@ const DATA_DIR_ENV: &str = "SUPERLOGICAL_DATA_DIR";
 
 /// Directory name under the platform data directory.
 const APP_DIR: &str = "Superlogical";
+
+/// How many numbered names to try before giving up on creating an instance.
+const MAX_INSTANCE_ATTEMPTS: u32 = 100;
 
 /// Opens the Superlogical window and runs the GPUI event loop.
 ///
@@ -62,6 +68,7 @@ fn open_main_window(cx: &mut kit::App, startup: Startup) {
 struct Startup {
     palette: Palette,
     notice: Option<String>,
+    root: Option<PathBuf>,
     instances: Instances,
 }
 
@@ -73,6 +80,7 @@ impl Startup {
                 notice: Some(format!(
                     "Cannot determine the data directory. Set {DATA_DIR_ENV} to choose one."
                 )),
+                root: None,
                 instances: Instances::unavailable(),
             };
         };
@@ -86,6 +94,7 @@ impl Startup {
             palette,
             notice,
             instances: Instances::load(&root),
+            root: Some(root),
         }
     }
 }
@@ -121,7 +130,19 @@ fn notice_for(origin: &SettingsOrigin) -> Option<String> {
     }
 }
 
+/// The first free `instance-N` id and its display name.
+fn next_instance(root: &Path) -> Option<(String, String)> {
+    for number in 1..=MAX_INSTANCE_ATTEMPTS {
+        let id = format!("instance-{number}");
+        if !root.join(&id).exists() {
+            return Some((id, format!("Instance {number}")));
+        }
+    }
+    None
+}
+
 struct RootView {
+    root: Option<PathBuf>,
     notice: Option<String>,
     instances: Instances,
 }
@@ -129,9 +150,37 @@ struct RootView {
 impl RootView {
     fn new(startup: Startup) -> Self {
         Self {
+            root: startup.root,
             notice: startup.notice,
             instances: startup.instances,
         }
+    }
+
+    fn create_instance(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let Some((id, name)) = next_instance(&root) else {
+            self.notice = Some("Cannot find a free instance name.".to_string());
+            cx.notify();
+            return;
+        };
+
+        let instance = Instance {
+            id,
+            name,
+            game_version: None,
+            loader: None,
+        };
+
+        match create(&root, &instance) {
+            Ok(()) => {
+                self.instances = Instances::load(&root);
+                self.notice = None;
+            }
+            Err(error) => self.notice = Some(error.to_string()),
+        }
+        cx.notify();
     }
 }
 
@@ -151,7 +200,7 @@ impl Render for RootView {
             .when_some(self.notice.clone(), |view, notice| {
                 view.child(Label::new(notice).text_sm().text_color(muted))
             })
-            .child(self.instances.panel(muted))
+            .child(self.instances.panel(muted, cx))
     }
 }
 
@@ -189,7 +238,7 @@ impl Instances {
 }
 
 impl Instances {
-    fn panel(&self, muted: Hsla) -> impl IntoElement {
+    fn panel(&self, muted: Hsla, cx: &mut Context<'_, RootView>) -> impl IntoElement {
         let heading = match self.items.len() {
             0 => "Instances".to_string(),
             count => format!("Instances · {count}"),
@@ -203,6 +252,14 @@ impl Instances {
                     .v_flex()
                     .gap_3()
                     .child(Label::new(self.root_label()).text_xs().text_color(muted))
+                    .child(
+                        div().h_flex().gap_3().child(
+                            Button::new("create-instance")
+                                .primary()
+                                .label("New instance")
+                                .on_click(cx.listener(|view, _, _, cx| view.create_instance(cx))),
+                        ),
+                    )
                     .when_some(self.error.clone(), |panel, error| {
                         panel.child(Label::new(error).text_sm().text_color(muted))
                     })
