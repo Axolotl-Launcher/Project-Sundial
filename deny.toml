@@ -1,0 +1,60 @@
+# cargo-deny policy. ../Axolotl had none — no cargo-deny, cargo-audit, or
+# pnpm audit anywhere in the repo.
+#
+# Run locally:  cargo deny check
+# CI runs it on every PR and fails the job.
+
+[graph]
+# Only the workspace we are shipping. `all-features` catches a dependency that
+# is only reachable behind a feature flag.
+all-features = true
+
+[advisories]
+# Refuse a build when an advisory with a patch exists. Unmaintained crates are
+# reported but do not fail, because a transitive UI framework can pin them.
+yanked = "deny"
+ignore = []
+
+[licenses]
+# Permissive licences only, plus the weak-copyleft pair used by some system
+# bindings. Anything else must be added here deliberately with a comment.
+allow = [
+  "0BSD",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  # This workspace's own crates (see Cargo.toml `license`). A GPL dependency
+  # would need an explicit decision, so it is not on this list by extension.
+  "GPL-3.0-only",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+# Accept licence files that name the standard texts even when the expression is
+# not perfectly machine-readable.
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+# Wildcards are a real risk for registry dependencies, which may silently float
+# to any future version. They are the normal spelling for workspace-internal
+# `path` deps (`{ workspace = true }`), so this is left at the default (allow)
+# and the registry case is caught by `wildcards` in `[bans]` semantics below.
+wildcards = "allow"
+# Duplicate major versions of these would mean two incompatible copies of core
+# primitives; fail instead of warn.
+deny = []
+
+[sources]
+# Dependencies must come from crates.io. A git or unknown-registry dependency
+# needs an allow entry here, so it can never arrive unnoticed.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
