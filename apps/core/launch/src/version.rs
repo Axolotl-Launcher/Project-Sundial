@@ -69,6 +69,11 @@ pub struct Version {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct AssetIndex {
     pub id: String,
+    /// Where the index document can be fetched when it is not on disk.
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub sha1: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]

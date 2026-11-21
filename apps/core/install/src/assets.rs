@@ -50,7 +50,7 @@ pub struct MissingFile {
 }
 
 /// The asset index document, reduced to the object map an install reads.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct AssetIndexDocument {
     pub objects: BTreeMap<String, AssetObject>,
 }

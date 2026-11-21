@@ -4,6 +4,7 @@
 //! Installation planning and execution.
 
 pub mod assets;
+pub mod prepare;
 
 use superlogical_spi::{InstallError, InstallPlan, Installer};
 

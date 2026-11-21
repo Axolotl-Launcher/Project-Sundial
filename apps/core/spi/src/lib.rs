@@ -32,17 +32,42 @@ pub enum FetchError {
     Fatal(String),
 }
 
+impl std::fmt::Display for FetchError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Retryable(reason) => write!(formatter, "retryable: {reason}"),
+            Self::Fatal(reason) => write!(formatter, "{reason}"),
+        }
+    }
+}
+
+impl std::error::Error for FetchError {}
+
 /// Reads and writes bytes under the launcher's data directory.
 pub trait Storage {
     fn read(&self, path: &str) -> Result<Vec<u8>, StorageError>;
     fn write(&self, path: &str, bytes: &[u8]) -> Result<(), StorageError>;
 }
 
+/// Why a storage operation failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageError {
+    /// The path does not exist.
     NotFound(String),
+    /// The path exists but the operation was refused.
     Denied(String),
 }
+
+impl std::fmt::Display for StorageError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound(reason) => write!(formatter, "not found: {reason}"),
+            Self::Denied(reason) => write!(formatter, "denied: {reason}"),
+        }
+    }
+}
+
+impl std::error::Error for StorageError {}
 
 /// Offers content a user can install.
 pub trait ContentProvider {
@@ -71,8 +96,25 @@ pub struct InstallPlan {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallError {
     /// A step failed; the plan can be retried from the start.
-    StepFailed { step: String, reason: String },
+    StepFailed {
+        /// Which step failed.
+        step: String,
+        /// What it reported.
+        reason: String,
+    },
 }
+
+impl std::fmt::Display for InstallError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StepFailed { step, reason } => {
+                write!(formatter, "step \"{step}\" failed: {reason}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for InstallError {}
 
 /// Starts a prepared process and reports when it exits.
 pub trait Launcher {

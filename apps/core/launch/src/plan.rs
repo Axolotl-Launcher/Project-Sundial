@@ -239,7 +239,11 @@ mod tests {
                 ],
                 default_user_jvm: Vec::new(),
             }),
-            asset_index: Some(AssetIndex { id: "34".into() }),
+            asset_index: Some(AssetIndex {
+                id: "34".into(),
+                url: String::new(),
+                sha1: None,
+            }),
             assets: None,
             java_version: None,
         };
