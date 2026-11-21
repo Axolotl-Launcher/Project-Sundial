@@ -14,10 +14,10 @@ edition = "2024"
 repository = "https://github.com/Axolotl-Launcher/Axolotl-Superlogical"
 
 [workspace.dependencies]
-# gpui 0.2.2 即 Zed 仓库 crates/gpui 在 crates.io 上的官方发布版本。
-# 若要跟进 zed-industries/zed main 分支，需要改用 git 依赖，并接受其
-# 未发布的内部 crate（如 gpui_platform）带来的不稳定性。
-gpui = "0.2.2"
+# gpui-kit 0.10.0 一揽子锁定 GPUI 家族（gpui-pre 0.3.12 快照、gpui-base、
+# gpui-component 与 Lucide 资源），是 Zed crates/gpui 的长期跟进快照。
+# 升级时须整体升级 gpui-kit，不要单独改 gpui-pre。
+gpui-kit = "0.10.0"
 superlogical_core = { path = "apps/core" }
 superlogical_frontend = { path = "apps/frontend" }
 superlogical_ui = { path = "apps/ui" }
