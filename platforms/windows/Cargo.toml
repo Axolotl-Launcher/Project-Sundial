@@ -1,0 +1,13 @@
+[package]
+name = "superlogical_platform_windows"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+description = "Windows executable shell for Superlogical"
+
+[[bin]]
+name = "superlogical"
+path = "src/main.rs"
+
+[dependencies]
+superlogical_ui = { workspace = true }
