@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@12.18.0",
   "engines": {
-    "node": ">=24"
+    "node": ">=24.22.0"
   },
   "scripts": {
     "build": "node scripts/turbo.mjs build",
@@ -13,10 +13,16 @@
     "dev:linux": "turbo run dev --filter=@superlogical/platform-linux",
     "lint": "node scripts/turbo.mjs lint",
     "test": "node scripts/turbo.mjs test",
-    "fmt": "cargo fmt --all",
-    "fmt:check": "cargo fmt --all --check"
+    "check": "pnpm lint && pnpm test && pnpm fmt:check && pnpm toml:check && pnpm spell",
+    "fmt": "cargo fmt --all && tombi format",
+    "fmt:check": "cargo fmt --all --check && tombi format --check",
+    "toml:check": "tombi lint",
+    "spell": "typos",
+    "deny": "cargo deny check",
+    "shear": "cargo shear",
+    "nextest": "cargo nextest run --workspace"
   },
   "devDependencies": {
-    "turbo": "^2.11.13"
+    "turbo": "~2.11.11"
   }
 }

@@ -1,0 +1,99 @@
+name: CI
+
+# Runs on every push to main and every pull request. Unlike ../Axolotl, clippy
+# is a hard failure on pull requests rather than an advisory SARIF upload that
+# only runs after merge.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch cancels the previous run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  rust:
+    name: Rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Installs the channel named in rust-toolchain.toml, so the pin lives in
+      # exactly one file. `rustup show` would install it implicitly, but being
+      # explicit keeps the failure obvious when the pin is wrong.
+      - name: Install pinned toolchain
+        run: |
+          rustup toolchain install --profile minimal --component rustfmt --component clippy
+          rustc --version
+
+      - uses: Swatinem/rust-cache@2201cc584a476d1b508be977bbe4b7d1c7a52e9c # v2.9.3
+        with:
+          cache-on-failure: true
+
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-nextest@0.9.150, cargo-shear@1.14.1, cargo-deny@0.22.0
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: Test
+        run: cargo nextest run --workspace --profile ci --locked
+
+      - name: Unused dependencies
+        run: cargo shear
+
+      - name: License, advisory and source policy
+        run: cargo deny check
+
+  hygiene:
+    name: Hygiene
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: crate-ci/typos@6b8d5532f97e7efe2bf6907daac17b3c9f8926ba # v1.52.2
+
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: tombi@1.11.3
+
+      - name: TOML format
+        run: tombi format --check
+
+      - name: TOML lint
+        run: tombi lint
+
+  # One required check for branch protection, even though the work runs in
+  # several jobs. ../Axolotl aggregates the same way with ci-result.mjs.
+  ci-result:
+    name: CI result
+    if: always()
+    needs: [rust, hygiene]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fail if any job did not succeed
+        run: |
+          echo "rust:    ${{ needs.rust.result }}"
+          echo "hygiene: ${{ needs.hygiene.result }}"
+          test "${{ needs.rust.result }}" = "success"
+          test "${{ needs.hygiene.result }}" = "success"

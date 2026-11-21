@@ -1,0 +1,66 @@
+# Contributing
+
+## Requirements
+
+| Tool | Version | Notes |
+|---|---|---|
+| Rust | 1.100.0 | pinned by `rust-toolchain.toml`; `rustup` installs it automatically |
+| Node | >= 24.22.0 | for pnpm + turbo only |
+| pnpm | 12.18.0 | pinned by `packageManager` in `package.json` |
+| Windows | any recent MSVC toolchain | gpui-pre uses Win32 + DirectWrite + DirectX |
+| Linux | fontconfig, X11/Wayland headers, Vulkan driver | needed to build |
+
+Additional Rust tools used by the checks, install once:
+
+```bash
+cargo install cargo-nextest cargo-shear cargo-deny --locked
+# typos and tombi are available from most package managers
+```
+
+## First build
+
+```bash
+pnpm install                                  # turbo
+cargo build -p superlogical_platform_windows  # debug binary
+pnpm dev:windows                              # run it
+```
+
+`pnpm build` builds everything turbo sees, but only for the current OS: the root
+scripts inject a `--filter` per platform, because turbo itself has no notion of
+the host platform and would otherwise compile the Linux shell on Windows.
+
+## Before opening a pull request
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo nextest run --workspace
+cargo shear
+cargo deny check
+typos
+tombi format --check && tombi lint
+```
+
+`pnpm check` bundles most of this. CI runs all of it on Ubuntu and Windows, and
+a single `CI result` check must be green before merge.
+
+## Dependency policy
+
+`deny.toml` holds the policy:
+
+- **Licences**: permissive licences plus MPL-2.0 and GPL-3.0-only (this
+  workspace's own licence). A new copyleft dependency needs an explicit
+  decision, not a quiet addition to the list.
+- **Sources**: crates.io only. Git dependencies require an `allow-git` entry.
+- **Advisories**: a yanked crate fails the build.
+- Duplicate versions warn; they do not block.
+
+`pnpm` applies a 7-day `minimumReleaseAge`, so a package published in the last
+week will not install. If `pnpm install` refuses a version, either wait or pick
+the newest version that is older than the cutoff — do not raise the policy to
+work around it.
+
+## Commits
+
+Conventional Commits, `Signed-off-by` required, plus `Assisted-by:` when a tool
+wrote part of the change. See `AGENTS.md` for the full convention.

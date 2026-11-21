@@ -46,7 +46,7 @@ struct RootView {
 }
 
 impl RootView {
-    fn new(_cx: &mut Context<Self>) -> Self {
+    fn new(_cx: &mut Context<'_, Self>) -> Self {
         Self {
             counter: Counter::default(),
         }
@@ -54,7 +54,7 @@ impl RootView {
 }
 
 impl Render for RootView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let theme = cx.theme();
         let background = theme.background;
         let muted = theme.muted_foreground;

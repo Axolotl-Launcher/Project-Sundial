@@ -1,0 +1,15 @@
+# ../Axolotl runs nextest with CLI flags only and keeps no config file, so the
+# settings live in each CI invocation. Keeping them here means local runs and CI
+# behave identically.
+[profile.default]
+fail-fast = false
+retries = 0
+
+# Show test output only for failures; a passing run stays quiet.
+failure-output = "immediate-final"
+success-output = "never"
+
+[profile.ci]
+fail-fast = false
+retries = 2
+failure-output = "immediate-final"

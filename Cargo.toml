@@ -1,17 +1,23 @@
 [workspace]
 resolver = "3"
 members = [
-    "apps/core",
-    "apps/frontend",
-    "apps/ui",
-    "platforms/linux",
-    "platforms/windows",
+  "apps/core",
+  "apps/frontend",
+  "apps/ui",
+  "platforms/linux",
+  "platforms/windows",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+# The minimum supported Rust, kept equal to rust-toolchain.toml's channel and
+# clippy.toml's msrv. 1.100.0 is the oldest version this workspace has actually
+# been built with; raise it when you verify a newer one, never in advance.
+rust-version = "1.100.0"
 repository = "https://github.com/Axolotl-Launcher/Axolotl-Superlogical"
+# Matches ../Axolotl's desktop packages (theseus_gui declares GPL-3.0-only).
+license = "GPL-3.0-only"
 
 [workspace.dependencies]
 # gpui-kit 0.10.0 一揽子锁定 GPUI 家族（gpui-pre 0.3.12 快照、gpui-base、
@@ -21,3 +27,52 @@ gpui-kit = "0.10.0"
 superlogical_core = { path = "apps/core" }
 superlogical_frontend = { path = "apps/frontend" }
 superlogical_ui = { path = "apps/ui" }
+
+# Add further dependencies here when a feature needs them, and only then:
+# cargo-shear fails CI on a declared-but-unused dependency, and caches in CI
+# make an unused entry as expensive as a used one.
+
+# Shared lint policy. Every crate must opt in with `[lints] workspace = true`;
+# ../Axolotl declared a lints table that no crate inherited, so none of it ran.
+#
+# Style and hygiene stay at `warn` so a build never stops over taste. Misuse
+# that has no legitimate place in this workspace is `deny`: debug leftovers
+# (`dbg_macro`), unfinished work (`todo`), and unsafe code (below).
+[workspace.lints.clippy]
+cloned_instead_of_copied = "warn"
+dbg_macro = "deny"
+default_trait_access = "warn"
+explicit_iter_loop = "warn"
+redundant_clone = "warn"
+redundant_type_annotations = "warn"
+todo = "deny"
+# Deliberately allowed: GPUI callbacks are large by nature.
+type_complexity = "allow"
+uninlined_format_args = "warn"
+wildcard_dependencies = "warn"
+
+[workspace.lints.rust]
+rust_2018_idioms = { level = "warn", priority = -1 }
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+# Development keeps line tables but skips variable-level debug info: enough for
+# a backtrace, materially faster to build and link.
+[profile.dev]
+debug = 1
+
+# Release stays small and stripped. The default is `lto = false` so local
+# release builds stay quick; tagged builds turn on fat LTO via the env var, the
+# same switch ../Axolotl uses.
+[profile.release]
+opt-level = "s"
+strip = true
+lto = false
+
+# A CI profile that ignores incremental compilation so caches stay meaningful.
+[profile.ci]
+inherits = "release"
+opt-level = 0
+debug = false
+lto = "off"
+incremental = false

@@ -2,8 +2,13 @@
 name = "superlogical_ui"
 version.workspace = true
 edition.workspace = true
-repository.workspace = true
+rust-version.workspace = true
 description = "Superlogical UI layer: palette and the allowed gpui-kit vocabulary"
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
 gpui-kit = { workspace = true }
+
+[lints]
+workspace = true

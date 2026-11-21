@@ -46,10 +46,33 @@ pnpm install                                   # 安装 turbo
 pnpm dev:windows                               # 运行 Windows 壳（turbo -> cargo run）
 pnpm build                                     # 构建当前平台（turbo 只调度本机平台壳）
 pnpm test / pnpm lint                          # 各包 cargo test / clippy，按依赖顺序
+pnpm check                                     # 本地全套校验（不含 clippy/deny）
+pnpm deny                                      # cargo deny check
+pnpm shear                                     # cargo shear（未使用依赖）
+pnpm nextest                                   # cargo nextest run --workspace
 cargo build -p superlogical_platform_windows   # 直接调用 cargo
-cargo test --workspace
-cargo fmt --all && cargo clippy --workspace --all-targets
 ```
+
+## 工程约束
+
+- **工具链单一来源**：`rust-toolchain.toml` 的 channel、`Cargo.toml` 的
+  `rust-version`、`clippy.toml` 的 `msrv` 三处都是 `1.100.0`，改一处必须同步改另两处。
+- **Lint 会被真正继承**：根 `[workspace.lints]` 要求每个 crate 声明
+  `[lints] workspace = true`；缺了这条，lint 一条都不会跑。
+- **依赖方向**：只有 `apps/ui` 可以出现 `gpui_kit` 路径，其余代码走
+  `superlogical_ui` 的重导出。
+- **许可证**：全仓 `GPL-3.0-only`，与 `../Axolotl` 的桌面端一致；`deny.toml`
+  只放行宽松许可证 + MPL-2.0 + 本仓自身。
+- **供应链**：pnpm `minimumReleaseAge: 10080`（7 天冷却）；Dependabot 覆盖
+  cargo / npm / github-actions 三个生态；GitHub Actions 全部固定到 commit SHA。
+- **依赖需有用**：`cargo shear` 在 CI 中失败于任何"声明但未使用"的依赖。
+
+## CI
+
+`.github/workflows/ci.yml` 在 Ubuntu 与 Windows 上跑 fmt、clippy（PR 上硬失败）、
+nextest、cargo-shear、cargo-deny；`hygiene` job 跑 typos 与 tombi。分支保护只需
+一个 required check：`CI result`。
+
 
 `turbo` 本身不认识宿主平台，直接 `turbo run build` 会在 Windows 上连 Linux 壳一起编译。
 根脚本经 `scripts/turbo.mjs` 注入 `--filter`，只调度 `apps/*` 加当前平台的壳。
