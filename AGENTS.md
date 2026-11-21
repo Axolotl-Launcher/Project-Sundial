@@ -5,11 +5,9 @@ before your first edit.
 
 ## What this is
 
-A clean-room rebuild of `../Axolotl` (a Minecraft launcher) as a much smaller
-Rust + gpui-kit application. It is **not** a refactor of Axolotl and shares no
-code with it. When you need to know how Axolotl solved something, read it for
-reference; never copy its source into this repository, and never import its
-crates.
+A Rust + gpui-kit application. Keep it small: this repository is a fresh
+implementation, not a fork, so nothing here should be copied in from another
+codebase.
 
 ## Layout
 
@@ -75,14 +73,15 @@ rather than implying it passed.
   `license.workspace = true`.
 - **gpui-kit**: upgrade it as a unit. `gpui-pre` is pinned exactly by gpui-kit
   because a newer snapshot can break the components; never override it alone.
-- **Network**: on the maintainer's machine crates.io intermittently fails TLS.
-  Use the mirror config documented in `README.md` to resolve, but commit the
-  resulting `Cargo.lock` unchanged.
+- **Network**: if crates.io is unreachable, use the mirror config documented in
+  `README.md` to resolve, but commit the resulting `Cargo.lock` unchanged and
+  do not record endpoint details in the repository.
 
 ## Do not
 
-- Do not edit `../Axolotl`.
 - Do not add CI steps that only warn where a failure would catch the problem.
-- Do not reintroduce the tools this repo deliberately left out: sccache
-  configuration (Axolotl declares it but never uses it), a release-cache warmer
-  matrix, or `keep-a-changelog` (installed but unused there).
+- Do not add build tooling that nothing invokes: a declared-but-unused cache
+  wrapper, an unused release-cache warmer, or a changelog tool with no file it
+  generates.
+- Do not commit machine-specific details: absolute paths, proxy or mirror
+  endpoints, local credentials, or logs from a developer machine.

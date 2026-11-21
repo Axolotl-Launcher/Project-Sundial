@@ -1,6 +1,6 @@
 [toolchain]
 # Pinned exactly, and kept equal to `rust-version` in Cargo.toml and `msrv` in
-# clippy.toml. ../Axolotl let those three drift to 1.90 / 1.94 / 1.95.
+# clippy.toml. Change all three together or they will drift.
 channel = "1.100.0"
 profile = "minimal"
 components = ["rustfmt", "clippy", "rust-src"]

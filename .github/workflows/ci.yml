@@ -1,8 +1,7 @@
 name: CI
 
-# Runs on every push to main and every pull request. Unlike ../Axolotl, clippy
-# is a hard failure on pull requests rather than an advisory SARIF upload that
-# only runs after merge.
+# Runs on every push to main and every pull request. Clippy is a hard failure
+# on pull requests, not an advisory warning raised only after merge.
 on:
   push:
     branches: [main]
@@ -84,7 +83,7 @@ jobs:
         run: tombi lint
 
   # One required check for branch protection, even though the work runs in
-  # several jobs. ../Axolotl aggregates the same way with ci-result.mjs.
+  # several jobs.
   ci-result:
     name: CI result
     if: always()

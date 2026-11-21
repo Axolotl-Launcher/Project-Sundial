@@ -1,7 +1,7 @@
 [files]
 exclude = ["target/", "**/node_modules/"]
 
-# Pin Cargo.toml validation to the schema ../Axolotl uses, so formatting choices
+# Pin Cargo.toml validation to a fixed schema version, so formatting choices
 # stay stable across tombi releases.
 [[schemas]]
 toml-version = "v1.0.0"

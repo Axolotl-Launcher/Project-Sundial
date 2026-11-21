@@ -1,6 +1,5 @@
-# ../Axolotl runs nextest with CLI flags only and keeps no config file, so the
-# settings live in each CI invocation. Keeping them here means local runs and CI
-# behave identically.
+# Keeping these settings in one file means local runs and CI behave identically,
+# instead of each invocation repeating its own flags.
 [profile.default]
 fail-fast = false
 retries = 0

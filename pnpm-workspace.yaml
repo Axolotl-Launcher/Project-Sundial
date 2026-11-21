@@ -4,5 +4,5 @@ packages:
 
 # Refuse packages published more recently than this. A compromised release is
 # usually caught and yanked within days, so a short cooldown blocks the window
-# where a fresh malicious version would install (../Axolotl uses the same value).
+# where a fresh malicious version would install.
 minimumReleaseAge: 10080

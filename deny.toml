@@ -1,5 +1,4 @@
-# cargo-deny policy. ../Axolotl had none — no cargo-deny, cargo-audit, or
-# pnpm audit anywhere in the repo.
+# cargo-deny policy: advisories, licences, duplicate versions and sources.
 #
 # Run locally:  cargo deny check
 # CI runs it on every PR and fails the job.

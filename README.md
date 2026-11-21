@@ -1,7 +1,6 @@
 # Superlogical
 
-Axolotl（`../Axolotl`）的净室重构 MVP：Rust + [GPUI Kit](https://gpui-kit.com)
-桌面应用骨架，pnpm + Turbo 负责任务编排。
+Rust + [GPUI Kit](https://gpui-kit.com) 桌面应用骨架，pnpm + Turbo 负责任务编排。
 
 ## 结构
 
@@ -35,7 +34,7 @@ platforms/*  ->  frontend
 - `gpui-component 0.10.0` —— 75+ 样式组件
 - `gpui-kit-assets 0.10.0` —— Lucide 图标资源
 
-已在本机 Windows (MSVC) 实测可编译并启动窗口。升级时整体升级 `gpui-kit`，
+已在 Windows (MSVC) 下验证可编译并启动窗口。升级时整体升级 `gpui-kit`，
 不要单独改 `gpui-pre`：gpui-kit 的发布说明指出，只在 `gpui-pre` 上做 caret
 依赖会让应用跳到组件未适配的新快照（上游 issue #3156）。
 
@@ -61,8 +60,8 @@ cargo build -p superlogical_platform_windows   # 直接调用 cargo
   `[lints] workspace = true`；缺了这条，lint 一条都不会跑。
 - **依赖方向**：只有 `apps/ui` 可以出现 `gpui_kit` 路径，其余代码走
   `superlogical_ui` 的重导出。
-- **许可证**：全仓 `GPL-3.0-only`，与 `../Axolotl` 的桌面端一致；`deny.toml`
-  只放行宽松许可证 + MPL-2.0 + 本仓自身。
+- **许可证**：全仓 `GPL-3.0-only`；`deny.toml` 只放行宽松许可证 + MPL-2.0
+  + 本仓自身。
 - **供应链**：pnpm `minimumReleaseAge: 10080`（7 天冷却）；Dependabot 覆盖
   cargo / npm / github-actions 三个生态；GitHub Actions 全部固定到 commit SHA。
 - **依赖需有用**：`cargo shear` 在 CI 中失败于任何"声明但未使用"的依赖。
@@ -73,18 +72,19 @@ cargo build -p superlogical_platform_windows   # 直接调用 cargo
 nextest、cargo-shear、cargo-deny；`hygiene` job 跑 typos 与 tombi。分支保护只需
 一个 required check：`CI result`。
 
+## turbo 的平台过滤
 
 `turbo` 本身不认识宿主平台，直接 `turbo run build` 会在 Windows 上连 Linux 壳一起编译。
 根脚本经 `scripts/turbo.mjs` 注入 `--filter`，只调度 `apps/*` 加当前平台的壳。
 
 ## 网络
 
-本机上 crates.io 直连会间歇性 `schannel: failed to receive handshake`。需要拉新依赖时，
-可在 `~/.cargo/config.toml` 配置镜像（例如 rsproxy），或临时用：
+若 crates.io 直连受阻（企业代理、镜像环境等），可在 `~/.cargo/config.toml` 配置镜像，
+或临时用：
 
 ```bash
 cargo build --config 'source.crates-io.replace-with="mirror"' \
-            --config 'source.mirror.registry="sparse+https://rsproxy.cn/index/"'
+            --config 'source.mirror.registry="sparse+<镜像地址>/index/"'
 ```
 
 `Cargo.lock` 已提交，日常构建不需要重新解析索引。

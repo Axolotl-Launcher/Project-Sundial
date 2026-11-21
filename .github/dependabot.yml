@@ -1,7 +1,7 @@
 version: 2
 
-# ../Axolotl watches only GitHub Actions, so its Rust and npm dependencies drift
-# silently. All three ecosystems are covered here.
+# Keep Rust, npm and GitHub Actions dependencies current. All three ecosystems
+# are covered, including the two that are easy to forget.
 updates:
   - package-ecosystem: cargo
     directory: /

@@ -15,8 +15,7 @@ extend-ignore-re = [
 ]
 
 [default.extend-words]
-# The domain is a Minecraft launcher working alongside ../Axolotl, whose own
-# _typos.toml keeps a similar list.
+# Product and framework names that are not English words.
 axolotl = "axolotl"
 superlogical = "superlogical"
 gpui = "gpui"

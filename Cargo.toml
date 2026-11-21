@@ -16,7 +16,7 @@ edition = "2024"
 # been built with; raise it when you verify a newer one, never in advance.
 rust-version = "1.100.0"
 repository = "https://github.com/Axolotl-Launcher/Axolotl-Superlogical"
-# Matches ../Axolotl's desktop packages (theseus_gui declares GPL-3.0-only).
+# GPL-3.0-only applies to every crate in this workspace.
 license = "GPL-3.0-only"
 
 [workspace.dependencies]
@@ -32,8 +32,8 @@ superlogical_ui = { path = "apps/ui" }
 # cargo-shear fails CI on a declared-but-unused dependency, and caches in CI
 # make an unused entry as expensive as a used one.
 
-# Shared lint policy. Every crate must opt in with `[lints] workspace = true`;
-# ../Axolotl declared a lints table that no crate inherited, so none of it ran.
+# Shared lint policy. Every crate must opt in with `[lints] workspace = true`,
+# or none of these lints apply to it.
 #
 # Style and hygiene stay at `warn` so a build never stops over taste. Misuse
 # that has no legitimate place in this workspace is `deny`: debug leftovers
@@ -62,8 +62,8 @@ unused_must_use = "deny"
 debug = 1
 
 # Release stays small and stripped. The default is `lto = false` so local
-# release builds stay quick; tagged builds turn on fat LTO via the env var, the
-# same switch ../Axolotl uses.
+# release builds stay quick; tagged builds can turn on fat LTO through
+# CARGO_PROFILE_RELEASE_LTO.
 [profile.release]
 opt-level = "s"
 strip = true
