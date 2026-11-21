@@ -6,12 +6,14 @@
 pub mod arguments;
 pub mod classpath;
 mod java;
+pub mod plan;
 mod platform;
 pub mod rules;
 pub mod version;
 
 pub use arguments::Values;
 pub use java::SystemJava;
+pub use plan::{Layout, Session};
 pub use rules::Target;
 pub use version::Version;
 

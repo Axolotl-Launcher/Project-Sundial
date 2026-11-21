@@ -110,6 +110,11 @@ pub trait Java {
 pub struct LaunchCommand {
     pub program: String,
     pub args: Vec<String>,
+    /// The directory the game's working files are resolved against.
+    pub working_directory: PathBuf,
+    /// Variables added to, or removed from, the inherited environment. A `None`
+    /// value removes the name.
+    pub environment: Vec<(String, Option<String>)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
