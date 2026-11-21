@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
+packages:
+  - 'apps/*'
+  - 'platforms/*'
+  - 'tests'
+
+# Refuse packages published more recently than this. A compromised release is
+# usually caught and yanked within days, so a short cooldown blocks the window
+# where a fresh malicious version would install.
+minimumReleaseAge: 10080

@@ -1,0 +1,93 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
+[workspace]
+resolver = "3"
+members = [
+  "apps/core",
+  "apps/frontend",
+  "apps/ui",
+  "platforms/linux",
+  "platforms/macos",
+  "platforms/windows",
+  "tests",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+# The minimum supported Rust, kept equal to rust-toolchain.toml's channel and
+# clippy.toml's msrv. 1.100.0 is the oldest version this workspace has actually
+# been built with; raise it when you verify a newer one, never in advance.
+rust-version = "1.100.0"
+repository = "https://github.com/Axolotl-Launcher/Axolotl-Superlogical"
+# GPL-3.0-only applies to every crate in this workspace.
+license = "GPL-3.0-only"
+
+[workspace.dependencies]
+# gpui-kit 0.10.0 一揽子锁定 GPUI 家族（gpui-pre 0.3.12 快照、gpui-base、
+# gpui-component 与 Lucide 资源），是 Zed crates/gpui 的长期跟进快照。
+# 升级时须整体升级 gpui-kit，不要单独改 gpui-pre。
+gpui-kit = "0.10.0"
+superlogical_core = { path = "apps/core" }
+superlogical_frontend = { path = "apps/frontend" }
+superlogical_ui = { path = "apps/ui" }
+
+# Add further dependencies here when a feature needs them, and only then:
+# cargo-shear fails CI on a declared-but-unused dependency, and caches in CI
+# make an unused entry as expensive as a used one.
+
+# Shared lint policy. Every crate must opt in with `[lints] workspace = true`,
+# or none of these lints apply to it.
+#
+# The coding rules in AGENTS.md are enforced here wherever a lint can express
+# them, so a reviewer does not have to police style by reading diffs.
+[workspace.lints.clippy]
+# Every lint suppression must state why.
+allow_attributes_without_reason = "warn"
+# Style and hygiene.
+cloned_instead_of_copied = "warn"
+# Misuse with no legitimate place here.
+dbg_macro = "deny"
+default_trait_access = "warn"
+# Say what you mean with types and names, not magic numbers or one-letter
+# bindings.
+disallowed_names = "warn"
+excessive_nesting = "warn"
+explicit_iter_loop = "warn"
+many_single_char_names = "warn"
+redundant_clone = "warn"
+redundant_type_annotations = "warn"
+todo = "deny"
+# Short, single-purpose functions and shallow nesting.
+too_many_lines = "warn"
+# Deliberately allowed: GPUI callbacks are large by nature.
+type_complexity = "allow"
+uninlined_format_args = "warn"
+wildcard_dependencies = "warn"
+
+[workspace.lints.rust]
+rust_2018_idioms = { level = "warn", priority = -1 }
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+# Development keeps line tables but skips variable-level debug info: enough for
+# a backtrace, materially faster to build and link.
+[profile.dev]
+debug = 1
+
+# Release stays small and stripped. The default is `lto = false` so local
+# release builds stay quick; tagged builds can turn on fat LTO through
+# CARGO_PROFILE_RELEASE_LTO.
+[profile.release]
+opt-level = "s"
+strip = true
+lto = false
+
+# A CI profile that ignores incremental compilation so caches stay meaningful.
+[profile.ci]
+inherits = "release"
+opt-level = 0
+debug = false
+lto = "off"
+incremental = false

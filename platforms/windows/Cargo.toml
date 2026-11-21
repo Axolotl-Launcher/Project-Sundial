@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "superlogical_platform_windows"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Windows executable shell for Superlogical"
+repository.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "superlogical"
+path = "src/main.rs"
+
+[dependencies]
+superlogical_frontend = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,10 @@
+{
+  "name": "@superlogical/core",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cargo build -p superlogical_core",
+    "lint": "cargo clippy -p superlogical_core --all-targets -- -D warnings",
+    "test": "cargo test -p superlogical_core"
+  }
+}

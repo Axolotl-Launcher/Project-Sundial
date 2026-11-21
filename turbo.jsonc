@@ -1,0 +1,40 @@
+// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-License-Identifier: GPL-3.0-only
+
+{
+  "$schema": "./node_modules/turbo/schema.json",
+  "ui": "stream",
+  "concurrency": "100%",
+  // Re-run a task when shared build inputs change, not only when that
+  // package's own files do.
+  "globalDependencies": ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/**"],
+  "globalEnv": ["CARGO_NET_OFFLINE", "RUSTUP_TOOLCHAIN"],
+  "globalPassThroughEnv": [
+    "CARGO_*",
+    "RUST*",
+    "RUSTFLAGS",
+    "RUSTUP_*",
+    "SCCACHE_*",
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "env": ["CARGO_PROFILE_*"],
+      "outputs": []
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "passThroughEnv": ["*"]
+    },
+    "lint": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "cache": false
+    }
+  }
+}

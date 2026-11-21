@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "superlogical_policy_tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Repository-wide policy tests that no lint can express"
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true

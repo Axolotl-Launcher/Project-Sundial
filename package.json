@@ -1,0 +1,40 @@
+{
+  "name": "superlogical",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@12.18.0",
+  "engines": {
+    "node": ">=24.22.0"
+  },
+  "scripts": {
+    "build": "node scripts/turbo.ts build",
+    "dev": "node scripts/turbo.ts dev",
+    "dev:windows": "turbo run dev --filter=@superlogical/platform-windows",
+    "dev:linux": "turbo run dev --filter=@superlogical/platform-linux",
+    "lint": "node scripts/turbo.ts lint",
+    "test": "node scripts/turbo.ts test",
+    "check": "pnpm lint && pnpm test && pnpm fmt:check && pnpm toml:check && pnpm spell && pnpm reuse && pnpm tsc && pnpm nojs && pnpm eslint && prek run --all-files",
+    "fmt": "cargo fmt --all && tombi format",
+    "fmt:check": "cargo fmt --all --check && tombi format --check",
+    "toml:check": "tombi lint",
+    "spell": "typos",
+    "reuse": "reuse lint",
+    "deny": "cargo deny check",
+    "shear": "cargo shear",
+    "nextest": "cargo nextest run --workspace",
+    "tsc": "tsc -p tsconfig.json",
+    "nojs": "node scripts/check-language.ts",
+    "eslint": "eslint .",
+    "hooks": "prek run --all-files",
+    "hooks:install": "prek install"
+  },
+  "devDependencies": {
+    "turbo": "~2.11.11",
+    "typescript": "6.0.3",
+    "@types/node": "26.6.6",
+    "eslint": "10.15.0",
+    "typescript-eslint": "8.72.2",
+    "@eslint/js": "9.39.5"
+  },
+  "type": "module"
+}

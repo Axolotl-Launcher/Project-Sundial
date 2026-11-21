@@ -1,0 +1,185 @@
+# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-License-Identifier: GPL-3.0-only
+
+# Hooks for every stage: commit, push, and CI (`prek run --all-files`).
+#
+# Two groups. The builtin repository holds checks any project would want.
+# The local repository holds this repository's own gates, reusing the same
+# commands CI runs so a hook and a CI job cannot drift apart.
+
+# Install all three shims; without this prek only installs pre-commit.
+default_install_hook_types = ["pre-commit", "pre-push", "commit-msg"]
+
+[[repos]]
+repo = "builtin"
+hooks = [
+  # Encoding and whitespace. Runs at pre-commit so a fix is one commit, not a
+  # separate cleanup commit after review.
+  { id = "trailing-whitespace" },
+  { id = "end-of-file-fixer" },
+  { id = "mixed-line-ending", args = ["--fix=lf"] },
+  { id = "fix-byte-order-marker" },
+
+  # Files that break on another platform or in another checkout.
+  { id = "check-case-conflict" },
+  { id = "check-illegal-windows-names" },
+  { id = "check-symlinks" },
+  { id = "destroyed-symlinks" },
+  { id = "forbid-new-submodules" },
+  { id = "check-added-large-files", args = ["--maxkb=4096"] },
+
+  # Merge artifacts and secrets.
+  { id = "check-merge-conflict" },
+  { id = "detect-private-key" },
+
+  # Structured files must parse. JSON has no comments, and a misplaced one has
+  # broken this repository before.
+  { id = "check-json" },
+  # turbo.jsonc uses trailing commas, which turbo accepts and this hook does
+  # not; the file is validated by `turbo ls` in CI instead.
+  {
+    id = "check-jsonc",
+    exclude = '''^turbo\.jsonc$''',
+  },
+  { id = "check-toml" },
+  # pnpm-lock.yaml is a multi-document stream, which the single-document check
+  # rejects. pnpm verifies it on install.
+  {
+    id = "check-yaml",
+    exclude = '''^pnpm-lock\.yaml$''',
+  },
+  { id = "check-xml" },
+
+  # Commit message policy. AGENTS.md requires a DCO sign-off and a Conventional
+  # Commit subject, and both are checkable rather than advisory.
+  # Only the DCO sign-off is mandatory; "Assisted-by" is expected on agent
+  # commits but a human writing the change outright does not need it.
+  #
+  # The subject's Conventional Commit shape is not checked here: this hook only
+  # reads trailers, and the subject is the message's first line, not a trailer.
+  # AGENTS.md states the subject format, and review enforces it.
+  {
+    id = "check-commit-trailers",
+    # Literal strings: the regex uses backslashes TOML would otherwise escape.
+    args = ['''--require=Signed-off-by=^.+ <.+@.+>$'''],
+    stages = ["commit-msg", "pre-push"],
+  },
+  # Every commit in this repository is GPG-signed.
+  { id = "check-signed-commit", stages = ["pre-push"] },
+]
+
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "english-commit-message",
+    name = "commit message is English",
+    language = "system",
+    entry = "node scripts/check-commit-message.ts",
+    pass_filenames = true,
+    stages = ["commit-msg"],
+  },
+  {
+    id = "format-rust",
+    name = "cargo fmt",
+    language = "system",
+    entry = "cargo fmt --all --check",
+    pass_filenames = false,
+    always_run = true,
+  },
+  {
+    id = "typescript-only",
+    name = "no JavaScript sources",
+    language = "system",
+    entry = "pnpm nojs",
+    pass_filenames = false,
+    always_run = true,
+  },
+  {
+    id = "typecheck-typescript",
+    name = "tsc",
+    language = "system",
+    entry = "pnpm tsc",
+    pass_filenames = false,
+    always_run = true,
+  },
+  # `types` is a conjunction, not a disjunction: a file must satisfy every tag.
+  # Running ESLint once for TypeScript is enough — it lints its own config too,
+  # since that config is the only JavaScript file here.
+  {
+    id = "lint-typescript",
+    name = "eslint",
+    language = "system",
+    entry = "pnpm eslint",
+    pass_filenames = false,
+    always_run = true,
+  },
+  {
+    id = "spell",
+    name = "typos",
+    language = "system",
+    entry = "typos",
+    pass_filenames = false,
+    always_run = true,
+  },
+  {
+    id = "licence-headers",
+    name = "reuse lint",
+    language = "system",
+    entry = "reuse lint",
+    pass_filenames = false,
+    always_run = true,
+  },
+  {
+    id = "format-toml",
+    name = "tombi format",
+    language = "system",
+    entry = "tombi format --check",
+    pass_filenames = false,
+    always_run = true,
+  },
+  {
+    id = "lint-toml",
+    name = "tombi lint",
+    language = "system",
+    entry = "tombi lint",
+    pass_filenames = false,
+    always_run = true,
+  },
+  {
+    id = "clippy",
+    name = "cargo clippy",
+    language = "system",
+    entry = "cargo clippy --workspace --all-targets --all-features -- -D warnings",
+    pass_filenames = false,
+    always_run = true,
+    stages = ["pre-push"],
+  },
+  {
+    id = "unused-dependencies",
+    name = "cargo shear",
+    language = "system",
+    entry = "cargo shear",
+    pass_filenames = false,
+    types = ["toml"],
+    stages = ["pre-push"],
+  },
+  {
+    id = "dependency-policy",
+    name = "cargo deny",
+    language = "system",
+    entry = "cargo deny check",
+    pass_filenames = false,
+    always_run = true,
+    stages = ["pre-push"],
+  },
+  {
+    id = "test",
+    name = "cargo nextest",
+    language = "system",
+    entry = "cargo nextest run --workspace --profile ci",
+    pass_filenames = false,
+    always_run = true,
+    stages = ["pre-push"],
+  },
+]
