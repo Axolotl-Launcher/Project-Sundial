@@ -1,5 +1,5 @@
-//! Linux entry point. All UI construction lives in `superlogical_ui`.
+//! Linux entry point. All UI construction lives in `superlogical_frontend`.
 
 fn main() {
-    superlogical_ui::run();
+    superlogical_frontend::run();
 }

@@ -172,23 +172,28 @@ importers:
 
   apps/core: {}
 
-  apps/ui:
+  apps/frontend:
     dependencies:
       '@superlogical/core':
         specifier: workspace:*
         version: link:../core
+      '@superlogical/ui':
+        specifier: workspace:*
+        version: link:../ui
+
+  apps/ui: {}
 
   platforms/linux:
     dependencies:
-      '@superlogical/ui':
+      '@superlogical/frontend':
         specifier: workspace:*
-        version: link:../../apps/ui
+        version: link:../../apps/frontend
 
   platforms/windows:
     dependencies:
-      '@superlogical/ui':
+      '@superlogical/frontend':
         specifier: workspace:*
-        version: link:../../apps/ui
+        version: link:../../apps/frontend
 
 packages:
 

@@ -9,7 +9,7 @@
     "test": "cargo test -p superlogical_platform_windows"
   },
   "dependencies": {
-    "@superlogical/ui": "workspace:*"
+    "@superlogical/frontend": "workspace:*"
   },
   "os": [
     "win32"

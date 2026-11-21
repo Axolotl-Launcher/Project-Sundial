@@ -9,7 +9,7 @@
     "test": "cargo test -p superlogical_platform_linux"
   },
   "dependencies": {
-    "@superlogical/ui": "workspace:*"
+    "@superlogical/frontend": "workspace:*"
   },
   "os": [
     "linux"

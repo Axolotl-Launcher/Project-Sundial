@@ -7,13 +7,24 @@ pnpm + Turbo 负责任务编排。
 
 ```
 apps/core          superlogical_core          —— 领域逻辑，不依赖 UI 工具包
-apps/ui            superlogical_ui            —— gpui 视图与窗口（library）
+apps/ui            superlogical_ui            —— gpui 组件库（Label/Button/Card/Divider/Theme）
+apps/frontend      superlogical_frontend      —— 应用状态、布局与窗口装配（RootView::run）
 platforms/windows  superlogical_platform_windows —— 产出 superlogical.exe
 platforms/linux    superlogical_platform_linux   —— 产出 Linux 可执行文件
 ```
 
-`apps/*` 只产出 lib；可执行文件由 `platforms/*` 组装，便于按平台追加图标、清单、
-打包与发布步骤，而不污染共享的 UI 代码。UI 只从 `superlogical_core` 读状态，不反向依赖。
+依赖方向严格单向：
+
+```
+core  <-  ui        （ui 只依赖 gpui，不认识 core）
+core  <-  frontend  ->  ui
+platforms/*  ->  frontend
+```
+
+- `apps/ui` 是纯组件库：组件是 `RenderOnce` 的 props 结构体，不持有 entity、不读业务状态，
+  配色通过 gpui global `Theme` 注入。
+- `apps/frontend` 是唯一同时组合 `core` 与 `ui` 的 crate，持有 `RootView` 等实体与事件处理。
+- `platforms/*` 只调用 `superlogical_frontend::run()`，后续按平台追加图标、清单、打包与发布。
 
 ## gpui 版本
 
@@ -22,7 +33,7 @@ Windows (MSVC) 下已验证可编译运行，无需额外系统依赖。
 
 Zed `main` 分支上的 gpui 已把平台层拆成 `gpui_platform` 等未发布 crate，只能以 git
 依赖整仓拉取（约 558 MB），上游 API 随时可能破坏性变更，因此当前不采用。如需跟进，
-把 `Cargo.toml` 中的 gpui 换成 git 依赖并同步调整 `apps/ui` 的导入即可。
+把 `Cargo.toml` 中的 gpui 换成 git 依赖并同步调整导入即可。
 
 ## 常用命令
 
