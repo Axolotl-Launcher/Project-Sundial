@@ -3,10 +3,17 @@
 
 //! Launching: arguments, Java discovery and process lifecycle.
 
+pub mod arguments;
+pub mod classpath;
 mod java;
 mod platform;
+pub mod rules;
+pub mod version;
 
+pub use arguments::Values;
 pub use java::SystemJava;
+pub use rules::Target;
+pub use version::Version;
 
 use superlogical_spi::{LaunchCommand, LaunchError, Launcher};
 
