@@ -105,11 +105,11 @@ hooks = [
     always_run = true,
   },
   {
-    id = "rust-file-lines",
-    name = "Rust file line limit",
+    id = "file-length",
+    name = "code file line limit",
     language = "system",
-    entry = "node scripts/check-rust-file-lines.ts",
-    files = "[.]rs$",
+    entry = "node scripts/check-file-length.ts",
+    files = "[.](rs|ts|tsx|js|jsx|mjs|cjs)$",
     stages = ["pre-commit"],
   },
 ]

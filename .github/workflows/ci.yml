@@ -123,6 +123,11 @@ jobs:
       - name: No JavaScript sources
         run: pnpm nojs
 
+      # A file too long to read by role is split by role. Tests count too;
+      # production modules and their tests live in separate files.
+      - name: File length
+        run: pnpm file-length
+
       - name: TypeScript type check
         run: pnpm tsc
 

@@ -84,7 +84,7 @@ prek run --stage pre-push
 | Stage | Runs |
 |---|---|
 | `commit-msg` | DCO sign-off present, message in English |
-| `pre-commit` | whitespace and encoding, structured-file parsing, large files, secrets, cargo fmt, tombi format, the Rust line limit |
+| `pre-commit` | whitespace and encoding, structured-file parsing, large files, secrets, cargo fmt, tombi format, the 500-line limit |
 | `pre-push` | DCO trailers and GPG signature on the commits being pushed |
 
 The hooks deliberately stop at what is cheap to fix while a commit is still
@@ -105,6 +105,7 @@ node scripts/turbo.ts test
 pnpm tsc      # type check; also rejects syntax Node cannot strip
 pnpm eslint
 pnpm nojs     # rejects any tracked .js/.mjs/.cjs/.jsx file
+pnpm file-length  # rejects any code file over 500 lines
 ```
 
 `eslint.config.js` is the one JavaScript file allowed, because ESLint loads its

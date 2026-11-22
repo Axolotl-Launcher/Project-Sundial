@@ -92,7 +92,7 @@ prek run --stage pre-push
 | 阶段 | 内容 |
 |---|---|
 | `commit-msg` | DCO 签名、提交信息为英文 |
-| `pre-commit` | 空白/编码、结构化文件解析、大文件、私钥泄漏、cargo fmt、tombi format、Rust 行数上限 |
+| `pre-commit` | 空白/编码、结构化文件解析、大文件、私钥泄漏、cargo fmt、tombi format、代码文件 500 行上限 |
 | `pre-push` | 待推送提交的 DCO trailer 与 GPG 签名 |
 
 clippy、测试、cargo deny/shear、typos、REUSE、tsc、ESLint 等完整门禁由 CI
@@ -109,6 +109,7 @@ node scripts/turbo.ts test
 pnpm tsc      # 类型检查；同时拒绝 Node 无法剥离的语法
 pnpm eslint
 pnpm nojs     # 拒绝任何被跟踪的 .js/.mjs/.cjs/.jsx 文件
+pnpm file-length  # 拒绝超过 500 行的代码文件
 ```
 
 唯一例外是 `eslint.config.js`：ESLint 在 TypeScript 工具链就绪前就要加载它，
@@ -127,6 +128,7 @@ pnpm nojs     # 拒绝任何被跟踪的 .js/.mjs/.cjs/.jsx 文件
 - **供应链**：pnpm `minimumReleaseAge: 10080`（7 天冷却）；Dependabot 覆盖
   cargo / npm / github-actions 三个生态；GitHub Actions 全部固定到 commit SHA。
 - **依赖需有用**：`cargo shear` 在 CI 中失败于任何"声明但未使用"的依赖。
+- **代码文件不超过 500 行**：`pnpm file-length` 在 pre-commit 和 CI 中检查。
 
 ## CI
 

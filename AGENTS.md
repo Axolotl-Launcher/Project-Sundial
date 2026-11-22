@@ -66,7 +66,7 @@ write a test that fails when the constraint breaks.
 |---|---|
 | No `dbg!` or `todo!` left behind | `clippy::dbg_macro`, `clippy::todo` (deny) |
 | Functions stay short | `clippy::too_many_lines` at 60 (warn; CI is `-D warnings`) |
-| Each Rust file has at most 500 lines, counting comments, blank lines, and tests. Split any file that exceeds the limit. | `rust-file-lines` (pre-commit and CI) |
+| No code file exceeds 500 lines | `scripts/check-file-length.ts` (`pnpm file-length`) |
 | Shallow nesting, prefer early return | `clippy::excessive_nesting` at 3 |
 | No one-letter or placeholder names | `clippy::disallowed_names`, `clippy::many_single_char_names` |
 | Every lint suppression explains itself | `clippy::allow_attributes_without_reason` |
@@ -76,6 +76,10 @@ write a test that fails when the constraint breaks.
 | Scripts are TypeScript, never JavaScript | `scripts/check-language.ts` (`pnpm nojs`) |
 | TypeScript must be strippable by Node | `tsc` with `erasableSyntaxOnly` (`pnpm tsc`) |
 | Script style and magic numbers | ESLint (`pnpm eslint`) |
+
+Code files are the tracked Rust and TypeScript/JavaScript sources; a test file
+counts. A file over 500 lines is split by role — production modules and their
+tests live in separate files — not moved into a path the check ignores.
 
 Rules no machine can decide, so a human reviewer must:
 
