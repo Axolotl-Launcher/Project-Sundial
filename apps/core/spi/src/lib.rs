@@ -12,6 +12,8 @@
 //! Traits here use return-position `impl Trait` rather than the `async_trait`
 //! macro: the workspace's MSRV supports it, and it avoids a box per call.
 
+pub mod desktop;
+
 pub use axlauncher_domain::Id;
 
 use std::path::{Path, PathBuf};

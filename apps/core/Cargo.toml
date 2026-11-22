@@ -10,6 +10,10 @@ description = "Axolotl Launcher domain logic (UI-independent)"
 repository.workspace = true
 license.workspace = true
 
+[[test]]
+name = "desktop_backend"
+path = "../../tests/apps/core/tests/desktop_backend.rs"
+
 [dependencies]
 axlauncher_content = { workspace = true }
 axlauncher_domain = { workspace = true }
@@ -21,6 +25,7 @@ axlauncher_network = { workspace = true }
 axlauncher_observability = { workspace = true }
 axlauncher_resources = { workspace = true }
 axlauncher_scheduler = { workspace = true }
+axlauncher_spi = { workspace = true }
 axlauncher_state = { workspace = true }
 axlauncher_storage = { workspace = true }
 axlauncher_telemetry = { workspace = true }
