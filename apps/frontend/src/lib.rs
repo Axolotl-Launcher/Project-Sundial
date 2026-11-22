@@ -8,12 +8,11 @@
 //! vocabulary + palette). State lives here in GPUI entities; components stay
 //! stateless recipes.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use axlauncher_core::BRAND_NAME;
-use axlauncher_core::state::{
-    Instance, SettingsOrigin, ThemeChoice, create_numbered, discover_profiles, load_settings,
-};
+use axlauncher_core::state::profile::{DiscoveredProfile, discover};
+use axlauncher_core::state::{SettingsOrigin, ThemeChoice, load_settings};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::{
     ActiveTheme, Button, ButtonVariants, ElementId, GroupBox, GroupBoxVariants, Hsla, Label,
@@ -65,7 +64,6 @@ fn open_main_window(cx: &mut kit::App, startup: Startup) {
 struct Startup {
     palette: Palette,
     notice: Option<String>,
-    root: Option<PathBuf>,
     instances: Instances,
 }
 
@@ -77,7 +75,6 @@ impl Startup {
                 notice: Some(format!(
                     "Cannot determine the data directory. Set {DATA_DIR_ENV} to choose one."
                 )),
-                root: None,
                 instances: Instances::unavailable(),
             };
         };
@@ -90,8 +87,7 @@ impl Startup {
         Self {
             palette,
             notice,
-            instances: Instances::load(&root),
-            root: Some(root),
+            instances: Instances::load(DataDir::new(root).instances()),
         }
     }
 }
@@ -128,7 +124,6 @@ fn notice_for(origin: &SettingsOrigin) -> Option<String> {
 }
 
 struct RootView {
-    root: Option<PathBuf>,
     notice: Option<String>,
     instances: Instances,
 }
@@ -136,23 +131,13 @@ struct RootView {
 impl RootView {
     fn new(startup: Startup) -> Self {
         Self {
-            root: startup.root,
             notice: startup.notice,
             instances: startup.instances,
         }
     }
 
-    fn create_instance(&mut self, cx: &mut Context<'_, Self>) {
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        match create_numbered(&self.instances.root, &self.instances.items) {
-            Ok(()) => {
-                self.instances = Instances::load(&root);
-                self.notice = None;
-            }
-            Err(error) => self.notice = Some(error.to_string()),
-        }
+    fn refresh_instances(&mut self, cx: &mut Context<'_, Self>) {
+        self.instances = Instances::load(self.instances.root.clone());
         cx.notify();
     }
 }
@@ -179,25 +164,24 @@ impl Render for RootView {
 
 struct Instances {
     root: PathBuf,
-    items: Vec<Instance>,
+    items: Vec<DiscoveredProfile>,
     error: Option<String>,
 }
 
 impl Instances {
-    fn load(root: &Path) -> Self {
-        let directory = DataDir::new(root).instances();
-
-        match discover_profiles(root, &directory) {
-            Ok(items) => Self {
-                root: directory,
-                items,
-                error: None,
-            },
-            Err(error) => Self {
-                root: directory,
-                items: Vec::new(),
-                error: Some(error.to_string()),
-            },
+    fn load(directory: PathBuf) -> Self {
+        let discovered = discover(&directory);
+        Self {
+            root: directory,
+            items: discovered.instances,
+            error: (!discovered.issues.is_empty()).then(|| {
+                discovered
+                    .issues
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }),
         }
     }
 
@@ -225,32 +209,25 @@ impl Instances {
                     .v_flex()
                     .gap_3()
                     .child(Label::new(self.root_label()).text_xs().text_color(muted))
-                    .child(
-                        div().h_flex().gap_3().child(
-                            Button::new("create-instance")
-                                .primary()
-                                .label("New instance")
-                                .on_click(cx.listener(|view, _, _, cx| view.create_instance(cx))),
-                        ),
-                    )
+                    .when(!self.root.as_os_str().is_empty(), |panel| {
+                        panel.child(
+                            div().h_flex().gap_3().child(
+                                Button::new("refresh-instances")
+                                    .primary()
+                                    .label("Refresh")
+                                    .on_click(
+                                        cx.listener(|view, _, _, cx| view.refresh_instances(cx)),
+                                    ),
+                            ),
+                        )
+                    })
                     .when_some(self.error.clone(), |panel, error| {
                         panel.child(Label::new(error).text_sm().text_color(muted))
                     })
                     .when(self.items.is_empty() && self.error.is_none(), |panel| {
-                        panel.child(
-                            Label::new(
-                                "No instances yet. Each one is a folder with instance.json.",
-                            )
-                            .text_sm()
-                            .text_color(muted),
-                        )
+                        panel.child(Label::new("No instances yet.").text_sm().text_color(muted))
                     })
-                    .children(
-                        self.items
-                            .iter()
-                            .enumerate()
-                            .map(|(index, instance)| row(index, instance, muted)),
-                    ),
+                    .children(self.items.iter().map(|instance| row(instance, muted))),
             )
     }
 
@@ -268,27 +245,39 @@ impl Instances {
 /// The labels take explicit ids: `Label::new` defaults its id to the call site,
 /// so labels built in a loop would share one id and gpui's accessibility tree
 /// panics on the duplicate in debug builds.
-fn row(index: usize, instance: &Instance, muted: Hsla) -> impl IntoElement {
-    let details = match (&instance.game_version, &instance.loader) {
-        (Some(version), Some(loader)) => format!("{version} · {loader}"),
-        (Some(version), None) => version.clone(),
-        (None, Some(loader)) => loader.clone(),
-        (None, None) => "unknown version".to_string(),
-    };
+fn row(instance: &DiscoveredProfile, muted: Hsla) -> impl IntoElement {
+    let profile = &instance.profile;
+    let details = profile.game.as_ref().map_or_else(
+        || "unknown version".to_string(),
+        |game| match &game.loader {
+            Some(loader) => format!("{} · {}", game.minecraft, loader.kind),
+            None => game.minecraft.clone(),
+        },
+    );
+    let directory = instance.directory.display();
 
     div()
         .v_flex()
         .gap_1()
         .child(
-            Label::new(instance.name.clone())
-                .id(ElementId::named_usize("instance-name", index))
+            Label::new(profile.instance.name.clone())
+                .id(ElementId::Name(format!("instance-name:{directory}").into()))
                 .text_base(),
         )
         .child(
-            Label::new(format!("{} · {details}", instance.id))
-                .id(ElementId::named_usize("instance-detail", index))
-                .text_xs()
-                .text_color(muted),
+            Label::new(format!(
+                "{} · {details}",
+                instance
+                    .directory
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+            ))
+            .id(ElementId::Name(
+                format!("instance-detail:{directory}").into(),
+            ))
+            .text_xs()
+            .text_color(muted),
         )
 }
 

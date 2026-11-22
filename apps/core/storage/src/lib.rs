@@ -28,7 +28,7 @@ impl DataDir {
         &self.root
     }
 
-    /// One directory per instance, each holding an `instance.json`.
+    /// One directory per instance, each holding an `.axlprofile` marker.
     pub fn instances(&self) -> PathBuf {
         self.root.join("profiles")
     }

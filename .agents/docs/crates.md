@@ -13,7 +13,7 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 | --- | --- | --- |
 | HTTP | `network` owns the HTTP client and classifies transport failures. | Inject `Network` and call `fetch`. Handle retryability through `FetchError`. |
 | Launcher data paths, blob storage and atomic writes | `storage` owns `DataDir`, `RootedStorage` and `write_atomic`. | Use `DataDir` for launcher paths and `Storage` for blob reads and writes. Document owners that need atomic replacement use `write_atomic`. The `Storage::write` contract permits ordinary writes. |
-| Settings and instance manifests | `state` discovers, reads, creates and saves its own documents. It handles schema checks and quarantine. | Use `load_settings`, `save_settings`, `discover`, `create` or `save`. Use `StateStore` for the separate ID-based `InstanceRecord` API. |
+| Settings and instance manifests | `state` owns the settings document, `.axlprofile` discovery and instance resource scans. | Use `load_settings` and `save_settings` for settings. Use `profile::discover`, `profile::read` and `profile::scan_resources` for instances. `StateStore` serves the separate ID-based `InstanceRecord` API. |
 | Installation files and asset indexes | `install` checks for missing libraries and assets, reads the asset index and writes fetched bytes. | Use `prepare::prepare` for the implemented preparation flow. Inject `Network` for downloads and reuse `network::verify` for digest checks. The SPI `Installer` accepts an `InstallPlan`. Its current `StepInstaller` implementation is a stub. |
 | Mod loader metadata services | `loader` lists versions and resolves version profiles through an injected `Network`. | Use the `ModLoader` SPI port. The `install` crate places the resulting profile and handles installation processors. |
 | Game version documents, classpath, JARs and natives | `launch` reads version files and JARs, evaluates launch rules and extracts natives. | Use `flow::launch` for prepared installations. Installation planning reuses `version::Version`, the library model and `rules::Target` to decide what to download. |
@@ -23,7 +23,7 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 | Desktop UI and startup environment | `ui` directly depends on gpui-kit. `frontend` chooses the application data root and wires the window. | Frontend code imports components through `axlauncher_ui` and calls system APIs through `core`. Platform shells call `frontend::run`. |
 
 The frontend resolves the managed profiles directory with `DataDir`. Instance
-discovery, numbering, conflict handling and manifest access belong to `state`.
+discovery and manifest access belong to `state`.
 
 ## Workspace inventory
 
