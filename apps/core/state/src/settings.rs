@@ -13,6 +13,7 @@
 //! changing the meaning of a field does, because the two builds would disagree
 //! about what the file means.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
 use std::io;
@@ -51,7 +52,7 @@ pub enum SourcePreference {
     MirrorPreferred,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SettingsData {
     #[serde(default)]
     pub theme: ThemeChoice,
@@ -73,6 +74,9 @@ pub struct SettingsData {
     /// Where the game's files come from.
     #[serde(default)]
     pub minecraft_file_source: SourcePreference,
+    /// Fields a newer build wrote; saving keeps them for that build.
+    #[serde(flatten, default)]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 /// The download width a fresh install starts with.
@@ -93,11 +97,12 @@ impl Default for SettingsData {
             telemetry: false,
             minecraft_metadata_source: SourcePreference::default(),
             minecraft_file_source: SourcePreference::default(),
+            extra: BTreeMap::new(),
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct SettingsDocument {
     schema_version: u32,
     data: SettingsData,
@@ -116,7 +121,7 @@ pub enum SettingsOrigin {
     ReadOnlyOtherSchema { found: u32 },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LoadedSettings {
     pub data: SettingsData,
     pub origin: SettingsOrigin,

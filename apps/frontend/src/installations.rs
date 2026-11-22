@@ -54,11 +54,13 @@ pub(crate) fn vanilla_version(game: &Game) -> Option<&str> {
 pub(crate) fn start(root: PathBuf, id: String, concurrency: usize, cx: &mut Context<'_, RootView>) {
     let (progress, mut updates) = watch::channel(Progress::Version);
     let version = id.clone();
-    let task = cx.background_spawn(async move { install(&root, &version, concurrency, progress) });
+    let work_root = root.clone();
+    let task =
+        cx.background_spawn(async move { install(&work_root, &version, concurrency, progress) });
     cx.spawn(async move |view, cx| {
-        display_progress(&mut updates, &view, cx, &id).await;
+        display_progress(&mut updates, &view, cx, &root, &id).await;
         let result = task.await;
-        let _ = view.update(cx, |view, cx| view.set_installation(&id, result, cx));
+        let _ = view.update(cx, |view, cx| view.set_installation(&root, &id, result, cx));
     })
     .detach();
 }
@@ -67,12 +69,13 @@ async fn display_progress(
     updates: &mut watch::Receiver<Progress>,
     view: &WeakEntity<RootView>,
     cx: &mut AsyncApp,
+    root: &Path,
     id: &str,
 ) {
     while updates.changed().await.is_ok() {
         let progress = *updates.borrow_and_update();
         let updated = view.update(cx, |view, cx| {
-            view.set_installation(id, Installation::Running(progress), cx)
+            view.set_installation(root, id, Installation::Running(progress), cx)
         });
         if updated.is_err() {
             return;

@@ -17,8 +17,11 @@ pub use gpui_kit::component::{
     button::{Button, ButtonVariants},
     group_box::{GroupBox, GroupBoxVariants},
     h_flex,
+    input::{Input, InputEvent, InputState},
     label::Label,
+    scroll::ScrollableElement,
     separator::Separator,
+    switch::Switch,
     v_flex,
 };
 pub use gpui_kit::{self as kit, *};
@@ -41,6 +44,12 @@ impl Palette {
     /// before any component renders.
     pub fn install(self, cx: &mut kit::App) {
         kit::init(cx);
+        self.apply(cx);
+    }
+
+    /// Applies this palette to the running application without re-initialising
+    /// the kit.
+    pub fn apply(self, cx: &mut kit::App) {
         kit::component::Theme::change(self.mode(), None, cx);
     }
 }

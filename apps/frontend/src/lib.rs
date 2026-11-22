@@ -1,44 +1,63 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Axolotl Launcher frontend: application state, layout and window wiring.
+//! Axolotl Launcher frontend: the development panel and its window wiring.
 //!
 //! This crate owns the root view platform shells open, and is the only crate
-//! that combines `axlauncher_core` (domain) with `axlauncher_ui` (kit
-//! vocabulary + palette). State lives here in GPUI entities; components stay
-//! stateless recipes.
+//! that combines `axlauncher_core` with `axlauncher_ui`. State lives here in
+//! GPUI entities; components stay stateless recipes.
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use axlauncher_core::BRAND_NAME;
-use axlauncher_core::launch::LaunchRequest;
-use axlauncher_core::state::profile::{DiscoveredProfile, discover};
-use axlauncher_core::state::{SettingsOrigin, ThemeChoice, load_settings};
+use axlauncher_core::state::profile::{ProfileDiscovery, discover};
+use axlauncher_core::state::{SettingsData, SettingsOrigin, ThemeChoice, load_settings};
 use axlauncher_core::storage::DataDir;
-use axlauncher_ui::{
-    ActiveTheme, Button, ButtonVariants, GroupBox, GroupBoxVariants, Hsla, Label, Palette,
-    StyledExt,
-};
-use axlauncher_ui::{
-    Bounds, Context, IntoElement, Render, Window, WindowBounds, WindowOptions, div, px, size,
-};
-use axlauncher_ui::{kit, prelude::*};
+use axlauncher_ui::prelude::*;
+use axlauncher_ui::{Bounds, Palette, WindowBounds, WindowOptions, kit, px, size};
 
 mod installations;
 mod instance_row;
 mod launches;
-use installations::Installation;
-use launches::Launch;
+mod panel;
 
-const WINDOW_WIDTH: f32 = 720.;
-const WINDOW_HEIGHT: f32 = 480.;
+use panel::RootView;
+
+const WINDOW_WIDTH: f32 = 1080.;
+const WINDOW_HEIGHT: f32 = 820.;
+const WINDOW_MIN_WIDTH: f32 = 720.;
+const WINDOW_MIN_HEIGHT: f32 = 560.;
 
 /// Overrides the data directory; the platform data directory is used otherwise.
 const DATA_DIR_ENV: &str = "AXLAUNCHER_DATA_DIR";
 
 /// Directory name under the platform data directory.
 const APP_DIR: &str = "AXLauncher";
+
+/// What the panel reads once at startup and again on every reload.
+pub(crate) struct Loaded {
+    pub(crate) root: Option<PathBuf>,
+    pub(crate) settings: Option<SettingsData>,
+    pub(crate) origin: Option<SettingsOrigin>,
+    pub(crate) profiles: ProfileDiscovery,
+    pub(crate) notice: Option<String>,
+}
+
+pub(crate) struct Startup {
+    pub(crate) palette: Palette,
+    pub(crate) loaded: Loaded,
+}
+
+impl Startup {
+    pub(crate) fn load() -> Self {
+        let loaded = load_at(data_root());
+        let palette = loaded
+            .settings
+            .as_ref()
+            .map(|settings| palette_for(settings.theme))
+            .unwrap_or(Palette::Dark);
+        Self { palette, loaded }
+    }
+}
 
 /// Opens the Axolotl Launcher window and runs the GPUI event loop.
 ///
@@ -60,75 +79,69 @@ fn open_main_window(cx: &mut kit::App, startup: Startup) {
     kit::open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
+            window_min_size: Some(size(px(WINDOW_MIN_WIDTH), px(WINDOW_MIN_HEIGHT))),
             ..Default::default()
         },
         cx,
-        |_, cx| cx.new(|_| RootView::new(startup)),
+        move |window, cx| cx.new(|cx| RootView::new(startup, window, cx)),
     )
     .expect("failed to open the Axolotl Launcher window");
-}
-
-/// What the window needs, read once before the event loop starts.
-struct Startup {
-    palette: Palette,
-    notice: Option<String>,
-    instances: Instances,
-    game_root: PathBuf,
-    concurrency: usize,
-}
-
-impl Startup {
-    fn load() -> Self {
-        let Some(root) = data_root() else {
-            return Self {
-                palette: Palette::Dark,
-                notice: Some(format!(
-                    "Cannot determine the data directory. Set {DATA_DIR_ENV} to choose one."
-                )),
-                instances: Instances::unavailable(),
-                game_root: PathBuf::new(),
-                concurrency: 0,
-            };
-        };
-
-        let (palette, notice, concurrency) = match load_settings(&root) {
-            Ok(loaded) => (
-                palette_for(loaded.data.theme),
-                notice_for(&loaded.origin),
-                loaded.data.max_concurrent_downloads as usize,
-            ),
-            Err(error) => (Palette::Dark, Some(error.to_string()), 0),
-        };
-
-        let data = DataDir::new(root);
-        Self {
-            palette,
-            notice,
-            instances: Instances::load(data.instances()),
-            game_root: data.meta(),
-            concurrency,
-        }
-    }
 }
 
 /// The launcher's data root: the override when set, else the platform data
 /// directory plus the application name.
 fn data_root() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os(DATA_DIR_ENV) {
+    if let Some(path) = std::env::var_os(DATA_DIR_ENV)
+        && !path.is_empty()
+    {
         return Some(PathBuf::from(path));
     }
     dirs::data_dir().map(|base| base.join(APP_DIR))
 }
 
-fn palette_for(theme: ThemeChoice) -> Palette {
+/// Reads settings and instances for `root`; `None` means the platform could
+/// not name a data directory.
+pub(crate) fn load_at(root: Option<PathBuf>) -> Loaded {
+    let Some(root) = root else {
+        return Loaded {
+            root: None,
+            settings: None,
+            origin: None,
+            profiles: ProfileDiscovery::default(),
+            notice: Some(format!(
+                "Cannot determine the data directory. Set {DATA_DIR_ENV}, or choose one below."
+            )),
+        };
+    };
+
+    let (settings, origin, notice) = match load_settings(&root) {
+        Ok(loaded) => {
+            let notice = settings_notice(&loaded.origin);
+            (Some(loaded.data), Some(loaded.origin), notice)
+        }
+        Err(error) => (None, None, Some(error.to_string())),
+    };
+
+    let profiles = discover(&DataDir::new(&root).instances());
+
+    Loaded {
+        root: Some(root),
+        settings,
+        origin,
+        profiles,
+        notice,
+    }
+}
+
+pub(crate) fn palette_for(theme: ThemeChoice) -> Palette {
     match theme {
         ThemeChoice::Dark => Palette::Dark,
         ThemeChoice::Light => Palette::Light,
     }
 }
 
-/// Text for the one settings outcome a user needs to know about.
-fn notice_for(origin: &SettingsOrigin) -> Option<String> {
+/// Text for the one settings outcome a user needs to know about at startup.
+fn settings_notice(origin: &SettingsOrigin) -> Option<String> {
     match origin {
         SettingsOrigin::Created | SettingsOrigin::Stored => None,
         SettingsOrigin::Quarantined { path } => Some(format!(
@@ -142,222 +155,16 @@ fn notice_for(origin: &SettingsOrigin) -> Option<String> {
     }
 }
 
-struct RootView {
-    notice: Option<String>,
-    instances: Instances,
-    game_root: PathBuf,
-    concurrency: usize,
-    installations: HashMap<String, Installation>,
-    launches: HashMap<PathBuf, Launch>,
-}
-
-impl RootView {
-    fn new(startup: Startup) -> Self {
-        Self {
-            notice: startup.notice,
-            instances: startup.instances,
-            game_root: startup.game_root,
-            concurrency: startup.concurrency,
-            installations: HashMap::new(),
-            launches: HashMap::new(),
+/// A short description of where the loaded settings came from.
+pub(crate) fn describe_origin(origin: &SettingsOrigin) -> String {
+    match origin {
+        SettingsOrigin::Created => "created with defaults".to_string(),
+        SettingsOrigin::Stored => "loaded from disk".to_string(),
+        SettingsOrigin::Quarantined { path } => {
+            format!("unreadable copy moved to {}", path.display())
+        }
+        SettingsOrigin::ReadOnlyOtherSchema { found } => {
+            format!("schema {found} left untouched")
         }
     }
-
-    fn refresh_instances(&mut self, cx: &mut Context<'_, Self>) {
-        self.instances = Instances::load(self.instances.root.clone());
-        cx.notify();
-    }
-
-    fn install(&mut self, version: &str, cx: &mut Context<'_, Self>) {
-        if matches!(
-            self.installations.get(version),
-            Some(Installation::Running(_) | Installation::Complete)
-        ) {
-            return;
-        }
-        self.set_installation(
-            version,
-            Installation::Running(axlauncher_core::install::prepare::Progress::Version),
-            cx,
-        );
-        installations::start(
-            self.game_root.clone(),
-            version.to_owned(),
-            self.concurrency,
-            cx,
-        );
-    }
-
-    fn set_installation(
-        &mut self,
-        version: &str,
-        installation: Installation,
-        cx: &mut Context<'_, Self>,
-    ) {
-        self.installations.insert(version.to_owned(), installation);
-        cx.notify();
-    }
-
-    fn launch(&mut self, directory: PathBuf, version: String, cx: &mut Context<'_, Self>) {
-        if self.launches.get(&directory).is_some_and(Launch::is_active)
-            || matches!(
-                self.installations.get(&version),
-                Some(Installation::Running(_))
-            )
-        {
-            return;
-        }
-        self.set_launch(&directory, Launch::Starting, cx);
-        launches::start(
-            LaunchRequest {
-                game_root: self.game_root.clone(),
-                instance_directory: directory,
-                version_id: version,
-                java_preference: None,
-                player_name: "Player".into(),
-            },
-            cx,
-        );
-    }
-
-    fn set_launch(&mut self, directory: &Path, launch: Launch, cx: &mut Context<'_, Self>) {
-        self.launches.insert(directory.to_path_buf(), launch);
-        cx.notify();
-    }
-
-    fn clear_completed_installation(&mut self, version: &str) {
-        if matches!(
-            self.installations.get(version),
-            Some(Installation::Complete)
-        ) {
-            self.installations.remove(version);
-        }
-    }
-}
-
-impl Render for RootView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let background = theme.background;
-        let muted = theme.muted_foreground;
-
-        div()
-            .v_flex()
-            .size_full()
-            .gap_6()
-            .p_8()
-            .bg(background)
-            .child(header(muted))
-            .when_some(self.notice.clone(), |view, notice| {
-                view.child(Label::new(notice).text_sm().text_color(muted))
-            })
-            .child(
-                self.instances
-                    .panel(&self.installations, &self.launches, muted, cx),
-            )
-    }
-}
-
-struct Instances {
-    root: PathBuf,
-    items: Vec<DiscoveredProfile>,
-    error: Option<String>,
-}
-
-impl Instances {
-    fn load(directory: PathBuf) -> Self {
-        let discovered = discover(&directory);
-        Self {
-            root: directory,
-            items: discovered.instances,
-            error: (!discovered.issues.is_empty()).then(|| {
-                discovered
-                    .issues
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            }),
-        }
-    }
-
-    fn unavailable() -> Self {
-        Self {
-            root: PathBuf::new(),
-            items: Vec::new(),
-            error: None,
-        }
-    }
-}
-
-impl Instances {
-    fn panel(
-        &self,
-        installations: &HashMap<String, Installation>,
-        launches: &HashMap<PathBuf, Launch>,
-        muted: Hsla,
-        cx: &mut Context<'_, RootView>,
-    ) -> impl IntoElement {
-        let heading = match self.items.len() {
-            0 => "Instances".to_string(),
-            count => format!("Instances · {count}"),
-        };
-
-        GroupBox::new()
-            .outline()
-            .title(Label::new(heading).text_sm().text_color(muted))
-            .child(
-                div()
-                    .v_flex()
-                    .gap_3()
-                    .child(Label::new(self.root_label()).text_xs().text_color(muted))
-                    .when(!self.root.as_os_str().is_empty(), |panel| {
-                        panel.child(
-                            div().h_flex().gap_3().child(
-                                Button::new("refresh-instances")
-                                    .primary()
-                                    .label("Refresh")
-                                    .on_click(
-                                        cx.listener(|view, _, _, cx| view.refresh_instances(cx)),
-                                    ),
-                            ),
-                        )
-                    })
-                    .when_some(self.error.clone(), |panel, error| {
-                        panel.child(Label::new(error).text_sm().text_color(muted))
-                    })
-                    .when(self.items.is_empty() && self.error.is_none(), |panel| {
-                        panel.child(Label::new("No instances yet.").text_sm().text_color(muted))
-                    })
-                    .children(self.items.iter().map(|instance| {
-                        instance_row::row(
-                            instance,
-                            installations,
-                            launches.get(&instance.directory),
-                            muted,
-                            cx,
-                        )
-                    })),
-            )
-    }
-
-    fn root_label(&self) -> String {
-        if self.root.as_os_str().is_empty() {
-            "data directory unknown".to_string()
-        } else {
-            self.root.display().to_string()
-        }
-    }
-}
-
-fn header(muted: Hsla) -> impl IntoElement {
-    div()
-        .v_flex()
-        .gap_1()
-        .child(Label::new(BRAND_NAME).text_xl())
-        .child(
-            Label::new("axlauncher_core + gpui-kit")
-                .text_sm()
-                .text_color(muted),
-        )
 }

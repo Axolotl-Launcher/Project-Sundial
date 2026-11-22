@@ -101,3 +101,20 @@ fn saving_over_an_unreadable_document_is_refused() {
     assert!(matches!(error, SettingsError::RefusedUnreadable { .. }));
     assert_eq!(fs::read(&path).expect("after"), before);
 }
+
+#[test]
+fn saving_preserves_fields_written_by_a_newer_build() {
+    let temp = TempRoot::new();
+    seed(
+        temp.path(),
+        r#"{"schema_version":1,"data":{"theme":"light","future_setting":true}}"#,
+    );
+
+    let mut settings = load_settings(temp.path()).expect("load").data;
+    settings.theme = ThemeChoice::Dark;
+    save_settings(temp.path(), &settings).expect("save");
+
+    let text = fs::read_to_string(temp.path().join(SETTINGS_FILE)).expect("read");
+    assert!(text.contains("future_setting"), "{text}");
+    assert!(text.contains("\"theme\": \"dark\""), "{text}");
+}

@@ -3,7 +3,7 @@
 
 //! The desktop lifecycle of a Minecraft process.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use axlauncher_core::install::vanilla;
 use axlauncher_core::launch::{
@@ -37,50 +37,53 @@ impl Launch {
     }
 }
 
-pub(crate) fn start(request: LaunchRequest, cx: &mut Context<'_, RootView>) {
+pub(crate) fn start(request: LaunchRequest, vanilla: bool, cx: &mut Context<'_, RootView>) {
+    let root = request.game_root.clone();
     let directory = request.instance_directory.clone();
     let version = request.version_id.clone();
     let (sender, mut started) = watch::channel(false);
     let task = cx.background_spawn(async move {
         match tokio::runtime::Builder::new_current_thread().build() {
-            Ok(runtime) => runtime.block_on(run(request, sender)),
+            Ok(runtime) => runtime.block_on(run(request, vanilla, sender)),
             Err(error) => Launch::Failed(error.to_string()),
         }
     });
     cx.spawn(async move |view, cx| {
         if started.changed().await.is_ok() {
-            show_running(&view, &directory, cx);
+            show_running(&view, &directory, &version, cx);
         }
         let outcome = task.await;
         let _ = view.update(cx, |view, cx| {
-            finish_launch(view, directory, &version, outcome, cx)
+            finish_launch(view, &root, directory, &version, outcome, cx)
         });
     })
     .detach();
 }
 
-fn show_running(view: &WeakEntity<RootView>, directory: &std::path::Path, cx: &mut AsyncApp) {
+fn show_running(view: &WeakEntity<RootView>, directory: &Path, version: &str, cx: &mut AsyncApp) {
     let _ = view.update(cx, |view, cx| {
-        view.set_launch(directory, Launch::Running, cx)
+        view.set_launch(directory, version, Launch::Running, cx)
     });
 }
 
 fn finish_launch(
     view: &mut RootView,
+    root: &Path,
     directory: PathBuf,
     version: &str,
     outcome: Launch,
     cx: &mut Context<'_, RootView>,
 ) {
     if matches!(outcome, Launch::NeedsInstall(_)) {
-        view.clear_completed_installation(version);
+        view.clear_completed_installation(root, version);
     }
-    view.set_launch(&directory, outcome, cx);
+    view.set_launch(&directory, version, outcome, cx);
 }
 
-async fn run(request: LaunchRequest, sender: watch::Sender<bool>) -> Launch {
-    if let Err(error) =
-        vanilla::check_files(&request.game_root, &request.version_id, &Target::host())
+async fn run(request: LaunchRequest, vanilla: bool, sender: watch::Sender<bool>) -> Launch {
+    if vanilla
+        && let Err(error) =
+            vanilla::check_files(&request.game_root, &request.version_id, &Target::host())
     {
         return Launch::NeedsInstall(format!("Install game files to continue. {error}"));
     }
