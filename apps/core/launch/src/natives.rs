@@ -16,7 +16,7 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use crate::rules::{self, Target};
-use crate::version::Library;
+use crate::version::{Artifact, Library};
 
 /// The marker that distinguishes a native library from a classpath library.
 const NATIVES_MARKER: &str = ":natives-";
@@ -120,7 +120,6 @@ pub trait NativeReader {
 pub fn entries(libraries: &[Library], target: &Target) -> Vec<NativeEntry> {
     libraries
         .iter()
-        .filter(|library| rules::library_applies(library, target))
         .filter_map(|library| native_jar(library, target))
         .map(|path| NativeEntry { path })
         .collect()
@@ -137,6 +136,59 @@ pub fn extract<R: NativeReader>(
     entries: &[NativeEntry],
     destination: &Path,
 ) -> Result<Extracted, NativeError> {
+    extract_archives(
+        reader,
+        entries.iter().map(|entry| jars_root.join(&entry.path)),
+        destination,
+    )
+}
+
+/// Extracts the archives selected for a managed version under a version lock.
+pub(crate) fn extract_version(
+    reader: &impl NativeReader,
+    game_root: &Path,
+    version_id: &str,
+    libraries: &[Library],
+    target: &Target,
+) -> Result<Extracted, NativeError> {
+    let root = axlauncher_storage::game_natives(game_root);
+    let lock_dir = root.join(".locks");
+    let lock_path = lock_dir.join(format!("{version_id}.lock"));
+    let lock = (|| {
+        fs::create_dir_all(&lock_dir)?;
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&lock_path)?;
+        file.lock()?;
+        Ok::<_, io::Error>(file)
+    })()
+    .map_err(|source| NativeError::Io {
+        path: lock_path,
+        source,
+    })?;
+
+    let archives = libraries.iter().filter_map(|library| {
+        let path = native_jar(library, target)?;
+        let cached = classifier_download(library, target).and_then(|artifact| {
+            let cached = axlauncher_storage::native_archive(game_root, artifact.sha1.as_deref()?)?;
+            let metadata = fs::metadata(&cached).ok()?;
+            (metadata.is_file() && artifact.size.is_none_or(|size| metadata.len() == size))
+                .then_some(cached)
+        });
+        Some(cached.unwrap_or_else(|| game_root.join("libraries").join(path)))
+    });
+    let extracted = extract_archives(reader, archives, &root.join(version_id));
+    drop(lock);
+    extracted
+}
+
+fn extract_archives(
+    reader: &impl NativeReader,
+    archives: impl IntoIterator<Item = PathBuf>,
+    destination: &Path,
+) -> Result<Extracted, NativeError> {
     fs::create_dir_all(destination).map_err(|source| NativeError::Io {
         path: destination.to_path_buf(),
         source,
@@ -144,8 +196,7 @@ pub fn extract<R: NativeReader>(
 
     let mut files = Vec::new();
     let mut skipped = BTreeSet::new();
-    for entry in entries {
-        let jar = jars_root.join(&entry.path);
+    for jar in archives {
         for (name, bytes) in reader.read_jar(&jar)? {
             match native_relative_path(&name) {
                 Some(relative) => write_native(destination, &relative, &bytes, &mut files)?,
@@ -162,6 +213,9 @@ pub fn extract<R: NativeReader>(
 
 /// The jar of one library that holds natives, when it names one for `target`.
 fn native_jar(library: &Library, target: &Target) -> Option<String> {
+    if !rules::library_applies(library, target) {
+        return None;
+    }
     if library.name.contains(NATIVES_MARKER) {
         return library
             .downloads
@@ -170,6 +224,14 @@ fn native_jar(library: &Library, target: &Target) -> Option<String> {
             .map(|artifact| artifact.path.clone());
     }
 
+    classifier_download(library, target).map(|artifact| artifact.path.clone())
+}
+
+/// The artifact selected from the older platform-to-classifier map.
+pub fn classifier_download<'a>(library: &'a Library, target: &Target) -> Option<&'a Artifact> {
+    if library.name.contains(NATIVES_MARKER) || !rules::library_applies(library, target) {
+        return None;
+    }
     let classifier = library.natives.as_ref()?.get(target.os.as_str())?;
     let classifier = classifier.replace(ARCH_PLACEHOLDER, classifier_arch(&target.arch));
     library
@@ -177,7 +239,6 @@ fn native_jar(library: &Library, target: &Target) -> Option<String> {
         .as_ref()
         .and_then(|downloads| downloads.classifiers.as_ref())
         .and_then(|classifiers| classifiers.get(&classifier))
-        .map(|artifact| artifact.path.clone())
 }
 
 /// The classifier spelling of `arch`, which the game writes as `64` or `32`.
@@ -226,10 +287,12 @@ fn write_native(
     files: &mut Vec<PathBuf>,
 ) -> Result<(), NativeError> {
     let target = destination.join(relative);
-    axlauncher_storage::write_atomic(&target, bytes).map_err(|source| NativeError::Io {
-        path: target.clone(),
-        source,
-    })?;
+    if !fs::read(&target).is_ok_and(|existing| existing == bytes) {
+        axlauncher_storage::write_atomic(&target, bytes).map_err(|source| NativeError::Io {
+            path: target.clone(),
+            source,
+        })?;
+    }
     if !files.contains(&target) {
         files.push(target);
     }

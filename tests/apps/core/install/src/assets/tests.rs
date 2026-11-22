@@ -88,6 +88,30 @@ fn missing_libraries_reports_an_absent_artifact() {
 }
 
 #[test]
+fn missing_classifiers_go_to_the_hash_cache() {
+    let data = tempfile::tempdir().unwrap();
+    let game_root = data.path().join("meta");
+    let mut library = library(artifact("org/example/example-1.0.jar"), None);
+    library.natives = Some(BTreeMap::from([(
+        "windows".into(),
+        "natives-windows".into(),
+    )]));
+    let classifier = artifact("org/example/example-1.0-natives-windows.jar");
+    library.downloads.as_mut().unwrap().classifiers =
+        Some(BTreeMap::from([("natives-windows".into(), classifier)]));
+
+    let files = missing_libraries(&game_root, &[library], &target());
+
+    assert_eq!(files.len(), 2);
+    assert_eq!(
+        files[1].path,
+        data.path()
+            .join("caches/minecraft-natives")
+            .join(format!("{ABC_SHA1}.jar"))
+    );
+}
+
+#[test]
 fn missing_libraries_reports_an_unverified_artifact() {
     let root = tempfile::tempdir().unwrap();
     let mut unverified = artifact("org/example/a.jar");

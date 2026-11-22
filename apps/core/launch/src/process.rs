@@ -22,13 +22,16 @@ use axlauncher_spi::{LaunchCommand, LaunchError};
 use crate::platform;
 
 /// Starts `command` and waits for it on a worker thread.
-pub(crate) fn run(command: LaunchCommand) -> impl Future<Output = Result<(), LaunchError>> {
+pub(crate) fn run(
+    command: LaunchCommand,
+    started: impl FnOnce() + Send + 'static,
+) -> impl Future<Output = Result<(), LaunchError>> {
     let slot = Arc::new(Slot::default());
 
     std::thread::spawn({
         let slot = Arc::clone(&slot);
         move || {
-            let outcome = wait(&command);
+            let outcome = wait(&command, started);
             slot.complete(outcome);
         }
     });
@@ -36,9 +39,13 @@ pub(crate) fn run(command: LaunchCommand) -> impl Future<Output = Result<(), Lau
     Awaiting { slot }
 }
 
-fn wait(command: &LaunchCommand) -> Result<(), LaunchError> {
-    let status = build(command)
-        .status()
+fn wait(command: &LaunchCommand, started: impl FnOnce()) -> Result<(), LaunchError> {
+    let mut child = build(command)
+        .spawn()
+        .map_err(|error| LaunchError::NotFound(error.to_string()))?;
+    started();
+    let status = child
+        .wait()
         .map_err(|error| LaunchError::NotFound(error.to_string()))?;
 
     if status.success() {

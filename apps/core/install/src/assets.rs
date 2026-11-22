@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use axlauncher_launch::natives::classifier_download;
 use axlauncher_launch::rules::{self, Target};
 use axlauncher_launch::version::Library;
 use axlauncher_network::verify;
@@ -107,19 +108,36 @@ pub fn missing_libraries(
     target: &Target,
 ) -> Vec<MissingFile> {
     let root = game_root.join(LIBRARIES_DIR);
+    let mut destinations = std::collections::HashSet::new();
     libraries
         .iter()
         .filter(|library| rules::library_applies(library, target))
-        .filter_map(|library| library.download())
-        .filter_map(|artifact| {
-            let path = root.join(&artifact.path);
-            needs_download(&path, artifact.size).then(|| MissingFile {
-                // An artifact without a URL stays in the plan, so the download
-                // reports it instead of the plan hiding it.
-                url: artifact.url.clone().unwrap_or_default(),
-                path,
-                sha1: artifact.sha1.clone(),
-                size: artifact.size,
+        .flat_map(|library| {
+            let regular = library
+                .download()
+                .map(|artifact| (root.join(&artifact.path), artifact));
+            let classifier = classifier_download(library, target).map(|artifact| {
+                let maven_path = root.join(&artifact.path);
+                let path = artifact
+                    .sha1
+                    .as_deref()
+                    .and_then(|sha1| axlauncher_storage::native_archive(game_root, sha1))
+                    .filter(|_| needs_download(&maven_path, artifact.size))
+                    .unwrap_or(maven_path);
+                (path, artifact.clone())
+            });
+            regular.into_iter().chain(classifier)
+        })
+        .filter_map(|(path, artifact)| {
+            (needs_download(&path, artifact.size) && destinations.insert(path.clone())).then(|| {
+                MissingFile {
+                    // An artifact without a URL stays in the plan, so the download
+                    // reports it instead of the plan hiding it.
+                    url: artifact.url.clone().unwrap_or_default(),
+                    path,
+                    sha1: artifact.sha1.clone(),
+                    size: artifact.size,
+                }
             })
         })
         .collect()
@@ -149,17 +167,14 @@ pub fn client_jar(
 
 /// The logging configuration the game's JVM arguments point at.
 ///
-/// The document names it by id under `assets/log_configs`, which is where the
+/// The document names it by id under `log_configs`, which is where the
 /// argument this build assembles looks for it.
 pub fn log_config(
     game_root: &Path,
     version: &axlauncher_launch::version::Version,
 ) -> Option<MissingFile> {
     let client = version.logging.as_ref()?.client.as_ref()?;
-    let path = game_root
-        .join(ASSETS_DIR)
-        .join("log_configs")
-        .join(&client.file.id);
+    let path = axlauncher_storage::game_log_configs(game_root).join(&client.file.id);
     needs_download(&path, client.file.size).then(|| MissingFile {
         url: client.file.url.clone(),
         path,
@@ -219,9 +234,18 @@ pub fn materialise_flat(
     index_id: &str,
     index: &AssetIndexDocument,
 ) -> Vec<String> {
-    let Some(root) = index.flat_root(game_root, index_id) else {
-        return Vec::new();
-    };
+    index
+        .flat_root(game_root, index_id)
+        .map_or_else(Vec::new, |root| {
+            materialise_flat_at(game_root, &root, index)
+        })
+}
+
+pub(crate) fn materialise_flat_at(
+    game_root: &Path,
+    root: &Path,
+    index: &AssetIndexDocument,
+) -> Vec<String> {
     let objects = game_root.join(ASSETS_DIR).join(OBJECTS_DIR);
     let mut failures = Vec::new();
 
@@ -266,14 +290,28 @@ pub async fn download_all(
     files: &[MissingFile],
     concurrency: usize,
 ) -> Vec<DownloadOutcome> {
+    download_all_reporting(network, files, concurrency, |_| {}).await
+}
+
+pub(crate) async fn download_all_reporting(
+    network: &impl Network,
+    files: &[MissingFile],
+    concurrency: usize,
+    mut report: impl FnMut(usize),
+) -> Vec<DownloadOutcome> {
     let limit = if concurrency == 0 {
         DEFAULT_CONCURRENCY
     } else {
         concurrency
     };
+    let mut processed = 0;
     stream::iter(files)
         .map(|file| download(network, file))
         .buffer_unordered(limit)
+        .inspect(|_| {
+            processed += 1;
+            report(processed);
+        })
         .collect()
         .await
 }

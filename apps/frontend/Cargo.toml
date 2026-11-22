@@ -14,6 +14,7 @@ license.workspace = true
 axlauncher_core = { workspace = true }
 axlauncher_ui = { workspace = true }
 dirs = { workspace = true }
+tokio = { workspace = true }
 
 [lints]
 workspace = true

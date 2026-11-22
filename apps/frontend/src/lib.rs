@@ -8,21 +8,28 @@
 //! vocabulary + palette). State lives here in GPUI entities; components stay
 //! stateless recipes.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use axlauncher_core::BRAND_NAME;
-use axlauncher_core::state::{
-    Instance, SettingsOrigin, ThemeChoice, create, discover, load_settings,
-};
+use axlauncher_core::launch::LaunchRequest;
+use axlauncher_core::state::profile::{DiscoveredProfile, discover};
+use axlauncher_core::state::{SettingsOrigin, ThemeChoice, load_settings};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::{
-    ActiveTheme, Button, ButtonVariants, ElementId, GroupBox, GroupBoxVariants, Hsla, Label,
-    Palette, StyledExt,
+    ActiveTheme, Button, ButtonVariants, GroupBox, GroupBoxVariants, Hsla, Label, Palette,
+    StyledExt,
 };
 use axlauncher_ui::{
     Bounds, Context, IntoElement, Render, Window, WindowBounds, WindowOptions, div, px, size,
 };
 use axlauncher_ui::{kit, prelude::*};
+
+mod installations;
+mod instance_row;
+mod launches;
+use installations::Installation;
+use launches::Launch;
 
 const WINDOW_WIDTH: f32 = 720.;
 const WINDOW_HEIGHT: f32 = 480.;
@@ -32,9 +39,6 @@ const DATA_DIR_ENV: &str = "AXLAUNCHER_DATA_DIR";
 
 /// Directory name under the platform data directory.
 const APP_DIR: &str = "AXLauncher";
-
-/// How many numbered names to try before giving up on creating an instance.
-const MAX_INSTANCE_ATTEMPTS: u32 = 100;
 
 /// Opens the Axolotl Launcher window and runs the GPUI event loop.
 ///
@@ -68,8 +72,9 @@ fn open_main_window(cx: &mut kit::App, startup: Startup) {
 struct Startup {
     palette: Palette,
     notice: Option<String>,
-    root: Option<PathBuf>,
     instances: Instances,
+    game_root: PathBuf,
+    concurrency: usize,
 }
 
 impl Startup {
@@ -80,21 +85,28 @@ impl Startup {
                 notice: Some(format!(
                     "Cannot determine the data directory. Set {DATA_DIR_ENV} to choose one."
                 )),
-                root: None,
                 instances: Instances::unavailable(),
+                game_root: PathBuf::new(),
+                concurrency: 0,
             };
         };
 
-        let (palette, notice) = match load_settings(&root) {
-            Ok(loaded) => (palette_for(loaded.data.theme), notice_for(&loaded.origin)),
-            Err(error) => (Palette::Dark, Some(error.to_string())),
+        let (palette, notice, concurrency) = match load_settings(&root) {
+            Ok(loaded) => (
+                palette_for(loaded.data.theme),
+                notice_for(&loaded.origin),
+                loaded.data.max_concurrent_downloads as usize,
+            ),
+            Err(error) => (Palette::Dark, Some(error.to_string()), 0),
         };
 
+        let data = DataDir::new(root);
         Self {
             palette,
             notice,
-            instances: Instances::load(&root),
-            root: Some(root),
+            instances: Instances::load(data.instances()),
+            game_root: data.meta(),
+            concurrency,
         }
     }
 }
@@ -130,52 +142,96 @@ fn notice_for(origin: &SettingsOrigin) -> Option<String> {
     }
 }
 
-/// The first free `instance-N` id and its display name.
-fn next_instance(root: &Path) -> Option<(String, String)> {
-    for number in 1..=MAX_INSTANCE_ATTEMPTS {
-        let id = format!("instance-{number}");
-        if !root.join(&id).exists() {
-            return Some((id, format!("Instance {number}")));
-        }
-    }
-    None
-}
-
 struct RootView {
-    root: Option<PathBuf>,
     notice: Option<String>,
     instances: Instances,
+    game_root: PathBuf,
+    concurrency: usize,
+    installations: HashMap<String, Installation>,
+    launches: HashMap<PathBuf, Launch>,
 }
 
 impl RootView {
     fn new(startup: Startup) -> Self {
         Self {
-            root: startup.root,
             notice: startup.notice,
             instances: startup.instances,
+            game_root: startup.game_root,
+            concurrency: startup.concurrency,
+            installations: HashMap::new(),
+            launches: HashMap::new(),
         }
     }
 
-    fn create_instance(&mut self, cx: &mut Context<'_, Self>) {
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        let Some((id, name)) = next_instance(&root) else {
-            self.notice = Some("Cannot find a free instance name.".to_string());
-            cx.notify();
-            return;
-        };
-
-        let instance = Instance::new(id, name);
-
-        match create(&root, &instance) {
-            Ok(()) => {
-                self.instances = Instances::load(&root);
-                self.notice = None;
-            }
-            Err(error) => self.notice = Some(error.to_string()),
-        }
+    fn refresh_instances(&mut self, cx: &mut Context<'_, Self>) {
+        self.instances = Instances::load(self.instances.root.clone());
         cx.notify();
+    }
+
+    fn install(&mut self, version: &str, cx: &mut Context<'_, Self>) {
+        if matches!(
+            self.installations.get(version),
+            Some(Installation::Running(_) | Installation::Complete)
+        ) {
+            return;
+        }
+        self.set_installation(
+            version,
+            Installation::Running(axlauncher_core::install::prepare::Progress::Version),
+            cx,
+        );
+        installations::start(
+            self.game_root.clone(),
+            version.to_owned(),
+            self.concurrency,
+            cx,
+        );
+    }
+
+    fn set_installation(
+        &mut self,
+        version: &str,
+        installation: Installation,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.installations.insert(version.to_owned(), installation);
+        cx.notify();
+    }
+
+    fn launch(&mut self, directory: PathBuf, version: String, cx: &mut Context<'_, Self>) {
+        if self.launches.get(&directory).is_some_and(Launch::is_active)
+            || matches!(
+                self.installations.get(&version),
+                Some(Installation::Running(_))
+            )
+        {
+            return;
+        }
+        self.set_launch(&directory, Launch::Starting, cx);
+        launches::start(
+            LaunchRequest {
+                game_root: self.game_root.clone(),
+                instance_directory: directory,
+                version_id: version,
+                java_preference: None,
+                player_name: "Player".into(),
+            },
+            cx,
+        );
+    }
+
+    fn set_launch(&mut self, directory: &Path, launch: Launch, cx: &mut Context<'_, Self>) {
+        self.launches.insert(directory.to_path_buf(), launch);
+        cx.notify();
+    }
+
+    fn clear_completed_installation(&mut self, version: &str) {
+        if matches!(
+            self.installations.get(version),
+            Some(Installation::Complete)
+        ) {
+            self.installations.remove(version);
+        }
     }
 }
 
@@ -195,31 +251,33 @@ impl Render for RootView {
             .when_some(self.notice.clone(), |view, notice| {
                 view.child(Label::new(notice).text_sm().text_color(muted))
             })
-            .child(self.instances.panel(muted, cx))
+            .child(
+                self.instances
+                    .panel(&self.installations, &self.launches, muted, cx),
+            )
     }
 }
 
 struct Instances {
     root: PathBuf,
-    items: Vec<Instance>,
+    items: Vec<DiscoveredProfile>,
     error: Option<String>,
 }
 
 impl Instances {
-    fn load(root: &Path) -> Self {
-        let directory = DataDir::new(root).instances();
-
-        match discover(&directory) {
-            Ok(items) => Self {
-                root: directory,
-                items,
-                error: None,
-            },
-            Err(error) => Self {
-                root: directory,
-                items: Vec::new(),
-                error: Some(error.to_string()),
-            },
+    fn load(directory: PathBuf) -> Self {
+        let discovered = discover(&directory);
+        Self {
+            root: directory,
+            items: discovered.instances,
+            error: (!discovered.issues.is_empty()).then(|| {
+                discovered
+                    .issues
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }),
         }
     }
 
@@ -233,7 +291,13 @@ impl Instances {
 }
 
 impl Instances {
-    fn panel(&self, muted: Hsla, cx: &mut Context<'_, RootView>) -> impl IntoElement {
+    fn panel(
+        &self,
+        installations: &HashMap<String, Installation>,
+        launches: &HashMap<PathBuf, Launch>,
+        muted: Hsla,
+        cx: &mut Context<'_, RootView>,
+    ) -> impl IntoElement {
         let heading = match self.items.len() {
             0 => "Instances".to_string(),
             count => format!("Instances · {count}"),
@@ -247,32 +311,33 @@ impl Instances {
                     .v_flex()
                     .gap_3()
                     .child(Label::new(self.root_label()).text_xs().text_color(muted))
-                    .child(
-                        div().h_flex().gap_3().child(
-                            Button::new("create-instance")
-                                .primary()
-                                .label("New instance")
-                                .on_click(cx.listener(|view, _, _, cx| view.create_instance(cx))),
-                        ),
-                    )
+                    .when(!self.root.as_os_str().is_empty(), |panel| {
+                        panel.child(
+                            div().h_flex().gap_3().child(
+                                Button::new("refresh-instances")
+                                    .primary()
+                                    .label("Refresh")
+                                    .on_click(
+                                        cx.listener(|view, _, _, cx| view.refresh_instances(cx)),
+                                    ),
+                            ),
+                        )
+                    })
                     .when_some(self.error.clone(), |panel, error| {
                         panel.child(Label::new(error).text_sm().text_color(muted))
                     })
                     .when(self.items.is_empty() && self.error.is_none(), |panel| {
-                        panel.child(
-                            Label::new(
-                                "No instances yet. Each one is a folder with instance.json.",
-                            )
-                            .text_sm()
-                            .text_color(muted),
-                        )
+                        panel.child(Label::new("No instances yet.").text_sm().text_color(muted))
                     })
-                    .children(
-                        self.items
-                            .iter()
-                            .enumerate()
-                            .map(|(index, instance)| row(index, instance, muted)),
-                    ),
+                    .children(self.items.iter().map(|instance| {
+                        instance_row::row(
+                            instance,
+                            installations,
+                            launches.get(&instance.directory),
+                            muted,
+                            cx,
+                        )
+                    })),
             )
     }
 
@@ -283,35 +348,6 @@ impl Instances {
             self.root.display().to_string()
         }
     }
-}
-
-/// One instance row.
-///
-/// The labels take explicit ids: `Label::new` defaults its id to the call site,
-/// so labels built in a loop would share one id and gpui's accessibility tree
-/// panics on the duplicate in debug builds.
-fn row(index: usize, instance: &Instance, muted: Hsla) -> impl IntoElement {
-    let details = match (&instance.game_version, &instance.loader) {
-        (Some(version), Some(loader)) => format!("{version} · {loader}"),
-        (Some(version), None) => version.clone(),
-        (None, Some(loader)) => loader.clone(),
-        (None, None) => "unknown version".to_string(),
-    };
-
-    div()
-        .v_flex()
-        .gap_1()
-        .child(
-            Label::new(instance.name.clone())
-                .id(ElementId::named_usize("instance-name", index))
-                .text_base(),
-        )
-        .child(
-            Label::new(format!("{} · {details}", instance.id))
-                .id(ElementId::named_usize("instance-detail", index))
-                .text_xs()
-                .text_color(muted),
-        )
 }
 
 fn header(muted: Hsla) -> impl IntoElement {

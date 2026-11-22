@@ -133,9 +133,18 @@ pub struct Step {
 pub fn plan(
     libraries: &Path,
     game_root: &Path,
+    instance_directory: &Path,
+    game_version: &str,
     version: &Version,
     target: &Target,
 ) -> Result<Vec<Step>, ProcessorError> {
+    let values = launcher_data(
+        version,
+        game_root,
+        instance_directory,
+        game_version,
+        libraries,
+    );
     let mut steps = Vec::new();
     for processor in &version.processors {
         if !applies(processor) {
@@ -148,8 +157,8 @@ pub fn plan(
         steps.push(Step {
             main_class: read_main_class(&tool)?,
             classpath: processor_classpath(libraries, &tool, processor, target)?,
-            args: processor_arguments(libraries, game_root, processor, version)?,
-            current: outputs_are_current(processor, libraries, game_root, version),
+            args: processor_arguments(libraries, processor, version, &values)?,
+            current: outputs_are_current(processor, libraries, version, &values),
         });
     }
     Ok(steps)
@@ -163,11 +172,20 @@ pub fn plan(
 pub fn run(
     java: &Path,
     libraries: &Path,
+    game_root: &Path,
     working_directory: &Path,
+    game_version: &str,
     version: &Version,
     target: &Target,
 ) -> Result<Patched, ProcessorError> {
-    let steps = plan(libraries, working_directory, version, target)?;
+    let steps = plan(
+        libraries,
+        game_root,
+        working_directory,
+        game_version,
+        version,
+        target,
+    )?;
     let mut result = Patched {
         applicable: steps.len(),
         ..Patched::default()
@@ -226,8 +244,8 @@ fn applies(processor: &Processor) -> bool {
 fn outputs_are_current(
     processor: &Processor,
     libraries: &Path,
-    game_root: &Path,
     version: &Version,
+    values: &[(&str, String)],
 ) -> bool {
     let declared: Vec<&String> = if processor.outputs.is_empty() {
         inferred_outputs(processor).into_iter().collect()
@@ -238,7 +256,7 @@ fn outputs_are_current(
         return false;
     }
     declared.into_iter().all(|template| {
-        resolve_template(template, libraries, version, game_root)
+        resolve_template(template, libraries, version, values)
             .is_ok_and(|path| Path::new(&path).is_file())
     })
 }
@@ -306,14 +324,14 @@ fn processor_classpath(
 /// The step's arguments, with every template resolved.
 fn processor_arguments(
     libraries: &Path,
-    game_root: &Path,
     processor: &Processor,
     version: &Version,
+    values: &[(&str, String)],
 ) -> Result<Vec<String>, ProcessorError> {
     processor
         .args
         .iter()
-        .map(|argument| resolve_template(argument, libraries, version, game_root))
+        .map(|argument| resolve_template(argument, libraries, version, values))
         .collect()
 }
 
@@ -327,17 +345,16 @@ fn processor_arguments(
 fn launcher_data(
     version: &Version,
     game_root: &Path,
+    instance_directory: &Path,
+    game_version: &str,
     libraries: &Path,
 ) -> Vec<(&'static str, String)> {
-    let jar = game_root
-        .join("versions")
-        .join(version.jar_id())
-        .join(format!("{}.jar", version.jar_id()));
+    let jar = axlauncher_launch::plan::client_jar(game_root, version.jar_id());
     vec![
         (SIDE, CLIENT.to_string()),
         (MINECRAFT_JAR, jar.display().to_string()),
-        (MINECRAFT_VERSION, version.jar_id().to_string()),
-        (ROOT, game_root.display().to_string()),
+        (MINECRAFT_VERSION, game_version.to_string()),
+        (ROOT, instance_directory.display().to_string()),
         (LIBRARY_DIR, libraries.display().to_string()),
     ]
 }
@@ -351,7 +368,7 @@ const MINECRAFT_JAR: &str = "MINECRAFT_JAR";
 /// The game version the loader patches.
 const MINECRAFT_VERSION: &str = "MINECRAFT_VERSION";
 
-/// The game root the launcher chose.
+/// The game directory used as this processor's working directory.
 const ROOT: &str = "ROOT";
 
 /// The libraries directory the launcher chose.
@@ -366,7 +383,7 @@ fn resolve_template(
     template: &str,
     libraries: &Path,
     version: &Version,
-    game_root: &Path,
+    values: &[(&str, String)],
 ) -> Result<String, ProcessorError> {
     if let Some(coordinate) = bracket(template) {
         return library_path(libraries, coordinate)
@@ -377,8 +394,8 @@ fn resolve_template(
     }
 
     let mut resolved = template.to_string();
-    for (name, value) in launcher_data(version, game_root, libraries) {
-        resolved = resolved.replace(&format!("{{{name}}}"), &value);
+    for (name, value) in values {
+        resolved = resolved.replace(&format!("{{{name}}}"), value);
     }
     for (name, entry) in &version.data {
         let value = match bracket(&entry.client) {

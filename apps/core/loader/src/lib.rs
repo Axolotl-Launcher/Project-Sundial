@@ -187,7 +187,7 @@ impl<N: Network> ModLoader for LoaderApi<N> {
         }
 
         Ok(LoaderProfile {
-            version_id: head.id,
+            version_id: format!("{}-{}", request.game_version, chosen.version),
             document: bytes,
             files: Vec::new(),
         })

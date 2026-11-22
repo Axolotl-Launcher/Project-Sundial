@@ -21,12 +21,6 @@ use crate::version::{self, Version, VersionError};
 /// The directory under a game root that holds version documents.
 const VERSIONS: &str = "versions";
 
-/// The directory under a game root that holds library jars.
-const LIBRARIES: &str = "libraries";
-
-/// The directory under an instance that receives unpacked natives.
-const NATIVES: &str = "natives";
-
 /// The launcher name the game is told about.
 const LAUNCHER_NAME: &str = "Axolotl Launcher";
 
@@ -236,9 +230,9 @@ fn java_executable(
         })
 }
 
-/// The directory an instance's natives are unpacked into.
+/// The shared directory for this version's unpacked natives.
 fn natives_directory(request: &LaunchRequest) -> PathBuf {
-    request.instance_directory.join(NATIVES)
+    axlauncher_storage::game_natives(&request.game_root).join(&request.version_id)
 }
 
 /// The number of native files unpacked into the instance's natives directory.
@@ -248,10 +242,13 @@ fn unpack_natives(
     target: &Target,
 ) -> Result<usize, FlowError> {
     let directory = natives_directory(request);
-    let entries = natives::entries(&version.libraries, target);
-    let libraries = request.game_root.join(LIBRARIES);
-
-    match natives::extract(&JarReader, &libraries, &entries, &directory) {
+    match natives::extract_version(
+        &JarReader,
+        &request.game_root,
+        &request.version_id,
+        &version.libraries,
+        target,
+    ) {
         Ok(extracted) => Ok(extracted.files.len()),
         Err(source) => Err(FlowError::Natives { directory, source }),
     }

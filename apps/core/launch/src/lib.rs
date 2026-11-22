@@ -33,7 +33,23 @@ pub struct ProcessLauncher;
 
 impl Launcher for ProcessLauncher {
     async fn launch(&self, command: LaunchCommand) -> Result<(), LaunchError> {
-        process::run(command).await
+        process::run(command, || {}).await
+    }
+}
+
+impl ProcessLauncher {
+    /// A process provider that reports when the child has actually started.
+    pub fn reporting(started: impl Fn() + Send + Sync + 'static) -> impl Launcher + Send + Sync {
+        ReportingProcessLauncher(std::sync::Arc::new(started))
+    }
+}
+
+struct ReportingProcessLauncher<F>(std::sync::Arc<F>);
+
+impl<F: Fn() + Send + Sync + 'static> Launcher for ReportingProcessLauncher<F> {
+    async fn launch(&self, command: LaunchCommand) -> Result<(), LaunchError> {
+        let started = self.0.clone();
+        process::run(command, move || started()).await
     }
 }
 
