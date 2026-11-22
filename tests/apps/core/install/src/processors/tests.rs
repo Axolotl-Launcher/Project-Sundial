@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::processors::ProcessorError;
+use crate::test_tempfile as tempfile;
 use std::collections::BTreeMap;
 use std::io::Write;
 
