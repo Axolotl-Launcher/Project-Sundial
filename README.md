@@ -145,6 +145,9 @@ Ubuntu 上的 Hygiene 和 Hooks 任务负责脚本、仓库规则和 Git 钩子�
 `turbo` 本身不认识宿主平台，直接 `turbo run build` 会在 Windows 上连 Linux 壳一起编译。
 根脚本经 `scripts/turbo.ts` 注入 `--filter`，只调度 `apps/*` 加当前平台的壳。
 
+工作区通过 `.cargo/config.toml` 为所有 Cargo profile 默认启用增量编译。
+`pnpm build`、`pnpm dev` 和直接调用 Cargo 都使用该设置，增量产物保存在对应的构建目录中。
+
 ## 网络
 
 若 crates.io 直连受阻（企业代理、镜像环境等），可在 `~/.cargo/config.toml` 配置镜像，
