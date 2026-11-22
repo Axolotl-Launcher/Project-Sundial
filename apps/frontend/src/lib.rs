@@ -8,6 +8,7 @@
 //! vocabulary + palette). State lives here in GPUI entities; components stay
 //! stateless recipes.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use axlauncher_core::BRAND_NAME;
@@ -15,13 +16,17 @@ use axlauncher_core::state::profile::{DiscoveredProfile, discover};
 use axlauncher_core::state::{SettingsOrigin, ThemeChoice, load_settings};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::{
-    ActiveTheme, Button, ButtonVariants, ElementId, GroupBox, GroupBoxVariants, Hsla, Label,
-    Palette, StyledExt,
+    ActiveTheme, Button, ButtonVariants, GroupBox, GroupBoxVariants, Hsla, Label, Palette,
+    StyledExt,
 };
 use axlauncher_ui::{
     Bounds, Context, IntoElement, Render, Window, WindowBounds, WindowOptions, div, px, size,
 };
 use axlauncher_ui::{kit, prelude::*};
+
+mod installations;
+mod instance_row;
+use installations::Installation;
 
 const WINDOW_WIDTH: f32 = 720.;
 const WINDOW_HEIGHT: f32 = 480.;
@@ -65,6 +70,8 @@ struct Startup {
     palette: Palette,
     notice: Option<String>,
     instances: Instances,
+    game_root: PathBuf,
+    concurrency: usize,
 }
 
 impl Startup {
@@ -76,18 +83,27 @@ impl Startup {
                     "Cannot determine the data directory. Set {DATA_DIR_ENV} to choose one."
                 )),
                 instances: Instances::unavailable(),
+                game_root: PathBuf::new(),
+                concurrency: 0,
             };
         };
 
-        let (palette, notice) = match load_settings(&root) {
-            Ok(loaded) => (palette_for(loaded.data.theme), notice_for(&loaded.origin)),
-            Err(error) => (Palette::Dark, Some(error.to_string())),
+        let (palette, notice, concurrency) = match load_settings(&root) {
+            Ok(loaded) => (
+                palette_for(loaded.data.theme),
+                notice_for(&loaded.origin),
+                loaded.data.max_concurrent_downloads as usize,
+            ),
+            Err(error) => (Palette::Dark, Some(error.to_string()), 0),
         };
 
+        let data = DataDir::new(root);
         Self {
             palette,
             notice,
-            instances: Instances::load(DataDir::new(root).instances()),
+            instances: Instances::load(data.instances()),
+            game_root: data.meta(),
+            concurrency,
         }
     }
 }
@@ -126,6 +142,9 @@ fn notice_for(origin: &SettingsOrigin) -> Option<String> {
 struct RootView {
     notice: Option<String>,
     instances: Instances,
+    game_root: PathBuf,
+    concurrency: usize,
+    installations: HashMap<String, Installation>,
 }
 
 impl RootView {
@@ -133,11 +152,44 @@ impl RootView {
         Self {
             notice: startup.notice,
             instances: startup.instances,
+            game_root: startup.game_root,
+            concurrency: startup.concurrency,
+            installations: HashMap::new(),
         }
     }
 
     fn refresh_instances(&mut self, cx: &mut Context<'_, Self>) {
         self.instances = Instances::load(self.instances.root.clone());
+        cx.notify();
+    }
+
+    fn install(&mut self, version: &str, cx: &mut Context<'_, Self>) {
+        if matches!(
+            self.installations.get(version),
+            Some(Installation::Running(_) | Installation::Complete)
+        ) {
+            return;
+        }
+        self.set_installation(
+            version,
+            Installation::Running(axlauncher_core::install::prepare::Progress::Version),
+            cx,
+        );
+        installations::start(
+            self.game_root.clone(),
+            version.to_owned(),
+            self.concurrency,
+            cx,
+        );
+    }
+
+    fn set_installation(
+        &mut self,
+        version: &str,
+        installation: Installation,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.installations.insert(version.to_owned(), installation);
         cx.notify();
     }
 }
@@ -158,7 +210,7 @@ impl Render for RootView {
             .when_some(self.notice.clone(), |view, notice| {
                 view.child(Label::new(notice).text_sm().text_color(muted))
             })
-            .child(self.instances.panel(muted, cx))
+            .child(self.instances.panel(&self.installations, muted, cx))
     }
 }
 
@@ -195,7 +247,12 @@ impl Instances {
 }
 
 impl Instances {
-    fn panel(&self, muted: Hsla, cx: &mut Context<'_, RootView>) -> impl IntoElement {
+    fn panel(
+        &self,
+        installations: &HashMap<String, Installation>,
+        muted: Hsla,
+        cx: &mut Context<'_, RootView>,
+    ) -> impl IntoElement {
         let heading = match self.items.len() {
             0 => "Instances".to_string(),
             count => format!("Instances · {count}"),
@@ -227,7 +284,11 @@ impl Instances {
                     .when(self.items.is_empty() && self.error.is_none(), |panel| {
                         panel.child(Label::new("No instances yet.").text_sm().text_color(muted))
                     })
-                    .children(self.items.iter().map(|instance| row(instance, muted))),
+                    .children(
+                        self.items
+                            .iter()
+                            .map(|instance| instance_row::row(instance, installations, muted, cx)),
+                    ),
             )
     }
 
@@ -238,47 +299,6 @@ impl Instances {
             self.root.display().to_string()
         }
     }
-}
-
-/// One instance row.
-///
-/// The labels take explicit ids: `Label::new` defaults its id to the call site,
-/// so labels built in a loop would share one id and gpui's accessibility tree
-/// panics on the duplicate in debug builds.
-fn row(instance: &DiscoveredProfile, muted: Hsla) -> impl IntoElement {
-    let profile = &instance.profile;
-    let details = profile.game.as_ref().map_or_else(
-        || "unknown version".to_string(),
-        |game| match &game.loader {
-            Some(loader) => format!("{} · {}", game.minecraft, loader.kind),
-            None => game.minecraft.clone(),
-        },
-    );
-    let directory = instance.directory.display();
-
-    div()
-        .v_flex()
-        .gap_1()
-        .child(
-            Label::new(profile.instance.name.clone())
-                .id(ElementId::Name(format!("instance-name:{directory}").into()))
-                .text_base(),
-        )
-        .child(
-            Label::new(format!(
-                "{} · {details}",
-                instance
-                    .directory
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-            ))
-            .id(ElementId::Name(
-                format!("instance-detail:{directory}").into(),
-            ))
-            .text_xs()
-            .text_color(muted),
-        )
 }
 
 fn header(muted: Hsla) -> impl IntoElement {

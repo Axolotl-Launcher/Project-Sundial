@@ -591,6 +591,7 @@ dependencies = [
  "axlauncher_core",
  "axlauncher_ui",
  "dirs 6.0.0",
+ "tokio",
 ]
 
 [[package]]
