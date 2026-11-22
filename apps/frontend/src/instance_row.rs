@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Instance rows and their install actions.
+//! Instance rows and their install and launch actions.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -9,11 +9,13 @@ use std::path::Path;
 use axlauncher_core::state::profile::DiscoveredProfile;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    Button, ButtonVariants, Context, ElementId, Hsla, IntoElement, Label, StyledExt, div,
+    Button, ButtonVariants, Context, Disableable, ElementId, Hsla, IntoElement, Label, StyledExt,
+    div,
 };
 
 use crate::RootView;
 use crate::installations::{Installation, vanilla_version};
+use crate::launches::Launch;
 
 /// One instance row.
 ///
@@ -23,6 +25,7 @@ use crate::installations::{Installation, vanilla_version};
 pub(crate) fn row(
     instance: &DiscoveredProfile,
     installations: &HashMap<String, Installation>,
+    launch: Option<&Launch>,
     muted: Hsla,
     cx: &mut Context<'_, RootView>,
 ) -> impl IntoElement + use<> {
@@ -68,6 +71,7 @@ pub(crate) fn row(
                 &instance.directory,
                 version,
                 installations.get(version),
+                launch,
                 muted,
                 cx,
             )
@@ -85,26 +89,44 @@ fn instance_actions(
     directory: &Path,
     version: &str,
     installation: Option<&Installation>,
+    launch: Option<&Launch>,
     muted: Hsla,
     cx: &mut Context<'_, RootView>,
 ) -> impl IntoElement + use<> {
-    let message = installation.map(Installation::message);
+    let busy = launch.is_some_and(Launch::is_active)
+        || matches!(installation, Some(Installation::Running(_)));
+    let message = match (installation, launch) {
+        (_, Some(state)) if state.is_active() => Some(state.message().to_owned()),
+        (Some(state @ (Installation::Running(_) | Installation::Failed(_))), _) => {
+            Some(state.message())
+        }
+        (Some(Installation::Complete), Some(Launch::NeedsInstall(_))) => {
+            Some(Installation::Complete.message())
+        }
+        (_, Some(launch)) => Some(launch.message().to_owned()),
+        (installation, None) => installation.map(Installation::message),
+    };
     let label = match installation {
         None => Some("Install"),
         Some(Installation::Failed(_)) => Some("Retry"),
         Some(Installation::Running(_) | Installation::Complete) => None,
     };
-    let buttons = div().h_flex().gap_2().when_some(label, |action, label| {
-        let version = version.to_owned();
-        action.child(
-            Button::new(ElementId::Name(
-                format!("install:{}", directory.display()).into(),
-            ))
-            .primary()
-            .label(label)
-            .on_click(cx.listener(move |view, _, _, cx| view.install(&version, cx))),
-        )
-    });
+    let buttons = div()
+        .h_flex()
+        .gap_2()
+        .when_some(label, |action, label| {
+            let version = version.to_owned();
+            action.child(
+                Button::new(ElementId::Name(
+                    format!("install:{}", directory.display()).into(),
+                ))
+                .primary()
+                .disabled(busy)
+                .label(label)
+                .on_click(cx.listener(move |view, _, _, cx| view.install(&version, cx))),
+            )
+        })
+        .child(launch_button(directory, version, busy, cx));
     div()
         .v_flex()
         .gap_1()
@@ -120,4 +142,22 @@ fn instance_actions(
                     .text_color(muted),
             )
         })
+}
+
+fn launch_button(
+    directory: &Path,
+    version: &str,
+    busy: bool,
+    cx: &mut Context<'_, RootView>,
+) -> Button {
+    let directory = directory.to_path_buf();
+    let version = version.to_owned();
+    Button::new(ElementId::Name(
+        format!("launch:{}", directory.display()).into(),
+    ))
+    .label("Launch")
+    .disabled(busy)
+    .on_click(
+        cx.listener(move |view, _, _, cx| view.launch(directory.clone(), version.clone(), cx)),
+    )
 }

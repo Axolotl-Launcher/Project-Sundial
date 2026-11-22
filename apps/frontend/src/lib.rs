@@ -9,9 +9,10 @@
 //! stateless recipes.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use axlauncher_core::BRAND_NAME;
+use axlauncher_core::launch::LaunchRequest;
 use axlauncher_core::state::profile::{DiscoveredProfile, discover};
 use axlauncher_core::state::{SettingsOrigin, ThemeChoice, load_settings};
 use axlauncher_core::storage::DataDir;
@@ -26,7 +27,9 @@ use axlauncher_ui::{kit, prelude::*};
 
 mod installations;
 mod instance_row;
+mod launches;
 use installations::Installation;
+use launches::Launch;
 
 const WINDOW_WIDTH: f32 = 720.;
 const WINDOW_HEIGHT: f32 = 480.;
@@ -145,6 +148,7 @@ struct RootView {
     game_root: PathBuf,
     concurrency: usize,
     installations: HashMap<String, Installation>,
+    launches: HashMap<PathBuf, Launch>,
 }
 
 impl RootView {
@@ -155,6 +159,7 @@ impl RootView {
             game_root: startup.game_root,
             concurrency: startup.concurrency,
             installations: HashMap::new(),
+            launches: HashMap::new(),
         }
     }
 
@@ -192,6 +197,42 @@ impl RootView {
         self.installations.insert(version.to_owned(), installation);
         cx.notify();
     }
+
+    fn launch(&mut self, directory: PathBuf, version: String, cx: &mut Context<'_, Self>) {
+        if self.launches.get(&directory).is_some_and(Launch::is_active)
+            || matches!(
+                self.installations.get(&version),
+                Some(Installation::Running(_))
+            )
+        {
+            return;
+        }
+        self.set_launch(&directory, Launch::Starting, cx);
+        launches::start(
+            LaunchRequest {
+                game_root: self.game_root.clone(),
+                instance_directory: directory,
+                version_id: version,
+                java_preference: None,
+                player_name: "Player".into(),
+            },
+            cx,
+        );
+    }
+
+    fn set_launch(&mut self, directory: &Path, launch: Launch, cx: &mut Context<'_, Self>) {
+        self.launches.insert(directory.to_path_buf(), launch);
+        cx.notify();
+    }
+
+    fn clear_completed_installation(&mut self, version: &str) {
+        if matches!(
+            self.installations.get(version),
+            Some(Installation::Complete)
+        ) {
+            self.installations.remove(version);
+        }
+    }
 }
 
 impl Render for RootView {
@@ -210,7 +251,10 @@ impl Render for RootView {
             .when_some(self.notice.clone(), |view, notice| {
                 view.child(Label::new(notice).text_sm().text_color(muted))
             })
-            .child(self.instances.panel(&self.installations, muted, cx))
+            .child(
+                self.instances
+                    .panel(&self.installations, &self.launches, muted, cx),
+            )
     }
 }
 
@@ -250,6 +294,7 @@ impl Instances {
     fn panel(
         &self,
         installations: &HashMap<String, Installation>,
+        launches: &HashMap<PathBuf, Launch>,
         muted: Hsla,
         cx: &mut Context<'_, RootView>,
     ) -> impl IntoElement {
@@ -284,11 +329,15 @@ impl Instances {
                     .when(self.items.is_empty() && self.error.is_none(), |panel| {
                         panel.child(Label::new("No instances yet.").text_sm().text_color(muted))
                     })
-                    .children(
-                        self.items
-                            .iter()
-                            .map(|instance| instance_row::row(instance, installations, muted, cx)),
-                    ),
+                    .children(self.items.iter().map(|instance| {
+                        instance_row::row(
+                            instance,
+                            installations,
+                            launches.get(&instance.directory),
+                            muted,
+                            cx,
+                        )
+                    })),
             )
     }
 
