@@ -10,6 +10,8 @@
 
 import { execFileSync } from "node:child_process";
 
+import { VERSION_COLOR } from "./version-labels.ts";
+
 interface LabelSpec {
   readonly name: string;
   readonly color: string;
@@ -67,9 +69,6 @@ export const LABELS: readonly LabelSpec[] = [
   ...MODULE_LABELS,
   ...STATUS_LABELS,
 ];
-
-/// Colour used for `version: *` labels created on demand.
-const VERSION_COLOR = "bfd4f2";
 
 function upsert(label: LabelSpec): void {
   execFileSync(

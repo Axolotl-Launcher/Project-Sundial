@@ -11,6 +11,7 @@
 import { execFileSync } from "node:child_process";
 
 import { modulesForPaths } from "./pull-request-labels.ts";
+import { ensureVersionLabel } from "./version-labels.ts";
 
 /// The repository the workflow runs in, e.g. `owner/name`.
 const REPOSITORY = process.env["GITHUB_REPOSITORY"];
@@ -53,14 +54,17 @@ function main(): number {
 
   const modules = modulesForPaths(changedPaths(number));
   const version = workspaceVersion();
+  const versionLabel = version === undefined ? undefined : `version: ${version}`;
 
-  const labels = [
+  if (versionLabel !== undefined) {
+    ensureVersionLabel(versionLabel);
+  }
+
+  apply(number, [
     ...modules.map((module) => `module: ${module}`),
-    ...(version === undefined ? [] : [`version: ${version}`]),
+    ...(versionLabel === undefined ? [] : [versionLabel]),
     "status: unreviewed",
-  ];
-
-  apply(number, labels);
+  ]);
   return 0;
 }
 

@@ -127,6 +127,9 @@ gh auth login          # once
 node scripts/sync-labels.ts
 ```
 
+`version:` labels are the exception: the triage scripts create them on demand,
+because a report can name a version that has no release yet.
+
 Every dropdown option must have an entry in `scripts/issue-labels.ts`;
 `scripts/forms.test.ts` fails when one does not.
 
