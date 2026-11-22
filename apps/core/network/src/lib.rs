@@ -38,26 +38,33 @@ impl Network for ReqwestNetwork {
             .send()
             .await
             .map_err(|error| FetchError::Retryable(error.to_string()))?;
-        if let Some(error) = status_error(response.status()) {
-            return Err(error);
-        }
-        response
+        let status = response.status();
+        let bytes = response
             .bytes()
             .await
-            .map(|bytes| bytes.to_vec())
-            .map_err(|error| FetchError::Retryable(error.to_string()))
+            .map_err(|error| FetchError::Retryable(error.to_string()))?
+            .to_vec();
+
+        if status.is_success() {
+            return Ok(bytes);
+        }
+        Err(status_error(status, bytes))
     }
 }
 
-/// The error a non-success response stands for, or `None` when it succeeded.
-fn status_error(status: reqwest::StatusCode) -> Option<FetchError> {
+/// The error a non-success response stands for.
+///
+/// The body travels with a client error because an API can answer "this
+/// version does not exist" as a 4xx whose body says so. A server error is
+/// retryable and its body is a page, not an answer, so it is not kept.
+fn status_error(status: reqwest::StatusCode, body: Vec<u8>) -> FetchError {
     if status.is_client_error() {
-        return Some(FetchError::Fatal(format!("HTTP {status}")));
+        return FetchError::Rejected {
+            status: status.as_u16(),
+            body,
+        };
     }
-    if status.is_success() {
-        return None;
-    }
-    Some(FetchError::Retryable(format!("HTTP {status}")))
+    FetchError::Retryable(format!("HTTP {status}"))
 }
 
 /// Whether `bytes` hashes to `expected_sha1`, compared without regard to hex case.

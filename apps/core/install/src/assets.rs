@@ -301,6 +301,7 @@ async fn fetch_and_write(network: &impl Network, file: &MissingFile) -> Result<(
 fn reason(error: FetchError) -> String {
     match error {
         FetchError::Retryable(reason) | FetchError::Fatal(reason) => reason,
+        rejected @ FetchError::Rejected { .. } => rejected.to_string(),
     }
 }
 

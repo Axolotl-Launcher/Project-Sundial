@@ -196,6 +196,12 @@ fn logging_argument(version: &Version, layout: &Layout) -> Option<String> {
         .join("assets")
         .join("log_configs")
         .join(&client.file.id);
+    // An install downloads this file; a launch that runs before one did keeps
+    // the game's own default logging rather than naming a file that is not
+    // there, which log4j reports as a configuration error.
+    if !path.is_file() {
+        return None;
+    }
     Some(
         client
             .argument

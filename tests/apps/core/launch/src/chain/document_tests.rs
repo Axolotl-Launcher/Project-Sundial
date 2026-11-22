@@ -119,3 +119,37 @@ fn a_document_with_nothing_to_inherit_resolves_to_itself() {
     assert_eq!(resolved.id, "1.21");
     assert_eq!(resolved.main_class, "Main");
 }
+
+#[test]
+fn a_profile_runs_the_jar_of_the_version_it_inherits() {
+    let root = TempRoot::new();
+    write(
+        root.path(),
+        "1.21.11",
+        r#"{"id":"1.21.11","type":"release","mainClass":"Main","assets":"34"}"#,
+    );
+    write(
+        root.path(),
+        "fabric-loader-0.20.1-1.21.11",
+        r#"{"id":"fabric-loader-0.20.1-1.21.11","inheritsFrom":"1.21.11","mainClass":"KnotClient"}"#,
+    );
+
+    let resolved =
+        version::load_resolved(root.path(), "fabric-loader-0.20.1-1.21.11").expect("resolved");
+
+    assert_eq!(resolved.jar_id(), "1.21.11", "the vanilla client jar runs");
+}
+
+#[test]
+fn a_version_with_nothing_beneath_it_runs_from_its_own_folder() {
+    let root = TempRoot::new();
+    write(
+        root.path(),
+        "1.21.11",
+        r#"{"id":"1.21.11","type":"release","mainClass":"Main","assets":"34"}"#,
+    );
+
+    let resolved = version::load_resolved(root.path(), "1.21.11").expect("resolved");
+
+    assert_eq!(resolved.jar_id(), "1.21.11");
+}

@@ -138,6 +138,15 @@ fn resolve_below(
         version = merge(parent, version);
     }
 
+    // A document that names no jar runs from its own folder. Doing this after
+    // the merge is what makes a loader profile run the vanilla jar: its parent
+    // resolved to the parent's id, the merge kept it because the profile names
+    // no jar of its own, and only a profile nobody inherits from falls back to
+    // its own id.
+    if version.jar.is_none() {
+        version.jar = Some(version.id.clone());
+    }
+
     visited.remove(&version.id);
     Ok(version)
 }

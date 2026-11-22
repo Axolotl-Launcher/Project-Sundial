@@ -568,6 +568,7 @@ dependencies = [
  "axlauncher_domain",
  "axlauncher_install",
  "axlauncher_launch",
+ "axlauncher_loader",
  "axlauncher_mod_metadata",
  "axlauncher_network",
  "axlauncher_observability",
@@ -618,6 +619,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "axlauncher_loader"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_spi",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "axlauncher_mod_metadata"
 version = "0.1.0"
 
@@ -661,6 +671,7 @@ name = "axlauncher_policy_tests"
 version = "0.1.0"
 dependencies = [
  "axlauncher_content",
+ "axlauncher_install",
  "axlauncher_launch",
  "axlauncher_spi",
  "axlauncher_state",

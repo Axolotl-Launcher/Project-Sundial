@@ -25,16 +25,27 @@ fn verify_rejects_a_different_hash() {
 }
 
 #[test]
-fn non_success_statuses_carry_the_retry_advice() {
+fn a_client_error_keeps_the_body_that_explains_it() {
     assert_eq!(
-        status_error(reqwest::StatusCode::NOT_FOUND),
-        Some(FetchError::Fatal("HTTP 404 Not Found".into()))
+        status_error(reqwest::StatusCode::NOT_FOUND, b"no such version".to_vec()),
+        FetchError::Rejected {
+            status: 404,
+            body: b"no such version".to_vec(),
+        }
     );
     assert_eq!(
-        status_error(reqwest::StatusCode::INTERNAL_SERVER_ERROR),
-        Some(FetchError::Retryable(
-            "HTTP 500 Internal Server Error".into()
-        ))
+        status_error(reqwest::StatusCode::BAD_REQUEST, b"[]".to_vec()),
+        FetchError::Rejected {
+            status: 400,
+            body: b"[]".to_vec(),
+        }
     );
-    assert_eq!(status_error(reqwest::StatusCode::OK), None);
+}
+
+#[test]
+fn a_server_error_is_retryable_and_does_not_keep_its_page() {
+    assert_eq!(
+        status_error(reqwest::StatusCode::INTERNAL_SERVER_ERROR, Vec::new()),
+        FetchError::Retryable("HTTP 500 Internal Server Error".into())
+    );
 }

@@ -4,6 +4,7 @@
 //! Installation planning and execution.
 
 pub mod assets;
+pub mod loader;
 pub mod prepare;
 pub mod processors;
 
