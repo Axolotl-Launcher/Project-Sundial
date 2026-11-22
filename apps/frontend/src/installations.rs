@@ -8,12 +8,13 @@ use std::path::{Path, PathBuf};
 use axlauncher_core::install::{
     loader as loader_install,
     prepare::{Prepared, Progress},
-    vanilla,
+    runtime, vanilla,
 };
-use axlauncher_core::launch::Target;
-use axlauncher_core::loader::LoaderApi;
+use axlauncher_core::launch::{SystemJava, Target};
+use axlauncher_core::loader::{ForgeApi, LoaderApi, NeoForgeApi};
 use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::spi::{LoaderKind, LoaderRequest};
+use axlauncher_core::state::javas::{self, ChosenJava};
 use axlauncher_core::state::profile::Game;
 use axlauncher_ui::{AppContext, AsyncApp, Context, WeakEntity};
 use tokio::sync::watch;
@@ -139,7 +140,7 @@ fn download_failure(prepared: &Prepared) -> String {
 /// A kind the UI can show but not install must not offer an install that would
 /// fail at the end of a download.
 pub(crate) fn supported_loader(kind: &str) -> bool {
-    matches!(kind, "vanilla" | "fabric" | "quilt")
+    matches!(kind, "vanilla" | "fabric" | "quilt" | "forge" | "neoforge")
 }
 
 /// Starts installing a loader profile.
@@ -159,8 +160,10 @@ pub(crate) fn start_loader(
     let (progress, mut updates) = watch::channel(Progress::Version);
     let display_key = key.clone();
     let display_root = game_root.clone();
-    let task = cx
-        .background_spawn(async move { install_loader(&game_root, &game, concurrency, progress) });
+    let work_data = data_root.clone();
+    let task = cx.background_spawn(async move {
+        install_loader(&work_data, &game_root, &game, concurrency, progress)
+    });
     cx.spawn(async move |view, cx| {
         display_progress(&mut updates, &view, cx, &display_root, &display_key).await;
         let outcome = task.await;
@@ -172,6 +175,7 @@ pub(crate) fn start_loader(
 }
 
 fn install_loader(
+    data_root: &Path,
     game_root: &Path,
     game: &Game,
     concurrency: usize,
@@ -194,6 +198,7 @@ fn install_loader(
         .build()
         .map_err(|error| error.to_string())?;
     runtime.block_on(download_loader(
+        data_root,
         game_root,
         kind,
         request,
@@ -203,6 +208,7 @@ fn install_loader(
 }
 
 async fn download_loader(
+    data_root: &Path,
     game_root: &Path,
     kind: LoaderKind,
     request: LoaderRequest,
@@ -210,28 +216,159 @@ async fn download_loader(
     progress: watch::Sender<Progress>,
 ) -> Result<String, String> {
     let network = ReqwestNetwork::desktop().map_err(|error| error.to_string())?;
-    let api = match kind {
-        LoaderKind::Fabric => LoaderApi::fabric(network.clone()),
-        LoaderKind::Quilt => LoaderApi::quilt(network.clone()),
-        other => return Err(format!("No provider for loader {other} is wired yet.")),
-    };
-    let installed = loader_install::install(
+
+    let first = run_provider(
+        kind,
         &network,
-        &api,
+        &crate::java::managed(data_root),
         game_root,
-        request,
-        &Target::host(),
+        request.clone(),
         concurrency,
-        |stage| {
-            let _ = progress.send(stage);
-        },
+        &progress,
     )
-    .await
-    .map_err(|error| error.to_string())?;
+    .await;
+
+    let installed = match first {
+        Err(loader_install::LoaderInstallError::Java { required }) => {
+            let installed = runtime::install(
+                &network,
+                &axlauncher_core::storage::DataDir::new(data_root).java_versions(),
+                required,
+                |stage| {
+                    let _ = progress.send(stage);
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+            record_runtime(data_root, &installed);
+            run_provider(
+                kind,
+                &network,
+                &crate::java::managed(data_root),
+                game_root,
+                request,
+                concurrency,
+                &progress,
+            )
+            .await
+            .map_err(|error| error.to_string())?
+        }
+        other => other.map_err(|error| error.to_string())?,
+    };
 
     if installed.prepared.is_complete() {
         Ok(installed.version_id)
     } else {
         Err(download_failure(&installed.prepared))
     }
+}
+
+/// Each provider is its own type, so the match is over concrete values rather
+/// than a trait object: the port is generic over the network provider.
+async fn run_provider(
+    kind: LoaderKind,
+    network: &ReqwestNetwork,
+    java: &SystemJava,
+    game_root: &Path,
+    request: LoaderRequest,
+    concurrency: usize,
+    progress: &watch::Sender<Progress>,
+) -> Result<loader_install::LoaderInstalled, loader_install::LoaderInstallError> {
+    match kind {
+        LoaderKind::Fabric => {
+            let api = LoaderApi::fabric(network.clone());
+            install_with(
+                network,
+                java,
+                &api,
+                game_root,
+                request,
+                concurrency,
+                progress,
+            )
+            .await
+        }
+        LoaderKind::Quilt => {
+            let api = LoaderApi::quilt(network.clone());
+            install_with(
+                network,
+                java,
+                &api,
+                game_root,
+                request,
+                concurrency,
+                progress,
+            )
+            .await
+        }
+        LoaderKind::Forge => {
+            let api = ForgeApi::new(network.clone());
+            install_with(
+                network,
+                java,
+                &api,
+                game_root,
+                request,
+                concurrency,
+                progress,
+            )
+            .await
+        }
+        LoaderKind::NeoForge => {
+            let api = NeoForgeApi::new(network.clone());
+            install_with(
+                network,
+                java,
+                &api,
+                game_root,
+                request,
+                concurrency,
+                progress,
+            )
+            .await
+        }
+        other => Err(loader_install::LoaderInstallError::Vanilla(format!(
+            "No provider for loader {other} is wired yet."
+        ))),
+    }
+}
+
+async fn install_with(
+    network: &ReqwestNetwork,
+    java: &SystemJava,
+    loader: &impl axlauncher_core::spi::ModLoader,
+    game_root: &Path,
+    request: LoaderRequest,
+    concurrency: usize,
+    progress: &watch::Sender<Progress>,
+) -> Result<loader_install::LoaderInstalled, loader_install::LoaderInstallError> {
+    loader_install::InstallRequest {
+        network,
+        loader,
+        java,
+        game_root,
+        request,
+        target: &Target::host(),
+        concurrency,
+    }
+    .install(|stage| {
+        let _ = progress.send(stage);
+    })
+    .await
+}
+
+/// A runtime the launcher installed becomes the user's choice for its major,
+/// so a later launch reuses it without discovery.
+fn record_runtime(data_root: &Path, installed: &runtime::InstalledRuntime) {
+    let Ok(loaded) = javas::load(data_root) else {
+        return;
+    };
+    let mut document = loaded.javas;
+    document.choose(ChosenJava {
+        major_version: installed.major,
+        full_version: installed.full_version.clone(),
+        architecture: std::env::consts::ARCH.to_string(),
+        path: installed.java.display().to_string(),
+    });
+    let _ = javas::save(data_root, &document);
 }

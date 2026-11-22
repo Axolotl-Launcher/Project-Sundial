@@ -217,3 +217,34 @@ fn a_major_nothing_offers_is_reported_as_absent() {
 
     assert_eq!(java.executable_for(25, JavaMode::Console), None);
 }
+
+#[test]
+fn an_installed_runtime_is_preferred_over_the_environment() {
+    let temp = TempDir::new();
+    let managed = jdk_home(&temp.path().join("managed"), "21.0.7");
+    let environment = jdk_home(&temp.path().join("env"), "17.0.2");
+    let search_path = std::env::join_paths([environment.join("bin")]).expect("path");
+
+    let java = SystemJava::with_environment(None, Some(search_path))
+        .with_runtime_roots(vec![managed.clone()]);
+
+    let found = java.executable_for(21, JavaMode::Console).expect("java 21");
+
+    assert!(
+        found.starts_with(&managed),
+        "expected {}, got {}",
+        managed.display(),
+        found.display()
+    );
+}
+
+#[test]
+fn an_installed_runtime_is_used_when_the_environment_names_none() {
+    let temp = TempDir::new();
+    let managed = jdk_home(&temp.path().join("managed"), "21.0.7");
+    let java = SystemJava::with_environment(None, None).with_runtime_roots(vec![managed.clone()]);
+
+    let found = java.executable(None, JavaMode::Console).expect("java");
+
+    assert!(found.starts_with(&managed), "{}", found.display());
+}

@@ -164,8 +164,11 @@ impl RootView {
         {
             return;
         }
+        let Some(data_root) = self.root.clone() else {
+            return;
+        };
         self.set_launch(directory, &request.version_id, Launch::Starting, cx);
-        launches::start(request, vanilla, cx);
+        launches::start(request, vanilla, data_root, cx);
     }
 
     pub(crate) fn set_launch(

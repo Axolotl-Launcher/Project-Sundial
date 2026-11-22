@@ -3,9 +3,10 @@
 
 //! Read-only version and launch diagnostics for the selected profile.
 
-use axlauncher_core::launch::{LaunchCommand, LaunchRequest, SystemJava, flow};
+use axlauncher_core::launch::{LaunchCommand, LaunchRequest, flow};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{Context, Task};
+use std::path::Path;
 
 use super::{RootView, profile_version};
 
@@ -35,7 +36,10 @@ impl RootView {
         let Some(request) = self.launch_request(entry, self.player_name(cx)) else {
             return;
         };
-        let task = cx.background_spawn(async move { inspect(&request, preview) });
+        let Some(data_root) = self.root.clone() else {
+            return;
+        };
+        let task = cx.background_spawn(async move { inspect(&request, preview, &data_root) });
         self.inspection.output = None;
         self.inspection.task = Some(cx.spawn(async move |view, cx| {
             let output = task.await;
@@ -51,8 +55,8 @@ impl RootView {
     }
 }
 
-fn inspect(request: &LaunchRequest, preview: bool) -> Result<Output, String> {
-    let java = SystemJava::from_environment();
+fn inspect(request: &LaunchRequest, preview: bool, data_root: &Path) -> Result<Output, String> {
+    let java = crate::java::managed(data_root);
     if preview {
         return flow::preview(&java, request)
             .map(Output::Command)

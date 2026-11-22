@@ -128,6 +128,23 @@ const CLIENT_JAR: &[u8] = b"client jar";
 const CLIENT_SHA1: &str = "e0ede96191ad4f38d167edb4cad56c99fda06502";
 const CLIENT_URL: &str = "https://example.test/client.jar";
 
+/// A Java port with one answer for every request.
+struct FixedJava(Option<PathBuf>);
+
+impl axlauncher_spi::Java for FixedJava {
+    fn executable(
+        &self,
+        _preferred: Option<&Path>,
+        _mode: axlauncher_spi::JavaMode,
+    ) -> Option<PathBuf> {
+        self.0.clone()
+    }
+
+    fn executable_for(&self, _major: u32, _mode: axlauncher_spi::JavaMode) -> Option<PathBuf> {
+        self.0.clone()
+    }
+}
+
 struct FakeNetwork {
     responses: std::collections::BTreeMap<String, Vec<u8>>,
 }
@@ -145,6 +162,7 @@ impl axlauncher_spi::Network for FakeNetwork {
 struct FakeLoader {
     fail: bool,
     files: Vec<LoaderFile>,
+    processors: bool,
 }
 
 impl axlauncher_spi::ModLoader for FakeLoader {
@@ -172,10 +190,15 @@ impl axlauncher_spi::ModLoader for FakeLoader {
                 game_version: request.game_version,
             });
         }
+        let processors = if self.processors {
+            r#","processors":[{"jar":"net.example:tool:1","classpath":[],"args":[]}]"#
+        } else {
+            ""
+        };
         Ok(LoaderProfile {
             version_id: format!("fabric-loader-0.20.1-{}", request.game_version),
             document: format!(
-                r#"{{"id":"fabric-loader-0.20.1-{}","inheritsFrom":"{}","mainClass":"net.example.Fabric"}}"#,
+                r#"{{"id":"fabric-loader-0.20.1-{}","inheritsFrom":"{}","mainClass":"net.example.Fabric"{processors}}}"#,
                 request.game_version, request.game_version
             )
             .into_bytes(),
@@ -209,6 +232,28 @@ fn vanilla_root() -> PathBuf {
     root
 }
 
+fn install_once(
+    network: &FakeNetwork,
+    loader: &FakeLoader,
+    java: &FixedJava,
+    root: &Path,
+    report: impl FnMut(crate::prepare::Progress),
+) -> Result<LoaderInstalled, LoaderInstallError> {
+    let target = axlauncher_launch::Target::host();
+    block_on(
+        InstallRequest {
+            network,
+            loader,
+            java,
+            game_root: root,
+            request: request(),
+            target: &target,
+            concurrency: 1,
+        }
+        .install(report),
+    )
+}
+
 fn request() -> axlauncher_spi::LoaderRequest {
     axlauncher_spi::LoaderRequest {
         game_version: "1.21.11".into(),
@@ -224,22 +269,15 @@ fn installing_a_loader_writes_the_profile_and_its_files() {
     };
     let loader = FakeLoader {
         fail: false,
+        processors: false,
         files: vec![LoaderFile {
             path: "libraries/example/loader.jar".into(),
             bytes: b"jar".to_vec(),
         }],
     };
 
-    let installed = block_on(install(
-        &network,
-        &loader,
-        &root,
-        request(),
-        &axlauncher_launch::Target::host(),
-        1,
-        |_| {},
-    ))
-    .expect("install");
+    let installed =
+        install_once(&network, &loader, &FixedJava(None), &root, |_| {}).expect("install");
 
     assert_eq!(installed.version_id, "fabric-loader-0.20.1-1.21.11");
     assert!(installed.prepared.is_complete(), "{:?}", installed.prepared);
@@ -260,19 +298,12 @@ fn a_loader_the_provider_cannot_resolve_is_reported() {
     };
     let loader = FakeLoader {
         fail: true,
+        processors: false,
         files: Vec::new(),
     };
 
-    let error = block_on(install(
-        &network,
-        &loader,
-        &root,
-        request(),
-        &axlauncher_launch::Target::host(),
-        1,
-        |_| {},
-    ))
-    .expect_err("provider error");
+    let error = install_once(&network, &loader, &FixedJava(None), &root, |_| {})
+        .expect_err("provider error");
 
     assert!(matches!(error, LoaderInstallError::Provider(_)), "{error}");
     let _ = std::fs::remove_dir_all(&root);
@@ -286,21 +317,38 @@ fn the_progress_reports_the_loader_phase() {
     };
     let loader = FakeLoader {
         fail: false,
+        processors: false,
         files: Vec::new(),
     };
     let mut seen = Vec::new();
 
-    block_on(install(
-        &network,
-        &loader,
-        &root,
-        request(),
-        &axlauncher_launch::Target::host(),
-        1,
-        |progress| seen.push(progress),
-    ))
+    install_once(&network, &loader, &FixedJava(None), &root, |progress| {
+        seen.push(progress)
+    })
     .expect("install");
 
     assert!(seen.contains(&crate::prepare::Progress::Loader), "{seen:?}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_profile_with_processors_needs_the_java_its_document_asks_for() {
+    let root = vanilla_root();
+    let network = FakeNetwork {
+        responses: std::collections::BTreeMap::from([(CLIENT_URL.into(), CLIENT_JAR.to_vec())]),
+    };
+    let loader = FakeLoader {
+        fail: false,
+        processors: true,
+        files: Vec::new(),
+    };
+
+    let error =
+        install_once(&network, &loader, &FixedJava(None), &root, |_| {}).expect_err("no java");
+
+    assert!(
+        matches!(error, LoaderInstallError::Java { required: 8 }),
+        "{error}"
+    );
     let _ = std::fs::remove_dir_all(&root);
 }

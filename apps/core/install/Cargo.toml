@@ -18,9 +18,11 @@ axlauncher_storage = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+xz2 = { workspace = true }
 zip = { workspace = true }
 
 [dev-dependencies]
+sha1_smol = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

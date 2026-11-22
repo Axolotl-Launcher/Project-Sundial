@@ -3,6 +3,8 @@
 
 //! Domain types shared by every system.
 
+pub mod maven;
+
 /// A stable identifier for anything the launcher persists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Id(u64);

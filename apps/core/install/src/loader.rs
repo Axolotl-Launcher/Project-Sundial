@@ -215,6 +215,10 @@ pub enum LoaderInstallError {
     },
     /// The files the profile names could not be prepared.
     Prepare(crate::prepare::PrepareError),
+    /// The profile's processors need a Java runtime this machine lacks.
+    Java { required: u32 },
+    /// A processor failed.
+    Processors(crate::processors::ProcessorError),
 }
 
 impl fmt::Display for LoaderInstallError {
@@ -227,6 +231,13 @@ impl fmt::Display for LoaderInstallError {
                 write!(formatter, "cannot read loader profile {id}: {source}")
             }
             Self::Prepare(error) => write!(formatter, "cannot prepare the loader's files: {error}"),
+            Self::Java { required } => write!(
+                formatter,
+                "this loader needs Java {required}, and no matching runtime was found"
+            ),
+            Self::Processors(error) => {
+                write!(formatter, "cannot patch the loader's client: {error}")
+            }
         }
     }
 }
@@ -238,7 +249,8 @@ impl std::error::Error for LoaderInstallError {
             Self::Place(source) => Some(source),
             Self::Document { source, .. } => Some(source),
             Self::Prepare(source) => Some(source),
-            Self::Vanilla(_) => None,
+            Self::Processors(source) => Some(source),
+            Self::Java { .. } | Self::Vanilla(_) => None,
         }
     }
 }
@@ -253,51 +265,115 @@ impl std::error::Error for LoaderInstallError {
 /// `loader` is supplied by the caller rather than chosen here: this system may
 /// not depend on a provider, and which provider serves a kind is a wiring
 /// decision.
-pub async fn install(
-    network: &impl axlauncher_spi::Network,
-    loader: &impl axlauncher_spi::ModLoader,
+/// Everything a loader install needs, gathered so the call site reads as one
+/// decision rather than seven positional arguments.
+pub struct InstallRequest<
+    'a,
+    N: axlauncher_spi::Network,
+    L: axlauncher_spi::ModLoader,
+    J: axlauncher_spi::Java,
+> {
+    pub network: &'a N,
+    pub loader: &'a L,
+    pub java: &'a J,
+    pub game_root: &'a Path,
+    pub request: axlauncher_spi::LoaderRequest,
+    pub target: &'a axlauncher_launch::Target,
+    pub concurrency: usize,
+}
+
+impl<N: axlauncher_spi::Network, L: axlauncher_spi::ModLoader, J: axlauncher_spi::Java>
+    InstallRequest<'_, N, L, J>
+{
+    pub async fn install(
+        &self,
+        mut report: impl FnMut(crate::prepare::Progress),
+    ) -> Result<LoaderInstalled, LoaderInstallError> {
+        let request = self.request.clone();
+        let _lock = crate::vanilla::installation_lock(self.game_root)
+            .map_err(LoaderInstallError::Vanilla)?;
+
+        report(crate::prepare::Progress::Version);
+        crate::vanilla::ensure_version(self.network, self.game_root, &request.game_version)
+            .await
+            .map_err(LoaderInstallError::Vanilla)?;
+
+        report(crate::prepare::Progress::Loader);
+        let game_version = request.game_version.clone();
+        let profile = self
+            .loader
+            .profile(request)
+            .await
+            .map_err(LoaderInstallError::Provider)?;
+        let placed = place(self.game_root, &profile).map_err(LoaderInstallError::Place)?;
+
+        let version =
+            axlauncher_launch::version::load(&self.game_root.join("versions"), &placed.version_id)
+                .map_err(|source| LoaderInstallError::Document {
+                    id: placed.version_id.clone(),
+                    source,
+                })?;
+
+        let prepared = crate::prepare::prepare_reporting(
+            self.network,
+            self.game_root,
+            &version,
+            self.target,
+            self.concurrency,
+            report,
+        )
+        .await
+        .map_err(LoaderInstallError::Prepare)?;
+
+        run_processors(
+            self.java,
+            self.game_root,
+            &game_version,
+            &version,
+            self.target,
+        )?;
+
+        Ok(LoaderInstalled {
+            version_id: placed.version_id,
+            prepared,
+        })
+    }
+}
+
+/// The patch steps are Java tools, so they run on the runtime the version
+/// document asks for, discovered through the Java port. A profile without
+/// processors — Fabric and Quilt — never asks for one, which keeps a loader
+/// install working on a machine whose only Java is the one the game itself
+/// will need.
+fn run_processors(
+    java: &impl axlauncher_spi::Java,
     game_root: &Path,
-    request: axlauncher_spi::LoaderRequest,
+    game_version: &str,
+    version: &axlauncher_launch::Version,
     target: &axlauncher_launch::Target,
-    concurrency: usize,
-    mut report: impl FnMut(crate::prepare::Progress),
-) -> Result<LoaderInstalled, LoaderInstallError> {
-    let _lock =
-        crate::vanilla::installation_lock(game_root).map_err(LoaderInstallError::Vanilla)?;
-
-    report(crate::prepare::Progress::Version);
-    crate::vanilla::ensure_version(network, game_root, &request.game_version)
-        .await
-        .map_err(LoaderInstallError::Vanilla)?;
-
-    report(crate::prepare::Progress::Loader);
-    let profile = loader
-        .profile(request)
-        .await
-        .map_err(LoaderInstallError::Provider)?;
-    let placed = place(game_root, &profile).map_err(LoaderInstallError::Place)?;
-
-    let version = axlauncher_launch::version::load(&game_root.join("versions"), &placed.version_id)
-        .map_err(|source| LoaderInstallError::Document {
-            id: placed.version_id.clone(),
-            source,
-        })?;
-
-    let prepared = crate::prepare::prepare_reporting(
-        network,
+) -> Result<(), LoaderInstallError> {
+    if version.processors.is_empty() {
+        return Ok(());
+    }
+    let required = version
+        .java_version
+        .as_ref()
+        .map(|java| java.major)
+        .unwrap_or(8);
+    let executable = java
+        .executable_for(required, axlauncher_spi::JavaMode::Console)
+        .ok_or(LoaderInstallError::Java { required })?;
+    crate::processors::run(
+        &executable,
+        &game_root.join("libraries"),
         game_root,
-        &version,
+        game_root,
+        game_version,
+        version,
         target,
-        concurrency,
-        report,
     )
-    .await
-    .map_err(LoaderInstallError::Prepare)?;
-
-    Ok(LoaderInstalled {
-        version_id: placed.version_id,
-        prepared,
-    })
+    .map_err(LoaderInstallError::Processors)?;
+    Ok(())
 }
 
 #[cfg(test)]

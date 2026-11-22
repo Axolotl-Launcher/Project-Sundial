@@ -215,11 +215,9 @@ ignored = [
   "trash",
   "unicode-normalization",
   "url",
-  "uuid",
   "walkdir",
   "webpki-roots",
   "which",
-  "xz2",
 ]
 
 # Development keeps line tables but skips variable-level debug info: enough for

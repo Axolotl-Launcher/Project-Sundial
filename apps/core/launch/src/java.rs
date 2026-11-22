@@ -22,6 +22,10 @@ use crate::platform::{executable_in_home, search_all, sibling};
 pub struct SystemJava {
     java_home: Option<PathBuf>,
     search_path: Option<OsString>,
+    /// Runtime directories this launcher installed, searched before the
+    /// system's own: what the launcher fetched is the runtime the game was
+    /// tested against.
+    runtime_roots: Vec<PathBuf>,
 }
 
 impl SystemJava {
@@ -39,7 +43,15 @@ impl SystemJava {
         Self {
             java_home,
             search_path,
+            runtime_roots: Vec::new(),
         }
+    }
+
+    /// Installed runtime directories are searched before the environment's:
+    /// what the launcher fetched is the runtime the game was tested against.
+    pub fn with_runtime_roots(mut self, roots: Vec<PathBuf>) -> Self {
+        self.runtime_roots = roots;
+        self
     }
 
     /// The configured `JAVA_HOME`, when the environment names one.
@@ -57,6 +69,11 @@ impl Java for SystemJava {
             .flatten()
             .filter(|path| path.is_file())
             .map(Path::to_path_buf)
+            .chain(
+                self.runtime_roots
+                    .iter()
+                    .find_map(|root| executable_in_home(root, JavaMode::Console)),
+            )
             .chain(
                 self.java_home
                     .as_deref()
@@ -76,10 +93,14 @@ impl Java for SystemJava {
 
     fn executable_for(&self, major: u32, mode: JavaMode) -> Option<PathBuf> {
         let candidates = self
-            .java_home
-            .as_deref()
-            .and_then(|home| executable_in_home(home, JavaMode::Console))
-            .into_iter()
+            .runtime_roots
+            .iter()
+            .filter_map(|root| executable_in_home(root, JavaMode::Console))
+            .chain(
+                self.java_home
+                    .as_deref()
+                    .and_then(|home| executable_in_home(home, JavaMode::Console)),
+            )
             .chain(self.search_everywhere(JavaMode::Console));
 
         candidates
