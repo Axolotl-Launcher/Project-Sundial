@@ -83,6 +83,7 @@ pub(crate) fn hide_console(command: &mut Command) {
 }
 
 #[cfg(test)]
-pub(crate) fn executable_name(mode: JavaMode) -> &'static str {
-    name(mode)
-}
+#[path = "../../../../tests/apps/core/launch/src/platform.rs"]
+mod test_support;
+#[cfg(test)]
+pub(crate) use test_support::executable_name;

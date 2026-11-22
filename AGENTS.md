@@ -22,6 +22,9 @@ platforms/windows  axlauncher_platform_windows  produces axlauncher.exe
 platforms/linux    axlauncher_platform_linux    produces a Linux binary
 ```
 
+Tests live under `tests/` and mirror the source path; `tests/AGENTS.md` states
+the rule.
+
 Dependencies point one way only, and Cargo enforces it:
 
 ```

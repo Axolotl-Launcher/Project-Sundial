@@ -238,4 +238,5 @@ pub fn on_classpath(library: &Library) -> bool {
 }
 
 #[cfg(test)]
+#[path = "../../../../tests/apps/core/launch/src/plan/tests.rs"]
 mod tests;
