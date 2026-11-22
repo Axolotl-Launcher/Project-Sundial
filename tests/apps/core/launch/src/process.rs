@@ -44,13 +44,18 @@ fn exit_command(code: i32) -> LaunchCommand {
 
 #[test]
 fn a_successful_command_finishes() {
-    assert_eq!(block_on(run(exit_command(0))), Ok(()));
+    let (sender, started) = std::sync::mpsc::channel();
+    assert_eq!(
+        block_on(run(exit_command(0), move || sender.send(()).unwrap())),
+        Ok(())
+    );
+    assert_eq!(started.try_recv(), Ok(()));
 }
 
 #[test]
 fn a_non_zero_exit_reports_its_code() {
     assert_eq!(
-        block_on(run(exit_command(7))),
+        block_on(run(exit_command(7), || {})),
         Err(LaunchError::Exited { code: Some(7) })
     );
 }
@@ -67,7 +72,7 @@ fn a_missing_program_is_not_found() {
     };
 
     assert!(matches!(
-        block_on(run(command)),
+        block_on(run(command, || panic!("missing program did not start"))),
         Err(LaunchError::NotFound(_))
     ));
 }

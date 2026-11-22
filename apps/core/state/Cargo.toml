@@ -6,7 +6,7 @@ name = "axlauncher_state"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Application state and persistence: instances, accounts, settings, and the database that holds them."
+description = "Application state and versioned JSON persistence for instances and settings."
 repository.workspace = true
 license.workspace = true
 

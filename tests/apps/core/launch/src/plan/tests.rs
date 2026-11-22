@@ -340,11 +340,7 @@ fn the_logging_configuration_is_named_on_the_jvm_command_line() {
     });
 
     // An install puts the file there; a launch without it stays silent.
-    let log_config = layout
-        .game_root
-        .join("assets")
-        .join("log_configs")
-        .join("client-1.21.xml");
+    let log_config = layout.game_root.join("log_configs").join("client-1.21.xml");
     fs::create_dir_all(log_config.parent().expect("parent")).expect("log dir");
     fs::write(&log_config, b"<Configuration/>").expect("log config");
 
@@ -361,7 +357,6 @@ fn the_logging_configuration_is_named_on_the_jvm_command_line() {
         "-Dlog4j.configurationFile={}",
         layout
             .game_root
-            .join("assets")
             .join("log_configs")
             .join("client-1.21.xml")
             .display()

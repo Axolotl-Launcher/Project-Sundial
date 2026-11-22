@@ -145,8 +145,15 @@ fn values(
         .or_else(|| version.assets.clone())
         .unwrap_or_else(|| version.id.clone());
     let assets_root = layout.game_root.join("assets");
-    let game_assets =
-        flat_assets(&layout.game_root, &assets_index).unwrap_or_else(|| assets_root.clone());
+    let resources = layout.game_root.join("resources");
+    let flat = flat_assets(&layout.game_root, &assets_index);
+    let game_assets = if version.assets.as_deref() == Some("legacy")
+        && (resources.is_dir() || !flat.as_ref().is_some_and(|path| path.is_dir()))
+    {
+        resources
+    } else {
+        flat.unwrap_or_else(|| assets_root.clone())
+    };
 
     Values::new()
         .with("classpath", classpath)
@@ -191,11 +198,13 @@ fn values(
 /// file.
 fn logging_argument(version: &Version, layout: &Layout) -> Option<String> {
     let client = version.logging.as_ref()?.client.as_ref()?;
-    let path = layout
-        .game_root
-        .join("assets")
-        .join("log_configs")
-        .join(&client.file.id);
+    let mut path = axlauncher_storage::game_log_configs(&layout.game_root).join(&client.file.id);
+    if !path.is_file() {
+        path = layout
+            .game_root
+            .join("assets/log_configs")
+            .join(&client.file.id);
+    }
     // An install downloads this file; a launch that runs before one did keeps
     // the game's own default logging rather than naming a file that is not
     // there, which log4j reports as a configuration error.

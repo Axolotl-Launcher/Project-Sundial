@@ -113,11 +113,11 @@ impl Fixture {
     }
 
     fn game_root(&self) -> PathBuf {
-        self.temp.path().join("game")
+        self.temp.path().join("meta")
     }
 
     fn instance_directory(&self) -> PathBuf {
-        self.temp.path().join("instance")
+        self.temp.path().join("profiles/instance")
     }
 
     fn java(&self) -> PathBuf {
@@ -125,12 +125,12 @@ impl Fixture {
     }
 
     fn natives_directory(&self) -> PathBuf {
-        self.instance_directory().join(NATIVES)
+        self.game_root().join("natives").join(VERSION_ID)
     }
 
     fn natives_jar(&self) -> PathBuf {
         self.game_root()
-            .join(LIBRARIES)
+            .join("libraries")
             .join("org")
             .join("example")
             .join("example-natives.jar")
@@ -291,6 +291,39 @@ fn the_command_runs_the_main_class_with_every_placeholder_filled() {
         fixture.instance_directory()
     );
     assert_eq!(java.modes(), vec![JavaMode::Windowed]);
+}
+
+#[test]
+fn preview_matches_the_launch_command_without_extracting_natives() {
+    let fixture = Fixture::new();
+    let java = FakeJava::found(fixture.java());
+    let request = fixture.request();
+
+    let command = preview(&java, &request).expect("preview");
+    assert!(!fixture.natives_directory().exists());
+    assert_eq!(command.working_directory, fixture.instance_directory());
+
+    let outcome = finish(launch(&java, &Recorder::default(), request)).expect("launch");
+    assert_eq!(command, outcome.command);
+}
+
+#[test]
+fn inspection_keeps_the_declared_parent_and_reports_matching_java() {
+    let fixture = Fixture::new();
+    let mut request = fixture.request();
+    request.version_id = "with-loader".into();
+    write_file(
+        &fixture
+            .game_root()
+            .join("versions/with-loader/with-loader.json"),
+        br#"{"id":"with-loader","inheritsFrom":"1.21"}"#,
+    );
+
+    let inspection = inspect_version(&FakeJava::found(fixture.java()), &request).expect("inspect");
+    assert_eq!(inspection.parent(), Some(VERSION_ID));
+    assert_eq!(inspection.version().main_class, MAIN_CLASS);
+    assert_eq!(inspection.java(), Some(fixture.java().as_path()));
+    assert!(!fixture.natives_directory().exists());
 }
 
 #[test]

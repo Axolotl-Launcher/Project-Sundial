@@ -203,7 +203,7 @@ fn a_profile_for_the_named_version_is_returned_verbatim() {
 
     let profile = block_on(api.profile(request(Some("0.20.1")))).expect("profile");
 
-    assert_eq!(profile.version_id, "fabric-loader-0.20.1-1.21.11");
+    assert_eq!(profile.version_id, "1.21.11-0.20.1");
     assert_eq!(profile.document, FABRIC_PROFILE.as_bytes());
     assert!(profile.files.is_empty());
 }
@@ -218,7 +218,7 @@ fn without_a_named_version_the_recommended_one_is_used() {
     let profile = block_on(api.profile(request(None))).expect("profile");
 
     // 0.20.1 is the stable entry; the beta listed after it is not chosen.
-    assert_eq!(profile.version_id, "fabric-loader-0.20.1-1.21.11");
+    assert_eq!(profile.version_id, "1.21.11-0.20.1");
 }
 
 #[test]
@@ -236,7 +236,7 @@ fn a_loader_that_states_no_stability_uses_its_first_entry() {
 
     let profile = block_on(api.profile(request(None))).expect("profile");
 
-    assert_eq!(profile.version_id, "quilt-loader-0.20.0-beta.9-1.21.11");
+    assert_eq!(profile.version_id, "1.21.11-0.20.0-beta.9");
 }
 
 #[test]

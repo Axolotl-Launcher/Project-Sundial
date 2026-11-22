@@ -92,6 +92,37 @@ fn an_absent_index_is_fetched_and_written() {
 }
 
 #[test]
+fn the_managed_legacy_tree_goes_under_resources() {
+    let temp = TempDir::new();
+    let game_root = temp.0.join("meta");
+    let url = "https://example.test/legacy.json";
+    let hash = "a9993e364706816aba3e25717850c26c9cd0d89d";
+    let body =
+        format!(r#"{{"virtual":true,"objects":{{"sound/a.ogg":{{"hash":"{hash}","size":3}}}}}}"#);
+    let network = FakeNetwork {
+        bodies: BTreeMap::from([
+            (url.to_string(), body.into_bytes()),
+            (
+                format!("https://resources.download.minecraft.net/a9/{hash}"),
+                b"abc".to_vec(),
+            ),
+        ]),
+    };
+    let mut version = version_with_index("legacy", url);
+    version.assets = Some("legacy".into());
+
+    let result =
+        block_on(prepare(&network, &game_root, &version, &Target::host(), 1)).expect("prepare");
+
+    assert!(result.is_complete(), "{result:?}");
+    assert_eq!(
+        fs::read(game_root.join("resources/sound/a.ogg")).unwrap(),
+        b"abc"
+    );
+    assert!(!game_root.join("assets/virtual/legacy").exists());
+}
+
+#[test]
 fn an_index_already_on_disk_is_not_fetched_again() {
     let temp = TempDir::new();
     let version = version_with_index("34", "https://example.test/unreachable.json");

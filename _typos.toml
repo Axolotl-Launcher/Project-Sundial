@@ -22,6 +22,8 @@ extend-ignore-re = [
 axolotl = "axolotl"
 axlauncher = "axlauncher"
 gpui = "gpui"
+# WorldEdit's schematic file extension.
+schem = "schem"
 
 [default.extend-identifiers]
 # GPUI's own spellings that are not English words.

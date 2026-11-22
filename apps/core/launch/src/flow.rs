@@ -21,12 +21,6 @@ use crate::version::{self, Version, VersionError};
 /// The directory under a game root that holds version documents.
 const VERSIONS: &str = "versions";
 
-/// The directory under a game root that holds library jars.
-const LIBRARIES: &str = "libraries";
-
-/// The directory under an instance that receives unpacked natives.
-const NATIVES: &str = "natives";
-
 /// The launcher name the game is told about.
 const LAUNCHER_NAME: &str = "Axolotl Launcher";
 
@@ -55,6 +49,27 @@ pub struct LaunchOutcome {
     pub command: LaunchCommand,
     /// How many native files were unpacked.
     pub natives: usize,
+}
+
+/// A resolved version with the parent declared by its source and matching Java.
+pub struct VersionInspection {
+    version: Version,
+    parent: Option<String>,
+    java: Option<PathBuf>,
+}
+
+impl VersionInspection {
+    pub fn version(&self) -> &Version {
+        &self.version
+    }
+
+    pub fn parent(&self) -> Option<&str> {
+        self.parent.as_deref()
+    }
+
+    pub fn java(&self) -> Option<&Path> {
+        self.java.as_deref()
+    }
 }
 
 /// Why a launch stopped before the game was running.
@@ -170,7 +185,7 @@ pub async fn launch(
     request: LaunchRequest,
 ) -> Result<LaunchOutcome, FlowError> {
     let target = Target::host();
-    let version = load_version(&request)?;
+    let (version, _) = load_version(&request)?;
     let executable = java_executable(java, &version, &request)?;
     let natives = unpack_natives(&request, &version, &target)?;
     let command = assemble(&executable, &version, &request, &target)?;
@@ -186,19 +201,42 @@ pub async fn launch(
     Ok(LaunchOutcome { command, natives })
 }
 
-/// The version document `<game_root>/versions/<id>/<id>.json` describes.
+/// Builds the command without extracting natives or launching the game.
+pub fn preview(java: &impl Java, request: &LaunchRequest) -> Result<LaunchCommand, FlowError> {
+    let (version, _) = load_version(request)?;
+    let executable = java_executable(java, &version, request)?;
+    assemble(&executable, &version, request, &Target::host())
+}
+
+/// Inspects the local version even when its matching Java runtime is unavailable.
+pub fn inspect_version(
+    java: &impl Java,
+    request: &LaunchRequest,
+) -> Result<VersionInspection, FlowError> {
+    let (version, parent) = load_version(request)?;
+    let java = java_executable(java, &version, request).ok();
+    Ok(VersionInspection {
+        version,
+        parent,
+        java,
+    })
+}
+
+/// Loads and resolves the local version document for this request.
 ///
 /// A loader profile is resolved against the version it inherits from first: on
 /// its own it names no asset index, no client jar and no vanilla libraries, so
 /// launching it unresolved would start the game with nothing to run.
-fn load_version(request: &LaunchRequest) -> Result<Version, FlowError> {
+fn load_version(request: &LaunchRequest) -> Result<(Version, Option<String>), FlowError> {
     let root = request.game_root.join(VERSIONS);
     let document = version::load(&root, &request.version_id)
         .map_err(|source| FlowError::VersionDocument { source })?;
-    chain::resolve(&root, document).map_err(|source| match source {
+    let parent = document.inherits_from.clone();
+    let version = chain::resolve(&root, document).map_err(|source| match source {
         ChainError::Document { source } => FlowError::VersionDocument { source },
         other => FlowError::Chain { source: other },
-    })
+    })?;
+    Ok((version, parent))
 }
 
 /// The Java executable the game runs on, if this system offers one.
@@ -236,9 +274,9 @@ fn java_executable(
         })
 }
 
-/// The directory an instance's natives are unpacked into.
+/// The shared directory for this version's unpacked natives.
 fn natives_directory(request: &LaunchRequest) -> PathBuf {
-    request.instance_directory.join(NATIVES)
+    axlauncher_storage::game_natives(&request.game_root).join(&request.version_id)
 }
 
 /// The number of native files unpacked into the instance's natives directory.
@@ -248,10 +286,13 @@ fn unpack_natives(
     target: &Target,
 ) -> Result<usize, FlowError> {
     let directory = natives_directory(request);
-    let entries = natives::entries(&version.libraries, target);
-    let libraries = request.game_root.join(LIBRARIES);
-
-    match natives::extract(&JarReader, &libraries, &entries, &directory) {
+    match natives::extract_version(
+        &JarReader,
+        &request.game_root,
+        &request.version_id,
+        &version.libraries,
+        target,
+    ) {
         Ok(extracted) => Ok(extracted.files.len()),
         Err(source) => Err(FlowError::Natives { directory, source }),
     }

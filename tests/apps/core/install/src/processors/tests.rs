@@ -96,7 +96,7 @@ fn a_bracketed_argument_becomes_a_library_path() {
         "[net.neoforged:neoform:1.20.2@zip]",
         libraries,
         &version,
-        Path::new("root"),
+        &[],
     )
     .expect("resolved");
 
@@ -105,30 +105,35 @@ fn a_bracketed_argument_becomes_a_library_path() {
 
 #[test]
 fn launcher_values_are_available_to_a_step() {
-    let version = version(Vec::new(), BTreeMap::new());
-
-    let resolved = resolve_template(
-        "{SIDE}/{MC}",
-        Path::new("libs"),
+    let mut version = version(Vec::new(), BTreeMap::new());
+    version.jar = None;
+    let values = launcher_data(
         &version,
-        Path::new("root"),
+        Path::new("data/meta"),
+        Path::new("data/profiles/NeoForge"),
+        "1.20.2",
+        Path::new("data/meta/libraries"),
     );
-    // `{MC}` is not a known name, so it stays visible.
-    assert_eq!(resolved.expect("resolved"), "client/{MC}");
-}
+    let value = |name| {
+        values
+            .iter()
+            .find(|(key, _)| *key == name)
+            .unwrap()
+            .1
+            .as_str()
+    };
 
-#[test]
-fn the_jar_a_step_targets_is_the_one_the_profile_inherits() {
-    let version = version(Vec::new(), BTreeMap::new());
-    let jar = resolve_template(
-        "{MINECRAFT_JAR}",
-        Path::new("libs"),
-        &version,
-        Path::new("root"),
-    )
-    .expect("resolved");
-
-    assert!(jar.ends_with("1.20.2.jar"), "{jar}");
+    assert_eq!(value(SIDE), "client");
+    assert_eq!(value(MINECRAFT_VERSION), "1.20.2");
+    assert_eq!(Path::new(value(ROOT)), Path::new("data/profiles/NeoForge"));
+    assert_eq!(
+        Path::new(value(LIBRARY_DIR)),
+        Path::new("data/meta/libraries")
+    );
+    assert_eq!(
+        Path::new(value(MINECRAFT_JAR)),
+        Path::new("data/meta/versions/1.20.2-neoforge/1.20.2-neoforge.jar")
+    );
 }
 
 #[test]
@@ -138,8 +143,8 @@ fn a_quoted_value_is_a_literal_not_a_path() {
         BTreeMap::from([("VERSION".into(), entry("'1.20.2'"))]),
     );
 
-    let resolved = resolve_template("{VERSION}", Path::new("libs"), &version, Path::new("root"))
-        .expect("resolved");
+    let resolved =
+        resolve_template("{VERSION}", Path::new("libs"), &version, &[]).expect("resolved");
 
     assert_eq!(resolved, "1.20.2");
 }
@@ -167,8 +172,8 @@ fn a_binary_patcher_output_counts_as_current_when_it_exists() {
     assert!(outputs_are_current(
         &processor,
         Path::new("libs"),
-        root.path(),
-        &version
+        &version,
+        &[],
     ));
 }
 
@@ -186,8 +191,8 @@ fn a_step_with_no_declared_or_inferable_output_always_runs() {
     assert!(!outputs_are_current(
         &processor,
         Path::new("libs"),
-        Path::new("root"),
-        &version
+        &version,
+        &[],
     ));
 }
 

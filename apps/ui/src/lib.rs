@@ -17,7 +17,7 @@ pub use gpui_kit::component::{
     button::{Button, ButtonVariants},
     group_box::{GroupBox, GroupBoxVariants},
     h_flex,
-    input::{Input, InputState},
+    input::{Input, InputEvent, InputState},
     label::Label,
     scroll::ScrollableElement,
     separator::Separator,

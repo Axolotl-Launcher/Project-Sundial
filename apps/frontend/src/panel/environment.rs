@@ -11,7 +11,7 @@ use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, Button, ButtonVariants, Context, Disableable, ElementId, GroupBox,
-    Hsla, Input, IntoElement, Label, Switch, Window, h_flex, px, v_flex,
+    Hsla, Input, IntoElement, Label, Switch, Window, h_flex, v_flex,
 };
 
 use crate::{describe_origin, load_at, palette_for};
@@ -42,6 +42,7 @@ impl EnvironmentState {
         let java = SystemJava::from_environment();
         self.default_java = java.executable(None, JavaMode::Windowed);
         self.error = None;
+        self.notice = None;
     }
 }
 
@@ -73,6 +74,10 @@ impl RootView {
         let paths = self.environment_paths(muted);
         let save_disabled = self.settings.is_none()
             || self.root.is_none()
+            || matches!(
+                self.origin,
+                Some(SettingsOrigin::ReadOnlyOtherSchema { .. })
+            )
             || self
                 .settings
                 .as_ref()
@@ -89,11 +94,6 @@ impl RootView {
                 v_flex()
                     .gap_3()
                     .child(self.root_controls(cx))
-                    .child(
-                        Label::new("Missing directories and settings.json are created on Apply.")
-                            .text_xs()
-                            .text_color(muted),
-                    )
                     .children(paths)
                     .child(self.settings_controls(cx, save_disabled))
                     .child(
@@ -126,7 +126,7 @@ impl RootView {
                 Input::new(&self.root_input)
                     .id("environment-root-input")
                     .aria_label("Data directory")
-                    .w(px(420.)),
+                    .flex_1(),
             )
             .child(
                 Button::new("environment-apply")
@@ -134,14 +134,6 @@ impl RootView {
                     .primary()
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.apply_root(window, cx);
-                    })),
-            )
-            .child(
-                Button::new("environment-reload")
-                    .label("Reload")
-                    .disabled(self.root.is_none())
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.reload(window, cx);
                     })),
             )
             .into_any_element()
@@ -154,12 +146,12 @@ impl RootView {
                 let data = DataDir::new(root);
                 vec![
                     ("Data root", data.root().to_path_buf()),
-                    ("Instances", data.instances()),
+                    ("Profiles", data.instances()),
+                    ("Shared game files", data.meta()),
                     ("Versions", data.versions()),
                     ("Libraries", data.libraries()),
                     ("Assets", data.assets()),
                     ("Settings", data.settings()),
-                    ("Java document", data.javas()),
                 ]
             })
             .unwrap_or_default()
@@ -233,13 +225,17 @@ impl RootView {
             return;
         }
 
-        self.root = Some(PathBuf::from(text));
-        let loaded = load_at(self.root.clone());
+        let path = match std::path::absolute(&text) {
+            Ok(path) => path,
+            Err(error) => {
+                self.environment.error = Some(error.to_string());
+                cx.notify();
+                return;
+            }
+        };
+        let loaded = load_at(Some(path));
         self.apply_loaded(loaded, window, cx);
-        self.environment.error = None;
-        if let Some(root) = &self.root {
-            self.activity.info(format!("Data root: {}", root.display()));
-        }
+        self.record_data_root();
         cx.notify();
     }
 

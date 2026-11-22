@@ -9,14 +9,18 @@
 
 use std::path::PathBuf;
 
-use axlauncher_core::state::{
-    Instance, SettingsData, SettingsOrigin, ThemeChoice, discover, load_settings,
-};
+use axlauncher_core::state::profile::{ProfileDiscovery, discover};
+use axlauncher_core::state::{SettingsData, SettingsOrigin, ThemeChoice, load_settings};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{Bounds, Palette, WindowBounds, WindowOptions, kit, px, size};
 
+mod installations;
+mod instance_row;
+mod launches;
 mod panel;
+
+use panel::RootView;
 
 const WINDOW_WIDTH: f32 = 1080.;
 const WINDOW_HEIGHT: f32 = 820.;
@@ -34,8 +38,7 @@ pub(crate) struct Loaded {
     pub(crate) root: Option<PathBuf>,
     pub(crate) settings: Option<SettingsData>,
     pub(crate) origin: Option<SettingsOrigin>,
-    pub(crate) instances: Vec<Instance>,
-    pub(crate) instances_error: Option<String>,
+    pub(crate) profiles: ProfileDiscovery,
     pub(crate) notice: Option<String>,
 }
 
@@ -80,7 +83,7 @@ fn open_main_window(cx: &mut kit::App, startup: Startup) {
             ..Default::default()
         },
         cx,
-        move |window, cx| cx.new(|cx| panel::RootView::new(startup, window, cx)),
+        move |window, cx| cx.new(|cx| RootView::new(startup, window, cx)),
     )
     .expect("failed to open the Axolotl Launcher window");
 }
@@ -104,8 +107,7 @@ pub(crate) fn load_at(root: Option<PathBuf>) -> Loaded {
             root: None,
             settings: None,
             origin: None,
-            instances: Vec::new(),
-            instances_error: None,
+            profiles: ProfileDiscovery::default(),
             notice: Some(format!(
                 "Cannot determine the data directory. Set {DATA_DIR_ENV}, or choose one below."
             )),
@@ -120,17 +122,13 @@ pub(crate) fn load_at(root: Option<PathBuf>) -> Loaded {
         Err(error) => (None, None, Some(error.to_string())),
     };
 
-    let (instances, instances_error) = match discover(&DataDir::new(&root).instances()) {
-        Ok(instances) => (instances, None),
-        Err(error) => (Vec::new(), Some(error.to_string())),
-    };
+    let profiles = discover(&DataDir::new(&root).instances());
 
     Loaded {
         root: Some(root),
         settings,
         origin,
-        instances,
-        instances_error,
+        profiles,
         notice,
     }
 }

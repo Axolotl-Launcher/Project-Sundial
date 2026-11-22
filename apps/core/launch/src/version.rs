@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Why a version document could not be used.
 #[derive(Debug)]
@@ -54,7 +54,7 @@ impl std::error::Error for VersionError {
 /// is derived from a vanilla one. Keeping them in this type is what lets a
 /// caller hold one value whether the document came from Mojang or from a
 /// loader's installer.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Version {
     pub id: String,
     #[serde(rename = "type", default)]
@@ -96,7 +96,7 @@ pub struct Version {
 }
 
 /// The downloads a version document names for the game itself.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, Serialize)]
 pub struct Downloads {
     #[serde(default)]
     pub client: Option<GameDownload>,
@@ -106,7 +106,7 @@ pub struct Downloads {
 ///
 /// Unlike a library artifact it has no relative path: the game's own files are
 /// named by the version directory they belong to, not by a Maven coordinate.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct GameDownload {
     #[serde(default)]
     pub sha1: Option<String>,
@@ -117,14 +117,14 @@ pub struct GameDownload {
 }
 
 /// The logging configuration the game is started with.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Logging {
     #[serde(default)]
     pub client: Option<LoggingClient>,
 }
 
 /// One side's logging configuration: the JVM argument and the file it names.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct LoggingClient {
     /// The argument with a `${path}` placeholder for the configuration file.
     pub argument: String,
@@ -134,9 +134,9 @@ pub struct LoggingClient {
 }
 
 /// The logging configuration file, named by id rather than by Maven path.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct LoggingFile {
-    /// The name the file is stored under, under `assets/log_configs`.
+    /// The name used for the file in the shared logging directory.
     pub id: String,
     #[serde(default)]
     pub sha1: Option<String>,
@@ -147,7 +147,7 @@ pub struct LoggingFile {
 }
 
 /// One step of a loader's install, run before the game is started.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Processor {
     /// The Maven coordinate of the tool that runs this step.
     pub jar: String,
@@ -167,14 +167,14 @@ pub struct Processor {
 ///
 /// The value may be a literal, a `[Maven coordinate]` naming a library, or a
 /// `'quoted literal'`; the brackets and quotes are part of how it is written.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct DataEntry {
     pub client: String,
     #[serde(default)]
     pub server: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct AssetIndex {
     pub id: String,
     /// Where the index document can be fetched when it is not on disk.
@@ -184,7 +184,7 @@ pub struct AssetIndex {
     pub sha1: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct JavaVersion {
     #[serde(rename = "majorVersion")]
     pub major: u32,
@@ -201,7 +201,7 @@ impl Version {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, Serialize)]
 pub struct Arguments {
     #[serde(default)]
     pub game: Vec<Argument>,
@@ -213,7 +213,7 @@ pub struct Arguments {
 }
 
 /// One argument: either always present or gated by rules.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum Argument {
     Plain(String),
@@ -223,7 +223,7 @@ pub enum Argument {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ValueOrValues {
     One(String),
@@ -239,7 +239,7 @@ impl ValueOrValues {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Library {
     pub name: String,
     #[serde(default)]
@@ -359,7 +359,7 @@ pub fn maven_path(coordinate: &str) -> Option<PathBuf> {
     Some(path.join(artifact).join(version).join(file))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct LibraryDownloads {
     #[serde(default)]
     pub artifact: Option<Artifact>,
@@ -367,7 +367,7 @@ pub struct LibraryDownloads {
     pub classifiers: Option<std::collections::BTreeMap<String, Artifact>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Artifact {
     pub path: String,
     #[serde(default)]
@@ -378,14 +378,14 @@ pub struct Artifact {
     pub url: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Rule {
     pub action: String,
     #[serde(default)]
     pub os: Option<OsRule>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct OsRule {
     #[serde(default)]
     pub name: Option<String>,

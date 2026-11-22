@@ -10,18 +10,14 @@
 
 mod document;
 pub mod files;
-mod instance;
 pub mod javas;
 pub mod jobs;
+pub mod profile;
 mod settings;
 #[cfg(test)]
 #[path = "../../../../tests/apps/core/state/src/test_support.rs"]
 mod test_support;
 
-pub use instance::{
-    DiscoveryError, INSTANCE_SCHEMA_VERSION, Instance, InstanceError, InstanceManifest, create,
-    discover, next_instance, save,
-};
 pub use settings::{
     LoadedSettings, SETTINGS_FILE, SETTINGS_SCHEMA_VERSION, SettingsData, SettingsError,
     SettingsOrigin, ThemeChoice, load_settings, save_settings,
@@ -29,7 +25,7 @@ pub use settings::{
 
 use axlauncher_spi::{Id, InstanceRecord, StateStore, StorageError};
 
-/// Keeps instances in memory; a database-backed store replaces it later.
+/// An ephemeral provider for the ID-based state port.
 #[derive(Debug, Default)]
 pub struct MemoryState {
     instances: std::collections::BTreeMap<u64, InstanceRecord>,

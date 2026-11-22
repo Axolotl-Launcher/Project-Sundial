@@ -94,10 +94,9 @@ pub struct LoaderRequest {
 /// A loader resolved into what an install needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoaderProfile {
-    /// The id the document is published under. It becomes a folder under
-    /// `versions/`, so a caller validates it before touching the filesystem.
+    /// The managed version id, which becomes a folder under `versions/`.
     pub version_id: String,
-    /// The version document, exactly as it should be written.
+    /// The provider's version document, including any inheritance it declares.
     pub document: Vec<u8>,
     /// Files the profile refers to that no repository serves, at paths relative
     /// to the game root.

@@ -3,22 +3,31 @@
 
 //! The development panel: one scrollable page for manual verification.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use axlauncher_core::BRAND_NAME;
 use axlauncher_core::state::{SettingsData, SettingsOrigin, ThemeChoice};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, AnyElement, Button, ButtonVariants, Context, Disableable, Entity, IntoElement,
-    Label, Render, ScrollableElement, StyledExt, Window, div, h_flex, v_flex,
+    ActiveTheme, AnyElement, Button, ButtonVariants, Context, Disableable, Entity, InputEvent,
+    InputState, IntoElement, Label, Render, ScrollableElement, StyledExt, Window, div, h_flex,
+    v_flex,
 };
 
+use crate::installations::Installation;
+use crate::launches::Launch;
 use crate::{Loaded, Startup, load_at, palette_for};
 
+mod actions;
 mod activity;
 mod environment;
 mod instances;
 mod launch;
+
+pub(crate) use instances::profile_version;
+
+const DEFAULT_PLAYER: &str = "Player";
 
 pub(crate) struct RootView {
     root: Option<PathBuf>,
@@ -26,9 +35,12 @@ pub(crate) struct RootView {
     settings: Option<SettingsData>,
     origin: Option<SettingsOrigin>,
     theme: ThemeChoice,
-    root_input: Entity<axlauncher_ui::InputState>,
+    root_input: Entity<InputState>,
+    player_input: Entity<InputState>,
     instances: instances::InstancesState,
-    launch: launch::LaunchSection,
+    inspection: launch::Inspection,
+    installations: HashMap<PathBuf, HashMap<String, Installation>>,
+    launches: HashMap<PathBuf, (String, Launch)>,
     environment: environment::EnvironmentState,
     activity: activity::ActivityLog,
 }
@@ -42,20 +54,17 @@ impl RootView {
             .map(|root| root.display().to_string())
             .unwrap_or_default();
         let root_input = cx.new(|cx| {
-            axlauncher_ui::InputState::new(window, cx)
+            InputState::new(window, cx)
                 .placeholder("Data directory")
                 .default_value(root_text)
         });
+        let player_input = cx.new(|cx| InputState::new(window, cx).placeholder(DEFAULT_PLAYER));
+        cx.subscribe(&player_input, Self::player_changed).detach();
         let theme = loaded
             .settings
             .as_ref()
             .map(|settings| settings.theme)
             .unwrap_or_default();
-        let instances =
-            instances::InstancesState::new(&loaded.instances, loaded.instances_error, window, cx);
-        let launch = launch::LaunchSection::new(window, cx);
-        let environment = environment::EnvironmentState::new();
-
         let mut view = Self {
             root: loaded.root,
             notice: loaded.notice,
@@ -63,20 +72,39 @@ impl RootView {
             origin: loaded.origin,
             theme,
             root_input,
-            instances,
-            launch,
-            environment,
+            player_input,
+            instances: instances::InstancesState::new(loaded.profiles),
+            inspection: launch::Inspection::default(),
+            installations: HashMap::new(),
+            launches: HashMap::new(),
+            environment: environment::EnvironmentState::new(),
             activity: activity::ActivityLog::new(),
         };
 
-        if let Some(first) = view.instances.items.first().cloned() {
-            view.select_instance(first, window, cx);
-        }
-        match &view.root {
-            Some(root) => view.activity.info(format!("Data root: {}", root.display())),
-            None => view.activity.error("Data root unknown"),
-        }
+        view.record_data_root();
         view
+    }
+
+    fn player_changed(
+        &mut self,
+        _: Entity<InputState>,
+        event: &InputEvent,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if matches!(event, InputEvent::Change) {
+            self.inspection = launch::Inspection::default();
+            cx.notify();
+        }
+    }
+
+    fn player_name(&self, cx: &Context<'_, Self>) -> String {
+        let value = self.player_input.read(cx).value();
+        let name = value.trim();
+        if name.is_empty() {
+            DEFAULT_PLAYER.to_owned()
+        } else {
+            name.to_owned()
+        }
     }
 
     pub(super) fn reload(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
@@ -87,12 +115,7 @@ impl RootView {
     }
 
     fn apply_loaded(&mut self, loaded: Loaded, window: &mut Window, cx: &mut Context<'_, Self>) {
-        let selected_id = self
-            .instances
-            .selected
-            .as_ref()
-            .map(|instance| instance.id.clone());
-
+        let same_root = self.root == loaded.root;
         self.root = loaded.root;
         self.settings = loaded.settings;
         self.origin = loaded.origin;
@@ -103,25 +126,8 @@ impl RootView {
             .map(|settings| settings.theme)
             .unwrap_or_default();
         self.environment.refresh();
-        self.instances
-            .replace(loaded.instances, loaded.instances_error, window, cx);
-
-        let next = selected_id
-            .and_then(|id| {
-                self.instances
-                    .items
-                    .iter()
-                    .find(|instance| instance.id == id)
-                    .cloned()
-            })
-            .or_else(|| self.instances.items.first().cloned());
-        match next {
-            Some(instance) => self.select_instance(instance, window, cx),
-            None => {
-                self.instances.clear_selection();
-                self.launch.clear();
-            }
-        }
+        self.instances.replace(loaded.profiles, same_root);
+        self.inspection = launch::Inspection::default();
 
         let root_text = self
             .root
@@ -131,6 +137,13 @@ impl RootView {
         self.root_input
             .update(cx, |state, cx| state.set_value(root_text, window, cx));
         palette_for(self.theme).apply(cx);
+    }
+
+    fn record_data_root(&mut self) {
+        match &self.root {
+            Some(root) => self.activity.info(format!("Data root: {}", root.display())),
+            None => self.activity.error("Data root unknown"),
+        }
     }
 
     fn render_header(&mut self, cx: &mut Context<'_, Self>) -> AnyElement {

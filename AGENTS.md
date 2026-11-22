@@ -47,7 +47,7 @@ and its pinned gpui-pre together.
 launcher conversion belongs in an independent tool. An unknown instance
 `schema_version` must yield `DiscoveryError::UnsupportedSchema`. The
 [path policy](tests/tests/external_formats.rs) and
-[instance tests](tests/apps/core/state/src/instance/tests.rs) cover these boundaries.
+[profile tests](tests/apps/core/state/src/profile.rs) cover these boundaries.
 For Minecraft's own manifests, [game format notes](docs/game-format-changes.md)
 explain which fields select each launch path.
 

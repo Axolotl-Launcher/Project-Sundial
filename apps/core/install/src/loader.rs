@@ -16,6 +16,7 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use axlauncher_launch::{ChainError, Version, resolve};
 use axlauncher_spi::LoaderProfile;
 use axlauncher_storage::write_atomic;
 
@@ -40,6 +41,13 @@ pub enum PlaceError {
     InvalidId { id: String },
     /// One of the profile's file paths could leave the game root.
     InvalidPath { path: String },
+    /// The provider's version document could not be decoded or encoded.
+    Document {
+        id: String,
+        source: serde_json::Error,
+    },
+    /// The profile's inherited game version could not be resolved.
+    Inheritance { source: ChainError },
     /// A write failed.
     Write { path: PathBuf, source: io::Error },
 }
@@ -54,6 +62,12 @@ impl fmt::Display for PlaceError {
             Self::InvalidPath { path } => {
                 write!(formatter, "\"{path}\" is not a path inside the game root")
             }
+            Self::Document { id, source } => {
+                write!(formatter, "cannot process profile {id}: {source}")
+            }
+            Self::Inheritance { source } => {
+                write!(formatter, "cannot resolve the loader profile: {source}")
+            }
             Self::Write { path, source } => {
                 write!(formatter, "cannot write {}: {source}", path.display())
             }
@@ -65,6 +79,8 @@ impl std::error::Error for PlaceError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Write { source, .. } => Some(source),
+            Self::Document { source, .. } => Some(source),
+            Self::Inheritance { source } => Some(source),
             Self::InvalidId { .. } | Self::InvalidPath { .. } => None,
         }
     }
@@ -80,26 +96,50 @@ pub fn document_path(game_root: &Path, version_id: &str) -> PathBuf {
 
 /// Writes `profile` into `game_root` and returns what it left there.
 ///
-/// The document is written first: a caller that stops here still has a version
-/// the launcher can name, and the next run re-places the rest.
+/// The parent version document must already exist. The returned id names the
+/// resolved profile and the client JAR that installation will prepare for it.
 pub fn place(game_root: &Path, profile: &LoaderProfile) -> Result<Placed, PlaceError> {
     check_id(&profile.version_id)?;
-
     let document = document_path(game_root, &profile.version_id);
-    write(&document, &profile.document)?;
-
-    for file in &profile.files {
-        let relative = safe_relative(&file.path).ok_or_else(|| PlaceError::InvalidPath {
-            path: file.path.clone(),
-        })?;
-        write(&game_root.join(relative), &file.bytes)?;
+    let files = profile
+        .files
+        .iter()
+        .map(|file| {
+            safe_relative(&file.path)
+                .map(|path| (path, &file.bytes))
+                .ok_or_else(|| PlaceError::InvalidPath {
+                    path: file.path.clone(),
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let bytes = resolve_document(game_root, profile)?;
+    for (relative, bytes) in files {
+        write(&game_root.join(relative), bytes)?;
     }
+    write(&document, &bytes)?;
 
     Ok(Placed {
         version_id: profile.version_id.clone(),
         document,
         files: profile.files.len(),
     })
+}
+
+fn resolve_document(game_root: &Path, profile: &LoaderProfile) -> Result<Vec<u8>, PlaceError> {
+    let document_error = |source| PlaceError::Document {
+        id: profile.version_id.clone(),
+        source,
+    };
+    let mut version: Version = serde_json::from_slice(&profile.document).map_err(document_error)?;
+    if version.id == profile.version_id && version.inherits_from.is_none() {
+        return Ok(profile.document.clone());
+    }
+    let jar = version.jar.take();
+    version.id.clone_from(&profile.version_id);
+    let mut resolved = resolve(&game_root.join("versions"), version)
+        .map_err(|source| PlaceError::Inheritance { source })?;
+    resolved.jar = jar;
+    serde_json::to_vec(&resolved).map_err(document_error)
 }
 
 fn write(path: &Path, bytes: &[u8]) -> Result<(), PlaceError> {
@@ -111,7 +151,7 @@ fn write(path: &Path, bytes: &[u8]) -> Result<(), PlaceError> {
 
 /// A version id is a directory name: no separators, no traversal, not empty.
 fn check_id(id: &str) -> Result<(), PlaceError> {
-    let usable = !id.is_empty()
+    let usable = !matches!(id, "" | "." | "..")
         && id.len() <= MAX_ID_LEN
         && id
             .chars()
@@ -129,7 +169,7 @@ fn check_id(id: &str) -> Result<(), PlaceError> {
 /// system rather than a separator to translate, and `..` is refused instead of
 /// resolved: a network answer has no business naming anything above the root.
 fn safe_relative(path: &str) -> Option<PathBuf> {
-    if path.is_empty() || path.starts_with('/') || path.contains('\\') {
+    if path.is_empty() || path.starts_with('/') || path.contains(['\\', ':']) {
         return None;
     }
     let mut relative = PathBuf::new();
