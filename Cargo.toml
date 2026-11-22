@@ -38,7 +38,7 @@ repository = "https://github.com/Axolotl-Launcher/Axolotl-2.0"
 license = "GPL-3.0-only"
 
 [workspace.dependencies]
-dirs = "5"
+dirs = "6"
 # gpui-kit 0.10.0 一揽子锁定 GPUI 家族（gpui-pre 0.3.12 快照、gpui-base、
 # gpui-component 与 Lucide 资源），是 Zed crates/gpui 的长期跟进快照。
 # 升级时须整体升级 gpui-kit，不要单独改 gpui-pre。
