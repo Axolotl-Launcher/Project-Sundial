@@ -16,6 +16,16 @@ explicit user request to create that document supplies the approval.
 Keep working drafts, scratch notes, task logs and intermediate output outside
 `docs/`. Update an existing guide when it already covers the topic.
 
+## Skills
+
+`skills/` contains reusable instructions for specific kinds of work in this
+repository, such as Cargo workflows and GPUI Kit development. Each skill has
+its own directory with a `SKILL.md` that describes when to use it and how to
+carry out the work.
+
+When a task matches a skill, read its `SKILL.md` before making related changes.
+Resolve any relative references from that skill's directory.
+
 ## Temporary plans
 
 Use `plans/` for temporary plans, working drafts, scratch notes and other
