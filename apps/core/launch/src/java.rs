@@ -41,6 +41,11 @@ impl SystemJava {
             search_path,
         }
     }
+
+    /// The configured `JAVA_HOME`, when the environment names one.
+    pub fn java_home(&self) -> Option<&Path> {
+        self.java_home.as_deref()
+    }
 }
 
 impl Java for SystemJava {

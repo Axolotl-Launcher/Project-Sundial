@@ -38,8 +38,8 @@ impl EnvironmentState {
     }
 
     pub(super) fn refresh(&mut self) {
-        self.java_home = std::env::var_os("JAVA_HOME").map(PathBuf::from);
         let java = SystemJava::from_environment();
+        self.java_home = java.java_home().map(PathBuf::from);
         self.default_java = java.executable(None, JavaMode::Windowed);
         self.error = None;
         self.notice = None;

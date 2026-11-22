@@ -9,13 +9,16 @@
 
 use std::collections::BTreeMap;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 /// Why a version document could not be used.
 #[derive(Debug)]
 pub enum VersionError {
+    InvalidId {
+        id: String,
+    },
     Read {
         path: PathBuf,
         source: io::Error,
@@ -29,6 +32,12 @@ pub enum VersionError {
 impl std::fmt::Display for VersionError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::InvalidId { id } => {
+                write!(
+                    formatter,
+                    "invalid version id `{id}`: expected one directory name"
+                )
+            }
             Self::Read { path, source } => {
                 write!(formatter, "cannot read {}: {source}", path.display())
             }
@@ -42,6 +51,7 @@ impl std::fmt::Display for VersionError {
 impl std::error::Error for VersionError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::InvalidId { .. } => None,
             Self::Read { source, .. } => Some(source),
             Self::Parse { source, .. } => Some(source),
         }
@@ -393,14 +403,48 @@ pub struct OsRule {
     pub arch: Option<String>,
 }
 
+/// Whether `value` is a single, safe directory name.
+///
+/// Version ids become path components under `versions/`; accepting a traversal
+/// or an absolute path would read and launch a document outside that tree.
+fn safe_component(value: &str) -> bool {
+    if value.is_empty() || value.contains('/') || value.contains('\\') {
+        return false;
+    }
+    let mut components = Path::new(value).components();
+    matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
+}
+
 /// Reads `<root>/<id>/<id>.json` without resolving what it inherits.
 pub fn load(root: &Path, id: &str) -> Result<Version, VersionError> {
+    if !safe_component(id) {
+        return Err(VersionError::InvalidId { id: id.to_string() });
+    }
+
     let path = root.join(id).join(format!("{id}.json"));
     let bytes = std::fs::read(&path).map_err(|source| VersionError::Read {
         path: path.clone(),
         source,
     })?;
-    serde_json::from_slice(&bytes).map_err(|source| VersionError::Parse { path, source })
+    let version: Version =
+        serde_json::from_slice(&bytes).map_err(|source| VersionError::Parse { path, source })?;
+
+    for candidate in [
+        Some(version.id.as_str()),
+        version.jar.as_deref(),
+        version.inherits_from.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !safe_component(candidate) {
+            return Err(VersionError::InvalidId {
+                id: candidate.to_string(),
+            });
+        }
+    }
+
+    Ok(version)
 }
 
 /// Reads `<root>/<id>/<id>.json` and everything it inherits from.
@@ -413,3 +457,7 @@ pub fn load_resolved(root: &Path, id: &str) -> Result<Version, crate::chain::Cha
     let version = load(root, id).map_err(|source| crate::chain::ChainError::Document { source })?;
     crate::chain::resolve(root, version)
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/apps/core/launch/src/version.rs"]
+mod tests;
