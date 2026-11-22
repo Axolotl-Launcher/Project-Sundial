@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-FileCopyrightText: 2026 Axolotl Team
 # SPDX-License-Identifier: GPL-3.0-only
 
 [workspace]
@@ -33,7 +33,7 @@ edition = "2024"
 # clippy.toml's msrv. 1.100.0 is the oldest version this workspace has actually
 # been built with; raise it when you verify a newer one, never in advance.
 rust-version = "1.100.0"
-repository = "https://github.com/Axolotl-Launcher/Axolotl-Superlogical"
+repository = "https://github.com/Axolotl-Launcher/Axolotl-2.0"
 # GPL-3.0-only applies to every crate in this workspace.
 license = "GPL-3.0-only"
 
@@ -104,28 +104,28 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 # Credentials in the platform store, for accounts.
 keyring = "4.2.0"
 
+axlauncher_content = { path = "apps/core/content" }
+axlauncher_core = { path = "apps/core" }
+axlauncher_domain = { path = "apps/core/domain" }
+axlauncher_frontend = { path = "apps/frontend" }
+axlauncher_install = { path = "apps/core/install" }
+axlauncher_launch = { path = "apps/core/launch" }
+axlauncher_mod_metadata = { path = "apps/core/mod_metadata" }
+axlauncher_network = { path = "apps/core/network" }
+axlauncher_observability = { path = "apps/core/observability" }
+axlauncher_resources = { path = "apps/core/resources" }
+axlauncher_scheduler = { path = "apps/core/scheduler" }
+axlauncher_spi = { path = "apps/core/spi" }
+axlauncher_state = { path = "apps/core/state" }
+axlauncher_storage = { path = "apps/core/storage" }
+axlauncher_telemetry = { path = "apps/core/telemetry" }
+axlauncher_ui = { path = "apps/ui" }
 # Utility.
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde"] }
 itertools = "0.15.0"
 regex = "1.13.2"
 serde_with = "3.25.0"
 shlex = "2.0.1"
-superlogical_content = { path = "apps/core/content" }
-superlogical_core = { path = "apps/core" }
-superlogical_domain = { path = "apps/core/domain" }
-superlogical_frontend = { path = "apps/frontend" }
-superlogical_install = { path = "apps/core/install" }
-superlogical_launch = { path = "apps/core/launch" }
-superlogical_mod_metadata = { path = "apps/core/mod_metadata" }
-superlogical_network = { path = "apps/core/network" }
-superlogical_observability = { path = "apps/core/observability" }
-superlogical_resources = { path = "apps/core/resources" }
-superlogical_scheduler = { path = "apps/core/scheduler" }
-superlogical_spi = { path = "apps/core/spi" }
-superlogical_state = { path = "apps/core/state" }
-superlogical_storage = { path = "apps/core/storage" }
-superlogical_telemetry = { path = "apps/core/telemetry" }
-superlogical_ui = { path = "apps/ui" }
 sysinfo = "0.40.4"
 thiserror = "2.0.21"
 which = "8.0.6"

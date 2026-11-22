@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! Launching: arguments, Java discovery and process lifecycle.
@@ -23,7 +23,7 @@ pub use plan::{Layout, Session};
 pub use rules::Target;
 pub use version::Version;
 
-use superlogical_spi::{LaunchCommand, LaunchError, Launcher};
+use axlauncher_spi::{LaunchCommand, LaunchError, Launcher};
 
 /// Starts the command as a child process and waits for it.
 #[derive(Debug, Default)]
@@ -57,7 +57,7 @@ mod tests {
     const SUCCESS_CODE: i32 = 0;
 
     /// A variable whose only value is the one the launcher supplies.
-    const GIVEN_NAME: &str = "SUPERLOGICAL_LAUNCH_GIVEN";
+    const GIVEN_NAME: &str = "AXLAUNCHER_LAUNCH_GIVEN";
     const GIVEN_VALUE: &str = "launch-provided";
 
     /// A variable every test runner inherits, so removing it is observable.
@@ -178,10 +178,8 @@ mod tests {
         fn new() -> Self {
             static COUNTER: AtomicU32 = AtomicU32::new(0);
             let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
-            let path = std::env::temp_dir().join(format!(
-                "superlogical-launch-{}-{unique}",
-                std::process::id()
-            ));
+            let path = std::env::temp_dir()
+                .join(format!("axlauncher-launch-{}-{unique}", std::process::id()));
             std::fs::create_dir_all(&path).expect("temp directory");
             Self(path)
         }
@@ -218,7 +216,7 @@ mod tests {
 
     #[test]
     fn a_missing_program_is_not_found() {
-        let command = command_from(("superlogical-no-such-program".to_owned(), Vec::new()));
+        let command = command_from(("axlauncher-no-such-program".to_owned(), Vec::new()));
 
         let result = finish(ProcessLauncher.launch(command));
 

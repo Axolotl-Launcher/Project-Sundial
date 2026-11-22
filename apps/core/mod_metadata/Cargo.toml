@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-FileCopyrightText: 2026 Axolotl Team
 # SPDX-License-Identifier: GPL-3.0-only
 
 [package]
-name = "superlogical_mod_metadata"
+name = "axlauncher_mod_metadata"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -1,9 +1,9 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! HTTP and protocol clients.
 
-use superlogical_spi::{FetchError, Network};
+use axlauncher_spi::{FetchError, Network};
 
 /// A network provider that has not been given a transport yet.
 ///

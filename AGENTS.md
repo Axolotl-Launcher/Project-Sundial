@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 The Superlogical Authors -->
+<!-- SPDX-FileCopyrightText: 2026 Axolotl Team -->
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
 # AGENTS.md
@@ -15,11 +15,11 @@ codebase.
 ## Layout
 
 ```
-apps/core          superlogical_core            domain logic, no UI dependency
-apps/ui            superlogical_ui             palette + allowed gpui-kit vocabulary
-apps/frontend      superlogical_frontend       state, layout, window wiring
-platforms/windows  superlogical_platform_windows  produces superlogical.exe
-platforms/linux    superlogical_platform_linux    produces a Linux binary
+apps/core          axlauncher_core            domain logic, no UI dependency
+apps/ui            axlauncher_ui             palette + allowed gpui-kit vocabulary
+apps/frontend      axlauncher_frontend       state, layout, window wiring
+platforms/windows  axlauncher_platform_windows  produces axlauncher.exe
+platforms/linux    axlauncher_platform_linux    produces a Linux binary
 ```
 
 Dependencies point one way only, and Cargo enforces it:
@@ -31,7 +31,7 @@ platforms/* -> frontend
 ```
 
 Each system under `apps/core/` is its own crate. Callers depend on
-`superlogical_spi` ports, never on a concrete provider; `apps/frontend` picks
+`axlauncher_spi` ports, never on a concrete provider; `apps/frontend` picks
 which provider to wire at startup. Adding a capability means adding a trait to
 `spi` and an implementation in the owning system, not calling across systems.
 
@@ -66,6 +66,7 @@ write a test that fails when the constraint breaks.
 |---|---|
 | No `dbg!` or `todo!` left behind | `clippy::dbg_macro`, `clippy::todo` (deny) |
 | Functions stay short | `clippy::too_many_lines` at 60 (warn; CI is `-D warnings`) |
+| No code file exceeds 500 lines | `scripts/check-file-length.ts` (`pnpm file-length`) |
 | Shallow nesting, prefer early return | `clippy::excessive_nesting` at 3 |
 | No one-letter or placeholder names | `clippy::disallowed_names`, `clippy::many_single_char_names` |
 | Every lint suppression explains itself | `clippy::allow_attributes_without_reason` |
@@ -75,6 +76,10 @@ write a test that fails when the constraint breaks.
 | Scripts are TypeScript, never JavaScript | `scripts/check-language.ts` (`pnpm nojs`) |
 | TypeScript must be strippable by Node | `tsc` with `erasableSyntaxOnly` (`pnpm tsc`) |
 | Script style and magic numbers | ESLint (`pnpm eslint`) |
+
+Code files are the tracked Rust and TypeScript/JavaScript sources; a test file
+counts. A file over 500 lines is split by role — production modules and their
+tests live in separate files — not moved into a path the check ignores.
 
 Rules no machine can decide, so a human reviewer must:
 
@@ -97,9 +102,12 @@ a test in `tests/`. Only what survives that goes in the prose above.
 
 ## Git hooks
 
-`prek.toml` defines the hooks every developer runs: `commit-msg` requires a DCO
-sign-off, `pre-commit` runs the fast checks, `pre-push` runs clippy, the tests
-and the dependency policy. CI's `Hooks` job runs the same configuration.
+`prek.toml` defines fast local hooks: `commit-msg` requires a DCO sign-off and
+an English message, `pre-commit` fixes whitespace and checks that staged files
+parse and are formatted, and `pre-push` checks the trailers and GPG signature on
+the commits about to leave the machine. Nothing that builds the workspace or
+runs the test suite is a hook; CI is the full gate, and `pnpm check` runs most
+of it on demand. CI's `Hooks` job runs the pre-commit stage over a full checkout.
 
 An agent must not bypass them with `--no-verify` or `PREK_NO_VERIFY`. If a hook
 fails, fix the cause; if the hook itself is wrong, say so and change `prek.toml`
@@ -158,7 +166,7 @@ rather than implying it passed.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Axolotl-Superlogical** (383 symbols, 563 relationships, 4 execution flows).
+This project is indexed by GitNexus as **Axolotl-2.0**.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
 
@@ -182,10 +190,10 @@ This project is indexed by GitNexus as **Axolotl-Superlogical** (383 symbols, 56
 
 | Resource | Use for |
 | --- | --- |
-| `gitnexus://repo/Axolotl-Superlogical/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/Axolotl-Superlogical/clusters` | All functional areas |
-| `gitnexus://repo/Axolotl-Superlogical/processes` | All execution flows |
-| `gitnexus://repo/Axolotl-Superlogical/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/Axolotl-2.0/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/Axolotl-2.0/clusters` | All functional areas |
+| `gitnexus://repo/Axolotl-2.0/processes` | All execution flows |
+| `gitnexus://repo/Axolotl-2.0/process/{name}` | Step-by-step execution trace |
 
 ## CLI
 

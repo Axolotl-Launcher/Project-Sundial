@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-FileCopyrightText: 2026 Axolotl Team
 # SPDX-License-Identifier: GPL-3.0-only
 
 # typos spellchecker. Only exceptions live here; add a word only after typos
@@ -20,7 +20,7 @@ extend-ignore-re = [
 [default.extend-words]
 # Product and framework names that are not English words.
 axolotl = "axolotl"
-superlogical = "superlogical"
+axlauncher = "axlauncher"
 gpui = "gpui"
 
 [default.extend-identifiers]

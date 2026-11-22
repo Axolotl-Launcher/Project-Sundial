@@ -1,10 +1,10 @@
 {
-  "name": "@superlogical/ui",
+  "name": "@axlauncher/ui",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "cargo build -p superlogical_ui",
-    "lint": "cargo clippy -p superlogical_ui --all-targets -- -D warnings",
-    "test": "cargo test -p superlogical_ui"
+    "build": "cargo build -p axlauncher_ui",
+    "lint": "cargo clippy -p axlauncher_ui --all-targets -- -D warnings",
+    "test": "cargo test -p axlauncher_ui"
   }
 }

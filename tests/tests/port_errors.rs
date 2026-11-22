@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! Keeps every port error usable as an error.
@@ -18,38 +18,38 @@ fn is_display_and_error<E: Display + Error>() {}
 
 #[test]
 fn every_port_error_is_display_and_error() {
-    is_display::<superlogical_spi::FetchError>();
-    is_error::<superlogical_spi::FetchError>();
+    is_display::<axlauncher_spi::FetchError>();
+    is_error::<axlauncher_spi::FetchError>();
 
-    is_display::<superlogical_spi::StorageError>();
-    is_error::<superlogical_spi::StorageError>();
+    is_display::<axlauncher_spi::StorageError>();
+    is_error::<axlauncher_spi::StorageError>();
 
-    is_display::<superlogical_spi::InstallError>();
-    is_error::<superlogical_spi::InstallError>();
+    is_display::<axlauncher_spi::InstallError>();
+    is_error::<axlauncher_spi::InstallError>();
 
-    is_display::<superlogical_spi::LaunchError>();
-    is_error::<superlogical_spi::LaunchError>();
+    is_display::<axlauncher_spi::LaunchError>();
+    is_error::<axlauncher_spi::LaunchError>();
 
-    is_display_and_error::<superlogical_spi::FetchError>();
-    is_display_and_error::<superlogical_spi::StorageError>();
-    is_display_and_error::<superlogical_spi::InstallError>();
-    is_display_and_error::<superlogical_spi::LaunchError>();
+    is_display_and_error::<axlauncher_spi::FetchError>();
+    is_display_and_error::<axlauncher_spi::StorageError>();
+    is_display_and_error::<axlauncher_spi::InstallError>();
+    is_display_and_error::<axlauncher_spi::LaunchError>();
 }
 
 #[test]
 fn a_port_error_reads_as_a_sentence() {
-    let fatal = superlogical_spi::FetchError::Fatal("no route to host".into());
+    let fatal = axlauncher_spi::FetchError::Fatal("no route to host".into());
     assert_eq!(fatal.to_string(), "no route to host");
 
-    let retryable = superlogical_spi::FetchError::Retryable("timed out".into());
+    let retryable = axlauncher_spi::FetchError::Retryable("timed out".into());
     assert!(retryable.to_string().contains("timed out"));
 
-    let exited = superlogical_spi::LaunchError::Exited { code: Some(3) };
+    let exited = axlauncher_spi::LaunchError::Exited { code: Some(3) };
     assert!(exited.to_string().contains('3'));
 
-    let killed = superlogical_spi::LaunchError::Exited { code: None };
+    let killed = axlauncher_spi::LaunchError::Exited { code: None };
     assert!(killed.to_string().contains("terminated"));
 
-    let missing = superlogical_spi::LaunchError::NotFound("no such file".into());
+    let missing = axlauncher_spi::LaunchError::NotFound("no such file".into());
     assert!(missing.to_string().contains("no such file"));
 }

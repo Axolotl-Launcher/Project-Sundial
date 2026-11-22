@@ -554,6 +554,166 @@ dependencies = [
 ]
 
 [[package]]
+name = "axlauncher_content"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_spi",
+]
+
+[[package]]
+name = "axlauncher_core"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_content",
+ "axlauncher_domain",
+ "axlauncher_install",
+ "axlauncher_launch",
+ "axlauncher_mod_metadata",
+ "axlauncher_network",
+ "axlauncher_observability",
+ "axlauncher_resources",
+ "axlauncher_scheduler",
+ "axlauncher_state",
+ "axlauncher_storage",
+ "axlauncher_telemetry",
+]
+
+[[package]]
+name = "axlauncher_domain"
+version = "0.1.0"
+
+[[package]]
+name = "axlauncher_frontend"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_core",
+ "axlauncher_ui",
+ "dirs 5.0.1",
+]
+
+[[package]]
+name = "axlauncher_install"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_launch",
+ "axlauncher_network",
+ "axlauncher_spi",
+ "axlauncher_storage",
+ "futures",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "axlauncher_launch"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_spi",
+ "axlauncher_storage",
+ "serde",
+ "serde_json",
+ "zip",
+]
+
+[[package]]
+name = "axlauncher_mod_metadata"
+version = "0.1.0"
+
+[[package]]
+name = "axlauncher_network"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_spi",
+ "hex",
+ "reqwest",
+ "sha1_smol",
+]
+
+[[package]]
+name = "axlauncher_observability"
+version = "0.1.0"
+
+[[package]]
+name = "axlauncher_platform_linux"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_frontend",
+]
+
+[[package]]
+name = "axlauncher_platform_macos"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_frontend",
+]
+
+[[package]]
+name = "axlauncher_platform_windows"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_frontend",
+]
+
+[[package]]
+name = "axlauncher_policy_tests"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_content",
+ "axlauncher_spi",
+ "axlauncher_state",
+]
+
+[[package]]
+name = "axlauncher_resources"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_domain",
+]
+
+[[package]]
+name = "axlauncher_scheduler"
+version = "0.1.0"
+
+[[package]]
+name = "axlauncher_spi"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_domain",
+]
+
+[[package]]
+name = "axlauncher_state"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_spi",
+ "axlauncher_storage",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "axlauncher_storage"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_spi",
+]
+
+[[package]]
+name = "axlauncher_telemetry"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_spi",
+]
+
+[[package]]
+name = "axlauncher_ui"
+version = "0.1.0"
+dependencies = [
+ "gpui-kit",
+]
+
+[[package]]
 name = "backtrace"
 version = "0.3.77"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6324,166 +6484,6 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
-
-[[package]]
-name = "superlogical_content"
-version = "0.1.0"
-dependencies = [
- "superlogical_spi",
-]
-
-[[package]]
-name = "superlogical_core"
-version = "0.1.0"
-dependencies = [
- "superlogical_content",
- "superlogical_domain",
- "superlogical_install",
- "superlogical_launch",
- "superlogical_mod_metadata",
- "superlogical_network",
- "superlogical_observability",
- "superlogical_resources",
- "superlogical_scheduler",
- "superlogical_state",
- "superlogical_storage",
- "superlogical_telemetry",
-]
-
-[[package]]
-name = "superlogical_domain"
-version = "0.1.0"
-
-[[package]]
-name = "superlogical_frontend"
-version = "0.1.0"
-dependencies = [
- "dirs 5.0.1",
- "superlogical_core",
- "superlogical_ui",
-]
-
-[[package]]
-name = "superlogical_install"
-version = "0.1.0"
-dependencies = [
- "futures",
- "serde",
- "serde_json",
- "superlogical_launch",
- "superlogical_network",
- "superlogical_spi",
- "superlogical_storage",
- "tempfile",
-]
-
-[[package]]
-name = "superlogical_launch"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "superlogical_spi",
- "superlogical_storage",
- "zip",
-]
-
-[[package]]
-name = "superlogical_mod_metadata"
-version = "0.1.0"
-
-[[package]]
-name = "superlogical_network"
-version = "0.1.0"
-dependencies = [
- "hex",
- "reqwest",
- "sha1_smol",
- "superlogical_spi",
-]
-
-[[package]]
-name = "superlogical_observability"
-version = "0.1.0"
-
-[[package]]
-name = "superlogical_platform_linux"
-version = "0.1.0"
-dependencies = [
- "superlogical_frontend",
-]
-
-[[package]]
-name = "superlogical_platform_macos"
-version = "0.1.0"
-dependencies = [
- "superlogical_frontend",
-]
-
-[[package]]
-name = "superlogical_platform_windows"
-version = "0.1.0"
-dependencies = [
- "superlogical_frontend",
-]
-
-[[package]]
-name = "superlogical_policy_tests"
-version = "0.1.0"
-dependencies = [
- "superlogical_content",
- "superlogical_spi",
- "superlogical_state",
-]
-
-[[package]]
-name = "superlogical_resources"
-version = "0.1.0"
-dependencies = [
- "superlogical_domain",
-]
-
-[[package]]
-name = "superlogical_scheduler"
-version = "0.1.0"
-
-[[package]]
-name = "superlogical_spi"
-version = "0.1.0"
-dependencies = [
- "superlogical_domain",
-]
-
-[[package]]
-name = "superlogical_state"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "superlogical_spi",
- "superlogical_storage",
-]
-
-[[package]]
-name = "superlogical_storage"
-version = "0.1.0"
-dependencies = [
- "superlogical_spi",
-]
-
-[[package]]
-name = "superlogical_telemetry"
-version = "0.1.0"
-dependencies = [
- "superlogical_spi",
-]
-
-[[package]]
-name = "superlogical_ui"
-version = "0.1.0"
-dependencies = [
- "gpui-kit",
-]
 
 [[package]]
 name = "svg_fmt"

@@ -1,22 +1,29 @@
-# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-FileCopyrightText: 2026 Axolotl Team
 # SPDX-License-Identifier: GPL-3.0-only
 
-# Hooks for every stage: commit, push, and CI (`prek run --all-files`).
-#
-# Two groups. The builtin repository holds checks any project would want.
-# The local repository holds this repository's own gates, reusing the same
-# commands CI runs so a hook and a CI job cannot drift apart.
+# Fast local hooks. They cover what is cheap to fix while a commit is still
+# local: whitespace and encoding, files that must parse, formatting, and commit
+# metadata. Anything that builds the workspace or scans every file (clippy,
+# tests, cargo deny, cargo shear, typos, REUSE, tsc, ESLint) belongs to CI; run
+# `pnpm check` for most of that gate locally on demand.
 
 # Install all three shims; without this prek only installs pre-commit.
 default_install_hook_types = ["pre-commit", "pre-push", "commit-msg"]
+
+# A hook without `stages` runs in every installed stage. Keep the file checks
+# at pre-commit and let the commit-metadata hooks opt into the other two.
+default_stages = ["pre-commit"]
 
 [[repos]]
 repo = "builtin"
 hooks = [
   # Encoding and whitespace. Runs at pre-commit so a fix is one commit, not a
   # separate cleanup commit after review.
-  { id = "trailing-whitespace" },
-  { id = "end-of-file-fixer" },
+  #
+  # Some builtin hooks default to pre-push as well; fixing a file after the
+  # commit exists is pointless, so pin those to pre-commit.
+  { id = "trailing-whitespace", stages = ["pre-commit"] },
+  { id = "end-of-file-fixer", stages = ["pre-commit"] },
   { id = "mixed-line-ending", args = ["--fix=lf"] },
   { id = "fix-byte-order-marker" },
 
@@ -24,9 +31,9 @@ hooks = [
   { id = "check-case-conflict" },
   { id = "check-illegal-windows-names" },
   { id = "check-symlinks" },
-  { id = "destroyed-symlinks" },
+  { id = "destroyed-symlinks", stages = ["pre-commit"] },
   { id = "forbid-new-submodules" },
-  { id = "check-added-large-files", args = ["--maxkb=4096"] },
+  { id = "check-added-large-files", args = ["--maxkb=4096"], stages = ["pre-commit"] },
 
   # Merge artifacts and secrets.
   { id = "check-merge-conflict" },
@@ -79,54 +86,13 @@ hooks = [
     pass_filenames = true,
     stages = ["commit-msg"],
   },
+  # Formatters only. CI runs the same checks, but catching a formatting
+  # failure here costs a second instead of a round trip.
   {
     id = "format-rust",
     name = "cargo fmt",
     language = "system",
     entry = "cargo fmt --all --check",
-    pass_filenames = false,
-    always_run = true,
-  },
-  {
-    id = "typescript-only",
-    name = "no JavaScript sources",
-    language = "system",
-    entry = "pnpm nojs",
-    pass_filenames = false,
-    always_run = true,
-  },
-  {
-    id = "typecheck-typescript",
-    name = "tsc",
-    language = "system",
-    entry = "pnpm tsc",
-    pass_filenames = false,
-    always_run = true,
-  },
-  # `types` is a conjunction, not a disjunction: a file must satisfy every tag.
-  # Running ESLint once for TypeScript is enough — it lints its own config too,
-  # since that config is the only JavaScript file here.
-  {
-    id = "lint-typescript",
-    name = "eslint",
-    language = "system",
-    entry = "pnpm eslint",
-    pass_filenames = false,
-    always_run = true,
-  },
-  {
-    id = "spell",
-    name = "typos",
-    language = "system",
-    entry = "typos",
-    pass_filenames = false,
-    always_run = true,
-  },
-  {
-    id = "licence-headers",
-    name = "reuse lint",
-    language = "system",
-    entry = "reuse lint",
     pass_filenames = false,
     always_run = true,
   },
@@ -139,47 +105,11 @@ hooks = [
     always_run = true,
   },
   {
-    id = "lint-toml",
-    name = "tombi lint",
+    id = "file-length",
+    name = "code file line limit",
     language = "system",
-    entry = "tombi lint",
-    pass_filenames = false,
-    always_run = true,
-  },
-  {
-    id = "clippy",
-    name = "cargo clippy",
-    language = "system",
-    entry = "cargo clippy --workspace --all-targets --all-features -- -D warnings",
-    pass_filenames = false,
-    always_run = true,
-    stages = ["pre-push"],
-  },
-  {
-    id = "unused-dependencies",
-    name = "cargo shear",
-    language = "system",
-    entry = "cargo shear",
-    pass_filenames = false,
-    types = ["toml"],
-    stages = ["pre-push"],
-  },
-  {
-    id = "dependency-policy",
-    name = "cargo deny",
-    language = "system",
-    entry = "cargo deny check",
-    pass_filenames = false,
-    always_run = true,
-    stages = ["pre-push"],
-  },
-  {
-    id = "test",
-    name = "cargo nextest",
-    language = "system",
-    entry = "cargo nextest run --workspace --profile ci",
-    pass_filenames = false,
-    always_run = true,
-    stages = ["pre-push"],
+    entry = "node scripts/check-file-length.ts",
+    files = "[.](rs|ts|tsx|js|jsx|mjs|cjs)$",
+    stages = ["pre-commit"],
   },
 ]

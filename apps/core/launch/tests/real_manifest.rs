@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! Checks the launch path against a real launcher installation when one exists.
@@ -12,7 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
-use superlogical_launch::{Layout, Session, Target, classpath, natives, plan, rules, version};
+use axlauncher_launch::{Layout, Session, Target, classpath, natives, plan, rules, version};
 
 /// Directories a launcher's game root may live in, most specific first.
 fn candidate_roots() -> Vec<PathBuf> {
@@ -110,15 +110,15 @@ fn build_command(
     id: &str,
     document: &version::Version,
     target: &Target,
-) -> superlogical_spi::LaunchCommand {
+) -> axlauncher_spi::LaunchCommand {
     let instance = std::env::temp_dir()
-        .join("superlogical-real-manifest")
+        .join("axlauncher-real-manifest")
         .join(id);
     let layout = Layout {
         game_root: root.to_path_buf(),
         game_directory: instance.clone(),
         natives_directory: instance.join("natives"),
-        launcher_name: "Superlogical".into(),
+        launcher_name: "Axolotl Launcher".into(),
         launcher_version: "0.1.0".into(),
     };
 
@@ -132,7 +132,7 @@ fn build_command(
     .unwrap_or_else(|error| panic!("{id}: {error}"))
 }
 
-fn assert_no_placeholders(id: &str, command: &superlogical_spi::LaunchCommand) {
+fn assert_no_placeholders(id: &str, command: &axlauncher_spi::LaunchCommand) {
     let unresolved: Vec<&String> = command
         .args
         .iter()
@@ -147,7 +147,7 @@ fn assert_no_placeholders(id: &str, command: &superlogical_spi::LaunchCommand) {
 fn assert_main_class(
     id: &str,
     document: &version::Version,
-    command: &superlogical_spi::LaunchCommand,
+    command: &axlauncher_spi::LaunchCommand,
 ) {
     assert!(
         command

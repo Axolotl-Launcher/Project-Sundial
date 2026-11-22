@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! Application state and persistence.
@@ -23,7 +23,7 @@ pub use settings::{
     SettingsOrigin, ThemeChoice, load_settings, save_settings,
 };
 
-use superlogical_spi::{Id, InstanceRecord, StateStore, StorageError};
+use axlauncher_spi::{Id, InstanceRecord, StateStore, StorageError};
 
 /// Keeps instances in memory; a database-backed store replaces it later.
 #[derive(Debug, Default)]

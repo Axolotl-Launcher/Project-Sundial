@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Applies `platform:`, `module:` and `version:` labels to an opened issue.
@@ -9,6 +9,7 @@
 import { execFileSync } from "node:child_process";
 
 import { moduleLabels, platformLabels, versionLabels } from "./issue-labels.ts";
+import { ensureVersionLabel } from "./version-labels.ts";
 
 /// Issue forms render an unanswered optional field this way.
 const NO_RESPONSE = "_No response_";
@@ -36,11 +37,12 @@ function main(): number {
     return 0;
   }
 
-  apply(number, [
-    ...platformLabels(body),
-    ...moduleLabels(body),
-    ...versionLabels(body),
-  ]);
+  const versions = versionLabels(body);
+  for (const label of versions) {
+    ensureVersionLabel(label);
+  }
+
+  apply(number, [...platformLabels(body), ...moduleLabels(body), ...versions]);
   return 0;
 }
 

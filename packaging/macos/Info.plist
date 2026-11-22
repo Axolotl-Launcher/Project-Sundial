@@ -4,11 +4,11 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>
-  <string>Superlogical</string>
+  <string>AXLauncher</string>
   <key>CFBundleDisplayName</key>
-  <string>Superlogical</string>
+  <string>Axolotl Launcher</string>
   <key>CFBundleIdentifier</key>
-  <string>com.axolotl.superlogical</string>
+  <string>com.axolotl.axlauncher</string>
   <key>CFBundleVersion</key>
   <string>0.1.0</string>
   <key>CFBundleShortVersionString</key>
@@ -16,7 +16,7 @@
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleExecutable</key>
-  <string>superlogical</string>
+  <string>axlauncher</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>LSMinimumSystemVersion</key>

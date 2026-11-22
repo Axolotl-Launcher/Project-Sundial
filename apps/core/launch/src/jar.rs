@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! Reading jar entries with the `zip` decoder.
@@ -86,7 +86,7 @@ mod tests {
         fn new() -> Self {
             let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
             let path = std::env::temp_dir()
-                .join(format!("superlogical-jar-{}-{unique}", std::process::id()));
+                .join(format!("axlauncher-jar-{}-{unique}", std::process::id()));
             fs::create_dir_all(&path).expect("temp directory");
             Self(path)
         }

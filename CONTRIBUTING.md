@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 The Superlogical Authors -->
+<!-- SPDX-FileCopyrightText: 2026 Axolotl Team -->
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
 # Contributing
@@ -24,7 +24,7 @@ cargo install cargo-nextest cargo-shear cargo-deny --locked
 
 ```bash
 pnpm install                                  # turbo
-cargo build -p superlogical_platform_windows  # debug binary
+cargo build -p axlauncher_platform_windows  # debug binary
 pnpm dev:windows                              # run it
 ```
 
@@ -42,7 +42,7 @@ cargo shear
 cargo deny check
 typos
 tombi format --check && tombi lint
-reuse lint
+ lint
 ```
 
 `pnpm check` bundles most of this. CI runs all of it on Ubuntu and Windows, and
@@ -72,23 +72,28 @@ functions; early returns; no dead code; meaningful names; no magic numbers.
 
 ## Git hooks
 
-[prek](https://github.com/j178/prek) manages the hooks and their tools; the
-configuration is `prek.toml`.
+[prek](https://github.com/j178/prek) manages fast local hooks; the configuration
+is `prek.toml`.
 
 ```bash
 prek install          # once per clone
-prek run --all-files  # everything, every file
+prek run --all-files  # pre-commit checks, every file
 prek run --stage pre-push
 ```
 
 | Stage | Runs |
 |---|---|
-| `commit-msg` | DCO sign-off present |
-| `pre-commit` | whitespace, encoding, structured-file parsing, large files, secrets, cargo fmt, no-JS, tsc, ESLint, typos, REUSE, tombi |
-| `pre-push` | clippy, cargo shear, cargo deny, nextest, GPG signature on pushed commits |
+| `commit-msg` | DCO sign-off present, message in English |
+| `pre-commit` | whitespace and encoding, structured-file parsing, large files, secrets, cargo fmt, tombi format, the 500-line limit |
+| `pre-push` | DCO trailers and GPG signature on the commits being pushed |
+
+The hooks deliberately stop at what is cheap to fix while a commit is still
+local. Clippy, the tests, cargo deny, cargo shear, typos, REUSE, tsc and ESLint
+run in CI; `pnpm check` runs most of the same checks locally on demand. CI's
+`Hooks` job runs the pre-commit stage over a full checkout, so a file skipped
+locally is still checked there.
 
 Install prek from the release installer or with `cargo install prek --locked`.
-CI runs the same `prek.toml` in the `Hooks` job.
 
 ## Scripts
 
@@ -100,6 +105,7 @@ node scripts/turbo.ts test
 pnpm tsc      # type check; also rejects syntax Node cannot strip
 pnpm eslint
 pnpm nojs     # rejects any tracked .js/.mjs/.cjs/.jsx file
+pnpm file-length  # rejects any code file over 500 lines
 ```
 
 `eslint.config.js` is the one JavaScript file allowed, because ESLint loads its
@@ -121,6 +127,9 @@ it:
 gh auth login          # once
 node scripts/sync-labels.ts
 ```
+
+`version:` labels are the exception: the triage scripts create them on demand,
+because a report can name a version that has no release yet.
 
 Every dropdown option must have an entry in `scripts/issue-labels.ts`;
 `scripts/forms.test.ts` fails when one does not.

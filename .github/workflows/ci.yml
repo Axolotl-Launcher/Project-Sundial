@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-FileCopyrightText: 2026 Axolotl Team
 # SPDX-License-Identifier: GPL-3.0-only
 
 name: CI
@@ -123,6 +123,11 @@ jobs:
       - name: No JavaScript sources
         run: pnpm nojs
 
+      # A file too long to read by role is split by role. Tests count too;
+      # production modules and their tests live in separate files.
+      - name: File length
+        run: pnpm file-length
+
       - name: TypeScript type check
         run: pnpm tsc
 
@@ -144,18 +149,16 @@ jobs:
       - name: Script tests
         run: node --test scripts/*.test.ts
 
-  # The hook list developers run locally, executed in CI. Its job is to prove
-  # that `prek.toml` still works and that the hooks nobody runs locally (the
-  # commit-message policy) behave — not to duplicate clippy or the test suite,
-  # which the rust job already runs with a warm cache.
+  # The hooks developers run locally, executed in CI. Its job is to prove that
+  # `prek.toml` still works and that the fast checks behave on a full checkout.
+  # Clippy, tests, dependency policy, typos, REUSE, tsc and ESLint live in the
+  # rust and hygiene jobs; the hooks deliberately do not duplicate them.
   hooks:
     name: Hooks
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
 
       - name: Install prek
         run: |
@@ -163,31 +166,18 @@ jobs:
             https://github.com/j178/prek/releases/download/v0.5.11/prek-installer.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
-        with:
-          run_install: false
-
+      # The runner already has cargo and rustfmt. Node is needed by the local
+      # file checks; tombi is the one extra hook tool.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: package.json
-          cache: pnpm
 
       - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
         with:
-          tool: tombi@1.11.3, typos@1.52.2
+          tool: tombi@1.11.3
 
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.13"
-
-      - name: Install Python tooling
-        run: python -m pip install --quiet reuse==6.3.0
-
-      - name: Install JavaScript dependencies
-        run: pnpm install --frozen-lockfile
-
-      # pre-commit only: clippy, tests and the dependency policy are pre-push
-      # hooks and belong to the rust job, which already caches the build.
+      # commit-msg and pre-push hooks need a real commit or push; only the
+      # pre-commit stage is meaningful across a checkout.
       - name: Run hooks
         run: prek run --all-files --stage pre-commit
 

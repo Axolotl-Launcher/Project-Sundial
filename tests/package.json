@@ -1,10 +1,10 @@
 {
-  "name": "@superlogical/policy-tests",
+  "name": "@axlauncher/policy-tests",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "test": "cargo nextest run -p superlogical_policy_tests",
-    "build": "cargo build -p superlogical_policy_tests",
-    "lint": "cargo clippy -p superlogical_policy_tests --all-targets -- -D warnings"
+    "test": "cargo nextest run -p axlauncher_policy_tests",
+    "build": "cargo build -p axlauncher_policy_tests",
+    "lint": "cargo clippy -p axlauncher_policy_tests --all-targets -- -D warnings"
   }
 }

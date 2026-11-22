@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! Assembles a complete launch from a version document and the layout on disk.
@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use superlogical_spi::LaunchCommand;
+use axlauncher_spi::LaunchCommand;
 
 use crate::arguments::{self, Values};
 use crate::classpath;
@@ -171,7 +171,7 @@ mod tests {
         fn new() -> Self {
             let unique = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let path = std::env::temp_dir()
-                .join(format!("superlogical-plan-{}-{unique}", std::process::id()));
+                .join(format!("axlauncher-plan-{}-{unique}", std::process::id()));
             fs::create_dir_all(&path).expect("temp directory");
             Self(path)
         }
@@ -254,7 +254,7 @@ mod tests {
             game_root: root.to_path_buf(),
             game_directory: root.join("instances").join("one"),
             natives_directory: root.join("natives"),
-            launcher_name: "Superlogical".into(),
+            launcher_name: "Axolotl Launcher".into(),
             launcher_version: "0.1.0".into(),
         };
 

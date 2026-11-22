@@ -1,14 +1,14 @@
 {
-  "name": "@superlogical/frontend",
+  "name": "@axlauncher/frontend",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "cargo build -p superlogical_frontend",
-    "lint": "cargo clippy -p superlogical_frontend --all-targets -- -D warnings",
-    "test": "cargo test -p superlogical_frontend"
+    "build": "cargo build -p axlauncher_frontend",
+    "lint": "cargo clippy -p axlauncher_frontend --all-targets -- -D warnings",
+    "test": "cargo test -p axlauncher_frontend"
   },
   "dependencies": {
-    "@superlogical/core": "workspace:*",
-    "@superlogical/ui": "workspace:*"
+    "@axlauncher/core": "workspace:*",
+    "@axlauncher/ui": "workspace:*"
   }
 }

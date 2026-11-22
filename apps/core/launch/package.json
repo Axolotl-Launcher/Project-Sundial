@@ -1,10 +1,10 @@
 {
-  "name": "@superlogical/launch",
+  "name": "@axlauncher/launch",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "cargo build -p superlogical_launch",
-    "lint": "cargo clippy -p superlogical_launch --all-targets -- -D warnings",
-    "test": "cargo test -p superlogical_launch"
+    "build": "cargo build -p axlauncher_launch",
+    "lint": "cargo clippy -p axlauncher_launch --all-targets -- -D warnings",
+    "test": "cargo test -p axlauncher_launch"
   }
 }

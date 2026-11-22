@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Applies the label vocabulary to this repository.
@@ -9,6 +9,8 @@
 // is missing and updates colours and descriptions in place.
 
 import { execFileSync } from "node:child_process";
+
+import { VERSION_COLOR } from "./version-labels.ts";
 
 interface LabelSpec {
   readonly name: string;
@@ -67,9 +69,6 @@ export const LABELS: readonly LabelSpec[] = [
   ...MODULE_LABELS,
   ...STATUS_LABELS,
 ];
-
-/// Colour used for `version: *` labels created on demand.
-const VERSION_COLOR = "bfd4f2";
 
 function upsert(label: LabelSpec): void {
   execFileSync(

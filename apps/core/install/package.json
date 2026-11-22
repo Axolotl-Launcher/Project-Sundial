@@ -1,10 +1,10 @@
 {
-  "name": "@superlogical/install",
+  "name": "@axlauncher/install",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "cargo build -p superlogical_install",
-    "lint": "cargo clippy -p superlogical_install --all-targets -- -D warnings",
-    "test": "cargo test -p superlogical_install"
+    "build": "cargo build -p axlauncher_install",
+    "lint": "cargo clippy -p axlauncher_install --all-targets -- -D warnings",
+    "test": "cargo test -p axlauncher_install"
   }
 }

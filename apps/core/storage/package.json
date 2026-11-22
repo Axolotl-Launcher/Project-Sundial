@@ -1,10 +1,10 @@
 {
-  "name": "@superlogical/storage",
+  "name": "@axlauncher/storage",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "cargo build -p superlogical_storage",
-    "lint": "cargo clippy -p superlogical_storage --all-targets -- -D warnings",
-    "test": "cargo test -p superlogical_storage"
+    "build": "cargo build -p axlauncher_storage",
+    "lint": "cargo clippy -p axlauncher_storage --all-targets -- -D warnings",
+    "test": "cargo test -p axlauncher_storage"
   }
 }

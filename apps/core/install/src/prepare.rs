@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! Getting a version's files onto disk before a launch.
@@ -10,9 +10,9 @@
 
 use std::path::{Path, PathBuf};
 
-use superlogical_launch::Target;
-use superlogical_launch::version::{AssetIndex, Version};
-use superlogical_spi::{FetchError, Network};
+use axlauncher_launch::Target;
+use axlauncher_launch::version::{AssetIndex, Version};
+use axlauncher_spi::{FetchError, Network};
 
 use crate::assets::{
     AssetIndexDocument, DownloadOutcome, MissingFile, download_all, missing_assets,
@@ -129,7 +129,7 @@ pub async fn ensure_asset_index(
         })?;
 
     if !path.is_file() {
-        superlogical_storage::write_atomic(&path, &bytes).map_err(|error| {
+        axlauncher_storage::write_atomic(&path, &bytes).map_err(|error| {
             PrepareError::AssetIndexUnreadable {
                 id: index.id.clone(),
                 reason: error.to_string(),
@@ -191,9 +191,9 @@ pub fn outstanding(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axlauncher_spi::Network;
     use std::collections::BTreeMap;
     use std::fs;
-    use superlogical_spi::Network;
 
     struct FakeNetwork {
         bodies: BTreeMap<String, Vec<u8>>,

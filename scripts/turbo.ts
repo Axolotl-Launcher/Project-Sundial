@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Runs a turbo task, scoped to the platform shell of the current OS.
@@ -14,9 +14,9 @@ type PlatformPackages = {
 };
 
 const PLATFORM_PACKAGES: PlatformPackages = {
-  win32: ["@superlogical/platform-windows"],
-  linux: ["@superlogical/platform-linux"],
-  darwin: ["@superlogical/platform-macos"],
+  win32: ["@axlauncher/platform-windows"],
+  linux: ["@axlauncher/platform-linux"],
+  darwin: ["@axlauncher/platform-macos"],
 };
 
 /// `node <script>` puts the interpreter and the script path ahead of the

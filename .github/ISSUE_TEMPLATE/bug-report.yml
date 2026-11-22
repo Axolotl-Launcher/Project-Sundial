@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-FileCopyrightText: 2026 Axolotl Team
 # SPDX-License-Identifier: GPL-3.0-only
 
 name: Bug report
-description: Something in Superlogical behaves incorrectly.
+description: Something in Axolotl Launcher behaves incorrectly.
 title: "bug: "
 labels: ["type: bug"]
 body:

@@ -1,15 +1,15 @@
 {
-  "name": "@superlogical/platform-macos",
+  "name": "@axlauncher/platform-macos",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "cargo build --release -p superlogical_platform_macos",
-    "dev": "cargo run -p superlogical_platform_macos",
-    "lint": "cargo clippy -p superlogical_platform_macos --all-targets -- -D warnings",
-    "test": "cargo test -p superlogical_platform_macos"
+    "build": "cargo build --release -p axlauncher_platform_macos",
+    "dev": "cargo run -p axlauncher_platform_macos",
+    "lint": "cargo clippy -p axlauncher_platform_macos --all-targets -- -D warnings",
+    "test": "cargo test -p axlauncher_platform_macos"
   },
   "dependencies": {
-    "@superlogical/frontend": "workspace:*"
+    "@axlauncher/frontend": "workspace:*"
   },
   "os": [
     "darwin"
