@@ -41,6 +41,8 @@ fn native_library(name: &str, path: &str, os: &str) -> Library {
         }),
         natives: None,
         rules: Some(allow(os)),
+        url: None,
+        include_in_classpath: true,
     }
 }
 
@@ -53,6 +55,8 @@ fn ordinary_library(name: &str, path: &str, os: &str) -> Library {
         }),
         natives: None,
         rules: Some(allow(os)),
+        url: None,
+        include_in_classpath: true,
     }
 }
 
@@ -153,6 +157,8 @@ fn old_shape_natives_substitute_the_target_arch() {
             "natives-windows-${arch}".into(),
         )])),
         rules: None,
+        url: None,
+        include_in_classpath: true,
     };
 
     assert_eq!(

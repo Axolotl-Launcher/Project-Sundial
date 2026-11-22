@@ -149,12 +149,18 @@ pub async fn prepare(
     concurrency: usize,
 ) -> Result<Prepared, PrepareError> {
     let index = ensure_asset_index(network, game_root, version).await?;
-
-    let mut files = missing_libraries(game_root, &version.libraries, target);
-    files.extend(missing_assets(game_root, &index));
-
+    let files = outstanding(game_root, version, &index, target);
     let outcomes = download_all(network, &files, concurrency).await;
-    Ok(summarise(&outcomes))
+    let mut prepared = summarise(&outcomes);
+
+    // The flat tree copies from the object store, so it is built after the
+    // objects land. A version whose index asks for none does nothing here.
+    if let Some(index_id) = version.asset_index.as_ref().map(|index| index.id.as_str()) {
+        prepared
+            .failures
+            .extend(crate::assets::materialise_flat(game_root, index_id, &index));
+    }
+    Ok(prepared)
 }
 
 /// The counts a caller reports after a download pass.
@@ -177,13 +183,24 @@ pub fn summarise(outcomes: &[DownloadOutcome]) -> Prepared {
 }
 
 /// The files a launch would still be missing.
+///
+/// The client jar and the logging configuration are part of this list, not a
+/// separate pass: a version whose libraries are complete but whose jar is
+/// absent fails at launch with an error the game never gets to print.
 pub fn outstanding(
     game_root: &Path,
     version: &Version,
     index: &AssetIndexDocument,
     target: &Target,
 ) -> Vec<MissingFile> {
-    let mut files = missing_libraries(game_root, &version.libraries, target);
+    let mut files: Vec<MissingFile> = [
+        crate::assets::client_jar(game_root, version),
+        crate::assets::log_config(game_root, version),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    files.extend(missing_libraries(game_root, &version.libraries, target));
     files.extend(missing_assets(game_root, index));
     files
 }
@@ -252,6 +269,13 @@ mod tests {
             }),
             assets: None,
             java_version: None,
+            minecraft_arguments: None,
+            inherits_from: None,
+            jar: None,
+            downloads: None,
+            logging: None,
+            processors: Vec::new(),
+            data: BTreeMap::default(),
         }
     }
 

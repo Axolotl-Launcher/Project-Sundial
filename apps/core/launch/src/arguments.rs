@@ -224,6 +224,49 @@ pub fn game(arguments: &Arguments, target: &Target, values: &Values) -> Vec<Stri
         .collect()
 }
 
+/// The game arguments a version before 1.13 states as one flat string.
+///
+/// The string is the game's own format, not a launcher convenience: a document
+/// without `arguments` has no other place to say `--username` and `--gameDir`,
+/// so a build that ignores it starts the game with nothing to read. Splitting
+/// on whitespace is what the format expects; the values are placeholders or
+/// flags, never paths with spaces.
+///
+/// Options the modern list already states are dropped, together with their
+/// inline values: a merged loader profile can carry the same option in both
+/// shapes, and the game's parser rejects a repeated option.
+pub fn legacy_game(legacy: &str, modern: &[String], values: &Values) -> Vec<String> {
+    let modern_options: std::collections::HashSet<&str> = modern
+        .iter()
+        .filter(|argument| argument.starts_with('-') && !argument.contains('='))
+        .map(String::as_str)
+        .collect();
+
+    let mut tokens = legacy.split_whitespace().peekable();
+    let mut kept = Vec::new();
+    while let Some(token) = tokens.next() {
+        if !modern_options.contains(token) {
+            kept.push(substitute(token, values));
+            continue;
+        }
+        skip_inline_value(&mut tokens);
+    }
+    kept
+}
+
+/// Consumes the value that follows a dropped option, when it has one.
+///
+/// A value is whatever does not itself start with `-`; the game's own options
+/// never take a negative number, so this cannot swallow a neighbouring flag.
+fn skip_inline_value(tokens: &mut std::iter::Peekable<std::str::SplitWhitespace<'_>>) {
+    let Some(next) = tokens.peek() else {
+        return;
+    };
+    if !next.starts_with('-') {
+        tokens.next();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,6 +314,40 @@ mod tests {
     #[test]
     fn text_without_placeholders_is_unchanged() {
         assert_eq!(substitute("-Xmx2G", &values()), "-Xmx2G");
+    }
+
+    #[test]
+    fn a_legacy_flat_string_contributes_its_tokens() {
+        let values = Values::new()
+            .with("auth_player_name", "Player")
+            .with("game_directory", "C:/game");
+
+        let arguments = legacy_game(
+            "--username ${auth_player_name} --gameDir ${game_directory}",
+            &[],
+            &values,
+        );
+
+        assert_eq!(arguments, ["--username", "Player", "--gameDir", "C:/game"]);
+    }
+
+    #[test]
+    fn an_option_the_modern_list_states_is_not_repeated() {
+        let values = Values::new().with("auth_player_name", "Player");
+        let modern = vec!["--username".to_string(), "Player".to_string()];
+
+        let arguments = legacy_game("--username ${auth_player_name} --demo", &modern, &values);
+
+        assert_eq!(arguments, ["--demo"], "the repeated pair is dropped");
+    }
+
+    #[test]
+    fn a_legacy_value_with_a_space_still_resolves_as_one_token() {
+        let values = Values::new().with("version_name", "1.20.1");
+
+        let arguments = legacy_game("--version ${version_name}", &[], &values);
+
+        assert_eq!(arguments, ["--version", "1.20.1"]);
     }
 
     #[test]

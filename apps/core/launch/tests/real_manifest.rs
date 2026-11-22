@@ -12,7 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
-use axlauncher_launch::{Layout, Session, Target, classpath, natives, plan, rules, version};
+use axlauncher_launch::{Layout, Session, Target, natives, plan, rules, version};
 
 /// Directories a launcher's game root may live in, most specific first.
 fn candidate_roots() -> Vec<PathBuf> {
@@ -89,20 +89,30 @@ fn a_real_manifest_yields_a_complete_command() {
 }
 
 /// Whether every file the version needs for `target` is on disk.
+///
+/// This asks what the version downloads, not what its classpath holds: a
+/// native classifier jar is never a classpath entry, yet its absence still
+/// means the install is incomplete.
 fn is_complete(root: &Path, document: &version::Version, target: &Target) -> bool {
-    if !plan::client_jar(root, &document.id).is_file() {
+    if !plan::client_jar(root, document.jar_id()).is_file() {
         return false;
     }
     let libraries = root.join("libraries");
-    document
+    let applicable = document
         .libraries
         .iter()
-        .filter(|library| rules::library_applies(library, target))
-        .all(|library| {
-            classpath::library_jar(&libraries, library, target)
-                .map(|jar| jar.is_file())
-                .unwrap_or(false)
-        })
+        .filter(|library| rules::library_applies(library, target));
+
+    let jars = applicable
+        .filter_map(|library| library.download())
+        .map(|artifact| libraries.join(artifact.path))
+        .chain(
+            natives::entries(&document.libraries, target)
+                .into_iter()
+                .map(|entry| libraries.join(entry.path)),
+        );
+
+    jars.into_iter().all(|jar| jar.is_file())
 }
 
 fn build_command(

@@ -37,10 +37,64 @@ pub enum ThemeChoice {
     Light,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// Where a download source prefers to fetch from.
+///
+/// `Auto` tries the official source and falls back to a mirror; the other two
+/// pin one side. The reference spells them the same way, so a user's habit
+/// carries over unchanged.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourcePreference {
+    #[default]
+    Auto,
+    OfficialOnly,
+    MirrorPreferred,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SettingsData {
     #[serde(default)]
     pub theme: ThemeChoice,
+    /// How many files may be requested at once.
+    #[serde(default = "default_concurrency")]
+    pub max_concurrent_downloads: u32,
+    /// How many files may be written at once.
+    #[serde(default = "default_concurrency")]
+    pub max_concurrent_writes: u32,
+    /// The page the launcher opens on.
+    #[serde(default)]
+    pub default_page: String,
+    /// Whether the launcher may send usage data.
+    #[serde(default)]
+    pub telemetry: bool,
+    /// Where the game's metadata comes from.
+    #[serde(default)]
+    pub minecraft_metadata_source: SourcePreference,
+    /// Where the game's files come from.
+    #[serde(default)]
+    pub minecraft_file_source: SourcePreference,
+}
+
+/// The download width a fresh install starts with.
+///
+/// Enough to keep a connection busy without saturating a household link, and
+/// the reference's own default.
+fn default_concurrency() -> u32 {
+    10
+}
+
+impl Default for SettingsData {
+    fn default() -> Self {
+        Self {
+            theme: ThemeChoice::default(),
+            max_concurrent_downloads: default_concurrency(),
+            max_concurrent_writes: default_concurrency(),
+            default_page: "home".into(),
+            telemetry: false,
+            minecraft_metadata_source: SourcePreference::default(),
+            minecraft_file_source: SourcePreference::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -228,6 +282,7 @@ mod tests {
         let temp = TempRoot::new();
         let data = SettingsData {
             theme: ThemeChoice::Light,
+            ..SettingsData::default()
         };
 
         save_settings(temp.path(), &data).expect("save");

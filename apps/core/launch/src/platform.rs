@@ -50,9 +50,15 @@ pub(crate) fn executable_in_home(home: &Path, mode: JavaMode) -> Option<PathBuf>
     executable_in(&home.join("bin"), mode)
 }
 
-/// The first Java executable for `mode` on a `PATH`-shaped list of directories.
-pub(crate) fn search(search_path: &OsStr, mode: JavaMode) -> Option<PathBuf> {
-    std::env::split_paths(search_path).find_map(|directory| executable_in(&directory, mode))
+/// Every Java executable for `mode` on a `PATH`-shaped list, in path order.
+///
+/// A `PATH` that holds several JDKs offers several answers, and a caller that
+/// needs one matching a major version must be able to see them all.
+pub(crate) fn search_all(search_path: &OsStr, mode: JavaMode) -> Option<Vec<PathBuf>> {
+    let found: Vec<PathBuf> = std::env::split_paths(search_path)
+        .filter_map(|directory| executable_in(&directory, mode))
+        .collect();
+    (!found.is_empty()).then_some(found)
 }
 
 /// `path` with its file name replaced by the one `mode` uses, when that file

@@ -5,6 +5,7 @@
 
 pub mod assets;
 pub mod prepare;
+pub mod processors;
 
 use axlauncher_spi::{InstallError, InstallPlan, Installer};
 

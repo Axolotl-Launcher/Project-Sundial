@@ -214,6 +214,10 @@ impl Java for FakeJava {
         self.modes.lock().expect("recorded modes").push(mode);
         self.executable.clone()
     }
+
+    fn executable_for(&self, _major: u32, mode: JavaMode) -> Option<PathBuf> {
+        self.executable(None, mode)
+    }
 }
 
 /// A launcher that keeps every command it was given.

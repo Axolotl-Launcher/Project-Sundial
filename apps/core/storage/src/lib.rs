@@ -38,6 +38,11 @@ impl DataDir {
         self.root.join("versions")
     }
 
+    /// One version's folder: document, client jar and game files.
+    pub fn version(&self, id: &str) -> PathBuf {
+        self.versions().join(id)
+    }
+
     pub fn libraries(&self) -> PathBuf {
         self.root.join("libraries")
     }
@@ -46,9 +51,71 @@ impl DataDir {
         self.root.join("assets")
     }
 
+    /// Content-addressed asset objects.
+    pub fn assets_objects(&self) -> PathBuf {
+        self.assets().join("objects")
+    }
+
+    /// Where one asset object lives, under the two-character prefix its hash
+    /// selects.
+    pub fn asset_object(&self, hash: &str) -> Option<PathBuf> {
+        let prefix = hash.get(..2)?;
+        Some(self.assets_objects().join(prefix).join(hash))
+    }
+
+    /// Asset index documents, as Mojang names them.
+    pub fn asset_indexes(&self) -> PathBuf {
+        self.assets().join("indexes")
+    }
+
+    /// The flat tree an index with `virtual` materialises, which the game reads
+    /// by plain path.
+    pub fn virtual_assets(&self, index_id: &str) -> PathBuf {
+        self.assets().join("virtual").join(index_id)
+    }
+
+    /// The flat tree an index with `map_to_resources` materialises.
+    pub fn legacy_resources(&self) -> PathBuf {
+        self.root.join("resources")
+    }
+
+    /// Logging configurations the game's JVM arguments point at.
+    pub fn log_configs(&self) -> PathBuf {
+        self.assets().join("log_configs")
+    }
+
+    /// Unpacked native libraries, one folder per version.
+    pub fn natives(&self) -> PathBuf {
+        self.root.join("natives")
+    }
+
+    pub fn version_natives(&self, version_id: &str) -> PathBuf {
+        self.natives().join(version_id)
+    }
+
+    /// Java runtimes this launcher manages, one folder per component.
+    pub fn java_versions(&self) -> PathBuf {
+        self.root.join("java")
+    }
+
+    /// Install job documents, one per job.
+    pub fn jobs(&self) -> PathBuf {
+        self.root.join("jobs")
+    }
+
+    /// Launcher-owned caches: fetched documents that can be rebuilt.
+    pub fn caches(&self) -> PathBuf {
+        self.root.join("caches")
+    }
+
     /// The settings document.
     pub fn settings(&self) -> PathBuf {
         self.root.join("settings.json")
+    }
+
+    /// The document holding the chosen and discovered Java runtimes.
+    pub fn javas(&self) -> PathBuf {
+        self.root.join("javas.json")
     }
 }
 
@@ -152,5 +219,41 @@ mod tests {
         write_atomic(&target, b"data").expect("write");
 
         assert_eq!(fs::read(&target).expect("read"), b"data");
+    }
+
+    #[test]
+    fn an_asset_object_lives_under_its_two_character_prefix() {
+        let layout = DataDir::new("root");
+
+        assert_eq!(
+            layout.asset_object("ab12").expect("hash with a prefix"),
+            Path::new("root/assets/objects/ab/ab12")
+        );
+        assert_eq!(layout.asset_object("a"), None);
+    }
+
+    #[test]
+    fn each_version_keeps_its_own_natives_and_game_files() {
+        let layout = DataDir::new("root");
+
+        assert_eq!(layout.version("1.20.1"), Path::new("root/versions/1.20.1"));
+        assert_eq!(
+            layout.version_natives("1.20.1"),
+            Path::new("root/natives/1.20.1")
+        );
+        assert_ne!(
+            layout.version_natives("1.20.1"),
+            layout.version_natives("1.20.2")
+        );
+    }
+
+    #[test]
+    fn a_virtual_asset_tree_is_named_after_its_index() {
+        let layout = DataDir::new("root");
+
+        assert_eq!(
+            layout.virtual_assets("legacy"),
+            Path::new("root/assets/virtual/legacy")
+        );
     }
 }

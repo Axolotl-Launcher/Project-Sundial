@@ -115,6 +115,39 @@ envelope. Items nest inside the job: they are never queried apart from it.
 Each is a document with `schema_version`, using the same refusal rules as the
 existing ones: a newer schema is read-only, never migrated.
 
+## What the full-range run found (added after the first implementation)
+
+The data model alone does not carry a version from download to launch. Running
+the chain against real data — 1.5.2, 1.6.4, 1.21.11, and a real NeoForge
+1.20.2 profile — surfaced three things that had to be built or corrected
+alongside it. None of them is a data-model question, but all of them are part
+of "下载、补丁、校验、启动" and would have been discovered one crash at a time:
+
+1. **Java selection follows the document, not the environment.** 26.3 states
+   `javaVersion.majorVersion: 25`; launching it on the Java 21 that was first
+   on `PATH` failed with `UnsupportedClassVersionError` (class file 69 vs 65).
+   `SystemJava::executable_for` now answers only for a runtime whose `release`
+   file reports the required major. A caller's explicit preference is still
+   honoured as given, so a deliberate choice is never silently overridden.
+
+2. **A native classifier jar is a classpath entry as well as an extraction
+   source.** Excluding it from the classpath started 26.3 and killed it inside
+   LWJGL with `Failed to locate library: lwjgl.dll`. `docs/game-format-changes.md`
+   §5 already stated the rule; the classpath builder contradicted it.
+
+3. **Loader profiles need a patch stage, not just inheritance.** NeoForge's
+   client jar does not exist until its `processors` run. The runner resolves
+   `{NAME}` from `data` plus five launcher-supplied values (`SIDE`,
+   `MINECRAFT_JAR`, `MINECRAFT_VERSION`, `ROOT`, `LIBRARY_DIR`), `[coord]` to a
+   library path, and skips a step whose outputs are current — including the
+   `binarypatcher` case, whose output is only named on its own command line.
+
+Verified end to end on this machine: 1.21.11 (4670 files, all SHA-1 checked,
+4593 assets), 1.6.4 (`virtual/legacy` tree, 1120 files), 1.5.2 (`resources/`
+tree, 749 files), NeoForge 1.20.2 (six client processors, producing
+`neoforge-20.2.93-client.jar`), and 26.3 actually reaching the game window with
+LWJGL 3.4.3 and its sound engine started.
+
 ## What this deliberately does not do
 
 - No SQLite. The reference uses it to join and index 108 tables; we have eight

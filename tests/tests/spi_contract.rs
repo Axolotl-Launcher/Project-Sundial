@@ -120,6 +120,10 @@ impl Java for FixedJava {
     fn executable(&self, _preferred: Option<&Path>, _mode: JavaMode) -> Option<PathBuf> {
         Some(self.0.clone())
     }
+
+    fn executable_for(&self, _major: u32, _mode: JavaMode) -> Option<PathBuf> {
+        Some(self.0.clone())
+    }
 }
 
 #[test]

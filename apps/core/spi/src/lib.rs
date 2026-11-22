@@ -146,6 +146,16 @@ pub trait Java {
     /// Otherwise the provider falls back to what this platform offers, and
     /// `None` means nothing was found. The result suits `mode`.
     fn executable(&self, preferred: Option<&Path>, mode: JavaMode) -> Option<PathBuf>;
+
+    /// Resolves an executable whose runtime reports `major`.
+    ///
+    /// A version document states the major version its classes need. Returning
+    /// a runtime of a different major starts the game on a JVM that cannot load
+    /// it, and the failure surfaces as a class-file error instead of a message
+    /// about Java. A provider answers `None` when it cannot find a matching
+    /// runtime, so the caller can say which version is missing rather than
+    /// starting the game on the wrong one.
+    fn executable_for(&self, major: u32, mode: JavaMode) -> Option<PathBuf>;
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

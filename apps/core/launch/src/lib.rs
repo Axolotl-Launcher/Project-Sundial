@@ -4,6 +4,7 @@
 //! Launching: arguments, Java discovery and process lifecycle.
 
 pub mod arguments;
+pub mod chain;
 pub mod classpath;
 pub mod flow;
 mod jar;
@@ -16,6 +17,7 @@ pub mod rules;
 pub mod version;
 
 pub use arguments::Values;
+pub use chain::{ChainError, merge, resolve};
 pub use flow::{FlowError, LaunchOutcome, LaunchRequest};
 pub use jar::JarReader;
 pub use java::SystemJava;

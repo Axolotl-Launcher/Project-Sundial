@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use axlauncher_spi::{Java, JavaMode, LaunchCommand, LaunchError, Launcher};
 
+use crate::chain::{self, ChainError};
 use crate::jar::JarReader;
 use crate::natives::{self, NativeError};
 use crate::plan::{self, Layout, PlanError, Session};
@@ -64,8 +65,20 @@ pub enum FlowError {
         /// The read or parse failure, which names the document.
         source: VersionError,
     },
+    /// The version inherits from something that cannot be resolved.
+    Chain {
+        /// The cycle or depth failure behind it.
+        source: ChainError,
+    },
     /// No Java runtime was found.
     NoJava {
+        /// The executable the caller preferred, when one was given.
+        preferred: Option<PathBuf>,
+    },
+    /// No runtime of the major version the game needs was found.
+    NoMatchingJava {
+        /// The major version the version document names.
+        required: u32,
         /// The executable the caller preferred, when one was given.
         preferred: Option<PathBuf>,
     },
@@ -96,6 +109,9 @@ impl std::fmt::Display for FlowError {
             Self::VersionDocument { source } => {
                 write!(formatter, "cannot load the version document: {source}")
             }
+            Self::Chain { source } => {
+                write!(formatter, "cannot resolve the version chain: {source}")
+            }
             Self::NoJava {
                 preferred: Some(path),
             } => write!(
@@ -104,6 +120,18 @@ impl std::fmt::Display for FlowError {
                 path.display()
             ),
             Self::NoJava { preferred: None } => write!(formatter, "no Java found on this system"),
+            Self::NoMatchingJava {
+                required,
+                preferred: Some(path),
+            } => write!(
+                formatter,
+                "no Java {required} runtime found for {} or on this system",
+                path.display()
+            ),
+            Self::NoMatchingJava {
+                required,
+                preferred: None,
+            } => write!(formatter, "no Java {required} runtime found on this system"),
             Self::Natives { directory, source } => write!(
                 formatter,
                 "cannot unpack natives into {}: {source}",
@@ -123,10 +151,11 @@ impl std::error::Error for FlowError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::VersionDocument { source } => Some(source),
+            Self::Chain { source } => Some(source),
             Self::Natives { source, .. } => Some(source),
             Self::Plan { source } => Some(source),
             Self::Launch { source, .. } => Some(source),
-            Self::NoJava { .. } => None,
+            Self::NoJava { .. } | Self::NoMatchingJava { .. } => None,
         }
     }
 }
@@ -142,7 +171,7 @@ pub async fn launch(
 ) -> Result<LaunchOutcome, FlowError> {
     let target = Target::host();
     let version = load_version(&request)?;
-    let executable = java_executable(java, &request)?;
+    let executable = java_executable(java, &version, &request)?;
     let natives = unpack_natives(&request, &version, &target)?;
     let command = assemble(&executable, &version, &request, &target)?;
 
@@ -158,16 +187,51 @@ pub async fn launch(
 }
 
 /// The version document `<game_root>/versions/<id>/<id>.json` describes.
+///
+/// A loader profile is resolved against the version it inherits from first: on
+/// its own it names no asset index, no client jar and no vanilla libraries, so
+/// launching it unresolved would start the game with nothing to run.
 fn load_version(request: &LaunchRequest) -> Result<Version, FlowError> {
     let root = request.game_root.join(VERSIONS);
-    version::load(&root, &request.version_id)
-        .map_err(|source| FlowError::VersionDocument { source })
+    let document = version::load(&root, &request.version_id)
+        .map_err(|source| FlowError::VersionDocument { source })?;
+    chain::resolve(&root, document).map_err(|source| match source {
+        ChainError::Document { source } => FlowError::VersionDocument { source },
+        other => FlowError::Chain { source: other },
+    })
 }
 
 /// The Java executable the game runs on, if this system offers one.
-fn java_executable(java: &impl Java, request: &LaunchRequest) -> Result<PathBuf, FlowError> {
-    java.executable(request.java_preference.as_deref(), JavaMode::Windowed)
-        .ok_or_else(|| FlowError::NoJava {
+///
+/// The version document states the major version its classes were built for. A
+/// document without that field asks for nothing in particular, which is what
+/// every manifest written before 1.17 does; those run on the launcher's default
+/// runtime.
+fn java_executable(
+    java: &impl Java,
+    version: &Version,
+    request: &LaunchRequest,
+) -> Result<PathBuf, FlowError> {
+    let preferred = request.java_preference.as_deref();
+
+    let Some(required) = version.java_version.as_ref().map(|java| java.major) else {
+        return java
+            .executable(preferred, JavaMode::Windowed)
+            .ok_or_else(|| FlowError::NoJava {
+                preferred: request.java_preference.clone(),
+            });
+    };
+
+    // A caller's preferred executable is used as given when it exists: the
+    // user said which runtime to run, and second-guessing an explicit choice
+    // would hide their configuration from them. The major version is checked
+    // for the runtimes discovery finds, where nothing was stated.
+    if let Some(path) = preferred.filter(|path| path.is_file()) {
+        return Ok(path.to_path_buf());
+    }
+    java.executable_for(required, JavaMode::Windowed)
+        .ok_or_else(|| FlowError::NoMatchingJava {
+            required,
             preferred: request.java_preference.clone(),
         })
 }
