@@ -67,18 +67,31 @@ pub(crate) fn profile_version(game: &Game) -> Option<&str> {
     game.version_id.as_deref().or_else(|| vanilla_version(game))
 }
 
-/// The Minecraft version an install is keyed by.
+/// The key an install is tracked under.
 ///
 /// A loader profile has no version id until its install produces one, so the
-/// install is tracked under the game version it starts from. A loader this
-/// build cannot install has no key, which keeps an action that would fail at
-/// the end of a download off the row.
-pub(crate) fn install_key(game: &Game) -> Option<&str> {
-    let supported = match &game.loader {
-        None => true,
-        Some(loader) => crate::installations::supported_loader(&loader.kind),
+/// install is tracked under what the profile asked for: the Minecraft version,
+/// the loader kind and the loader version it named. Two profiles with different
+/// loaders, or different loader versions, need different installs, and a
+/// vanilla install of a version must not make a loader profile look installed.
+/// A loader this build cannot install has no key, which keeps an action that
+/// would fail at the end of a download off the row.
+pub(crate) fn install_key(game: &Game) -> Option<String> {
+    let Some(loader) = game.loader.as_ref() else {
+        return Some(game.minecraft.clone());
     };
-    supported.then_some(game.minecraft.as_str())
+    if loader.kind == "vanilla" {
+        return Some(game.minecraft.clone());
+    }
+    if !crate::installations::supported_loader(&loader.kind) {
+        return None;
+    }
+    Some(match loader.version.as_deref() {
+        Some(version) if !version.trim().is_empty() => {
+            format!("{}:{}:{}", game.minecraft, loader.kind, version.trim())
+        }
+        _ => format!("{}:{}", game.minecraft, loader.kind),
+    })
 }
 
 fn find_previous<'a>(

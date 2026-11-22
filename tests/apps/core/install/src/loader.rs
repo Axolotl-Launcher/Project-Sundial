@@ -96,6 +96,18 @@ fn a_file_path_that_leaves_the_root_is_refused() {
 }
 
 #[test]
+fn an_id_that_would_replace_the_vanilla_document_is_refused() {
+    let root = temp();
+    let mut inherited = profile("1.20.1");
+    inherited.document = br#"{"id":"1.20.1","inheritsFrom":"1.20.1"}"#.to_vec();
+
+    let error = place(&root, &inherited).expect_err("would replace vanilla");
+
+    assert!(matches!(error, PlaceError::InvalidId { .. }), "{error}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn an_id_that_cannot_be_a_directory_is_refused() {
     let root = temp();
     for id in [

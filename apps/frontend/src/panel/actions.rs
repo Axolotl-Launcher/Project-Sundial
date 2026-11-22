@@ -30,8 +30,18 @@ impl RootView {
         };
         let game_root = DataDir::new(&data_root).meta();
         let version = game.minecraft.clone();
+        let Some(key) = super::install_key(game) else {
+            self.activity.error(format!(
+                "Loader {} is not available in this build yet.",
+                game.loader
+                    .as_ref()
+                    .map_or("", |loader| loader.kind.as_str())
+            ));
+            cx.notify();
+            return;
+        };
         if matches!(
-            self.installation(&game_root, &version),
+            self.installation(&game_root, &key),
             Some(Installation::Running(_) | Installation::Complete)
         ) {
             return;
@@ -56,7 +66,7 @@ impl RootView {
             .info(format!("Installing {version} in {}", game_root.display()));
         self.set_installation(
             &game_root,
-            &version,
+            &key,
             Installation::Running(Progress::Version),
             cx,
         );
@@ -71,6 +81,7 @@ impl RootView {
                 game_root,
                 directory.to_path_buf(),
                 game.clone(),
+                key,
                 concurrency,
                 cx,
             ),
@@ -89,22 +100,32 @@ impl RootView {
         cx: &mut Context<'_, Self>,
     ) {
         let game_root = DataDir::new(data_root).meta();
-        match outcome {
-            Ok(version_id) => {
-                let status = persist_install(directory, &version_id);
-                match status {
-                    Ok(()) => self
-                        .activity
-                        .success(format!("{} installed as {version_id}", directory.display())),
-                    Err(error) => self.activity.error(error),
-                }
-                self.set_installation(&game_root, key, Installation::Complete, cx);
-            }
+        // The install only counts as complete once the profile records it:
+        // Complete hides the Install button, so a profile write failure must
+        // surface as a failure the user can retry.
+        let persisted = outcome.and_then(|version_id| {
+            persist_install(directory, &version_id)?;
+            Ok(version_id)
+        });
+        let outcome = match persisted {
+            Ok(version_id) => Ok(version_id),
             Err(error) => {
                 let _ = mark_failed(directory);
-                self.set_installation(&game_root, key, Installation::Failed(error), cx);
+                Err(error)
             }
-        }
+        };
+        let installation = match outcome {
+            Ok(version_id) => {
+                self.activity
+                    .success(format!("{} installed as {version_id}", directory.display()));
+                Installation::Complete
+            }
+            Err(error) => {
+                self.activity.error(error.clone());
+                Installation::Failed(error)
+            }
+        };
+        self.set_installation(&game_root, key, installation, cx);
         self.instances.replace(
             profile::discover(&DataDir::new(data_root).instances()),
             true,
@@ -153,14 +174,25 @@ impl RootView {
             .as_ref()
             .and_then(vanilla_version)
             .is_some();
+        // The install is tracked under the key the row uses, not under the
+        // version id a launch asks for: for a loader profile those differ, and
+        // launching while its install rewrites the game files must be blocked.
+        let installing = entry
+            .profile
+            .game
+            .as_ref()
+            .and_then(super::install_key)
+            .is_some_and(|key| {
+                matches!(
+                    self.installation(&request.game_root, &key),
+                    Some(Installation::Running(_))
+                )
+            });
         if self
             .launches
             .get(directory)
             .is_some_and(|(_, launch)| launch.is_active())
-            || matches!(
-                self.installation(&request.game_root, &request.version_id),
-                Some(Installation::Running(_))
-            )
+            || installing
         {
             return;
         }
@@ -189,11 +221,21 @@ impl RootView {
         cx.notify();
     }
 
-    pub(crate) fn clear_completed_installation(&mut self, root: &Path, version: &str) {
+    /// Forgets a completed install for the profile at `directory`, so a launch
+    /// that found files missing offers Install again.
+    pub(crate) fn clear_completed_installation(&mut self, root: &Path, directory: &Path) {
+        let Some(key) = self
+            .instances
+            .find(directory)
+            .and_then(|entry| entry.profile.game.as_ref())
+            .and_then(super::install_key)
+        else {
+            return;
+        };
         if let Some(states) = self.installations.get_mut(root)
-            && matches!(states.get(version), Some(Installation::Complete))
+            && matches!(states.get(&key), Some(Installation::Complete))
         {
-            states.remove(version);
+            states.remove(&key);
         }
     }
 }

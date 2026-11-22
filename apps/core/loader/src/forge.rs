@@ -10,7 +10,8 @@
 use std::collections::BTreeMap;
 
 use axlauncher_spi::{
-    LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader, Network,
+    FetchError, LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader,
+    Network,
 };
 use serde::Deserialize;
 
@@ -48,6 +49,14 @@ impl<N: Network> ForgeApi<N> {
     pub fn installer_url(game_version: &str, loader_version: &str) -> String {
         format!(
             "{MAVEN}/{game_version}-{loader_version}/forge-{game_version}-{loader_version}-installer.jar"
+        )
+    }
+
+    /// Where old installers live, whose Maven directory repeats the game
+    /// version: `1.7.10-10.13.4.1614-1.7.10`.
+    fn legacy_installer_url(game_version: &str, loader_version: &str) -> String {
+        format!(
+            "{MAVEN}/{game_version}-{loader_version}-{game_version}/forge-{game_version}-{loader_version}-{game_version}-installer.jar"
         )
     }
 }
@@ -112,31 +121,56 @@ impl<N: Network> ModLoader for ForgeApi<N> {
     }
 
     async fn profile(&self, request: LoaderRequest) -> Result<LoaderProfile, LoaderError> {
-        let offers = self.versions(&request.game_version).await?;
         let chosen = match &request.loader_version {
-            Some(requested) => offers
-                .iter()
-                .find(|offer| &offer.version == requested)
-                .ok_or_else(|| LoaderError::UnknownVersion {
-                    loader: self.kind(),
-                    version: requested.clone(),
-                })?,
-            None => offers
-                .iter()
-                .find(|offer| offer.stable == Some(true))
-                .unwrap_or(&offers[0]),
+            // The promotions document names only the two recommended builds,
+            // and the Maven hosts every published one. A caller that names a
+            // version is taken at its word; the download decides whether it
+            // exists.
+            Some(requested) if !requested.trim().is_empty() => requested.clone(),
+            _ => {
+                let offers = self.versions(&request.game_version).await?;
+                offers
+                    .iter()
+                    .find(|offer| offer.stable == Some(true))
+                    .unwrap_or(&offers[0])
+                    .version
+                    .clone()
+            }
         };
+        self.install(&request.game_version, &chosen).await
+    }
+}
 
-        let url = Self::installer_url(&request.game_version, &chosen.version);
-        let bytes = self
-            .network
-            .fetch(&url)
-            .await
-            .map_err(|source| LoaderError::Unavailable {
-                loader: self.kind(),
-                source,
-            })?;
-        installer::parse(self.kind(), &bytes, &request.game_version)
+impl<N: Network> ForgeApi<N> {
+    /// Downloads and parses the installer for one loader version.
+    async fn install(
+        &self,
+        game_version: &str,
+        loader_version: &str,
+    ) -> Result<LoaderProfile, LoaderError> {
+        let url = Self::installer_url(game_version, loader_version);
+        let bytes = match self.network.fetch(&url).await {
+            Ok(bytes) => bytes,
+            // Before 1.9 the Maven directory repeats the game version, so the
+            // unsuffixed path is a 404 for an installer that does exist.
+            Err(FetchError::Rejected { .. }) => {
+                let legacy = Self::legacy_installer_url(game_version, loader_version);
+                self.network
+                    .fetch(&legacy)
+                    .await
+                    .map_err(|source| LoaderError::Unavailable {
+                        loader: self.kind(),
+                        source,
+                    })?
+            }
+            Err(source) => {
+                return Err(LoaderError::Unavailable {
+                    loader: self.kind(),
+                    source,
+                });
+            }
+        };
+        installer::parse(self.kind(), &bytes, game_version)
     }
 }
 

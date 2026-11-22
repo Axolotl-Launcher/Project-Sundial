@@ -124,8 +124,9 @@ fn a_runtime_lands_with_verified_files_and_an_executable_java() {
     assert_eq!(installed.component, "java-runtime-delta");
     assert!(installed.java.is_file(), "{}", installed.java.display());
     assert_eq!(fs::read(&installed.java).expect("java"), RAW_BODY);
+    let home = home_of(&root.join("java-runtime-delta"), platform);
     assert_eq!(
-        fs::read(root.join("java-runtime-delta/lib/packed.txt")).expect("packed"),
+        fs::read(home.join("lib/packed.txt")).expect("packed"),
         PLAIN_BODY,
         "an lzma object is decompressed and checked against its raw hash"
     );
@@ -149,9 +150,13 @@ fn a_runtime_already_in_place_is_not_downloaded_again() {
     let root = temp();
     let (_, responses) = fixture(platform);
     let directory = root.join("java-runtime-delta");
-    let java = directory.join("bin").join(JAVA_BIN);
+    let home = home_of(&directory, platform);
+    let java = home.join("bin").join(JAVA_BIN);
     fs::create_dir_all(java.parent().expect("parent")).expect("dir");
     fs::write(&java, RAW_BODY).expect("seed");
+    // The runtime counts as installed only with the release file a finished JDK
+    // ships beside `bin/`.
+    fs::write(home.join("release"), b"JAVA_VERSION=\"21.0.7\"\n").expect("release");
 
     // Only the index is answered: a second manifest or object fetch fails.
     let mut index_only = BTreeMap::new();

@@ -78,7 +78,7 @@ fn finish_launch(
     cx: &mut Context<'_, RootView>,
 ) {
     if matches!(outcome, Launch::NeedsInstall(_)) {
-        view.clear_completed_installation(root, version);
+        view.clear_completed_installation(root, &directory);
     }
     view.set_launch(&directory, version, outcome, cx);
 }

@@ -105,8 +105,8 @@ fn the_files_the_installer_lifts_out_travel_with_the_profile() {
         "{paths:?}"
     );
     assert!(
-        paths.iter().any(|path| path.ends_with("server.lzma")),
-        "{paths:?}"
+        !paths.iter().any(|path| path.ends_with("server.lzma")),
+        "a server input is not part of a client install: {paths:?}"
     );
     assert!(
         paths.contains(&"libraries/net/example/tool/1/tool-1.jar"),

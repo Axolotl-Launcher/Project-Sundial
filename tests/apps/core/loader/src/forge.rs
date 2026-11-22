@@ -124,20 +124,22 @@ fn the_profile_comes_from_the_installer_of_the_recommended_version() {
 }
 
 #[test]
-fn an_unpromoted_loader_version_is_refused() {
+fn a_named_loader_version_is_fetched_even_when_no_promotion_names_it() {
+    // The promotions document holds only the two recommended builds, while the
+    // Maven hosts every published one.
+    let installer_url = ForgeApi::<FakeNetwork>::installer_url("1.20.1", "47.4.0");
     let network = FakeNetwork {
-        responses: BTreeMap::from([(PROMOTIONS.into(), Ok(PROMOTIONS_BODY.as_bytes().to_vec()))]),
+        responses: BTreeMap::from([(installer_url, Ok(installer()))]),
     };
     let api = ForgeApi::new(network);
 
-    let error = block_on(api.profile(LoaderRequest {
+    let profile = block_on(api.profile(LoaderRequest {
         game_version: "1.20.1".into(),
-        loader_version: Some("1.0.0".into()),
+        loader_version: Some("47.4.0".into()),
     }))
-    .expect_err("unknown");
+    .expect("profile");
 
-    assert!(
-        matches!(error, LoaderError::UnknownVersion { .. }),
-        "{error}"
-    );
+    // The fixture's own document names this id; what matters is that a build
+    // the promotions omit was fetched rather than refused.
+    assert_eq!(profile.version_id, "1.20.1-forge-47.4.28");
 }

@@ -429,6 +429,16 @@ pub fn save(directory: &Path, profile: &Profile) -> Result<(), ProfileWriteError
     if let Some(previous) = existing {
         merge_unknown(previous, &mut document);
     }
+    // The merge can add entries that this build's rules reject, and a marker
+    // that reads back as invalid would make the instance vanish from discovery.
+    // The merged document is therefore held to the same rules as the caller's.
+    // It is validated through the typed profile; the bytes written are the
+    // merged document, so keys this build does not model are not dropped.
+    let merged: Profile =
+        serde_json::from_value(document.clone()).map_err(|error| ProfileWriteError::Invalid {
+            reason: error.to_string(),
+        })?;
+    validate(&merged).map_err(|reason| ProfileWriteError::Invalid { reason })?;
     let bytes = serde_json::to_vec_pretty(&document).map_err(|error| ProfileWriteError::Write {
         path: path.clone(),
         source: io::Error::other(error),
@@ -436,11 +446,19 @@ pub fn save(directory: &Path, profile: &Profile) -> Result<(), ProfileWriteError
     write_atomic(&path, &bytes).map_err(|source| ProfileWriteError::Write { path, source })
 }
 
+/// Fields whose members are data entries rather than document fields.
+///
+/// An entry's key is a content path or a hash algorithm, so an entry the caller
+/// removed must stay removed. Merging them would resurrect content that no
+/// longer exists and make the document disagree with the disk.
+const MAP_FIELDS: [&str; 2] = ["files", "hashes"];
+
 /// Carries keys from `previous` that `written` does not state.
 ///
-/// Recursion stops at arrays: a list this build wrote replaces the old one
-/// whole, because an element-wise merge would have to know what makes two
-/// elements the same.
+/// Recursion stops at arrays and at the map fields above: a list this build
+/// wrote replaces the old one whole, because an element-wise merge would have
+/// to know what makes two elements the same, and a removed map entry must not
+/// come back.
 fn merge_unknown(previous: serde_json::Value, written: &mut serde_json::Value) {
     let (serde_json::Value::Object(previous), serde_json::Value::Object(written)) =
         (previous, written)
@@ -448,6 +466,9 @@ fn merge_unknown(previous: serde_json::Value, written: &mut serde_json::Value) {
         return;
     };
     for (key, previous_value) in previous {
+        if MAP_FIELDS.contains(&key.as_str()) {
+            continue;
+        }
         if let Some(written_value) = written.get_mut(&key) {
             merge_unknown(previous_value, written_value);
             continue;

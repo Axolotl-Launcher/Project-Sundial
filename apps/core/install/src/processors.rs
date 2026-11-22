@@ -247,10 +247,12 @@ fn outputs_are_current(
     version: &Version,
     values: &[(&str, String)],
 ) -> bool {
+    // An `outputs` map is keyed by the file the step writes and holds that
+    // file's digest as its value, so the keys are what must exist on disk.
     let declared: Vec<&String> = if processor.outputs.is_empty() {
         inferred_outputs(processor).into_iter().collect()
     } else {
-        processor.outputs.values().collect()
+        processor.outputs.keys().collect()
     };
     if declared.is_empty() {
         return false;

@@ -196,7 +196,11 @@ pub async fn install(
 
     let directory = runtimes.join(component);
     let java = executable_in(&directory, platform);
-    if java.is_file() {
+    // An executable alone does not prove the runtime is complete: an
+    // interrupted download can leave `bin/java` in place with `lib/` missing.
+    // Every JDK ships the `release` file beside `bin/`, so it is the marker a
+    // finished install leaves behind.
+    if java.is_file() && home_of(&directory, platform).join("release").is_file() {
         return Ok(installed(java, &entry.version.name, major, component));
     }
 
@@ -217,21 +221,20 @@ pub async fn install(
         processed: 0,
         total,
     });
-    let results: Vec<Result<(), RuntimeError>> = stream::iter(files)
+    let mut processed = 0;
+    let mut results = stream::iter(files)
         .map(|(name, file)| {
             let directory = directory.clone();
             async move { place(network, &directory, &name, &file).await }
         })
-        .buffer_unordered(RUNTIME_CONCURRENCY)
-        .collect()
-        .await;
-
-    for (processed, result) in results.into_iter().enumerate() {
+        .buffer_unordered(RUNTIME_CONCURRENCY);
+    // Each finished file is reported as it lands: a runtime is several hundred
+    // files, so waiting for all of them shows no progress for the whole
+    // download.
+    while let Some(result) = results.next().await {
         result?;
-        report(Progress::Downloading {
-            processed: processed + 1,
-            total,
-        });
+        processed += 1;
+        report(Progress::Downloading { processed, total });
     }
 
     if !java.is_file() {
@@ -254,12 +257,18 @@ fn installed(java: PathBuf, full_version: &str, major: u32, component: &str) -> 
 
 /// Where a runtime's Java executable sits.
 fn executable_in(directory: &Path, platform: &str) -> PathBuf {
+    home_of(directory, platform).join("bin").join(JAVA_BIN)
+}
+
+/// The JDK home inside a runtime's component directory.
+///
+/// A macOS runtime is a bundle, so its home sits three levels down. Everywhere
+/// else the component directory is the home.
+pub fn home_of(directory: &Path, platform: &str) -> PathBuf {
     if platform.starts_with("mac-os") {
-        return directory
-            .join("jre.bundle/Contents/Home/bin")
-            .join(JAVA_BIN);
+        return directory.join("jre.bundle/Contents/Home");
     }
-    directory.join("bin").join(JAVA_BIN)
+    directory.to_path_buf()
 }
 
 /// Writes one runtime file, verified.
@@ -280,9 +289,11 @@ async fn place(
         });
     }
     if file.kind == "link" {
-        return Err(RuntimeError::Malformed {
-            reason: format!("{name:?} is a link, which this build does not create"),
-        });
+        // Mojang's manifests list symlinks for the license files inside each
+        // legal directory. A JVM runs without them, and creating links needs
+        // privileges a desktop app does not have everywhere, so the entry is
+        // skipped rather than failing the whole runtime download.
+        return Ok(());
     }
 
     let Some(downloads) = file.downloads.as_ref() else {

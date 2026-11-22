@@ -138,25 +138,32 @@ fn download_failure(prepared: &Prepared) -> String {
 /// Whether this build has a provider for a profile's loader.
 ///
 /// A kind the UI can show but not install must not offer an install that would
-/// fail at the end of a download.
+/// fail at the end of a download. The name is read through the SPI's own parser,
+/// so a spelling the port accepts is not refused here.
 pub(crate) fn supported_loader(kind: &str) -> bool {
-    matches!(kind, "vanilla" | "fabric" | "quilt" | "forge" | "neoforge")
+    let kind = kind.trim();
+    kind.eq_ignore_ascii_case("vanilla")
+        || matches!(
+            LoaderKind::parse(kind),
+            Some(LoaderKind::Fabric | LoaderKind::Quilt | LoaderKind::Forge | LoaderKind::NeoForge)
+        )
 }
 
 /// Starts installing a loader profile.
 ///
-/// The version to display progress under is the Minecraft version, because a
-/// loader profile has no version id until this install produces one. The id is
-/// returned on completion, and the caller records it on the profile.
+/// Progress is reported under `key`, the identity the row looks the install up
+/// by, because a loader profile has no version id until this install produces
+/// one. The id is returned on completion, and the caller records it on the
+/// profile.
 pub(crate) fn start_loader(
     data_root: PathBuf,
     game_root: PathBuf,
     directory: PathBuf,
     game: Game,
+    key: String,
     concurrency: usize,
     cx: &mut Context<'_, RootView>,
 ) {
-    let key = game.minecraft.clone();
     let (progress, mut updates) = watch::channel(Progress::Version);
     let display_key = key.clone();
     let display_root = game_root.clone();
@@ -352,6 +359,15 @@ async fn install_with(
         concurrency,
     }
     .install(|stage| {
+        // A loader install downloads the whole game: thousands of assets and
+        // dozens of libraries. Every tick would rebuild the panel, so this
+        // collapses them the same way the vanilla path does.
+        if let Progress::Downloading { processed, total } = stage
+            && processed != total
+            && !processed.is_multiple_of((total / 100).max(1))
+        {
+            return;
+        }
         let _ = progress.send(stage);
     })
     .await

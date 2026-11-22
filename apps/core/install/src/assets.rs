@@ -9,11 +9,11 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use axlauncher_launch::natives::classifier_download;
 use axlauncher_launch::rules::{self, Target};
-use axlauncher_launch::version::Library;
+use axlauncher_launch::version::{Artifact, Library};
 use axlauncher_network::verify;
 use axlauncher_spi::{FetchError, Network};
 use axlauncher_storage::write_atomic;
@@ -115,20 +115,26 @@ pub fn missing_libraries(
         .flat_map(|library| {
             let regular = library
                 .download()
-                .map(|artifact| (root.join(&artifact.path), artifact));
-            let classifier = classifier_download(library, target).map(|artifact| {
-                let maven_path = root.join(&artifact.path);
+                .and_then(|artifact| contained_artifact(&root, artifact));
+            let classifier = classifier_download(library, target).and_then(|artifact| {
+                let (maven_path, artifact) = contained_artifact(&root, artifact.clone())?;
                 let path = artifact
                     .sha1
                     .as_deref()
                     .and_then(|sha1| axlauncher_storage::native_archive(game_root, sha1))
                     .filter(|_| needs_download(&maven_path, artifact.size))
                     .unwrap_or(maven_path);
-                (path, artifact.clone())
+                Some((path, artifact))
             });
             regular.into_iter().chain(classifier)
         })
         .filter_map(|(path, artifact)| {
+            // An artifact whose stated URL is empty is produced on this machine,
+            // not downloaded: a loader's patched client jar is written there by
+            // its processors. Planning a fetch for it would fail every install.
+            if artifact.url.as_deref() == Some("") {
+                return None;
+            }
             (needs_download(&path, artifact.size) && destinations.insert(path.clone())).then(|| {
                 MissingFile {
                     // An artifact without a URL stays in the plan, so the download
@@ -141,6 +147,23 @@ pub fn missing_libraries(
             })
         })
         .collect()
+}
+
+/// The artifact's destination under `root`, or `None` when its stated path
+/// would leave it.
+///
+/// A library path comes from a network answer — a loader document can write
+/// anywhere it likes — so a path with a parent component or a root is dropped
+/// rather than joined into the game tree.
+fn contained_artifact(root: &Path, artifact: Artifact) -> Option<(PathBuf, Artifact)> {
+    let path = Path::new(&artifact.path);
+    if path
+        .components()
+        .all(|part| matches!(part, Component::Normal(_)))
+    {
+        return Some((root.join(path), artifact));
+    }
+    None
 }
 
 /// The client jar a version downloads, when its document names one.

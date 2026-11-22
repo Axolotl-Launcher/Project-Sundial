@@ -37,7 +37,7 @@ pub(crate) fn row(
         // that would create it.
         let version = profile_version(game);
         let install =
-            install_key(game).map(|key| (key, installations.and_then(|states| states.get(key))));
+            install_key(game).map(|key| installations.and_then(|states| states.get(&key)));
         let launch = match (version, launch) {
             (Some(version), Some((started_version, state)))
                 if state.is_active() || started_version == version =>
@@ -52,6 +52,7 @@ pub(crate) fn row(
                 game.clone(),
                 install,
                 launch,
+                version.is_some(),
                 muted,
                 cx,
             )
@@ -123,12 +124,13 @@ fn description(instance: &DiscoveredProfile, muted: Hsla) -> impl IntoElement + 
 fn instance_actions(
     directory: PathBuf,
     game: Game,
-    install: Option<(&str, Option<&Installation>)>,
+    install: Option<Option<&Installation>>,
     launch: Option<&Launch>,
+    launchable: bool,
     muted: Hsla,
     cx: &mut Context<'_, RootView>,
 ) -> impl IntoElement + use<> {
-    let installation = install.and_then(|(_, state)| state);
+    let installation = install.flatten();
     let busy = launch.is_some_and(Launch::is_active)
         || matches!(installation, Some(Installation::Running(_)));
     let message = match (installation, launch) {
@@ -142,13 +144,12 @@ fn instance_actions(
         (_, Some(launch)) => Some(launch.message().to_owned()),
         (installation, None) => installation.map(Installation::message),
     };
-    let install_button = install.and_then(|(version, state)| {
+    let install_button = install.and_then(|state| {
         let label = match state {
             None => "Install",
             Some(Installation::Failed(_)) => "Retry",
             Some(Installation::Running(_) | Installation::Complete) => return None,
         };
-        let _ = version;
         let directory = directory.clone();
         let game = game.clone();
         Some(
@@ -165,7 +166,7 @@ fn instance_actions(
         .h_flex()
         .gap_2()
         .children(install_button)
-        .child(launch_button(&directory, busy, cx));
+        .children(launchable.then(|| launch_button(&directory, busy, cx)));
     div()
         .v_flex()
         .gap_1()

@@ -141,6 +141,18 @@ fn resolve_document(game_root: &Path, profile: &LoaderProfile) -> Result<Vec<u8>
         version.jar = Some(version.id.clone());
         return serde_json::to_vec(&version).map_err(document_error);
     }
+    // An installer's id must not equal the vanilla version it inherits from:
+    // the document under `versions/<game>/` is that parent, and writing over it
+    // would replace vanilla for every profile on the version.
+    if version
+        .inherits_from
+        .as_deref()
+        .is_some_and(|parent| parent == profile.version_id)
+    {
+        return Err(PlaceError::InvalidId {
+            id: profile.version_id.clone(),
+        });
+    }
     version.id.clone_from(&profile.version_id);
     // The resolution below already keeps the profile's jar when it names one
     // and the parent's otherwise, defaulting to the profile's own id last.
@@ -215,6 +227,8 @@ pub enum LoaderInstallError {
     },
     /// The files the profile names could not be prepared.
     Prepare(crate::prepare::PrepareError),
+    /// A file the profile names could not be written.
+    Incomplete { failure: String },
     /// The profile's processors need a Java runtime this machine lacks.
     Java { required: u32 },
     /// A processor failed.
@@ -231,6 +245,9 @@ impl fmt::Display for LoaderInstallError {
                 write!(formatter, "cannot read loader profile {id}: {source}")
             }
             Self::Prepare(error) => write!(formatter, "cannot prepare the loader's files: {error}"),
+            Self::Incomplete { failure } => {
+                write!(formatter, "cannot prepare the loader's files: {failure}")
+            }
             Self::Java { required } => write!(
                 formatter,
                 "this loader needs Java {required}, and no matching runtime was found"
@@ -250,7 +267,7 @@ impl std::error::Error for LoaderInstallError {
             Self::Document { source, .. } => Some(source),
             Self::Prepare(source) => Some(source),
             Self::Processors(source) => Some(source),
-            Self::Java { .. } | Self::Vanilla(_) => None,
+            Self::Incomplete { .. } | Self::Java { .. } | Self::Vanilla(_) => None,
         }
     }
 }
@@ -324,6 +341,15 @@ impl<N: axlauncher_spi::Network, L: axlauncher_spi::ModLoader, J: axlauncher_spi
         )
         .await
         .map_err(LoaderInstallError::Prepare)?;
+
+        // A step whose tool jar failed to download would fail as a missing
+        // class rather than the HTTP error that caused it, so the file failures
+        // are reported before any processor runs.
+        if let Some(failure) = prepared.failures.first() {
+            return Err(LoaderInstallError::Incomplete {
+                failure: failure.clone(),
+            });
+        }
 
         run_processors(
             self.java,

@@ -114,5 +114,5 @@ fn coordinate_key(library: &Library) -> String {
 mod tests;
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/core/launch/src/classpath_tool_shadow.rs"]
+#[path = "../../../../tests/apps/core/launch/src/classpath/tool_shadow_tests.rs"]
 mod tool_shadow_tests;

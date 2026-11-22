@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use axlauncher_spi::{Java, JavaMode};
 
-use crate::platform::{executable_in_home, search_all, sibling};
+use crate::platform::{executable_in_home, managed_executable, managed_home, search_all, sibling};
 
 /// Java found through a configured path, `JAVA_HOME`, then the search path.
 #[derive(Debug, Clone, Default)]
@@ -50,7 +50,7 @@ impl SystemJava {
     /// Installed runtime directories are searched before the environment's:
     /// what the launcher fetched is the runtime the game was tested against.
     pub fn with_runtime_roots(mut self, roots: Vec<PathBuf>) -> Self {
-        self.runtime_roots = roots;
+        self.runtime_roots = inventory(roots);
         self
     }
 
@@ -72,7 +72,7 @@ impl Java for SystemJava {
             .chain(
                 self.runtime_roots
                     .iter()
-                    .find_map(|root| executable_in_home(root, JavaMode::Console)),
+                    .find_map(|root| managed_executable(root, JavaMode::Console)),
             )
             .chain(
                 self.java_home
@@ -95,7 +95,7 @@ impl Java for SystemJava {
         let candidates = self
             .runtime_roots
             .iter()
-            .filter_map(|root| executable_in_home(root, JavaMode::Console))
+            .filter_map(|root| managed_executable(root, JavaMode::Console))
             .chain(
                 self.java_home
                     .as_deref()
@@ -119,6 +119,34 @@ impl SystemJava {
             .into_iter()
             .flatten()
     }
+}
+
+/// The runtime directories under one of `roots`, in a stable order.
+///
+/// A `roots` entry may be a component directory, as the installer names it, or
+/// the directory holding them. Listing happens here, in the crate that owns Java
+/// discovery, so a caller only names the location. Sorting matters because the
+/// first usable runtime is what a version without a stated major gets.
+fn inventory(roots: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for root in roots {
+        if managed_home(&root).join("bin").is_dir() {
+            found.push(root);
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&root) else {
+            continue;
+        };
+        found.extend(
+            entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.is_dir() && managed_home(path).join("bin").is_dir()),
+        );
+    }
+    found.sort();
+    found.dedup();
+    found
 }
 
 /// The major version a runtime at `executable` reports, read from the release

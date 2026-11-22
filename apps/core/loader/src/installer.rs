@@ -40,8 +40,8 @@ const EMBEDDED_MAVEN: &str = "maven/";
 /// Where this build places a file it had to lift out of the installer.
 const EMBEDDED_GROUP: &str = "axlauncher.embedded";
 
-/// The sides a data entry names.
-const SIDES: [&str; 2] = ["client", "server"];
+/// The side this launcher installs.
+const CLIENT: &str = "client";
 
 /// Reads `bytes` as an installer and returns the profile it describes.
 pub(crate) fn parse(
@@ -53,6 +53,15 @@ pub(crate) fn parse(
         .map_err(|error| malformed(kind, format!("the installer is not a zip archive: {error}")))?;
 
     let install: Value = read_json(&mut archive, INSTALL_PROFILE, kind)?;
+    // The oldest installers state their profile inline under `versionInfo`
+    // instead of shipping it as `version.json`; naming that shape explains the
+    // failure instead of reporting a missing archive entry.
+    if install.get("versionInfo").is_some() {
+        return Err(malformed(
+            kind,
+            "the installer uses the pre-1.9 layout, which this build cannot install",
+        ));
+    }
     let profile_path = install
         .get("json")
         .and_then(Value::as_str)
@@ -160,11 +169,12 @@ fn fold_data(
 
     for (name, entry) in entries {
         let mut entry = entry.as_object().cloned().unwrap_or_default();
-        for side in SIDES {
-            fold_side(
-                kind, archive, &mut entry, name, side, version_id, &mut files,
-            )?;
-        }
+        // Only the client side is materialised: this launcher installs and runs
+        // the client, so a server input would be downloaded, written and never
+        // used, and an installer that omits one would abort a client install.
+        fold_side(
+            kind, archive, &mut entry, name, CLIENT, version_id, &mut files,
+        )?;
         data.insert(name.clone(), Value::Object(entry));
     }
     if !data.is_empty() {
