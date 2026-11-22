@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use axlauncher_core::BRAND_NAME;
 use axlauncher_core::state::{
-    Instance, SettingsOrigin, ThemeChoice, create, discover, load_settings,
+    Instance, SettingsOrigin, ThemeChoice, create_numbered, discover_profiles, load_settings,
 };
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::{
@@ -32,9 +32,6 @@ const DATA_DIR_ENV: &str = "AXLAUNCHER_DATA_DIR";
 
 /// Directory name under the platform data directory.
 const APP_DIR: &str = "AXLauncher";
-
-/// How many numbered names to try before giving up on creating an instance.
-const MAX_INSTANCE_ATTEMPTS: u32 = 100;
 
 /// Opens the Axolotl Launcher window and runs the GPUI event loop.
 ///
@@ -130,17 +127,6 @@ fn notice_for(origin: &SettingsOrigin) -> Option<String> {
     }
 }
 
-/// The first free `instance-N` id and its display name.
-fn next_instance(root: &Path) -> Option<(String, String)> {
-    for number in 1..=MAX_INSTANCE_ATTEMPTS {
-        let id = format!("instance-{number}");
-        if !root.join(&id).exists() {
-            return Some((id, format!("Instance {number}")));
-        }
-    }
-    None
-}
-
 struct RootView {
     root: Option<PathBuf>,
     notice: Option<String>,
@@ -160,15 +146,7 @@ impl RootView {
         let Some(root) = self.root.clone() else {
             return;
         };
-        let Some((id, name)) = next_instance(&root) else {
-            self.notice = Some("Cannot find a free instance name.".to_string());
-            cx.notify();
-            return;
-        };
-
-        let instance = Instance::new(id, name);
-
-        match create(&root, &instance) {
+        match create_numbered(&self.instances.root, &self.instances.items) {
             Ok(()) => {
                 self.instances = Instances::load(&root);
                 self.notice = None;
@@ -209,7 +187,7 @@ impl Instances {
     fn load(root: &Path) -> Self {
         let directory = DataDir::new(root).instances();
 
-        match discover(&directory) {
+        match discover_profiles(root, &directory) {
             Ok(items) => Self {
                 root: directory,
                 items,

@@ -156,9 +156,12 @@ pub async fn prepare(
     // The flat tree copies from the object store, so it is built after the
     // objects land. A version whose index asks for none does nothing here.
     if let Some(index_id) = version.asset_index.as_ref().map(|index| index.id.as_str()) {
-        prepared
-            .failures
-            .extend(crate::assets::materialise_flat(game_root, index_id, &index));
+        let failures = if version.assets.as_deref() == Some("legacy") {
+            crate::assets::materialise_flat_at(game_root, &game_root.join("resources"), &index)
+        } else {
+            crate::assets::materialise_flat(game_root, index_id, &index)
+        };
+        prepared.failures.extend(failures);
     }
     Ok(prepared)
 }

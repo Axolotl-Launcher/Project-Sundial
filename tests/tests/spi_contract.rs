@@ -160,8 +160,12 @@ impl axlauncher_spi::ModLoader for FixedLoader {
         request: axlauncher_spi::LoaderRequest,
     ) -> Result<axlauncher_spi::LoaderProfile, axlauncher_spi::LoaderError> {
         Ok(axlauncher_spi::LoaderProfile {
-            version_id: "fabric-loader-0.20.1-1.21.11".into(),
-            document: format!(r#"{{"inheritsFrom":"{}"}}"#, request.game_version).into_bytes(),
+            version_id: format!("{}-0.20.1", request.game_version),
+            document: serde_json::to_vec(&serde_json::json!({
+                "id": "fabric-loader-0.20.1-1.21.11",
+                "inheritsFrom": request.game_version,
+            }))
+            .expect("profile document"),
             files: vec![axlauncher_spi::LoaderFile {
                 path: "libraries/example.jar".into(),
                 bytes: b"jar".to_vec(),
@@ -194,11 +198,14 @@ fn install_from(
 #[test]
 fn a_caller_written_against_the_loader_port_works_with_any_provider() {
     let root = std::env::temp_dir().join(format!("axlauncher-spi-contract-{}", std::process::id()));
-    std::fs::create_dir_all(&root).expect("temp root");
+    let version = root.join("versions/1.21.11");
+    std::fs::create_dir_all(&version).expect("parent version directory");
+    std::fs::write(version.join("1.21.11.json"), br#"{"id":"1.21.11"}"#)
+        .expect("parent version document");
 
     let installed = install_from(&FixedLoader, &root, "1.21.11").expect("install");
 
-    assert_eq!(installed[0], "fabric-loader-0.20.1-1.21.11");
+    assert_eq!(installed[0], "1.21.11-0.20.1");
     assert!(
         Path::new(&installed[1]).is_file(),
         "the version document is where a launch looks for it"

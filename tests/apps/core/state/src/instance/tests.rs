@@ -18,6 +18,25 @@ fn a_missing_root_is_an_empty_list() {
 }
 
 #[test]
+fn a_new_instance_uses_profiles_and_preserves_ids_from_previous_builds() {
+    let temp = TempRoot::new();
+    let root = temp.path();
+    let profiles = root.join("profiles");
+    let old = Instance::new("instance-1", "Original instance");
+    create(root, &old).expect("old layout");
+
+    let listed = discover_profiles(root, &profiles).expect("list old instance");
+    assert_eq!(listed, [old]);
+    create_numbered(&profiles, &listed).expect("new profile");
+
+    assert!(profiles.join("instance-2/instance.json").is_file());
+    assert_eq!(
+        discover_profiles(root, &profiles).expect("profiles").len(),
+        2
+    );
+}
+
+#[test]
 fn reads_a_manifest_and_uses_the_directory_as_id() {
     let temp = TempRoot::new();
     write_manifest(

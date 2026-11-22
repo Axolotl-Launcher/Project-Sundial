@@ -102,6 +102,42 @@ impl Drop for TempDir {
 }
 
 #[test]
+fn a_cached_classifier_extracts_into_the_shared_version_directory() {
+    let temp = TempDir::new("cached-classifier");
+    let game_root = temp.0.join("meta");
+    let hash = "a9993e364706816aba3e25717850c26c9cd0d89d";
+    let archive = axlauncher_storage::native_archive(&game_root, hash).expect("archive path");
+    fs::create_dir_all(archive.parent().expect("parent")).expect("cache directory");
+    fs::write(&archive, b"abc").expect("cached jar");
+    let reader =
+        MemoryReader::default().with_jar(archive, vec![("lwjgl.dll".into(), b"native".to_vec())]);
+
+    let library = serde_json::from_value(serde_json::json!({
+        "name": "org.lwjgl:lwjgl-platform:2.9.4",
+        "natives": {"windows": "natives-windows"},
+        "downloads": {"classifiers": {"natives-windows": {
+            "path": "org/lwjgl/lwjgl-platform/2.9.4/lwjgl-platform-2.9.4-natives-windows.jar",
+            "sha1": hash,
+            "size": 3,
+        }}},
+    }))
+    .expect("library");
+    let extracted = extract_version(
+        &reader,
+        &game_root,
+        "1.12.2",
+        &[library],
+        &target("windows", "x86_64"),
+    )
+    .expect("extract cached jar");
+
+    assert_eq!(
+        extracted.files,
+        [game_root.join("natives/1.12.2/lwjgl.dll")]
+    );
+}
+
+#[test]
 fn new_shape_natives_follow_the_target_rules() {
     let libraries = [
         native_library(

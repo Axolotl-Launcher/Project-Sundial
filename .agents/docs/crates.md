@@ -22,10 +22,8 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 | Event output | `telemetry` implements the event sink. | Call `Telemetry::record(Event)`. Command metrics belong to `observability`. |
 | Desktop UI and startup environment | `ui` directly depends on gpui-kit. `frontend` chooses the application data root and wires the window. | Frontend code imports components through `axlauncher_ui` and calls system APIs through `core`. Platform shells call `frontend::run`. |
 
-One existing frontend detail matters when changing instance creation.
-`frontend::next_instance` probes the candidate directory for existence. Put
-new allocation, conflict handling and manifest access in `state` and let the
-view handle the result.
+The frontend resolves the managed profiles directory with `DataDir`. Instance
+discovery, numbering, conflict handling and manifest access belong to `state`.
 
 ## Workspace inventory
 

@@ -20,7 +20,7 @@ mod test_support;
 
 pub use instance::{
     DiscoveryError, INSTANCE_SCHEMA_VERSION, Instance, InstanceError, InstanceManifest, create,
-    discover, save,
+    create_numbered, discover, discover_profiles, save,
 };
 pub use settings::{
     LoadedSettings, SETTINGS_FILE, SETTINGS_SCHEMA_VERSION, SettingsData, SettingsError,

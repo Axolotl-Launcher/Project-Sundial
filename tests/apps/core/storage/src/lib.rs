@@ -54,7 +54,7 @@ fn an_asset_object_lives_under_its_two_character_prefix() {
 
     assert_eq!(
         layout.asset_object("ab12").expect("hash with a prefix"),
-        Path::new("root/assets/objects/ab/ab12")
+        Path::new("root/meta/assets/objects/ab/ab12")
     );
     assert_eq!(layout.asset_object("a"), None);
 }
@@ -63,10 +63,13 @@ fn an_asset_object_lives_under_its_two_character_prefix() {
 fn each_version_keeps_its_own_natives_and_game_files() {
     let layout = DataDir::new("root");
 
-    assert_eq!(layout.version("1.20.1"), Path::new("root/versions/1.20.1"));
+    assert_eq!(
+        layout.version("1.20.1"),
+        Path::new("root/meta/versions/1.20.1")
+    );
     assert_eq!(
         layout.version_natives("1.20.1"),
-        Path::new("root/natives/1.20.1")
+        Path::new("root/meta/natives/1.20.1")
     );
     assert_ne!(
         layout.version_natives("1.20.1"),
@@ -80,6 +83,25 @@ fn a_virtual_asset_tree_is_named_after_its_index() {
 
     assert_eq!(
         layout.virtual_assets("legacy"),
-        Path::new("root/assets/virtual/legacy")
+        Path::new("root/meta/assets/virtual/legacy")
     );
+}
+
+#[test]
+fn profiles_and_runtime_files_use_the_managed_layout() {
+    let layout = DataDir::new("root");
+
+    assert_eq!(layout.instances(), Path::new("root/profiles"));
+    assert_eq!(layout.log_configs(), Path::new("root/meta/log_configs"));
+    let hash = "0123456789012345678901234567890123456789";
+    assert_eq!(
+        native_archive(&layout.meta(), hash),
+        Some(
+            layout
+                .caches()
+                .join("minecraft-natives")
+                .join(format!("{hash}.jar"))
+        )
+    );
+    assert_eq!(native_archive(&layout.meta(), "../escape"), None);
 }

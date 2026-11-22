@@ -7,7 +7,7 @@ use axlauncher_spi::LoaderFile;
 fn profile(id: &str) -> LoaderProfile {
     LoaderProfile {
         version_id: id.into(),
-        document: br#"{"id":"x","inheritsFrom":"1.21"}"#.to_vec(),
+        document: format!(r#"{{"id":"{id}"}}"#).into_bytes(),
         files: Vec::new(),
     }
 }
@@ -24,13 +24,30 @@ fn temp() -> PathBuf {
 #[test]
 fn a_profile_lands_where_a_launch_looks_for_it() {
     let root = temp();
-    let placed = place(&root, &profile("fabric-loader-0.20.1-1.21.11")).expect("place");
+    let parent = document_path(&root, "1.21.11");
+    write(
+        &parent,
+        br#"{"id":"1.21.11","downloads":{"client":{"url":"https://example.com/client.jar"}}}"#,
+    )
+    .expect("parent");
+    let mut profile = profile("1.21.11-0.20.1");
+    profile.document = br#"{"id":"fabric-loader-0.20.1-1.21.11","inheritsFrom":"1.21.11","mainClass":"net.example.Fabric"}"#.to_vec();
+    let placed = place(&root, &profile).expect("place");
 
     assert_eq!(
         placed.document,
-        root.join("versions/fabric-loader-0.20.1-1.21.11/fabric-loader-0.20.1-1.21.11.json")
+        root.join("versions/1.21.11-0.20.1/1.21.11-0.20.1.json")
     );
-    assert!(placed.document.is_file());
+    let installed = axlauncher_launch::version::load(&root.join("versions"), &placed.version_id)
+        .expect("read merged profile");
+    assert_eq!(installed.main_class, "net.example.Fabric");
+    assert_eq!(installed.inherits_from, None);
+    assert_eq!(installed.jar_id(), "1.21.11-0.20.1");
+    let client = crate::assets::client_jar(&root, &installed).expect("client download");
+    assert_eq!(
+        client.path,
+        root.join("versions/1.21.11-0.20.1/1.21.11-0.20.1.jar")
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -61,6 +78,7 @@ fn a_file_path_that_leaves_the_root_is_refused() {
         "libraries/../../escape.jar",
         "/absolute.jar",
         "libraries\\windows.jar",
+        "C:/absolute.jar",
         "libraries//double.jar",
         "./libraries/file.jar",
     ] {
@@ -79,7 +97,15 @@ fn a_file_path_that_leaves_the_root_is_refused() {
 #[test]
 fn an_id_that_cannot_be_a_directory_is_refused() {
     let root = temp();
-    for id in ["", "a/b", "a\\b", "../x", &"x".repeat(MAX_ID_LEN + 1)] {
+    for id in [
+        "",
+        ".",
+        "..",
+        "a/b",
+        "a\\b",
+        "../x",
+        &"x".repeat(MAX_ID_LEN + 1),
+    ] {
         let error = place(&root, &profile(id)).expect_err(id);
         assert!(matches!(error, PlaceError::InvalidId { .. }), "{id:?}");
     }

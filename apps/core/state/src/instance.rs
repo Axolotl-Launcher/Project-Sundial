@@ -13,6 +13,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::document::{self, Existing};
 
+mod profiles;
+pub use profiles::{create_numbered, discover_profiles};
+
 /// The only manifest version this build reads.
 pub const INSTANCE_SCHEMA_VERSION: u32 = 1;
 
@@ -185,6 +188,13 @@ impl std::error::Error for DiscoveryError {
 /// malformed manifest, an unknown schema — is returned, never skipped, so a
 /// broken instance is visible instead of silently absent.
 pub fn discover(root: &Path) -> Result<Vec<Instance>, DiscoveryError> {
+    discover_in(root, |_| true)
+}
+
+fn discover_in(
+    root: &Path,
+    include: impl Fn(&str) -> bool,
+) -> Result<Vec<Instance>, DiscoveryError> {
     let entries = match fs::read_dir(root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -208,21 +218,25 @@ pub fn discover(root: &Path) -> Result<Vec<Instance>, DiscoveryError> {
             continue;
         }
 
+        let id = entry.file_name().to_string_lossy().into_owned();
         let manifest = directory.join(MANIFEST);
-        if !manifest.is_file() {
+        if !include(&id) || !manifest.is_file() {
             continue;
         }
 
-        let id = entry.file_name().to_string_lossy().into_owned();
         instances.push(read_manifest(&manifest, id)?);
     }
 
+    sort_instances(&mut instances);
+    Ok(instances)
+}
+
+fn sort_instances(instances: &mut [Instance]) {
     instances.sort_by(|left, right| {
         left.name
             .cmp(&right.name)
             .then_with(|| left.id.cmp(&right.id))
     });
-    Ok(instances)
 }
 
 fn read_manifest(path: &Path, id: String) -> Result<Instance, DiscoveryError> {
@@ -272,6 +286,7 @@ pub enum InstanceError {
     InvalidId { id: String },
     InvalidName { name: String },
     AlreadyExists { path: PathBuf },
+    NoAvailableNumber,
     NotFound { path: PathBuf },
     Read { path: PathBuf, source: io::Error },
     Write { path: PathBuf, source: io::Error },
@@ -293,6 +308,7 @@ impl fmt::Display for InstanceError {
             Self::AlreadyExists { path } => {
                 write!(formatter, "{} already exists", path.display())
             }
+            Self::NoAvailableNumber => write!(formatter, "Cannot find a free instance name."),
             Self::NotFound { path } => write!(formatter, "{} does not exist", path.display()),
             Self::Read { path, source } => {
                 write!(formatter, "cannot read {}: {source}", path.display())

@@ -30,12 +30,17 @@ impl DataDir {
 
     /// One directory per instance, each holding an `instance.json`.
     pub fn instances(&self) -> PathBuf {
-        self.root.join("instances")
+        self.root.join("profiles")
+    }
+
+    /// Shared files used to install and launch games.
+    pub fn meta(&self) -> PathBuf {
+        self.root.join("meta")
     }
 
     /// Minecraft version folders, as the game itself lays them out.
     pub fn versions(&self) -> PathBuf {
-        self.root.join("versions")
+        self.meta().join("versions")
     }
 
     /// One version's folder: document, client jar and game files.
@@ -44,11 +49,11 @@ impl DataDir {
     }
 
     pub fn libraries(&self) -> PathBuf {
-        self.root.join("libraries")
+        self.meta().join("libraries")
     }
 
     pub fn assets(&self) -> PathBuf {
-        self.root.join("assets")
+        self.meta().join("assets")
     }
 
     /// Content-addressed asset objects.
@@ -76,17 +81,17 @@ impl DataDir {
 
     /// The flat tree an index with `map_to_resources` materialises.
     pub fn legacy_resources(&self) -> PathBuf {
-        self.root.join("resources")
+        self.meta().join("resources")
     }
 
     /// Logging configurations the game's JVM arguments point at.
     pub fn log_configs(&self) -> PathBuf {
-        self.assets().join("log_configs")
+        game_log_configs(&self.meta())
     }
 
     /// Unpacked native libraries, one folder per version.
     pub fn natives(&self) -> PathBuf {
-        self.root.join("natives")
+        game_natives(&self.meta())
     }
 
     pub fn version_natives(&self, version_id: &str) -> PathBuf {
@@ -117,6 +122,33 @@ impl DataDir {
     pub fn javas(&self) -> PathBuf {
         self.root.join("javas.json")
     }
+}
+
+/// The JVM logging configuration directory under a shared game root.
+pub fn game_log_configs(game_root: &Path) -> PathBuf {
+    game_root.join("log_configs")
+}
+
+/// The shared directory containing one extraction directory per version.
+pub fn game_natives(game_root: &Path) -> PathBuf {
+    game_root.join("natives")
+}
+
+/// The content-addressed classifier archive alongside the managed game root.
+pub fn native_archive(game_root: &Path, sha1: &str) -> Option<PathBuf> {
+    if game_root.file_name()? != "meta"
+        || sha1.len() != 40
+        || !sha1.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    let layout = DataDir::new(game_root.parent()?);
+    Some(
+        layout
+            .caches()
+            .join("minecraft-natives")
+            .join(format!("{sha1}.jar")),
+    )
 }
 
 /// Replaces `path` with `bytes` by writing a sibling temporary file and renaming

@@ -113,11 +113,11 @@ impl Fixture {
     }
 
     fn game_root(&self) -> PathBuf {
-        self.temp.path().join("game")
+        self.temp.path().join("meta")
     }
 
     fn instance_directory(&self) -> PathBuf {
-        self.temp.path().join("instance")
+        self.temp.path().join("profiles/instance")
     }
 
     fn java(&self) -> PathBuf {
@@ -125,12 +125,12 @@ impl Fixture {
     }
 
     fn natives_directory(&self) -> PathBuf {
-        self.instance_directory().join(NATIVES)
+        self.game_root().join("natives").join(VERSION_ID)
     }
 
     fn natives_jar(&self) -> PathBuf {
         self.game_root()
-            .join(LIBRARIES)
+            .join("libraries")
             .join("org")
             .join("example")
             .join("example-natives.jar")
