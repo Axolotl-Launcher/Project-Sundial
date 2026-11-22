@@ -8,14 +8,21 @@
 //! placeholder this build does not know becomes a visible literal in the
 //! command rather than a silent empty argument.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::rules::{self, Target};
-use crate::version::Arguments;
+use crate::version::{Argument, Arguments};
 
 /// Values substituted into the game's arguments.
+///
+/// A key absent from the map is omitted; `Resolve` turns that into a dropped
+/// flag. `omit` records a name the caller knows about but has no value for, so
+/// the distinction from a name this build never heard of stays visible.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Values(BTreeMap<String, String>);
+pub struct Values {
+    present: BTreeMap<String, String>,
+    omitted: BTreeSet<String>,
+}
 
 impl Values {
     pub fn new() -> Self {
@@ -23,12 +30,22 @@ impl Values {
     }
 
     pub fn with(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.0.insert(key.into(), value.into());
+        self.present.insert(key.into(), value.into());
         self
     }
 
+    /// Records a name the caller has no value for, so its flag is dropped.
+    pub fn omit(&mut self, key: impl Into<String>) {
+        self.omitted.insert(key.into());
+    }
+
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.0.get(key).map(String::as_str)
+        self.present.get(key).map(String::as_str)
+    }
+
+    /// Whether the caller deliberately has no value for `key`.
+    pub fn is_omitted(&self, key: &str) -> bool {
+        self.omitted.contains(key)
     }
 }
 
@@ -36,6 +53,8 @@ impl Values {
 ///
 /// Unknown keys are left in place on purpose: an empty string would produce a
 /// command that looks valid and fails at runtime in a harder place to read.
+/// Dropping the whole `--flag value` pair is a different decision and runs
+/// through [`without_absent`].
 pub fn substitute(argument: &str, values: &Values) -> String {
     let mut result = String::with_capacity(argument.len());
     let mut rest = argument;
@@ -51,6 +70,136 @@ pub fn substitute(argument: &str, values: &Values) -> String {
         match values.get(key) {
             Some(value) => result.push_str(value),
             None => result.push_str(&rest[start..start + 2 + end + 1]),
+        }
+        rest = &after[end + 1..];
+    }
+
+    result.push_str(rest);
+    result
+}
+
+/// A value the caller either has or deliberately omits.
+///
+/// The game writes an optional pair as `--flag ${name}`, so a value the caller
+/// does not have means the flag goes too. Leaving `--flag` in place would make
+/// the game read whatever follows as its value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Value {
+    /// The caller has a value.
+    Present(String),
+    /// The caller has none, so the flag is omitted.
+    Absent,
+}
+
+/// The values a caller can supply, and which of them it deliberately omits.
+pub trait Resolve {
+    /// The value for `name`, or `Absent` when the argument should be dropped.
+    fn resolve(&self, name: &str) -> Value;
+}
+
+impl Resolve for Values {
+    fn resolve(&self, name: &str) -> Value {
+        match self.get(name) {
+            Some(value) => Value::Present(value.to_string()),
+            // Both an omitted name and one never seen drop the flag: the game
+            // supplies its own default either way.
+            None => Value::Absent,
+        }
+    }
+}
+
+/// The arguments for `target`, with every `${name}` replaced and every
+/// `--flag ${name}` pair dropped when the caller has no such value.
+///
+/// A placeholder that is only part of an argument (`-Dfoo=${bar}`) is not a
+/// pair, so an absent value there substitutes an empty string and leaves the
+/// surrounding text as the game wrote it.
+pub fn resolved(arguments: &[Argument], target: &Target, values: &impl Resolve) -> Vec<String> {
+    let mut assembler = Assembler::default();
+    for argument in rules::applicable(arguments, target) {
+        assembler.push(&argument, values);
+    }
+    assembler.finish()
+}
+
+/// Collects arguments while remembering a flag that is still waiting for its
+/// value.
+#[derive(Debug, Default)]
+struct Assembler {
+    kept: Vec<String>,
+    pending_flag: Option<String>,
+}
+
+impl Assembler {
+    fn push(&mut self, argument: &str, values: &impl Resolve) {
+        match sole_placeholder(argument) {
+            Some(name) => self.push_value(name, values),
+            None => self.push_text(argument, values),
+        }
+    }
+
+    /// A bare `${name}` is the value of the flag before it, so an absent value
+    /// takes the flag with it.
+    fn push_value(&mut self, name: &str, values: &impl Resolve) {
+        match values.resolve(name) {
+            Value::Present(value) => {
+                self.kept.extend(self.pending_flag.take());
+                self.kept.push(value);
+            }
+            Value::Absent => self.pending_flag = None,
+        }
+    }
+
+    fn push_text(&mut self, argument: &str, values: &impl Resolve) {
+        self.close_pending();
+        if is_flag(argument) {
+            self.pending_flag = Some(argument.to_string());
+        } else {
+            self.kept.push(substitute_resolved(argument, values));
+        }
+    }
+
+    fn close_pending(&mut self) {
+        if let Some(flag) = self.pending_flag.take() {
+            self.kept.push(flag);
+        }
+    }
+
+    fn finish(mut self) -> Vec<String> {
+        self.close_pending();
+        self.kept
+    }
+}
+
+/// Whether `argument` is a flag that takes the next argument as its value.
+fn is_flag(argument: &str) -> bool {
+    argument.starts_with("--") && !argument.contains('=')
+}
+
+/// The placeholder name when `argument` is exactly `${name}`.
+fn sole_placeholder(argument: &str) -> Option<&str> {
+    argument
+        .strip_prefix("${")
+        .and_then(|rest| rest.strip_suffix('}'))
+        .filter(|name| !name.contains('}') && !name.contains('{'))
+}
+
+/// Replaces the placeholders inside an argument, using an empty string for a
+/// value the caller omits.
+fn substitute_resolved(argument: &str, values: &impl Resolve) -> String {
+    let mut result = String::with_capacity(argument.len());
+    let mut rest = argument;
+
+    while let Some(start) = rest.find("${") {
+        result.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        let Some(end) = after.find('}') else {
+            result.push_str(&rest[start..]);
+            return result;
+        };
+        match values.resolve(&after[..end]) {
+            Value::Present(value) => result.push_str(&value),
+            Value::Absent => {}
         }
         rest = &after[end + 1..];
     }
@@ -152,6 +301,93 @@ mod tests {
         assert_eq!(
             jvm(&arguments, &windows, &values()),
             ["-Xmx2G", "-Djava.library.path=a.jar:b.jar"]
+        );
+    }
+
+    fn optional(name: &str) -> Argument {
+        Argument::Plain(format!("--{name}"))
+    }
+
+    fn plain(text: &str) -> Argument {
+        Argument::Plain(text.to_string())
+    }
+
+    fn any_target() -> Target {
+        Target {
+            os: "linux".into(),
+            arch: "x86_64".into(),
+        }
+    }
+
+    #[test]
+    fn a_pair_with_a_value_is_kept() {
+        let arguments = vec![
+            optional("width"),
+            plain("${resolution_width}"),
+            plain("--username"),
+            plain("${auth_player_name}"),
+        ];
+        let values = Values::new()
+            .with("resolution_width", "1280")
+            .with("auth_player_name", "Player");
+
+        assert_eq!(
+            resolved(&arguments, &any_target(), &values),
+            ["--width", "1280", "--username", "Player"]
+        );
+    }
+
+    #[test]
+    fn a_pair_without_a_value_drops_the_flag_too() {
+        let arguments = vec![
+            plain("--username"),
+            plain("${auth_player_name}"),
+            optional("width"),
+            plain("${resolution_width}"),
+            plain("--version"),
+            plain("${version_name}"),
+        ];
+        let values = Values::new()
+            .with("auth_player_name", "Player")
+            .with("version_name", "1.21");
+
+        assert_eq!(
+            resolved(&arguments, &any_target(), &values),
+            ["--username", "Player", "--version", "1.21"]
+        );
+    }
+
+    #[test]
+    fn a_placeholder_that_is_part_of_an_argument_is_substituted_not_dropped() {
+        let arguments = vec![
+            plain("-Djava.library.path=${natives_directory}"),
+            plain("${classpath}"),
+        ];
+        let values = Values::new().with("classpath", "a.jar");
+
+        assert_eq!(
+            resolved(&arguments, &any_target(), &values),
+            ["-Djava.library.path=", "a.jar"]
+        );
+    }
+
+    #[test]
+    fn a_flag_with_an_equals_sign_is_not_treated_as_a_pair() {
+        let arguments = vec![plain("--demo=false")];
+
+        assert_eq!(
+            resolved(&arguments, &any_target(), &Values::new()),
+            ["--demo=false"]
+        );
+    }
+
+    #[test]
+    fn a_trailing_flag_without_a_value_survives() {
+        let arguments = vec![plain("--demo"), plain("--width")];
+
+        assert_eq!(
+            resolved(&arguments, &any_target(), &Values::new()),
+            ["--demo", "--width"]
         );
     }
 }

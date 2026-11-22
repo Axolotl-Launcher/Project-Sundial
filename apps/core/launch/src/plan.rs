@@ -94,12 +94,14 @@ pub fn build(
         &client_jar,
         target,
     );
-    let values = values(version, layout, session, &classpath);
+    let mut values = values(version, layout, session, &classpath);
+    values.omit("auth_xuid");
+    values.omit("clientid");
     let arguments = version.arguments.clone().unwrap_or_default();
 
-    let mut args = arguments::jvm(&arguments, target, &values);
+    let mut args = arguments::resolved(&arguments.jvm, target, &values);
     args.push(version.main_class.clone());
-    args.extend(arguments::game(&arguments, target, &values));
+    args.extend(arguments::resolved(&arguments.game, target, &values));
 
     Ok(LaunchCommand {
         program: java.display().to_string(),
