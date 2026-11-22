@@ -18,6 +18,9 @@ pub const INSTANCE_SCHEMA_VERSION: u32 = 1;
 
 const MANIFEST: &str = "instance.json";
 
+/// How many numbered names to try before giving up on creating an instance.
+const MAX_INSTANCE_ATTEMPTS: u32 = 100;
+
 /// How far an instance's install has got.
 ///
 /// A half-installed instance must be distinguishable from a ready one, or the
@@ -323,6 +326,20 @@ impl std::error::Error for InstanceError {
             _ => None,
         }
     }
+}
+
+/// The first free `instance-N` id and its default display name under `root`.
+///
+/// `root` is the directory that holds one folder per instance (the launcher's
+/// `instances` directory), not the data root above it.
+pub fn next_instance(root: &Path) -> Option<(String, String)> {
+    for number in 1..=MAX_INSTANCE_ATTEMPTS {
+        let id = format!("instance-{number}");
+        if !root.join(&id).exists() {
+            return Some((id, format!("Instance {number}")));
+        }
+    }
+    None
 }
 
 /// Writes a new instance directory and its manifest.

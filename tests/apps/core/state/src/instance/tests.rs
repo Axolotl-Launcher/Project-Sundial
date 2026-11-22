@@ -258,3 +258,43 @@ fn a_ready_instance_is_told_apart_from_a_half_installed_one() {
     assert!(!InstallStage::MinecraftInstalling.is_ready());
     assert!(!InstallStage::NotInstalled.is_ready());
 }
+
+use axlauncher_storage::DataDir;
+
+#[test]
+fn next_instance_starts_at_one_when_the_directory_is_missing() {
+    let temp = TempRoot::new();
+
+    assert_eq!(
+        next_instance(&temp.path().join("instances")),
+        Some(("instance-1".into(), "Instance 1".into()))
+    );
+}
+
+#[test]
+fn next_instance_skips_directories_already_used() {
+    let temp = TempRoot::new();
+    let directory = DataDir::new(temp.path()).instances();
+    fs::create_dir_all(directory.join("instance-1")).expect("first");
+    fs::create_dir_all(directory.join("instance-2")).expect("second");
+
+    assert_eq!(
+        next_instance(&directory),
+        Some(("instance-3".into(), "Instance 3".into()))
+    );
+}
+
+#[test]
+fn created_instances_live_under_the_instances_directory() {
+    let temp = TempRoot::new();
+    let directory = DataDir::new(temp.path()).instances();
+    let (id, name) = next_instance(&directory).expect("free id");
+    create(&directory, &Instance::new(id.clone(), name)).expect("create");
+
+    assert!(directory.join(&id).join(MANIFEST).is_file());
+    assert!(
+        !temp.path().join(&id).exists(),
+        "must not write beside versions/"
+    );
+    assert_eq!(discover(&directory).expect("discovery")[0].id, id);
+}

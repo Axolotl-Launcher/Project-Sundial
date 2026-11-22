@@ -25,7 +25,9 @@ pub use plan::{Layout, Session};
 pub use rules::Target;
 pub use version::Version;
 
-use axlauncher_spi::{LaunchCommand, LaunchError, Launcher};
+pub use axlauncher_spi::{Java, JavaMode, LaunchCommand};
+
+use axlauncher_spi::{LaunchError, Launcher};
 
 /// Starts the command as a child process and waits for it.
 #[derive(Debug, Default)]

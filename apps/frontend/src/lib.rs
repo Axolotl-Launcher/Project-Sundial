@@ -1,31 +1,27 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Axolotl Launcher frontend: application state, layout and window wiring.
+//! Axolotl Launcher frontend: the development panel and its window wiring.
 //!
 //! This crate owns the root view platform shells open, and is the only crate
-//! that combines `axlauncher_core` (domain) with `axlauncher_ui` (kit
-//! vocabulary + palette). State lives here in GPUI entities; components stay
-//! stateless recipes.
+//! that combines `axlauncher_core` with `axlauncher_ui`. State lives here in
+//! GPUI entities; components stay stateless recipes.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use axlauncher_core::BRAND_NAME;
 use axlauncher_core::state::{
-    Instance, SettingsOrigin, ThemeChoice, create, discover, load_settings,
+    Instance, SettingsData, SettingsOrigin, ThemeChoice, discover, load_settings,
 };
 use axlauncher_core::storage::DataDir;
-use axlauncher_ui::{
-    ActiveTheme, Button, ButtonVariants, ElementId, GroupBox, GroupBoxVariants, Hsla, Label,
-    Palette, StyledExt,
-};
-use axlauncher_ui::{
-    Bounds, Context, IntoElement, Render, Window, WindowBounds, WindowOptions, div, px, size,
-};
-use axlauncher_ui::{kit, prelude::*};
+use axlauncher_ui::prelude::*;
+use axlauncher_ui::{Bounds, Palette, WindowBounds, WindowOptions, kit, px, size};
 
-const WINDOW_WIDTH: f32 = 720.;
-const WINDOW_HEIGHT: f32 = 480.;
+mod panel;
+
+const WINDOW_WIDTH: f32 = 1080.;
+const WINDOW_HEIGHT: f32 = 820.;
+const WINDOW_MIN_WIDTH: f32 = 720.;
+const WINDOW_MIN_HEIGHT: f32 = 560.;
 
 /// Overrides the data directory; the platform data directory is used otherwise.
 const DATA_DIR_ENV: &str = "AXLAUNCHER_DATA_DIR";
@@ -33,8 +29,32 @@ const DATA_DIR_ENV: &str = "AXLAUNCHER_DATA_DIR";
 /// Directory name under the platform data directory.
 const APP_DIR: &str = "AXLauncher";
 
-/// How many numbered names to try before giving up on creating an instance.
-const MAX_INSTANCE_ATTEMPTS: u32 = 100;
+/// What the panel reads once at startup and again on every reload.
+pub(crate) struct Loaded {
+    pub(crate) root: Option<PathBuf>,
+    pub(crate) settings: Option<SettingsData>,
+    pub(crate) origin: Option<SettingsOrigin>,
+    pub(crate) instances: Vec<Instance>,
+    pub(crate) instances_error: Option<String>,
+    pub(crate) notice: Option<String>,
+}
+
+pub(crate) struct Startup {
+    pub(crate) palette: Palette,
+    pub(crate) loaded: Loaded,
+}
+
+impl Startup {
+    pub(crate) fn load() -> Self {
+        let loaded = load_at(data_root());
+        let palette = loaded
+            .settings
+            .as_ref()
+            .map(|settings| palette_for(settings.theme))
+            .unwrap_or(Palette::Dark);
+        Self { palette, loaded }
+    }
+}
 
 /// Opens the Axolotl Launcher window and runs the GPUI event loop.
 ///
@@ -56,67 +76,74 @@ fn open_main_window(cx: &mut kit::App, startup: Startup) {
     kit::open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
+            window_min_size: Some(size(px(WINDOW_MIN_WIDTH), px(WINDOW_MIN_HEIGHT))),
             ..Default::default()
         },
         cx,
-        |_, cx| cx.new(|_| RootView::new(startup)),
+        move |window, cx| cx.new(|cx| panel::RootView::new(startup, window, cx)),
     )
     .expect("failed to open the Axolotl Launcher window");
-}
-
-/// What the window needs, read once before the event loop starts.
-struct Startup {
-    palette: Palette,
-    notice: Option<String>,
-    root: Option<PathBuf>,
-    instances: Instances,
-}
-
-impl Startup {
-    fn load() -> Self {
-        let Some(root) = data_root() else {
-            return Self {
-                palette: Palette::Dark,
-                notice: Some(format!(
-                    "Cannot determine the data directory. Set {DATA_DIR_ENV} to choose one."
-                )),
-                root: None,
-                instances: Instances::unavailable(),
-            };
-        };
-
-        let (palette, notice) = match load_settings(&root) {
-            Ok(loaded) => (palette_for(loaded.data.theme), notice_for(&loaded.origin)),
-            Err(error) => (Palette::Dark, Some(error.to_string())),
-        };
-
-        Self {
-            palette,
-            notice,
-            instances: Instances::load(&root),
-            root: Some(root),
-        }
-    }
 }
 
 /// The launcher's data root: the override when set, else the platform data
 /// directory plus the application name.
 fn data_root() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os(DATA_DIR_ENV) {
+    if let Some(path) = std::env::var_os(DATA_DIR_ENV)
+        && !path.is_empty()
+    {
         return Some(PathBuf::from(path));
     }
     dirs::data_dir().map(|base| base.join(APP_DIR))
 }
 
-fn palette_for(theme: ThemeChoice) -> Palette {
+/// Reads settings and instances for `root`; `None` means the platform could
+/// not name a data directory.
+pub(crate) fn load_at(root: Option<PathBuf>) -> Loaded {
+    let Some(root) = root else {
+        return Loaded {
+            root: None,
+            settings: None,
+            origin: None,
+            instances: Vec::new(),
+            instances_error: None,
+            notice: Some(format!(
+                "Cannot determine the data directory. Set {DATA_DIR_ENV}, or choose one below."
+            )),
+        };
+    };
+
+    let (settings, origin, notice) = match load_settings(&root) {
+        Ok(loaded) => {
+            let notice = settings_notice(&loaded.origin);
+            (Some(loaded.data), Some(loaded.origin), notice)
+        }
+        Err(error) => (None, None, Some(error.to_string())),
+    };
+
+    let (instances, instances_error) = match discover(&DataDir::new(&root).instances()) {
+        Ok(instances) => (instances, None),
+        Err(error) => (Vec::new(), Some(error.to_string())),
+    };
+
+    Loaded {
+        root: Some(root),
+        settings,
+        origin,
+        instances,
+        instances_error,
+        notice,
+    }
+}
+
+pub(crate) fn palette_for(theme: ThemeChoice) -> Palette {
     match theme {
         ThemeChoice::Dark => Palette::Dark,
         ThemeChoice::Light => Palette::Light,
     }
 }
 
-/// Text for the one settings outcome a user needs to know about.
-fn notice_for(origin: &SettingsOrigin) -> Option<String> {
+/// Text for the one settings outcome a user needs to know about at startup.
+fn settings_notice(origin: &SettingsOrigin) -> Option<String> {
     match origin {
         SettingsOrigin::Created | SettingsOrigin::Stored => None,
         SettingsOrigin::Quarantined { path } => Some(format!(
@@ -130,198 +157,16 @@ fn notice_for(origin: &SettingsOrigin) -> Option<String> {
     }
 }
 
-/// The first free `instance-N` id and its display name.
-fn next_instance(root: &Path) -> Option<(String, String)> {
-    for number in 1..=MAX_INSTANCE_ATTEMPTS {
-        let id = format!("instance-{number}");
-        if !root.join(&id).exists() {
-            return Some((id, format!("Instance {number}")));
+/// A short description of where the loaded settings came from.
+pub(crate) fn describe_origin(origin: &SettingsOrigin) -> String {
+    match origin {
+        SettingsOrigin::Created => "created with defaults".to_string(),
+        SettingsOrigin::Stored => "loaded from disk".to_string(),
+        SettingsOrigin::Quarantined { path } => {
+            format!("unreadable copy moved to {}", path.display())
+        }
+        SettingsOrigin::ReadOnlyOtherSchema { found } => {
+            format!("schema {found} left untouched")
         }
     }
-    None
-}
-
-struct RootView {
-    root: Option<PathBuf>,
-    notice: Option<String>,
-    instances: Instances,
-}
-
-impl RootView {
-    fn new(startup: Startup) -> Self {
-        Self {
-            root: startup.root,
-            notice: startup.notice,
-            instances: startup.instances,
-        }
-    }
-
-    fn create_instance(&mut self, cx: &mut Context<'_, Self>) {
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        let Some((id, name)) = next_instance(&root) else {
-            self.notice = Some("Cannot find a free instance name.".to_string());
-            cx.notify();
-            return;
-        };
-
-        let instance = Instance::new(id, name);
-
-        match create(&root, &instance) {
-            Ok(()) => {
-                self.instances = Instances::load(&root);
-                self.notice = None;
-            }
-            Err(error) => self.notice = Some(error.to_string()),
-        }
-        cx.notify();
-    }
-}
-
-impl Render for RootView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let background = theme.background;
-        let muted = theme.muted_foreground;
-
-        div()
-            .v_flex()
-            .size_full()
-            .gap_6()
-            .p_8()
-            .bg(background)
-            .child(header(muted))
-            .when_some(self.notice.clone(), |view, notice| {
-                view.child(Label::new(notice).text_sm().text_color(muted))
-            })
-            .child(self.instances.panel(muted, cx))
-    }
-}
-
-struct Instances {
-    root: PathBuf,
-    items: Vec<Instance>,
-    error: Option<String>,
-}
-
-impl Instances {
-    fn load(root: &Path) -> Self {
-        let directory = DataDir::new(root).instances();
-
-        match discover(&directory) {
-            Ok(items) => Self {
-                root: directory,
-                items,
-                error: None,
-            },
-            Err(error) => Self {
-                root: directory,
-                items: Vec::new(),
-                error: Some(error.to_string()),
-            },
-        }
-    }
-
-    fn unavailable() -> Self {
-        Self {
-            root: PathBuf::new(),
-            items: Vec::new(),
-            error: None,
-        }
-    }
-}
-
-impl Instances {
-    fn panel(&self, muted: Hsla, cx: &mut Context<'_, RootView>) -> impl IntoElement {
-        let heading = match self.items.len() {
-            0 => "Instances".to_string(),
-            count => format!("Instances · {count}"),
-        };
-
-        GroupBox::new()
-            .outline()
-            .title(Label::new(heading).text_sm().text_color(muted))
-            .child(
-                div()
-                    .v_flex()
-                    .gap_3()
-                    .child(Label::new(self.root_label()).text_xs().text_color(muted))
-                    .child(
-                        div().h_flex().gap_3().child(
-                            Button::new("create-instance")
-                                .primary()
-                                .label("New instance")
-                                .on_click(cx.listener(|view, _, _, cx| view.create_instance(cx))),
-                        ),
-                    )
-                    .when_some(self.error.clone(), |panel, error| {
-                        panel.child(Label::new(error).text_sm().text_color(muted))
-                    })
-                    .when(self.items.is_empty() && self.error.is_none(), |panel| {
-                        panel.child(
-                            Label::new(
-                                "No instances yet. Each one is a folder with instance.json.",
-                            )
-                            .text_sm()
-                            .text_color(muted),
-                        )
-                    })
-                    .children(
-                        self.items
-                            .iter()
-                            .enumerate()
-                            .map(|(index, instance)| row(index, instance, muted)),
-                    ),
-            )
-    }
-
-    fn root_label(&self) -> String {
-        if self.root.as_os_str().is_empty() {
-            "data directory unknown".to_string()
-        } else {
-            self.root.display().to_string()
-        }
-    }
-}
-
-/// One instance row.
-///
-/// The labels take explicit ids: `Label::new` defaults its id to the call site,
-/// so labels built in a loop would share one id and gpui's accessibility tree
-/// panics on the duplicate in debug builds.
-fn row(index: usize, instance: &Instance, muted: Hsla) -> impl IntoElement {
-    let details = match (&instance.game_version, &instance.loader) {
-        (Some(version), Some(loader)) => format!("{version} · {loader}"),
-        (Some(version), None) => version.clone(),
-        (None, Some(loader)) => loader.clone(),
-        (None, None) => "unknown version".to_string(),
-    };
-
-    div()
-        .v_flex()
-        .gap_1()
-        .child(
-            Label::new(instance.name.clone())
-                .id(ElementId::named_usize("instance-name", index))
-                .text_base(),
-        )
-        .child(
-            Label::new(format!("{} · {details}", instance.id))
-                .id(ElementId::named_usize("instance-detail", index))
-                .text_xs()
-                .text_color(muted),
-        )
-}
-
-fn header(muted: Hsla) -> impl IntoElement {
-    div()
-        .v_flex()
-        .gap_1()
-        .child(Label::new(BRAND_NAME).text_xl())
-        .child(
-            Label::new("axlauncher_core + gpui-kit")
-                .text_sm()
-                .text_color(muted),
-        )
 }
