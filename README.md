@@ -139,7 +139,10 @@ nextest、cargo-shear、cargo-deny；`hygiene` job 跑 typos 与 tombi。分支�
 ## turbo 的平台过滤
 
 `turbo` 本身不认识宿主平台，直接 `turbo run build` 会在 Windows 上连 Linux 壳一起编译。
-根脚本经 `scripts/turbo.mjs` 注入 `--filter`，只调度 `apps/*` 加当前平台的壳。
+根脚本经 `scripts/turbo.ts` 注入 `--filter`，只调度 `apps/*` 加当前平台的壳。
+
+工作区通过 `.cargo/config.toml` 为所有 Cargo profile 默认启用增量编译。
+`pnpm build`、`pnpm dev` 和直接调用 Cargo 都使用该设置，增量产物保存在对应的构建目录中。
 
 ## 网络
 
