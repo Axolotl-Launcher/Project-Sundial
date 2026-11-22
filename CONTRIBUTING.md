@@ -42,7 +42,7 @@ cargo shear
 cargo deny check
 typos
 tombi format --check && tombi lint
-reuse lint
+ lint
 ```
 
 `pnpm check` bundles most of this. CI runs all of it on Ubuntu and Windows, and

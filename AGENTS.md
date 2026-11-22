@@ -66,6 +66,7 @@ write a test that fails when the constraint breaks.
 |---|---|
 | No `dbg!` or `todo!` left behind | `clippy::dbg_macro`, `clippy::todo` (deny) |
 | Functions stay short | `clippy::too_many_lines` at 60 (warn; CI is `-D warnings`) |
+| Each Rust file has at most 500 lines, counting comments, blank lines, and tests. Split any file that exceeds the limit. | `rust-file-lines` (pre-commit and CI) |
 | Shallow nesting, prefer early return | `clippy::excessive_nesting` at 3 |
 | No one-letter or placeholder names | `clippy::disallowed_names`, `clippy::many_single_char_names` |
 | Every lint suppression explains itself | `clippy::allow_attributes_without_reason` |

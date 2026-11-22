@@ -80,6 +80,14 @@ hooks = [
     always_run = true,
   },
   {
+    id = "rust-file-lines",
+    name = "Rust file line limit",
+    language = "system",
+    entry = "node scripts/check-rust-file-lines.ts",
+    files = "[.]rs$",
+    stages = ["pre-commit"],
+  },
+  {
     id = "typescript-only",
     name = "no JavaScript sources",
     language = "system",
