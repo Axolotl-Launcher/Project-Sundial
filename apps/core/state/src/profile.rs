@@ -7,10 +7,12 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use axlauncher_storage::write_atomic;
 
 use serde::de::{self, MapAccess, Visitor};
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 
 mod discovery;
 mod resources;
@@ -21,7 +23,7 @@ pub const FILE_NAME: &str = ".axlprofile";
 const SCHEMA_VERSION: u32 = 1;
 
 /// A portable snapshot of the instance and its recorded content.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[non_exhaustive]
 pub struct Profile {
     pub schema_version: u32,
@@ -37,7 +39,7 @@ pub struct Profile {
     pub content: Content,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[non_exhaustive]
 pub struct ProfileInfo {
     pub name: String,
@@ -46,7 +48,7 @@ pub struct ProfileInfo {
     pub updated_at: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[non_exhaustive]
 pub struct Game {
     pub minecraft: String,
@@ -54,21 +56,21 @@ pub struct Game {
     pub version_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[non_exhaustive]
 pub struct Loader {
     pub kind: String,
     pub version: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[non_exhaustive]
 pub struct Install {
     #[serde(default)]
     pub status: InstallStatus,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InstallStatus {
     #[default]
@@ -78,7 +80,7 @@ pub enum InstallStatus {
     Failed,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
 #[non_exhaustive]
 pub struct Playtime {
@@ -87,7 +89,7 @@ pub struct Playtime {
     pub last_played_at: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[non_exhaustive]
 pub struct Source {
     pub provider: String,
@@ -96,14 +98,14 @@ pub struct Source {
     pub file_name: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[non_exhaustive]
 pub struct Content {
     #[serde(default, deserialize_with = "read_content_files")]
     pub files: BTreeMap<String, ContentFile>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[non_exhaustive]
 pub struct ContentFile {
     pub size_bytes: u64,
@@ -112,7 +114,7 @@ pub struct ContentFile {
     pub download_cache: Option<DownloadCache>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[non_exhaustive]
 pub struct DownloadCache {
     pub url: String,
@@ -271,6 +273,186 @@ pub(crate) fn is_link(metadata: &fs::Metadata) -> bool {
     #[cfg(not(windows))]
     {
         metadata.file_type().is_symlink()
+    }
+}
+
+impl Game {
+    /// A game with no loader: the vanilla version the profile names.
+    pub fn new(minecraft: impl Into<String>) -> Self {
+        Self {
+            minecraft: minecraft.into(),
+            loader: None,
+            version_id: None,
+        }
+    }
+
+    /// Attaches a loader to the game.
+    pub fn with_loader(mut self, kind: impl Into<String>, version: Option<String>) -> Self {
+        self.loader = Some(Loader {
+            kind: kind.into(),
+            version,
+        });
+        self
+    }
+}
+
+impl Profile {
+    /// A fresh profile: a new UUID, current schema, nothing installed yet.
+    ///
+    /// The id is generated rather than derived from the directory, so moving a
+    /// profile keeps its identity and copying it produces a duplicate the
+    /// discovery reports instead of a silent second instance.
+    pub fn new(name: impl Into<String>, game: Option<Game>) -> Self {
+        Self {
+            schema_version: SCHEMA_VERSION,
+            id: uuid::Uuid::new_v4().to_string(),
+            instance: ProfileInfo {
+                name: name.into(),
+                icon: None,
+                created_at: None,
+                updated_at: None,
+            },
+            game,
+            install: Install::default(),
+            playtime: Playtime::default(),
+            source: None,
+            content: Content::default(),
+        }
+    }
+
+    /// Replaces the game selection.
+    pub fn set_game(&mut self, game: Game) {
+        self.game = Some(game);
+    }
+
+    /// Records the version id an install produced, so a launch needs no
+    /// provider round trip.
+    pub fn set_installed_version(&mut self, version_id: impl Into<String>) {
+        if let Some(game) = self.game.as_mut() {
+            game.version_id = Some(version_id.into());
+        }
+    }
+
+    pub fn set_install_status(&mut self, status: InstallStatus) {
+        self.install.status = status;
+    }
+}
+
+/// Why a profile was not written.
+#[derive(Debug)]
+pub enum ProfileWriteError {
+    /// The profile does not satisfy the document's own rules.
+    Invalid { reason: String },
+    /// The marker belongs to another schema and is left untouched.
+    RefusedSchema { path: PathBuf, found: u32 },
+    /// The marker is not a document this build can safely replace.
+    RefusedMarker { path: PathBuf, reason: String },
+    /// The write failed.
+    Write { path: PathBuf, source: io::Error },
+}
+
+impl fmt::Display for ProfileWriteError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Invalid { reason } => write!(formatter, "invalid profile: {reason}"),
+            Self::RefusedSchema { path, found } => write!(
+                formatter,
+                "{} uses schema {found}; this build writes schema {SCHEMA_VERSION}",
+                path.display()
+            ),
+            Self::RefusedMarker { path, reason } => {
+                write!(formatter, "{} cannot be replaced: {reason}", path.display())
+            }
+            Self::Write { path, source } => {
+                write!(formatter, "cannot write {}: {source}", path.display())
+            }
+        }
+    }
+}
+
+impl std::error::Error for ProfileWriteError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Write { source, .. } => Some(source),
+            Self::Invalid { .. } | Self::RefusedSchema { .. } | Self::RefusedMarker { .. } => None,
+        }
+    }
+}
+
+/// Writes `profile` as the marker of `directory`.
+///
+/// A marker this build does not own is refused rather than replaced: another
+/// schema's document belongs to that build, and an unreadable file may be the
+/// only copy of something a user hand-edited. Keys this build does not know
+/// survive a rewrite, because a field added by a newer build within the same
+/// schema would otherwise be destroyed by saving over it.
+pub fn save(directory: &Path, profile: &Profile) -> Result<(), ProfileWriteError> {
+    validate(profile).map_err(|reason| ProfileWriteError::Invalid { reason })?;
+
+    let path = directory.join(FILE_NAME);
+    let existing = match fs::symlink_metadata(&path) {
+        Ok(metadata) => {
+            if !metadata.is_file() || is_link(&metadata) {
+                return Err(ProfileWriteError::RefusedMarker {
+                    path,
+                    reason: "the profile marker must be a regular file".into(),
+                });
+            }
+            let bytes = fs::read(&path).map_err(|source| ProfileWriteError::Write {
+                path: path.clone(),
+                source,
+            })?;
+            let schema: Schema = serde_json::from_slice(&bytes).map_err(|error| {
+                ProfileWriteError::RefusedMarker {
+                    path: path.clone(),
+                    reason: format!("it does not parse: {error}"),
+                }
+            })?;
+            if schema.schema_version != SCHEMA_VERSION {
+                return Err(ProfileWriteError::RefusedSchema {
+                    path,
+                    found: schema.schema_version,
+                });
+            }
+            serde_json::from_slice::<serde_json::Value>(&bytes).ok()
+        }
+        Err(source) if source.kind() == io::ErrorKind::NotFound => None,
+        Err(source) => {
+            return Err(ProfileWriteError::Write { path, source });
+        }
+    };
+
+    let mut document = serde_json::to_value(profile).map_err(|error| ProfileWriteError::Write {
+        path: path.clone(),
+        source: io::Error::other(error),
+    })?;
+    if let Some(previous) = existing {
+        merge_unknown(previous, &mut document);
+    }
+    let bytes = serde_json::to_vec_pretty(&document).map_err(|error| ProfileWriteError::Write {
+        path: path.clone(),
+        source: io::Error::other(error),
+    })?;
+    write_atomic(&path, &bytes).map_err(|source| ProfileWriteError::Write { path, source })
+}
+
+/// Carries keys from `previous` that `written` does not state.
+///
+/// Recursion stops at arrays: a list this build wrote replaces the old one
+/// whole, because an element-wise merge would have to know what makes two
+/// elements the same.
+fn merge_unknown(previous: serde_json::Value, written: &mut serde_json::Value) {
+    let (serde_json::Value::Object(previous), serde_json::Value::Object(written)) =
+        (previous, written)
+    else {
+        return;
+    };
+    for (key, previous_value) in previous {
+        if let Some(written_value) = written.get_mut(&key) {
+            merge_unknown(previous_value, written_value);
+            continue;
+        }
+        written.insert(key, previous_value);
     }
 }
 

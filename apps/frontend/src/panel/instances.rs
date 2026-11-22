@@ -10,8 +10,8 @@ use axlauncher_core::state::profile::{DiscoveredProfile, Game, ProfileDiscovery}
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, AnyElement, Context, ElementId, GroupBox, Input, IntoElement, Label, h_flex,
-    v_flex,
+    ActiveTheme, AnyElement, Button, ButtonVariants, Context, ElementId, GroupBox, Input,
+    IntoElement, Label, h_flex, v_flex,
 };
 
 use crate::installations::vanilla_version;
@@ -49,6 +49,12 @@ impl InstancesState {
         self.find(self.selected.as_deref()?)
     }
 
+    pub(super) fn select(&mut self, directory: &Path) {
+        if self.find(directory).is_some() {
+            self.selected = Some(directory.to_path_buf());
+        }
+    }
+
     pub(super) fn find(&self, directory: &Path) -> Option<&DiscoveredProfile> {
         self.discovered
             .instances
@@ -59,6 +65,20 @@ impl InstancesState {
 
 pub(crate) fn profile_version(game: &Game) -> Option<&str> {
     game.version_id.as_deref().or_else(|| vanilla_version(game))
+}
+
+/// The Minecraft version an install is keyed by.
+///
+/// A loader profile has no version id until its install produces one, so the
+/// install is tracked under the game version it starts from. A loader this
+/// build cannot install has no key, which keeps an action that would fail at
+/// the end of a download off the row.
+pub(crate) fn install_key(game: &Game) -> Option<&str> {
+    let supported = match &game.loader {
+        None => true,
+        Some(loader) => crate::installations::supported_loader(&loader.kind),
+    };
+    supported.then_some(game.minecraft.as_str())
 }
 
 fn find_previous<'a>(
@@ -100,6 +120,43 @@ impl RootView {
         })
     }
 
+    fn creation_form(&self, cx: &mut Context<'_, Self>) -> AnyElement {
+        h_flex()
+            .gap_2()
+            .items_end()
+            .child(
+                Input::new(&self.new_name)
+                    .id("new-profile-name")
+                    .aria_label("New profile name")
+                    .w_40(),
+            )
+            .child(
+                Input::new(&self.new_minecraft)
+                    .id("new-profile-minecraft")
+                    .aria_label("Minecraft version")
+                    .w_32(),
+            )
+            .child(
+                Input::new(&self.new_loader)
+                    .id("new-profile-loader")
+                    .aria_label("Loader kind: fabric, quilt, or empty")
+                    .w_32(),
+            )
+            .child(
+                Input::new(&self.new_loader_version)
+                    .id("new-profile-loader-version")
+                    .aria_label("Loader version, empty for the recommended one")
+                    .w_32(),
+            )
+            .child(
+                Button::new("new-profile-create")
+                    .label("Create")
+                    .primary()
+                    .on_click(cx.listener(|view, _, _, cx| view.create_profile(cx))),
+            )
+            .into_any_element()
+    }
+
     pub(super) fn render_instances(&self, cx: &mut Context<'_, Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let danger = cx.theme().danger;
@@ -135,6 +192,7 @@ impl RootView {
                                 .child(Label::new("No profiles found.").text_sm().text_color(muted))
                         },
                     )
+                    .child(self.creation_form(cx))
                     .when(!profiles.instances.is_empty(), |column| {
                         column.child(
                             h_flex()

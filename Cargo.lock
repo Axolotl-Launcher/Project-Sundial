@@ -707,6 +707,7 @@ dependencies = [
  "axlauncher_storage",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]

@@ -3,36 +3,113 @@
 
 //! Install and launch actions for profiles shown in the panel.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use axlauncher_core::install::prepare::Progress;
+use axlauncher_core::state::profile::{self, Game, InstallStatus};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::Context;
 
-use crate::installations::{self, Installation, vanilla_version};
+use crate::installations::{self, Installation, supported_loader, vanilla_version};
 use crate::launches::{self, Launch};
 
 use super::RootView;
 
 impl RootView {
-    pub(crate) fn install(&mut self, version: &str, cx: &mut Context<'_, Self>) {
-        let Some(root) = self.root.as_ref().map(|root| DataDir::new(root).meta()) else {
+    /// A vanilla profile installs its Minecraft version; a loader profile
+    /// acquires that version first, resolves the loader's profile, and
+    /// prepares the files the loader's document names.
+    pub(crate) fn install_game(
+        &mut self,
+        directory: &Path,
+        game: &Game,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(data_root) = self.root.clone() else {
             return;
         };
+        let game_root = DataDir::new(&data_root).meta();
+        let version = game.minecraft.clone();
         if matches!(
-            self.installation(&root, version),
+            self.installation(&game_root, &version),
             Some(Installation::Running(_) | Installation::Complete)
         ) {
             return;
         }
+        if let Some(loader) = &game.loader
+            && loader.kind != "vanilla"
+            && !supported_loader(&loader.kind)
+        {
+            self.activity.error(format!(
+                "Loader {} is not available in this build yet.",
+                loader.kind
+            ));
+            cx.notify();
+            return;
+        }
+
         let concurrency = self
             .settings
             .as_ref()
             .map_or(0, |settings| settings.max_concurrent_downloads as usize);
         self.activity
-            .info(format!("Installing {version} in {}", root.display()));
-        self.set_installation(&root, version, Installation::Running(Progress::Version), cx);
-        installations::start(root, version.to_owned(), concurrency, cx);
+            .info(format!("Installing {version} in {}", game_root.display()));
+        self.set_installation(
+            &game_root,
+            &version,
+            Installation::Running(Progress::Version),
+            cx,
+        );
+
+        let loader = game
+            .loader
+            .as_ref()
+            .filter(|loader| loader.kind != "vanilla");
+        match loader {
+            Some(_) => installations::start_loader(
+                data_root,
+                game_root,
+                directory.to_path_buf(),
+                game.clone(),
+                concurrency,
+                cx,
+            ),
+            None => installations::start(game_root, version, concurrency, cx),
+        }
+    }
+
+    /// A loader install ends here: the profile records the version id it
+    /// produced, so a later launch needs no provider round trip.
+    pub(crate) fn finish_loader_install(
+        &mut self,
+        data_root: &Path,
+        directory: &Path,
+        key: &str,
+        outcome: Result<String, String>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let game_root = DataDir::new(data_root).meta();
+        match outcome {
+            Ok(version_id) => {
+                let status = persist_install(directory, &version_id);
+                match status {
+                    Ok(()) => self
+                        .activity
+                        .success(format!("{} installed as {version_id}", directory.display())),
+                    Err(error) => self.activity.error(error),
+                }
+                self.set_installation(&game_root, key, Installation::Complete, cx);
+            }
+            Err(error) => {
+                let _ = mark_failed(directory);
+                self.set_installation(&game_root, key, Installation::Failed(error), cx);
+            }
+        }
+        self.instances.replace(
+            profile::discover(&DataDir::new(data_root).instances()),
+            true,
+        );
+        cx.notify();
     }
 
     fn installation(&self, root: &Path, version: &str) -> Option<&Installation> {
@@ -116,4 +193,121 @@ impl RootView {
             states.remove(version);
         }
     }
+}
+
+impl RootView {
+    /// A new profile gets its own UUID and a directory named after its display
+    /// name, made unique under `instances`: two profiles may share a name
+    /// without sharing an identity.
+    pub(crate) fn create_profile(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(data_root) = self.root.clone() else {
+            return;
+        };
+        let name = self.new_name.read(cx).value().trim().to_string();
+        let minecraft = self.new_minecraft.read(cx).value().trim().to_string();
+        let kind = self.new_loader.read(cx).value().trim().to_ascii_lowercase();
+        let version = self.new_loader_version.read(cx).value().trim().to_string();
+
+        if name.is_empty() || minecraft.is_empty() {
+            self.activity
+                .error("A profile needs a name and a Minecraft version.");
+            cx.notify();
+            return;
+        }
+        let mut game = Game::new(minecraft);
+        let loader = match loader_choice(&kind, &version) {
+            Ok(loader) => loader,
+            Err(error) => {
+                self.activity.error(error);
+                cx.notify();
+                return;
+            }
+        };
+        if let Some((kind, version)) = loader {
+            game = game.with_loader(kind, version);
+        }
+
+        let instances = DataDir::new(&data_root).instances();
+        let directory = unique_directory(&instances, &name);
+        let profile = profile::Profile::new(name.clone(), Some(game));
+        match profile::save(&directory, &profile) {
+            Ok(()) => {
+                self.activity
+                    .success(format!("Created {name} at {}", directory.display()));
+                self.instances.replace(profile::discover(&instances), true);
+                self.instances.select(&directory);
+            }
+            Err(error) => self.activity.error(error.to_string()),
+        }
+        cx.notify();
+    }
+}
+
+/// Records a successful install on the profile, so a launch needs no provider.
+fn persist_install(directory: &Path, version_id: &str) -> Result<(), String> {
+    let Some(mut profile) = profile::read(directory).map_err(|error| error.to_string())? else {
+        return Err(format!(
+            "{} no longer holds a profile document.",
+            directory.display()
+        ));
+    };
+    profile.set_installed_version(version_id);
+    profile.set_install_status(InstallStatus::Ready);
+    profile::save(directory, &profile).map_err(|error| error.to_string())
+}
+
+/// Records a failed install so the profile can say so.
+fn mark_failed(directory: &Path) -> Result<(), String> {
+    let Some(mut profile) = profile::read(directory).map_err(|error| error.to_string())? else {
+        return Ok(());
+    };
+    profile.set_install_status(InstallStatus::Failed);
+    profile::save(directory, &profile).map_err(|error| error.to_string())
+}
+
+/// The loader a creation form asks for, or nothing for a vanilla profile.
+fn loader_choice(kind: &str, version: &str) -> Result<Option<(String, Option<String>)>, String> {
+    if kind.is_empty() || kind == "vanilla" {
+        return Ok(None);
+    }
+    if !supported_loader(kind) {
+        return Err(format!("Loader {kind} is not available in this build yet."));
+    }
+    let version = (!version.is_empty()).then(|| version.to_string());
+    Ok(Some((kind.to_string(), version)))
+}
+
+/// A directory name derived from a display name.
+fn slug(name: &str) -> String {
+    let mut slug: String = name
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    while slug.contains("--") {
+        slug = slug.replace("--", "-");
+    }
+    let slug = slug.trim_matches('-');
+    if slug.is_empty() {
+        "instance".to_string()
+    } else {
+        slug.to_string()
+    }
+}
+
+/// A free directory under `instances` for `name`.
+fn unique_directory(instances: &Path, name: &str) -> PathBuf {
+    let base = slug(name);
+    let mut candidate = instances.join(&base);
+    let mut attempt = 2;
+    while candidate.exists() {
+        candidate = instances.join(format!("{base}-{attempt}"));
+        attempt += 1;
+    }
+    candidate
 }

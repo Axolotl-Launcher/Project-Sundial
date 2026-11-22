@@ -4,9 +4,9 @@
 //! Instance rows and their install and launch actions.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use axlauncher_core::state::profile::DiscoveredProfile;
+use axlauncher_core::state::profile::{DiscoveredProfile, Game};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     Button, ButtonVariants, Context, Disableable, ElementId, Hsla, IntoElement, Label, StyledExt,
@@ -14,9 +14,9 @@ use axlauncher_ui::{
 };
 
 use crate::RootView;
-use crate::installations::{Installation, vanilla_version};
+use crate::installations::Installation;
 use crate::launches::Launch;
-use crate::panel::profile_version;
+use crate::panel::{install_key, profile_version};
 
 /// One instance row.
 ///
@@ -32,23 +32,30 @@ pub(crate) fn row(
     cx: &mut Context<'_, RootView>,
 ) -> impl IntoElement + use<> {
     let action = instance.profile.game.as_ref().and_then(|game| {
-        let version = profile_version(game)?;
-        let install = vanilla_version(game).map(|version| {
-            (
-                version,
-                installations.and_then(|states| states.get(version)),
+        // A loader profile has no launchable version until its install
+        // produces one, so an absent version must not hide the install action
+        // that would create it.
+        let version = profile_version(game);
+        let install =
+            install_key(game).map(|key| (key, installations.and_then(|states| states.get(key))));
+        let launch = match (version, launch) {
+            (Some(version), Some((started_version, state)))
+                if state.is_active() || started_version == version =>
+            {
+                Some(state)
+            }
+            _ => None,
+        };
+        (install.is_some() || launch.is_some()).then(|| {
+            instance_actions(
+                instance.directory.clone(),
+                game.clone(),
+                install,
+                launch,
+                muted,
+                cx,
             )
-        });
-        let launch = launch.and_then(|(started_version, state)| {
-            (state.is_active() || started_version == version).then_some(state)
-        });
-        Some(instance_actions(
-            &instance.directory,
-            install,
-            launch,
-            muted,
-            cx,
-        ))
+        })
     });
     let path = instance.directory.clone();
     let inspect = Button::new(ElementId::Name(
@@ -114,7 +121,8 @@ fn description(instance: &DiscoveredProfile, muted: Hsla) -> impl IntoElement + 
 }
 
 fn instance_actions(
-    directory: &Path,
+    directory: PathBuf,
+    game: Game,
     install: Option<(&str, Option<&Installation>)>,
     launch: Option<&Launch>,
     muted: Hsla,
@@ -140,7 +148,9 @@ fn instance_actions(
             Some(Installation::Failed(_)) => "Retry",
             Some(Installation::Running(_) | Installation::Complete) => return None,
         };
-        let version = version.to_owned();
+        let _ = version;
+        let directory = directory.clone();
+        let game = game.clone();
         Some(
             Button::new(ElementId::Name(
                 format!("install:{}", directory.display()).into(),
@@ -148,14 +158,14 @@ fn instance_actions(
             .primary()
             .disabled(busy)
             .label(label)
-            .on_click(cx.listener(move |view, _, _, cx| view.install(&version, cx))),
+            .on_click(cx.listener(move |view, _, _, cx| view.install_game(&directory, &game, cx))),
         )
     });
     let buttons = div()
         .h_flex()
         .gap_2()
         .children(install_button)
-        .child(launch_button(directory, busy, cx));
+        .child(launch_button(&directory, busy, cx));
     div()
         .v_flex()
         .gap_1()

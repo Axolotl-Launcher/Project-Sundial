@@ -25,7 +25,7 @@ mod environment;
 mod instances;
 mod launch;
 
-pub(crate) use instances::profile_version;
+pub(crate) use instances::{install_key, profile_version};
 
 const DEFAULT_PLAYER: &str = "Player";
 
@@ -37,6 +37,10 @@ pub(crate) struct RootView {
     theme: ThemeChoice,
     root_input: Entity<InputState>,
     player_input: Entity<InputState>,
+    new_name: Entity<InputState>,
+    new_minecraft: Entity<InputState>,
+    new_loader: Entity<InputState>,
+    new_loader_version: Entity<InputState>,
     instances: instances::InstancesState,
     inspection: launch::Inspection,
     installations: HashMap<PathBuf, HashMap<String, Installation>>,
@@ -59,6 +63,13 @@ impl RootView {
                 .default_value(root_text)
         });
         let player_input = cx.new(|cx| InputState::new(window, cx).placeholder(DEFAULT_PLAYER));
+        let new_name = cx.new(|cx| InputState::new(window, cx).placeholder("New profile name"));
+        let new_minecraft =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Minecraft, e.g. 1.21.11"));
+        let new_loader =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Loader: fabric or quilt"));
+        let new_loader_version =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Loader version (optional)"));
         cx.subscribe(&player_input, Self::player_changed).detach();
         let theme = loaded
             .settings
@@ -73,6 +84,10 @@ impl RootView {
             theme,
             root_input,
             player_input,
+            new_name,
+            new_minecraft,
+            new_loader,
+            new_loader_version,
             instances: instances::InstancesState::new(loaded.profiles),
             inspection: launch::Inspection::default(),
             installations: HashMap::new(),
