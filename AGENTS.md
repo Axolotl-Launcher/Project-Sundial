@@ -1,212 +1,102 @@
 <!-- SPDX-FileCopyrightText: 2026 Axolotl Team -->
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
-# AGENTS.md
+# Working in Axolotl Launcher
 
-Instructions for anyone — human or agent — changing this repository. Read this
-before your first edit.
+This guide applies to the entire Rust + gpui-kit workspace. Axolotl is a fresh
+implementation. Write original code and follow the style of the owning crate.
 
-## What this is
+Within higher-priority constraints, the user's explicit task instructions take precedence over skill and project-file guidelines.
+Write all agent-facing documentation in English.
 
-A Rust + gpui-kit application. Keep it small: this repository is a fresh
-implementation, not a fork, so nothing here should be copied in from another
-codebase.
+See [.agents/AGENTS.md](.agents/AGENTS.md) for agent documentation and temporary work.
 
-## Layout
+## Start here
 
-```
-apps/core          axlauncher_core            domain logic, no UI dependency
-apps/ui            axlauncher_ui             palette + allowed gpui-kit vocabulary
-apps/frontend      axlauncher_frontend       state, layout, window wiring
-platforms/windows  axlauncher_platform_windows  produces axlauncher.exe
-platforms/linux    axlauncher_platform_linux    produces a Linux binary
-```
+1. Run `git status --short --branch` from the repository root. Preserve existing
+   work when editing a shared checkout.
+2. Identify the owner and existing API in the [crate boundaries](.agents/docs/crates.md)
+   before adding a capability or dependency. For a first build, follow [CONTRIBUTING.md](CONTRIBUTING.md#requirements)
+   and run `pnpm install --frozen-lockfile`. The Rust pin is in
+   [rust-toolchain.toml](rust-toolchain.toml). Node and pnpm requirements are in
+   [package.json](package.json).
+3. Use GitNexus for code navigation. Before editing, run upstream impact analysis
+   for the target and report callers, affected processes and risk. Warn before
+   editing a HIGH or CRITICAL target. Confirm UNKNOWN results with a text search.
+   Follow the [GitNexus guide](.agents/docs/gitnexus.md) for first-time setup,
+   renames and the required pre-commit change analysis.
 
-Tests live under `tests/` and mirror the source path; `tests/AGENTS.md` states
-the rule.
+## Where changes belong
 
-Dependencies point one way only, and Cargo enforces it:
+Keep tests under `tests/` and mirror the path to the source. Follow the
+layout and module rules in [tests/AGENTS.md](tests/AGENTS.md).
 
-```
-apps/core/* -> spi -> domain
-apps/frontend -> ui, core
-platforms/* -> frontend
-```
+Each resource has an owner. Use its existing API or SPI port. Only the owner
+may introduce direct resource access. Inject providers at the frontend.
+The [crate boundaries](.agents/docs/crates.md) define the allowed dependencies,
+resource access and narrow shared helpers. If a proposed improvement crosses
+a boundary, follow the [approval process](.agents/docs/crates.md#proposing-a-boundary-change).
 
-Each system under `apps/core/` is its own crate. Callers depend on
-`axlauncher_spi` ports, never on a concrete provider; `apps/frontend` picks
-which provider to wire at startup. Adding a capability means adding a trait to
-`spi` and an implementation in the owning system, not calling across systems.
+Keep domain and SPI independent of implementations, core independent of UI,
+and platform entry points thin. Declare
+new dependencies in the root workspace and inherit them in the consuming crate.
+New crates inherit workspace lints, Rust version and licence. Upgrade gpui-kit
+and its pinned gpui-pre together.
 
-## Compatibility boundaries
+**Launcher data.** Axolotl reads and writes its own launcher schema. Foreign
+launcher conversion belongs in an independent tool. An unknown instance
+`schema_version` must yield `DiscoveryError::UnsupportedSchema`. The
+[path policy](tests/tests/external_formats.rs) and
+[instance tests](tests/apps/core/state/src/instance/tests.rs) cover these boundaries.
+For Minecraft's own manifests, [game format notes](docs/game-format-changes.md)
+explain which fields select each launch path.
 
-This project reads and writes only its own data formats. It must not grow an
-importer, converter or migration layer for another launcher's data — not for
-the reference implementation, and not for MultiMC, PCL, HMCL or anything else.
+## Code and review
 
-A foreign format is converted by a separate, independent tool that reads that
-format and writes this project's format. Keeping the conversion outside means
-this codebase has one schema and one set of invariants, with no compatibility
-branches to test or to regress.
+- Express constraints with types or lints. Where those cannot carry a rule,
+  write a test. Make CI fail on violations and wire new tooling into an actual task.
+- Give each function one job, prefer early returns, use meaningful names and
+  name magic numbers. Remove dead code. Reserve comments for non-obvious reasons
+  or external constraints. Give doc comments a meaningful opening, as checked
+  by the [comment policy](tests/tests/comment_policy.rs).
+- Keep functions within 60 lines and nesting within three levels. Split tracked
+  code files over 500 lines by role, including tests. Explain lint suppressions.
+  Workspace lints cover unsafe code, `dbg!`, `todo!` and placeholder names.
+  See [Clippy thresholds](clippy.toml) and [workspace lints](Cargo.toml).
+- Write scripts in strippable TypeScript. Keep machine paths, credentials, logs
+  and mirror endpoints out of the repository. For registry access see the
+  [mirror instructions](README.md#网络) and preserve the resolved lockfile.
 
-The structural half is enforced by `tests/tests/external_formats.rs`: no file
-or directory under `apps/` or `platforms/` may be named for compatibility,
-legacy data, migration, importing or conversion. The behavioural half is
-`schema_version`: a manifest this build does not know is rejected with
-`DiscoveryError::UnsupportedSchema`, never migrated in place.
+## Verification
 
-## Code rules
+During development, target the change. For example, use
+`cargo nextest run -p axlauncher_state` for persistence,
+`cargo nextest run -p axlauncher_policy_tests` for SPI and repository contracts,
+or `pnpm test:scripts` for scripts.
 
-These are binding. The table says how each one is enforced, because a rule that
-only lives in prose gets broken silently.
+Before reporting completion, run the following from the repository root.
+Report any check that failed or could not run and give the reason.
 
-**Express intent with code, and where code cannot express it, with a test.**
-A constraint that a type, a signature, or a lint can carry must not be left to
-a comment or to reviewer attention. If neither a type nor a lint can carry it,
-write a test that fails when the constraint breaks.
-
-| Rule | Enforced by |
-|---|---|
-| No `dbg!` or `todo!` left behind | `clippy::dbg_macro`, `clippy::todo` (deny) |
-| Functions stay short | `clippy::too_many_lines` at 60 (warn; CI is `-D warnings`) |
-| No code file exceeds 500 lines | `scripts/check-file-length.ts` (`pnpm file-length`) |
-| Shallow nesting, prefer early return | `clippy::excessive_nesting` at 3 |
-| No one-letter or placeholder names | `clippy::disallowed_names`, `clippy::many_single_char_names` |
-| Every lint suppression explains itself | `clippy::allow_attributes_without_reason` |
-| No unsafe | `unsafe_code = "forbid"` |
-| No unused dependencies | `cargo shear` |
-| Doc comments do not open with a mechanical verb | `tests/tests/comment_policy.rs` |
-| Scripts are TypeScript, never JavaScript | `scripts/check-language.ts` (`pnpm nojs`) |
-| TypeScript must be strippable by Node | `tsc` with `erasableSyntaxOnly` (`pnpm tsc`) |
-| Script style and magic numbers | ESLint (`pnpm eslint`) |
-
-Code files are the tracked Rust and TypeScript/JavaScript sources; a test file
-counts. A file over 500 lines is split by role — production modules and their
-tests live in separate files — not moved into a path the check ignores.
-
-Rules no machine can decide, so a human reviewer must:
-
-- **No magic numbers.** Name the constant. A lint cannot tell `px(720.)` from a
-  legitimate literal, so this is review, not a check.
-- **Comment only what the code cannot say.** The test catches the clear-cut
-  case, `/// Returns the value` above `fn value()`; it cannot judge the rest.
-  Keep a comment for a non-obvious reason, a workaround, or an external
-  constraint, in one or two lines. Module-level `//!` docs describing a crate's
-  role are fine.
-- **One job per function.** The line limit catches the extremes; splitting a
-  30-line function that does two things is still your call.
-- **Delete dead code outright.** No commented-out blocks, no `_unused` bindings,
-  no `#[allow(dead_code)]`. Version control remembers it.
-- **Match the surrounding style.** Read the neighbouring code before adding a
-  new pattern.
-
-When you add a rule to this list, first try to express it as a lint, a type, or
-a test in `tests/`. Only what survives that goes in the prose above.
-
-## Git hooks
-
-`prek.toml` defines fast local hooks: `commit-msg` requires a DCO sign-off and
-an English message, `pre-commit` fixes whitespace and checks that staged files
-parse and are formatted, and `pre-push` checks the trailers and GPG signature on
-the commits about to leave the machine. Nothing that builds the workspace or
-runs the test suite is a hook; CI is the full gate, and `pnpm check` runs most
-of it on demand. CI's `Hooks` job runs the pre-commit stage over a full checkout.
-
-An agent must not bypass them with `--no-verify` or `PREK_NO_VERIFY`. If a hook
-fails, fix the cause; if the hook itself is wrong, say so and change `prek.toml`
-in the same commit rather than stepping around it.
-
-## Verify before you report done
-
-Run these from the repository root; all must pass.
-
-```bash
+```sh
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo nextest run --workspace
-cargo shear          # no declared-but-unused dependencies
-cargo deny check     # advisories, licences, duplicate versions, sources
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo nextest run --workspace --locked
+cargo shear
+cargo deny check
 typos
-tombi format --check && tombi lint
-reuse lint           # every file carries SPDX tags or a REUSE.toml entry
+tombi format --check
+tombi lint
+reuse lint
 ```
 
-`pnpm check` runs the whole list except clippy and cargo-deny; `pnpm lint` and
-`pnpm test` drive the same work through turbo.
+`pnpm check` also exercises host-filtered Turbo tasks, script checks and hooks.
+The workspace-wide Rust commands above cover crates outside those filters.
 
-If a check cannot run in your environment, say so explicitly in your report
-rather than implying it passed.
+## Commits
 
-## Conventions
-
-- **Commits**: Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`,
-  `build:`, `ci:`, `test:`, `chore:`). Imperative subject, no trailing period.
-- **Trailers**: `Signed-off-by` is required (DCO). Add `Assisted-by: <tool>` when
-  an agent wrote part of the change. `Reviewed-by` / `Tested-by` may only be
-  written when a human actually did it — never on your own initiative.
-- **Dependencies**: add one only when a feature needs it, and add it to
-  `[workspace.dependencies]` in the root `Cargo.toml`. `cargo shear` fails CI on
-  unused entries.
-- **Dependency direction**: see the diagram above. A new crate goes under
-  `apps/` (library) or `platforms/` (executable shell) and must declare
-  `[lints] workspace = true`, `rust-version.workspace = true`, and
-  `license.workspace = true`.
-- **gpui-kit**: upgrade it as a unit. `gpui-pre` is pinned exactly by gpui-kit
-  because a newer snapshot can break the components; never override it alone.
-- **Network**: if crates.io is unreachable, use the mirror config documented in
-  `README.md` to resolve, but commit the resulting `Cargo.lock` unchanged and
-  do not record endpoint details in the repository.
-
-## Do not
-
-- Do not add CI steps that only warn where a failure would catch the problem.
-- Do not add build tooling that nothing invokes: a declared-but-unused cache
-  wrapper, an unused release-cache warmer, or a changelog tool with no file it
-  generates.
-- Do not commit machine-specific details: absolute paths, proxy or mirror
-  endpoints, local credentials, or logs from a developer machine.
-
-<!-- gitnexus:start -->
-# GitNexus — Code Intelligence
-
-This project is indexed by GitNexus as **Axolotl-2.0**.
-
-> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
-
-## Always Do
-
-- **MUST run impact before editing.** Use `impact({target: "symbolName", direction: "upstream"})` or `node .gitnexus/run.cjs impact "symbolName" --direction upstream --repo .`; report callers, processes, and risk. Never substitute grep for graph analysis.
-- **MUST analyze graph changes before committing.** Use `detect_changes({scope: "all"})` (MCP) or `node .gitnexus/run.cjs detect-changes --scope all --repo .` (CLI fallback). `partial: true` or `truncated: true` is not a clean check — a zero means unseen, not unaffected; re-run it. For regression review: `detect_changes({scope: "compare", base_ref: "main"})` or `node .gitnexus/run.cjs detect-changes --scope compare --base-ref "main" --repo .`.
-- MUST warn on HIGH/CRITICAL `risk` pre-edit; never use `riskSharedAxes` to waive a HIGH/CRITICAL `risk` warning. Compare File/symbol: MCP File omits axes; Graph-RAG expands File.
-- **MUST treat `risk: UNKNOWN` as unresolved, not as low.** An empty caller set is not evidence the symbol is unused — it can also mean the callers are not resolvable by the index (plain-object property access, dynamic dispatch, cross-language calls). `impact` pairs `UNKNOWN` with a `riskNote` saying so. Confirm with a text search before treating the symbol as safe to change or delete; do not proceed on the strength of a zero.
-- **MUST use `query({search_query: "concept"})` for concepts/flows, `context({name: "symbolName"})` for a named symbol, or `impact` for blast radius, on read-only callers, dependencies, imports, or execution flow.** Graph first; text search only for empty/`UNKNOWN`/literals.
-- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
-
-## Never Do
-
-- NEVER edit a function, class, or method before MCP/CLI impact analysis.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis, and never read `UNKNOWN` as an all-clear — it means the walk could not answer, which is the one verdict that requires confirming by other means.
-- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
-- NEVER commit before MCP/CLI graph change analysis.
-
-## Resources
-
-| Resource | Use for |
-| --- | --- |
-| `gitnexus://repo/Axolotl-2.0/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/Axolotl-2.0/clusters` | All functional areas |
-| `gitnexus://repo/Axolotl-2.0/processes` | All execution flows |
-| `gitnexus://repo/Axolotl-2.0/process/{name}` | Step-by-step execution trace |
-
-## CLI
-
-| Task | Read this skill file |
-| --- | --- |
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus-cli/SKILL.md` |
-
-<!-- gitnexus:end -->
+Use an English Conventional Commit with an imperative subject and no trailing
+period. Use `feat`, `fix`, `refactor`, `docs`, `build`, `ci`, `test` or `chore`.
+Include a DCO `Signed-off-by` and an `Assisted-by` trailer for agent
+contributions. Reserve `Reviewed-by` and `Tested-by` for actual human work.
+Keep [prek hooks](CONTRIBUTING.md#git-hooks) enabled. Fix a failing check at
+its source. If the hook itself is wrong, fix `prek.toml` in the same commit.
