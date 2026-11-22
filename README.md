@@ -78,21 +78,26 @@ cargo build -p axlauncher_platform_windows   # 直接调用 cargo
 
 ## Git 钩子
 
-用 [prek](https://github.com/j178/prek) 管理钩子与工具，配置在 `prek.toml`。
+用 [prek](https://github.com/j178/prek) 管理本地钩子，配置在 `prek.toml`。
 `prek install` 写入 `pre-commit`、`pre-push`、`commit-msg` 三个钩子：
 
 ```bash
 prek install          # 安装钩子（每个克隆执行一次）
-prek run --all-files  # 手动对全仓跑一遍
+prek run --all-files  # 手动对全仓跑一遍 pre-commit 检查
 prek run --stage pre-push
 ```
 
-钩子分两组：`builtin` 是通用检查（空白、编码、结构化文件解析、大文件、
-私钥泄漏、DCO 签名、GPG 签名），`local` 是本仓专有检查（cargo fmt、禁止 JS、
-tsc、ESLint、typos、REUSE、tombi、clippy、cargo shear、cargo deny、nextest）。
+钩子只做提交前后值得快速修复的检查：
 
-CI 的 `Hooks` job 跑同一份 `prek.toml` 的 pre-commit 阶段，保证本地与 CI
-不会出现两套互不一致的检查清单。
+| 阶段 | 内容 |
+|---|---|
+| `commit-msg` | DCO 签名、提交信息为英文 |
+| `pre-commit` | 空白/编码、结构化文件解析、大文件、私钥泄漏、cargo fmt、tombi format、Rust 行数上限 |
+| `pre-push` | 待推送提交的 DCO trailer 与 GPG 签名 |
+
+clippy、测试、cargo deny/shear、typos、REUSE、tsc、ESLint 等完整门禁由 CI
+承担，本地可用 `pnpm check` 执行其中大部分。CI 的 `Hooks` job 对全仓跑
+pre-commit 阶段，既验证钩子配置可用，也补上本地因只检查暂存文件而跳过的部分。
 
 ## 脚本语言
 

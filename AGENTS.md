@@ -98,9 +98,12 @@ a test in `tests/`. Only what survives that goes in the prose above.
 
 ## Git hooks
 
-`prek.toml` defines the hooks every developer runs: `commit-msg` requires a DCO
-sign-off, `pre-commit` runs the fast checks, `pre-push` runs clippy, the tests
-and the dependency policy. CI's `Hooks` job runs the same configuration.
+`prek.toml` defines fast local hooks: `commit-msg` requires a DCO sign-off and
+an English message, `pre-commit` fixes whitespace and checks that staged files
+parse and are formatted, and `pre-push` checks the trailers and GPG signature on
+the commits about to leave the machine. Nothing that builds the workspace or
+runs the test suite is a hook; CI is the full gate, and `pnpm check` runs most
+of it on demand. CI's `Hooks` job runs the pre-commit stage over a full checkout.
 
 An agent must not bypass them with `--no-verify` or `PREK_NO_VERIFY`. If a hook
 fails, fix the cause; if the hook itself is wrong, say so and change `prek.toml`
