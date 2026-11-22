@@ -65,7 +65,8 @@ explain which fields select each launch path.
   See [Clippy thresholds](clippy.toml) and [workspace lints](Cargo.toml).
 - Write scripts in strippable TypeScript. Keep machine paths, credentials, logs
   and mirror endpoints out of the repository. For registry access see the
-  [mirror instructions](README.md#网络) and preserve the resolved lockfile.
+  [mirror instructions](CONTRIBUTING.md#cargo-registry-mirrors) and preserve
+  the resolved lockfile.
 
 ## Verification
 

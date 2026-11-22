@@ -3,17 +3,25 @@
 
 # Contributing
 
+This desktop Minecraft launcher uses Rust and [GPUI Kit](https://gpui-kit.com).
+pnpm and Turbo orchestrate development tasks. Read [AGENTS.md](AGENTS.md)
+before editing for code ownership, impact analysis, and verification.
+
 ## Requirements
 
 | Tool | Version | Notes |
 |---|---|---|
 | Rust | 1.100.0 | pinned by `rust-toolchain.toml`; `rustup` installs it automatically |
-| Node | >= 24.22.0 | for pnpm + turbo only |
+| Node | >= 24.22.0 | runs pnpm, Turbo, and the TypeScript scripts |
 | pnpm | 12.18.0 | pinned by `packageManager` in `package.json` |
-| Windows | any recent MSVC toolchain | gpui-pre uses Win32 + DirectWrite + DirectX |
-| Linux | fontconfig, X11/Wayland headers, Vulkan driver | needed to build |
 
-Additional Rust tools used by the checks, install once:
+| Platform | Build requirements | Desktop binary |
+|---|---|---|
+| Windows | MSVC toolchain for Win32, DirectWrite, and DirectX | `axlauncher.exe` |
+| Linux | Fontconfig, FreeType, X11 and Wayland headers, Vulkan, D-Bus, and pkg-config. See the [CI setup](.github/actions/setup-desktop-rust/action.yml) for the Ubuntu package list. | ELF `axlauncher` |
+| macOS | Xcode Command Line Tools for Metal. See the [packaging guide](packaging/macos/README.md) for the app bundle, signing, and notarisation. | Mach-O `axlauncher` |
+
+Install the Cargo extensions used by the checks once:
 
 ```bash
 cargo install cargo-nextest cargo-shear cargo-deny --locked
@@ -22,54 +30,111 @@ cargo install cargo-nextest cargo-shear cargo-deny --locked
 
 ## First build
 
+From the repository root, install the script dependencies, then build and run
+the launcher for your host platform:
+
 ```bash
-pnpm install                                  # turbo
-cargo build -p axlauncher_platform_windows  # debug binary
-pnpm dev:windows                              # run it
+pnpm install --frozen-lockfile
+pnpm build
+pnpm dev
 ```
 
-`pnpm build` builds everything turbo sees, but only for the current OS: the root
-scripts inject a `--filter` per platform, because turbo itself has no notion of
-the host platform and would otherwise compile the Linux shell on Windows.
+The root `build`, `dev`, `test`, and `lint` scripts use
+[`scripts/turbo.ts`](scripts/turbo.ts) to limit Turbo to `apps/*` and the
+current OS's platform shell. To target a shell directly, use a command such as
+`pnpm dev:windows` or `cargo build -p axlauncher_platform_windows`.
+The workspace enables incremental Cargo builds in
+[`.cargo/config.toml`](.cargo/config.toml).
+
+The launcher stores settings and instances in `AXLauncher` under the system
+application data directory by default. Set `AXLAUNCHER_DATA_DIR` to use a
+different directory or reuse an existing data directory.
+
+### Cargo registry mirrors
+
+If your network blocks direct access to crates.io, configure a mirror in your
+user-level `~/.cargo/config.toml` or specify it for a single build:
+
+```bash
+cargo build --locked --config 'source.crates-io.replace-with="mirror"' \
+                     --config 'source.mirror.registry="sparse+<mirror-url>/index/"'
+```
+
+Keep the committed `Cargo.lock` and leave local mirror settings out of the
+repository.
+
+## Workspace layout
+
+| Path | Responsibility |
+|---|---|
+| `apps/core/domain` and `apps/core/spi` | Shared domain values and provider interfaces |
+| `apps/core` | System crates for installation, launch, persistence, networking, and other launcher services. The root crate re-exports these systems. |
+| `apps/ui` | Palette, theme installation, and the GPUI Kit components used by the launcher |
+| `apps/frontend` | Application state, layouts, windows, and provider selection |
+| `platforms/*` | Thin executable entry points for Windows, Linux, and macOS |
+| `tests` | Repository policy and cross-crate contract tests |
+
+Core callers use SPI ports such as `Network`, `Storage`, and `Launcher`.
+The system crates implement those ports and the frontend selects providers at
+startup. Asynchronous ports use return-position `impl Trait` to avoid boxing
+every call. The [SPI contract tests](tests/tests/spi_contract.rs) exercise
+callers with interchangeable providers. See the
+[crate ownership guide](.agents/docs/crates.md) for the full crate inventory,
+permitted dependencies, and shared helpers.
 
 ## Before opening a pull request
 
 ```bash
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo nextest run --workspace
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo nextest run --workspace --locked
 cargo shear
 cargo deny check
 typos
-tombi format --check && tombi lint
+tombi format --check
+tombi lint
 reuse lint
 ```
 
-`pnpm check` bundles most of this. CI runs repository checks on Ubuntu, then
-runs Clippy and Nextest on Ubuntu, Windows, and macOS. The `CI result` check
-reports the result of both stages.
+`pnpm check` runs the host-filtered Turbo checks, formatters, script checks,
+and hooks. The Cargo commands above check the full workspace. CI runs the
+[repository checks](.github/workflows/repo-check.yml) on Ubuntu, then runs
+Clippy and Nextest on Ubuntu, Windows, and macOS. The
+[`CI result` job](.github/workflows/ci.yml) reports both stages.
 
 ## Dependency policy
 
-`deny.toml` holds the policy:
+[`deny.toml`](deny.toml) defines the Rust dependency policy:
 
 - **Licences**: permissive licences plus MPL-2.0 and GPL-3.0-only (this
-  workspace's own licence). A new copyleft dependency needs an explicit
-  decision, not a quiet addition to the list.
+  workspace's own licence). Adding a copyleft dependency outside the allowlist
+  requires an explicit decision.
 - **Sources**: crates.io only. Git dependencies require an `allow-git` entry.
 - **Advisories**: a yanked crate fails the build.
 - Duplicate versions warn; they do not block.
 
 `pnpm` applies a 7-day `minimumReleaseAge`, so a package published in the last
-week will not install. If `pnpm install` refuses a version, either wait or pick
-the newest version that is older than the cutoff — do not raise the policy to
-work around it.
+week will not install. If `pnpm install` refuses a version, wait or choose a
+version older than the cutoff. Dependabot covers Cargo, npm, and GitHub Actions.
+Pin GitHub Actions to full commit SHAs.
+
+### GPUI Kit upgrades
+
+The workspace uses `gpui-kit 0.10.0`, with `gpui-pre 0.3.12` as its pinned
+Zed GPUI snapshot. The same release family provides `gpui-base` for component
+behaviour, `gpui-component` for styled components, and `gpui-kit-assets` for
+Lucide icons. Upgrade GPUI Kit and its pinned GPUI snapshot together so the
+components remain compatible. `apps/ui` owns the direct dependency. Other
+crates use the `axlauncher_ui` re-exports.
 
 ## Code rules
 
-See [AGENTS.md](AGENTS.md#code-and-review). In short: express constraints with types, lints or tests
-before comments; comment only what code cannot say; small single-purpose
-functions; early returns; no dead code; meaningful names; no magic numbers.
+Follow the [code and review rules](AGENTS.md#code-and-review). Use types, lints,
+or tests to enforce constraints. Keep functions small and single-purpose, use
+early returns and meaningful names, and comment only what the code cannot say.
+Every crate inherits workspace lints with `[lints] workspace = true`. Keep the
+Rust pin in `rust-toolchain.toml`, `rust-version` in `Cargo.toml`, and `msrv`
+in `clippy.toml` in sync when updating Rust.
 
 ## Git hooks
 
@@ -86,7 +151,7 @@ prek run --stage pre-push
 |---|---|
 | `commit-msg` | DCO sign-off present, message in English |
 | `pre-commit` | whitespace and encoding, structured-file parsing, large files, secrets, cargo fmt, tombi format, the 500-line limit |
-| `pre-push` | DCO trailers and GPG signature on the commits being pushed |
+| `pre-push` | DCO trailers on the commits being pushed |
 
 The hooks deliberately stop at what is cheap to fix while a commit is still
 local. Clippy, the tests, cargo deny, cargo shear, typos, REUSE, tsc and ESLint
@@ -134,6 +199,13 @@ because a report can name a version that has no release yet.
 
 Every dropdown option must have an entry in `scripts/issue-labels.ts`;
 `scripts/forms.test.ts` fails when one does not.
+
+## Licence and REUSE
+
+The workspace is licensed under [GPL-3.0-only](LICENSES/GPL-3.0-only.txt).
+Add SPDX metadata in file headers or in [`REUSE.toml`](REUSE.toml) for files
+such as the root README, JSON files, and generated lockfiles. Run
+`reuse lint` to verify coverage.
 
 ## Commits
 
