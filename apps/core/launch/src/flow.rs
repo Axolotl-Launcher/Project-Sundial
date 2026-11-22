@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! One call that carries a version document on disk to a started game.
@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use superlogical_spi::{Java, JavaMode, LaunchCommand, LaunchError, Launcher};
+use axlauncher_spi::{Java, JavaMode, LaunchCommand, LaunchError, Launcher};
 
 use crate::jar::JarReader;
 use crate::natives::{self, NativeError};
@@ -27,7 +27,7 @@ const LIBRARIES: &str = "libraries";
 const NATIVES: &str = "natives";
 
 /// The launcher name the game is told about.
-const LAUNCHER_NAME: &str = "Superlogical";
+const LAUNCHER_NAME: &str = "Axolotl Launcher";
 
 /// The launcher version the game is told about.
 const LAUNCHER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -217,13 +217,13 @@ fn assemble(
 mod tests {
     use super::*;
     use crate::SystemJava;
+    use axlauncher_spi::LaunchCommand;
     use std::fs;
     use std::future::Future;
     use std::io::Write;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::task::Poll;
-    use superlogical_spi::LaunchCommand;
 
     const VERSION_ID: &str = "1.21";
     const MAIN_CLASS: &str = "net.minecraft.client.main.Main";
@@ -293,7 +293,7 @@ mod tests {
         fn new() -> Self {
             let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
             let path = std::env::temp_dir()
-                .join(format!("superlogical-flow-{}-{unique}", std::process::id()));
+                .join(format!("axlauncher-flow-{}-{unique}", std::process::id()));
             fs::create_dir_all(&path).expect("temp directory");
             Self(path)
         }

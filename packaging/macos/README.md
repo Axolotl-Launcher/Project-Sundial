@@ -1,18 +1,18 @@
-<!-- SPDX-FileCopyrightText: 2026 The Superlogical Authors -->
+<!-- SPDX-FileCopyrightText: 2026 Axolotl Team -->
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
 # macOS packaging
 
-The Rust binary is `superlogical` from `platforms/macos`. A `.app` bundle needs
+The Rust binary is `axlauncher` from `platforms/macos`. A `.app` bundle needs
 three things around it; this directory holds the ones that live in the repo.
 
 ## Layout a bundle must have
 
 ```
-Superlogical.app/
+Axolotl Launcher.app/
   Contents/
     Info.plist
-    MacOS/superlogical        <- cargo build --release -p superlogical_platform_macos
+    MacOS/axlauncher        <- cargo build --release -p axlauncher_platform_macos
     Resources/AppIcon.icns
 ```
 
@@ -24,13 +24,13 @@ Superlogical.app/
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Superlogical</string>
-  <key>CFBundleDisplayName</key><string>Superlogical</string>
-  <key>CFBundleIdentifier</key><string>com.axolotl.superlogical</string>
+  <key>CFBundleName</key><string>AXLauncher</string>
+  <key>CFBundleDisplayName</key><string>Axolotl Launcher</string>
+  <key>CFBundleIdentifier</key><string>com.axolotl.axlauncher</string>
   <key>CFBundleVersion</key><string>0.1.0</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleExecutable</key><string>superlogical</string>
+  <key>CFBundleExecutable</key><string>axlauncher</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
@@ -42,10 +42,10 @@ Superlogical.app/
 ## Building
 
 ```bash
-cargo build --release -p superlogical_platform_macos
-mkdir -p "Superlogical.app/Contents/MacOS" "Superlogical.app/Contents/Resources"
-cp target/release/superlogical "Superlogical.app/Contents/MacOS/"
-cp packaging/macos/Info.plist "Superlogical.app/Contents/"
+cargo build --release -p axlauncher_platform_macos
+mkdir -p "Axolotl Launcher.app/Contents/MacOS" "Axolotl Launcher.app/Contents/Resources"
+cp target/release/axlauncher "Axolotl Launcher.app/Contents/MacOS/"
+cp packaging/macos/Info.plist "Axolotl Launcher.app/Contents/"
 # AppIcon.icns must be generated from a 1024x1024 PNG with `iconutil`.
 ```
 
@@ -54,9 +54,9 @@ cp packaging/macos/Info.plist "Superlogical.app/Contents/"
 Unsigned bundles run only when macOS is told to allow them. Distribution needs:
 
 ```bash
-codesign --force --deep --sign "Developer ID Application: <TEAM>" Superlogical.app
-xcrun notarytool submit Superlogical.app --keychain-profile <profile> --wait
-xcrun stapler staple Superlogical.app
+codesign --force --deep --sign "Developer ID Application: <TEAM>" "Axolotl Launcher.app"
+xcrun notarytool submit "Axolotl Launcher.app" --keychain-profile <profile> --wait
+xcrun stapler staple "Axolotl Launcher.app"
 ```
 
 Both steps need an Apple Developer account and credentials that must never be

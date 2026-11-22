@@ -1,9 +1,9 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! Content model and providers.
 
-use superlogical_spi::{ContentProvider, ContentSummary, FetchError};
+use axlauncher_spi::{ContentProvider, ContentSummary, FetchError};
 
 /// A provider whose catalogue is fixed in memory.
 #[derive(Debug, Default)]

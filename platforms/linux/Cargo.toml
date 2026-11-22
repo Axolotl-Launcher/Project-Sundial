@@ -1,21 +1,21 @@
-# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-FileCopyrightText: 2026 Axolotl Team
 # SPDX-License-Identifier: GPL-3.0-only
 
 [package]
-name = "superlogical_platform_linux"
+name = "axlauncher_platform_linux"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Linux executable shell for Superlogical"
+description = "Linux executable shell for Axolotl Launcher"
 repository.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "superlogical"
+name = "axlauncher"
 path = "src/main.rs"
 
 [dependencies]
-superlogical_frontend = { workspace = true }
+axlauncher_frontend = { workspace = true }
 
 [lints]
 workspace = true

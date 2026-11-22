@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 The Superlogical Authors -->
+<!-- SPDX-FileCopyrightText: 2026 Axolotl Team -->
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
 # AGENTS.md
@@ -15,11 +15,11 @@ codebase.
 ## Layout
 
 ```
-apps/core          superlogical_core            domain logic, no UI dependency
-apps/ui            superlogical_ui             palette + allowed gpui-kit vocabulary
-apps/frontend      superlogical_frontend       state, layout, window wiring
-platforms/windows  superlogical_platform_windows  produces superlogical.exe
-platforms/linux    superlogical_platform_linux    produces a Linux binary
+apps/core          axlauncher_core            domain logic, no UI dependency
+apps/ui            axlauncher_ui             palette + allowed gpui-kit vocabulary
+apps/frontend      axlauncher_frontend       state, layout, window wiring
+platforms/windows  axlauncher_platform_windows  produces axlauncher.exe
+platforms/linux    axlauncher_platform_linux    produces a Linux binary
 ```
 
 Dependencies point one way only, and Cargo enforces it:
@@ -31,7 +31,7 @@ platforms/* -> frontend
 ```
 
 Each system under `apps/core/` is its own crate. Callers depend on
-`superlogical_spi` ports, never on a concrete provider; `apps/frontend` picks
+`axlauncher_spi` ports, never on a concrete provider; `apps/frontend` picks
 which provider to wire at startup. Adding a capability means adding a trait to
 `spi` and an implementation in the owning system, not calling across systems.
 
@@ -158,7 +158,7 @@ rather than implying it passed.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Axolotl-Superlogical** (383 symbols, 563 relationships, 4 execution flows).
+This project is indexed by GitNexus as **Axolotl-2.0**.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
 
@@ -182,10 +182,10 @@ This project is indexed by GitNexus as **Axolotl-Superlogical** (383 symbols, 56
 
 | Resource | Use for |
 | --- | --- |
-| `gitnexus://repo/Axolotl-Superlogical/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/Axolotl-Superlogical/clusters` | All functional areas |
-| `gitnexus://repo/Axolotl-Superlogical/processes` | All execution flows |
-| `gitnexus://repo/Axolotl-Superlogical/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/Axolotl-2.0/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/Axolotl-2.0/clusters` | All functional areas |
+| `gitnexus://repo/Axolotl-2.0/processes` | All execution flows |
+| `gitnexus://repo/Axolotl-2.0/process/{name}` | Step-by-step execution trace |
 
 ## CLI
 

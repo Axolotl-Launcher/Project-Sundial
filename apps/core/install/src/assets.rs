@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! The game files a version document names that the game root does not hold.
@@ -14,13 +14,13 @@ use std::path::{Path, PathBuf};
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use axlauncher_launch::rules::{self, Target};
+use axlauncher_launch::version::Library;
+use axlauncher_network::verify;
+use axlauncher_spi::{FetchError, Network};
+use axlauncher_storage::write_atomic;
 use futures::stream::{self, StreamExt};
 use serde::Deserialize;
-use superlogical_launch::rules::{self, Target};
-use superlogical_launch::version::Library;
-use superlogical_network::verify;
-use superlogical_spi::{FetchError, Network};
-use superlogical_storage::write_atomic;
 
 /// The directory under the game root that holds library artifacts.
 const LIBRARIES_DIR: &str = "libraries";
@@ -252,15 +252,15 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    use axlauncher_launch::version::{Artifact, LibraryDownloads, OsRule, Rule};
     use futures::executor::block_on;
-    use superlogical_launch::version::{Artifact, LibraryDownloads, OsRule, Rule};
 
     /// SHA-1 of `abc`, as `sha1sum` reports it.
     const ABC_SHA1: &str = "a9993e364706816aba3e25717850c26c9cd0d89d";
-    /// SHA-1 of `superlogical`, as `sha1sum` reports it.
-    const WORD_SHA1: &str = "5adaca6d9d8bf39646d2f71ce5bdf39df55d6b9f";
+    /// SHA-1 of `axlauncher`, as `sha1sum` reports it.
+    const WORD_SHA1: &str = "43ad1705f06e8b0d18583bd70a2f721ae9ec93a8";
     const ABC: &[u8] = b"abc";
-    const WORD: &[u8] = b"superlogical";
+    const WORD: &[u8] = b"axlauncher";
     const LIMIT: usize = 2;
     const FILE_COUNT: usize = 8;
 

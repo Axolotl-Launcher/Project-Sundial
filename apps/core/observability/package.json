@@ -1,10 +1,10 @@
 {
-  "name": "@superlogical/observability",
+  "name": "@axlauncher/observability",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "cargo build -p superlogical_observability",
-    "lint": "cargo clippy -p superlogical_observability --all-targets -- -D warnings",
-    "test": "cargo test -p superlogical_observability"
+    "build": "cargo build -p axlauncher_observability",
+    "lint": "cargo clippy -p axlauncher_observability --all-targets -- -D warnings",
+    "test": "cargo test -p axlauncher_observability"
   }
 }

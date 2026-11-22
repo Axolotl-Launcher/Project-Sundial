@@ -1,10 +1,10 @@
 {
-  "name": "@superlogical/scheduler",
+  "name": "@axlauncher/scheduler",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "cargo build -p superlogical_scheduler",
-    "lint": "cargo clippy -p superlogical_scheduler --all-targets -- -D warnings",
-    "test": "cargo test -p superlogical_scheduler"
+    "build": "cargo build -p axlauncher_scheduler",
+    "lint": "cargo clippy -p axlauncher_scheduler --all-targets -- -D warnings",
+    "test": "cargo test -p axlauncher_scheduler"
   }
 }

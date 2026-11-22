@@ -1,18 +1,18 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! Service provider interfaces.
 //!
 //! A port is a trait a system implements and the rest of the program calls.
 //! Callers depend on this crate only; a concrete provider is chosen once at
-//! startup in `superlogical_frontend`. That keeps a swap — a real HTTP client
+//! startup in `axlauncher_frontend`. That keeps a swap — a real HTTP client
 //! for a test double, a local store for a remote one — a wiring change rather
 //! than an edit to every call site.
 //!
 //! Traits here use return-position `impl Trait` rather than the `async_trait`
 //! macro: the workspace's MSRV supports it, and it avoids a box per call.
 
-pub use superlogical_domain::Id;
+pub use axlauncher_domain::Id;
 
 use std::path::{Path, PathBuf};
 

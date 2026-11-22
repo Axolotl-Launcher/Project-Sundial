@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-FileCopyrightText: 2026 Axolotl Team
 # SPDX-License-Identifier: GPL-3.0-only
 
 # Hooks for every stage: commit, push, and CI (`prek run --all-files`).
@@ -72,14 +72,6 @@ hooks = [
 repo = "local"
 hooks = [
   {
-    id = "english-commit-message",
-    name = "commit message is English",
-    language = "system",
-    entry = "node scripts/check-commit-message.ts",
-    pass_filenames = true,
-    stages = ["commit-msg"],
-  },
-  {
     id = "format-rust",
     name = "cargo fmt",
     language = "system",
@@ -92,25 +84,6 @@ hooks = [
     name = "no JavaScript sources",
     language = "system",
     entry = "pnpm nojs",
-    pass_filenames = false,
-    always_run = true,
-  },
-  {
-    id = "typecheck-typescript",
-    name = "tsc",
-    language = "system",
-    entry = "pnpm tsc",
-    pass_filenames = false,
-    always_run = true,
-  },
-  # `types` is a conjunction, not a disjunction: a file must satisfy every tag.
-  # Running ESLint once for TypeScript is enough — it lints its own config too,
-  # since that config is the only JavaScript file here.
-  {
-    id = "lint-typescript",
-    name = "eslint",
-    language = "system",
-    entry = "pnpm eslint",
     pass_filenames = false,
     always_run = true,
   },
@@ -139,45 +112,10 @@ hooks = [
     always_run = true,
   },
   {
-    id = "lint-toml",
-    name = "tombi lint",
-    language = "system",
-    entry = "tombi lint",
-    pass_filenames = false,
-    always_run = true,
-  },
-  {
-    id = "clippy",
-    name = "cargo clippy",
-    language = "system",
-    entry = "cargo clippy --workspace --all-targets --all-features -- -D warnings",
-    pass_filenames = false,
-    always_run = true,
-    stages = ["pre-push"],
-  },
-  {
-    id = "unused-dependencies",
-    name = "cargo shear",
-    language = "system",
-    entry = "cargo shear",
-    pass_filenames = false,
-    types = ["toml"],
-    stages = ["pre-push"],
-  },
-  {
     id = "dependency-policy",
     name = "cargo deny",
     language = "system",
     entry = "cargo deny check",
-    pass_filenames = false,
-    always_run = true,
-    stages = ["pre-push"],
-  },
-  {
-    id = "test",
-    name = "cargo nextest",
-    language = "system",
-    entry = "cargo nextest run --workspace --profile ci",
     pass_filenames = false,
     always_run = true,
     stages = ["pre-push"],

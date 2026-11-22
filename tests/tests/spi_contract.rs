@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! Proves the SPI is usable the way it is meant to be: a caller written
@@ -7,11 +7,11 @@
 
 use std::path::{Path, PathBuf};
 
-use superlogical_spi::{
+use axlauncher_spi::{
     ContentProvider, ContentSummary, FetchError, InstanceRecord, Java, JavaMode, Network,
     StateStore, Storage, StorageError, Telemetry,
 };
-use superlogical_state::MemoryState;
+use axlauncher_state::MemoryState;
 
 struct EchoNetwork;
 
@@ -36,7 +36,7 @@ impl Storage for InMemoryStorage {
 struct CountingTelemetry;
 
 impl Telemetry for CountingTelemetry {
-    fn record(&self, _event: superlogical_spi::Event) {}
+    fn record(&self, _event: axlauncher_spi::Event) {}
 }
 
 /// Written against the port, not against a provider.
@@ -61,7 +61,7 @@ fn the_ports_are_object_safe_enough_to_store_together() {
     assert!(storage.read("missing").is_err());
 
     let telemetry: &dyn Telemetry = &CountingTelemetry;
-    telemetry.record(superlogical_spi::Event {
+    telemetry.record(axlauncher_spi::Event {
         name: "test".into(),
     });
 }
@@ -70,7 +70,7 @@ fn the_ports_are_object_safe_enough_to_store_together() {
 fn the_state_provider_satisfies_the_state_port() {
     let mut store = MemoryState::default();
     let record = InstanceRecord {
-        id: superlogical_spi::Id::new(1),
+        id: axlauncher_spi::Id::new(1),
         name: "Test".into(),
     };
     store.save_instance(&record).unwrap();
@@ -82,10 +82,10 @@ fn the_state_provider_satisfies_the_state_port() {
 
 #[test]
 fn a_content_provider_lists_through_the_port() {
-    use superlogical_content::StaticProvider;
+    use axlauncher_content::StaticProvider;
 
     let provider = StaticProvider::with_items(vec![ContentSummary {
-        id: superlogical_spi::Id::new(7),
+        id: axlauncher_spi::Id::new(7),
         name: "Example Mod".into(),
     }]);
 

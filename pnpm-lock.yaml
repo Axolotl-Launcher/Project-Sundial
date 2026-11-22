@@ -192,10 +192,10 @@ importers:
 
   apps/frontend:
     dependencies:
-      '@superlogical/core':
+      '@axlauncher/core':
         specifier: workspace:*
         version: link:../core
-      '@superlogical/ui':
+      '@axlauncher/ui':
         specifier: workspace:*
         version: link:../ui
 
@@ -203,19 +203,19 @@ importers:
 
   platforms/linux:
     dependencies:
-      '@superlogical/frontend':
+      '@axlauncher/frontend':
         specifier: workspace:*
         version: link:../../apps/frontend
 
   platforms/macos:
     dependencies:
-      '@superlogical/frontend':
+      '@axlauncher/frontend':
         specifier: workspace:*
         version: link:../../apps/frontend
 
   platforms/windows:
     dependencies:
-      '@superlogical/frontend':
+      '@axlauncher/frontend':
         specifier: workspace:*
         version: link:../../apps/frontend
 

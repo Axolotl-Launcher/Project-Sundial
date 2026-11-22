@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! The parts of launching that differ by operating system.
@@ -12,7 +12,7 @@ use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use superlogical_spi::JavaMode;
+use axlauncher_spi::JavaMode;
 
 /// Win32's `CREATE_NO_WINDOW` process creation flag, whose value is given in
 /// the Process Creation Flags reference (WinBase.h).

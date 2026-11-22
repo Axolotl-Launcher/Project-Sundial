@@ -1,7 +1,7 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Superlogical UI layer: design tokens and the component vocabulary the
+//! Axolotl Launcher UI layer: design tokens and the component vocabulary the
 //! frontend is allowed to use.
 //!
 //! Presentation comes from [GPUI Kit](https://gpui-kit.com) — its `gpui-base`

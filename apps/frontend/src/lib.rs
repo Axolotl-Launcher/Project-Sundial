@@ -1,42 +1,42 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Superlogical frontend: application state, layout and window wiring.
+//! Axolotl Launcher frontend: application state, layout and window wiring.
 //!
 //! This crate owns the root view platform shells open, and is the only crate
-//! that combines `superlogical_core` (domain) with `superlogical_ui` (kit
+//! that combines `axlauncher_core` (domain) with `axlauncher_ui` (kit
 //! vocabulary + palette). State lives here in GPUI entities; components stay
 //! stateless recipes.
 
 use std::path::{Path, PathBuf};
 
-use superlogical_core::BRAND_NAME;
-use superlogical_core::state::{
+use axlauncher_core::BRAND_NAME;
+use axlauncher_core::state::{
     Instance, SettingsOrigin, ThemeChoice, create, discover, load_settings,
 };
-use superlogical_core::storage::DataDir;
-use superlogical_ui::{
+use axlauncher_core::storage::DataDir;
+use axlauncher_ui::{
     ActiveTheme, Button, ButtonVariants, ElementId, GroupBox, GroupBoxVariants, Hsla, Label,
     Palette, StyledExt,
 };
-use superlogical_ui::{
+use axlauncher_ui::{
     Bounds, Context, IntoElement, Render, Window, WindowBounds, WindowOptions, div, px, size,
 };
-use superlogical_ui::{kit, prelude::*};
+use axlauncher_ui::{kit, prelude::*};
 
 const WINDOW_WIDTH: f32 = 720.;
 const WINDOW_HEIGHT: f32 = 480.;
 
 /// Overrides the data directory; the platform data directory is used otherwise.
-const DATA_DIR_ENV: &str = "SUPERLOGICAL_DATA_DIR";
+const DATA_DIR_ENV: &str = "AXLAUNCHER_DATA_DIR";
 
 /// Directory name under the platform data directory.
-const APP_DIR: &str = "Superlogical";
+const APP_DIR: &str = "AXLauncher";
 
 /// How many numbered names to try before giving up on creating an instance.
 const MAX_INSTANCE_ATTEMPTS: u32 = 100;
 
-/// Opens the Superlogical window and runs the GPUI event loop.
+/// Opens the Axolotl Launcher window and runs the GPUI event loop.
 ///
 /// A platform shell calls this once from `main`; it never returns.
 pub fn run() {
@@ -61,7 +61,7 @@ fn open_main_window(cx: &mut kit::App, startup: Startup) {
         cx,
         |_, cx| cx.new(|_| RootView::new(startup)),
     )
-    .expect("failed to open the Superlogical window");
+    .expect("failed to open the Axolotl Launcher window");
 }
 
 /// What the window needs, read once before the event loop starts.
@@ -325,7 +325,7 @@ fn header(muted: Hsla) -> impl IntoElement {
         .gap_1()
         .child(Label::new(BRAND_NAME).text_xl())
         .child(
-            Label::new("superlogical_core + gpui-kit")
+            Label::new("axlauncher_core + gpui-kit")
                 .text_sm()
                 .text_color(muted),
         )

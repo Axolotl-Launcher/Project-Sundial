@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! Filesystem and cache primitives.
@@ -8,7 +8,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use superlogical_spi::{Storage, StorageError};
+use axlauncher_spi::{Storage, StorageError};
 
 /// The launcher's on-disk root and the directories under it.
 ///
@@ -118,7 +118,7 @@ mod tests {
         fn new() -> Self {
             let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
             let path = std::env::temp_dir().join(format!(
-                "superlogical-storage-{}-{unique}",
+                "axlauncher-storage-{}-{unique}",
                 std::process::id()
             ));
             fs::create_dir_all(&path).expect("temp directory");

@@ -1,29 +1,29 @@
-<!-- SPDX-FileCopyrightText: 2026 The Superlogical Authors -->
+<!-- SPDX-FileCopyrightText: 2026 Axolotl Team -->
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
-# Superlogical
+# Axolotl Launcher (AXLauncher)
 
 Rust + [GPUI Kit](https://gpui-kit.com) 桌面应用骨架，pnpm + Turbo 负责任务编排。
 
 ## 结构
 
 ```
-apps/core/spi         superlogical_spi       —— 端口 trait（SPI）与跨界类型
-apps/core/domain      superlogical_domain    —— 领域标识与基础类型
-apps/core/content     superlogical_content   —— 内容模型与 provider
-apps/core/install     superlogical_install   —— 安装计划与执行
-apps/core/launch      superlogical_launch    —— 启动、Java 发现、进程
-apps/core/state       superlogical_state     —— 应用状态与持久化
-apps/core/storage     superlogical_storage   —— 文件系统与缓存原语
-apps/core/network     superlogical_network   —— HTTP 与协议客户端
-apps/core/telemetry   superlogical_telemetry —— 事件与 span
-apps/core/scheduler   superlogical_scheduler —— 后台任务调度
-apps/core/resources   superlogical_resources —— 收藏、历史、指纹
-apps/core/mod_metadata superlogical_mod_metadata —— 加载器与 mod 元数据
-apps/core/observability superlogical_observability —— 命令指标与诊断
-apps/core             superlogical_core      —— 聚合层，re-export 全部系统
-apps/ui               superlogical_ui        —— 调色板 + 允许使用的 gpui-kit 词表
-apps/frontend         superlogical_frontend  —— 应用状态、布局与窗口装配、provider 选择
+apps/core/spi         axlauncher_spi         —— 端口 trait（SPI）与跨界类型
+apps/core/domain      axlauncher_domain      —— 领域标识与基础类型
+apps/core/content     axlauncher_content     —— 内容模型与 provider
+apps/core/install     axlauncher_install     —— 安装计划与执行
+apps/core/launch      axlauncher_launch      —— 启动、Java 发现、进程
+apps/core/state       axlauncher_state       —— 应用状态与持久化
+apps/core/storage     axlauncher_storage     —— 文件系统与缓存原语
+apps/core/network     axlauncher_network     —— HTTP 与协议客户端
+apps/core/telemetry   axlauncher_telemetry   —— 事件与 span
+apps/core/scheduler   axlauncher_scheduler   —— 后台任务调度
+apps/core/resources   axlauncher_resources   —— 收藏、历史、指纹
+apps/core/mod_metadata axlauncher_mod_metadata   —— 加载器与 mod 元数据
+apps/core/observability axlauncher_observability   —— 命令指标与诊断
+apps/core             axlauncher_core        —— 聚合层，re-export 全部系统
+apps/ui               axlauncher_ui          —— 调色板 + 允许使用的 gpui-kit 词表
+apps/frontend         axlauncher_frontend    —— 应用状态、布局与窗口装配、provider 选择
 platforms/*                                  —— 各平台可执行文件
 tests                                        —— 仓库级策略测试与 SPI 契约测试
 ```
@@ -70,8 +70,11 @@ pnpm check                                     # 本地全套校验（不含 cli
 pnpm deny                                      # cargo deny check
 pnpm shear                                     # cargo shear（未使用依赖）
 pnpm nextest                                   # cargo nextest run --workspace
-cargo build -p superlogical_platform_windows   # 直接调用 cargo
+cargo build -p axlauncher_platform_windows   # 直接调用 cargo
 ```
+
+默认数据目录为系统应用数据目录下的 `AXLauncher`。如需继续使用已有的设置和实例，可将
+`AXLAUNCHER_DATA_DIR` 指向原数据目录。
 
 ## Git 钩子
 
@@ -113,7 +116,7 @@ pnpm nojs     # 拒绝任何被跟踪的 .js/.mjs/.cjs/.jsx 文件
 - **Lint 会被真正继承**：根 `[workspace.lints]` 要求每个 crate 声明
   `[lints] workspace = true`；缺了这条，lint 一条都不会跑。
 - **依赖方向**：只有 `apps/ui` 可以出现 `gpui_kit` 路径，其余代码走
-  `superlogical_ui` 的重导出。
+  `axlauncher_ui` 的重导出。
 - **许可证**：全仓 `GPL-3.0-only`；`deny.toml` 只放行宽松许可证 + MPL-2.0
   + 本仓自身。
 - **供应链**：pnpm `minimumReleaseAge: 10080`（7 天冷却）；Dependabot 覆盖
@@ -156,7 +159,7 @@ reuse lint
 
 | 渠道 | 构建主机 | 产物 | 验证状态 |
 |---|---|---|---|
-| `platforms/windows` | Windows | `superlogical.exe` | 本机实测编译与运行 |
+| `platforms/windows` | Windows | `axlauncher.exe` | 本机实测编译与运行 |
 | `platforms/linux` | Linux | ELF 可执行文件 | CI（ubuntu-24.04）实测 |
 | `platforms/macos` | macOS | Mach-O 可执行文件，可打包为 `.app` | 仅 Windows 上 `cargo check` 通过；首次 macOS CI 运行为实际编译验证 |
 

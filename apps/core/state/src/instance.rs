@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! Instance manifests: one directory per instance, each with `instance.json`.
@@ -8,8 +8,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use axlauncher_storage::write_atomic;
 use serde::{Deserialize, Serialize};
-use superlogical_storage::write_atomic;
 
 use crate::document::{self, Existing};
 

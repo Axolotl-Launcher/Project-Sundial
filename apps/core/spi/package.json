@@ -1,10 +1,10 @@
 {
-  "name": "@superlogical/spi",
+  "name": "@axlauncher/spi",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "cargo build -p superlogical_spi",
-    "lint": "cargo clippy -p superlogical_spi --all-targets -- -D warnings",
-    "test": "cargo test -p superlogical_spi"
+    "build": "cargo build -p axlauncher_spi",
+    "lint": "cargo clippy -p axlauncher_spi --all-targets -- -D warnings",
+    "test": "cargo test -p axlauncher_spi"
   }
 }

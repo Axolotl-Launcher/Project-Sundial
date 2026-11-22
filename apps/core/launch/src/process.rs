@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! Running a prepared command without blocking the caller's thread.
@@ -21,7 +21,7 @@ use std::task::{Context, Poll, Waker};
 #[cfg(test)]
 use std::thread::Thread;
 
-use superlogical_spi::{LaunchCommand, LaunchError};
+use axlauncher_spi::{LaunchCommand, LaunchError};
 
 use crate::platform;
 

@@ -1,10 +1,10 @@
 {
-  "name": "@superlogical/mod_metadata",
+  "name": "@axlauncher/mod_metadata",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "cargo build -p superlogical_mod_metadata",
-    "lint": "cargo clippy -p superlogical_mod_metadata --all-targets -- -D warnings",
-    "test": "cargo test -p superlogical_mod_metadata"
+    "build": "cargo build -p axlauncher_mod_metadata",
+    "lint": "cargo clippy -p axlauncher_mod_metadata --all-targets -- -D warnings",
+    "test": "cargo test -p axlauncher_mod_metadata"
   }
 }

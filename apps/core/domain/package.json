@@ -1,10 +1,10 @@
 {
-  "name": "@superlogical/domain",
+  "name": "@axlauncher/domain",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "cargo build -p superlogical_domain",
-    "lint": "cargo clippy -p superlogical_domain --all-targets -- -D warnings",
-    "test": "cargo test -p superlogical_domain"
+    "build": "cargo build -p axlauncher_domain",
+    "lint": "cargo clippy -p axlauncher_domain --all-targets -- -D warnings",
+    "test": "cargo test -p axlauncher_domain"
   }
 }

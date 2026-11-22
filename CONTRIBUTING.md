@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 The Superlogical Authors -->
+<!-- SPDX-FileCopyrightText: 2026 Axolotl Team -->
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
 # Contributing
@@ -24,7 +24,7 @@ cargo install cargo-nextest cargo-shear cargo-deny --locked
 
 ```bash
 pnpm install                                  # turbo
-cargo build -p superlogical_platform_windows  # debug binary
+cargo build -p axlauncher_platform_windows  # debug binary
 pnpm dev:windows                              # run it
 ```
 

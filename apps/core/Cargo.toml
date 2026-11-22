@@ -1,28 +1,28 @@
-# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-FileCopyrightText: 2026 Axolotl Team
 # SPDX-License-Identifier: GPL-3.0-only
 
 [package]
-name = "superlogical_core"
+name = "axlauncher_core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Superlogical domain logic (UI-independent)"
+description = "Axolotl Launcher domain logic (UI-independent)"
 repository.workspace = true
 license.workspace = true
 
 [dependencies]
-superlogical_content = { workspace = true }
-superlogical_domain = { workspace = true }
-superlogical_install = { workspace = true }
-superlogical_launch = { workspace = true }
-superlogical_mod_metadata = { workspace = true }
-superlogical_network = { workspace = true }
-superlogical_observability = { workspace = true }
-superlogical_resources = { workspace = true }
-superlogical_scheduler = { workspace = true }
-superlogical_state = { workspace = true }
-superlogical_storage = { workspace = true }
-superlogical_telemetry = { workspace = true }
+axlauncher_content = { workspace = true }
+axlauncher_domain = { workspace = true }
+axlauncher_install = { workspace = true }
+axlauncher_launch = { workspace = true }
+axlauncher_mod_metadata = { workspace = true }
+axlauncher_network = { workspace = true }
+axlauncher_observability = { workspace = true }
+axlauncher_resources = { workspace = true }
+axlauncher_scheduler = { workspace = true }
+axlauncher_state = { workspace = true }
+axlauncher_storage = { workspace = true }
+axlauncher_telemetry = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,5 +1,5 @@
 {
-  "name": "superlogical",
+  "name": "axlauncher",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@12.18.0",
@@ -9,8 +9,8 @@
   "scripts": {
     "build": "node scripts/turbo.ts build",
     "dev": "node scripts/turbo.ts dev",
-    "dev:windows": "turbo run dev --filter=@superlogical/platform-windows",
-    "dev:linux": "turbo run dev --filter=@superlogical/platform-linux",
+    "dev:windows": "turbo run dev --filter=@axlauncher/platform-windows",
+    "dev:linux": "turbo run dev --filter=@axlauncher/platform-linux",
     "lint": "node scripts/turbo.ts lint",
     "test": "node scripts/turbo.ts test",
     "check": "pnpm lint && pnpm test && pnpm fmt:check && pnpm toml:check && pnpm spell && pnpm reuse && pnpm tsc && pnpm nojs && pnpm eslint && prek run --all-files && pnpm test:scripts",

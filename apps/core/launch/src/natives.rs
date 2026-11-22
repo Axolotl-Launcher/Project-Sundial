@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! The native jars a version needs and the files they unpack on disk.
@@ -226,7 +226,7 @@ fn write_native(
     files: &mut Vec<PathBuf>,
 ) -> Result<(), NativeError> {
     let target = destination.join(relative);
-    superlogical_storage::write_atomic(&target, bytes).map_err(|source| NativeError::Io {
+    axlauncher_storage::write_atomic(&target, bytes).map_err(|source| NativeError::Io {
         path: target.clone(),
         source,
     })?;
@@ -327,10 +327,8 @@ mod tests {
 
     impl TempDir {
         fn new(name: &str) -> Self {
-            let path = std::env::temp_dir().join(format!(
-                "superlogical-natives-{}-{name}",
-                std::process::id()
-            ));
+            let path = std::env::temp_dir()
+                .join(format!("axlauncher-natives-{}-{name}", std::process::id()));
             let _ = fs::remove_dir_all(&path);
             fs::create_dir_all(&path).expect("create scratch directory");
             Self(path)

@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: 2026 The Superlogical Authors
+# SPDX-FileCopyrightText: 2026 Axolotl Team
 # SPDX-License-Identifier: GPL-3.0-only
 
 [package]
-name = "superlogical_network"
+name = "axlauncher_network"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,10 +11,10 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+axlauncher_spi = { workspace = true }
 hex = { workspace = true }
 reqwest = { workspace = true }
 sha1_smol = { workspace = true }
-superlogical_spi = { workspace = true }
 
 [lints]
 workspace = true
