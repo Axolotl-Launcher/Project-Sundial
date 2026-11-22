@@ -3,200 +3,71 @@
 
 name: CI
 
-# Runs on every push to main and every pull request. Clippy is a hard failure
-# on pull requests, not an advisory warning raised only after merge.
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
 
-# A new push to the same branch cancels the previous run.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'auto' }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 permissions:
   contents: read
 
-env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
-
 jobs:
+  repository:
+    name: Repository checks
+    uses: ./.github/workflows/repo-check.yml
+
   rust:
-    name: Rust (${{ matrix.os }})
+    name: Desktop Rust (${{ matrix.os }})
+    needs: repository
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-2025, macos-15]
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # gpui-pre links fontconfig, Wayland/X11 and Vulkan at build time. The
-      # list mirrors gpui-kit's own script/install-linux.sh, minus the pieces
-      # only needed for its webview shell.
-      - name: Install Linux system dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libfontconfig-dev libfreetype-dev libwayland-dev \
-            libxkbcommon-x11-dev libx11-xcb-dev libxcb1-dev \
-            libvulkan1 mesa-vulkan-drivers libdbus-1-dev pkg-config
-
-      # Installs the channel named in rust-toolchain.toml, so the pin lives in
-      # exactly one file. `rustup show` would install it implicitly, but being
-      # explicit keeps the failure obvious when the pin is wrong.
-      - name: Install pinned toolchain
-        run: |
-          rustup toolchain install --profile minimal --component rustfmt --component clippy
-          rustc --version
-
-      - uses: Swatinem/rust-cache@2201cc584a476d1b508be977bbe4b7d1c7a52e9c # v2.9.3
+      - name: Check out workspace
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          cache-on-failure: true
+          persist-credentials: false
 
-      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+      - name: Prepare desktop Rust
+        uses: ./.github/actions/setup-desktop-rust
         with:
-          tool: cargo-nextest@0.9.150, cargo-shear@1.14.1, cargo-deny@0.22.0
+          save-cache: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
-      - name: Format
-        run: cargo fmt --all --check
+      - name: Install Nextest
+        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-nextest@0.9.150
 
-      - name: Clippy
+      - name: Lint the Rust workspace
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
-      - name: Test
-        run: cargo nextest run --workspace --profile ci --locked
+      - name: Run desktop workspace tests
+        run: cargo nextest run --workspace --profile ci --locked --no-tests=fail
 
-      - name: Unused dependencies
-        run: cargo shear
-
-      - name: License, advisory and source policy
-        run: cargo deny check
-
-  hygiene:
-    name: Hygiene
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.13"
-
-      - name: REUSE compliance
-        run: |
-          python -m pip install --quiet reuse==6.3.0
-          reuse lint
-
-      - uses: crate-ci/typos@6b8d5532f97e7efe2bf6907daac17b3c9f8926ba # v1.52.2
-
-      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
-        with:
-          tool: tombi@1.11.3
-
-      - name: TOML format
-        run: tombi format --check
-
-      - name: TOML lint
-        run: tombi lint
-
-      - uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
-        with:
-          run_install: false
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: package.json
-          cache: pnpm
-
-      - name: Install JavaScript dependencies
-        run: pnpm install --frozen-lockfile
-
-      # TypeScript only. A `.js` file fails here, and so does TypeScript that
-      # Node could not strip, because tsconfig sets erasableSyntaxOnly.
-      - name: No JavaScript sources
-        run: pnpm nojs
-
-      # A file too long to read by role is split by role. Tests count too;
-      # production modules and their tests live in separate files.
-      - name: File length
-        run: pnpm file-length
-
-      - name: TypeScript type check
-        run: pnpm tsc
-
-      - name: ESLint
-        run: pnpm eslint
-
-      # JSON has no comment syntax, so a stray comment in package.json or
-      # tsconfig.json is caught here rather than at install time.
-      - name: JSON syntax
-        run: |
-          set -euo pipefail
-          for file in $(git ls-files '*.json'); do
-            node -e "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'))" "$file"
-          done
-
-      # The scripts the triage workflow runs. Their tests also check that every
-      # dropdown option in the issue forms maps to a label, so a new option
-      # cannot silently lose its label.
-      - name: Script tests
-        run: node --test scripts/*.test.ts
-
-  # The hooks developers run locally, executed in CI. Its job is to prove that
-  # `prek.toml` still works and that the fast checks behave on a full checkout.
-  # Clippy, tests, dependency policy, typos, REUSE, tsc and ESLint live in the
-  # rust and hygiene jobs; the hooks deliberately do not duplicate them.
-  hooks:
-    name: Hooks
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install prek
-        run: |
-          curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/j178/prek/releases/download/v0.5.11/prek-installer.sh | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      # The runner already has cargo and rustfmt. Node is needed by the local
-      # file checks; tombi is the one extra hook tool.
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: package.json
-
-      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
-        with:
-          tool: tombi@1.11.3
-
-      # commit-msg and pre-push hooks need a real commit or push; only the
-      # pre-commit stage is meaningful across a checkout.
-      - name: Run hooks
-        run: prek run --all-files --stage pre-commit
-
-      - name: Validate the hook configuration
-        run: prek validate-config prek.toml
-
-  # One required check for branch protection, even though the work runs in
-  # several jobs.
   ci-result:
     name: CI result
-    if: always()
-    needs: [rust, hygiene, hooks]
+    if: ${{ !cancelled() }}
+    needs: [repository, rust]
     runs-on: ubuntu-24.04
     steps:
-      - name: Fail if any job did not succeed
+      - name: Require repository and desktop checks to pass
+        shell: bash
+        env:
+          REPOSITORY_RESULT: ${{ needs.repository.result }}
+          RUST_RESULT: ${{ needs.rust.result }}
         run: |
-          echo "rust:    ${{ needs.rust.result }}"
-          echo "hygiene: ${{ needs.hygiene.result }}"
-          echo "hooks:   ${{ needs.hooks.result }}"
-          test "${{ needs.rust.result }}" = "success"
-          test "${{ needs.hygiene.result }}" = "success"
-          test "${{ needs.hooks.result }}" = "success"
+          printf '| Checks | Result |\n| --- | --- |\n| Repository | %s |\n| Desktop Rust | %s |\n' \
+            "$REPOSITORY_RESULT" "$RUST_RESULT" >> "$GITHUB_STEP_SUMMARY"
+          test "$REPOSITORY_RESULT" = success
+          test "$RUST_RESULT" = success

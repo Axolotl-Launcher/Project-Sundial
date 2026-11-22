@@ -42,11 +42,12 @@ cargo shear
 cargo deny check
 typos
 tombi format --check && tombi lint
- lint
+reuse lint
 ```
 
-`pnpm check` bundles most of this. CI runs all of it on Ubuntu and Windows, and
-a single `CI result` check must be green before merge.
+`pnpm check` bundles most of this. CI runs repository checks on Ubuntu, then
+runs Clippy and Nextest on Ubuntu, Windows, and macOS. The `CI result` check
+reports the result of both stages.
 
 ## Dependency policy
 
@@ -66,7 +67,7 @@ work around it.
 
 ## Code rules
 
-See . In short: express constraints with types, lints or tests
+See [AGENTS.md](AGENTS.md#code-and-review). In short: express constraints with types, lints or tests
 before comments; comment only what code cannot say; small single-purpose
 functions; early returns; no dead code; meaningful names; no magic numbers.
 

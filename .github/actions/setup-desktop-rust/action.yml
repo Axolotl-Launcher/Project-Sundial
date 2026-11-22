@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: 2026 Axolotl Team
+# SPDX-License-Identifier: GPL-3.0-only
+
+name: Prepare desktop Rust
+description: Set up the pinned toolchain, desktop system libraries, and Rust dependency cache
+inputs:
+  save-cache:
+    description: Allow this run to save the Rust dependency cache
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Install GPUI system libraries
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          libfontconfig-dev libfreetype-dev libwayland-dev \
+          libxkbcommon-x11-dev libx11-xcb-dev libxcb1-dev \
+          libvulkan1 mesa-vulkan-drivers libdbus-1-dev pkg-config
+
+    - name: Install pinned Rust toolchain
+      shell: bash
+      run: |
+        rustup toolchain install --profile minimal --component clippy
+        rustc --version
+
+    - name: Restore Rust dependency cache
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        save-if: ${{ inputs.save-cache }}
+        cache-on-failure: true
+        cache-bin: false
