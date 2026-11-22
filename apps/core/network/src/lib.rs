@@ -28,6 +28,18 @@ impl ReqwestNetwork {
     pub fn new(client: reqwest::Client) -> Self {
         Self { client }
     }
+
+    /// The desktop client with bounded connection and request times.
+    pub fn desktop() -> Result<Self, FetchError> {
+        use std::time::Duration;
+
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(120))
+            .build()
+            .map(Self::new)
+            .map_err(|error| FetchError::Fatal(error.to_string()))
+    }
 }
 
 impl Network for ReqwestNetwork {

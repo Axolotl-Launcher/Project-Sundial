@@ -12,12 +12,22 @@ use std::path::{Path, PathBuf};
 
 use axlauncher_launch::Target;
 use axlauncher_launch::version::{AssetIndex, Version};
+use axlauncher_network::verify;
 use axlauncher_spi::{FetchError, Network};
 
 use crate::assets::{
-    AssetIndexDocument, DownloadOutcome, MissingFile, download_all, missing_assets,
+    AssetIndexDocument, DownloadOutcome, MissingFile, download_all_reporting, missing_assets,
     missing_libraries,
 };
+
+/// The phase and file counts a caller can display during installation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Progress {
+    Version,
+    CheckingFiles,
+    Downloading { processed: usize, total: usize },
+    Finishing,
+}
 
 /// Where the asset index for a version is stored, under `game_root`.
 pub fn asset_index_path(game_root: &Path, index: &AssetIndex) -> PathBuf {
@@ -113,31 +123,38 @@ pub async fn ensure_asset_index(
 
     let path = asset_index_path(game_root, &index);
     let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(_) => network
+        Ok(bytes) => return parse_index(&index, &bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => network
             .fetch(&index.url)
             .await
             .map_err(|source| PrepareError::AssetIndex {
                 id: index.id.clone(),
                 source,
             })?,
+        Err(error) => return Err(index_error(&index, error)),
     };
-    let document =
-        AssetIndexDocument::parse(&bytes).map_err(|error| PrepareError::AssetIndexUnreadable {
-            id: index.id.clone(),
-            reason: error.to_string(),
-        })?;
-
-    if !path.is_file() {
-        axlauncher_storage::write_atomic(&path, &bytes).map_err(|error| {
-            PrepareError::AssetIndexUnreadable {
-                id: index.id.clone(),
-                reason: error.to_string(),
-            }
-        })?;
-    }
-
+    let document = parse_index(&index, &bytes)?;
+    axlauncher_storage::write_atomic(&path, &bytes).map_err(|error| index_error(&index, error))?;
     Ok(document)
+}
+
+pub(crate) fn parse_index(
+    index: &AssetIndex,
+    bytes: &[u8],
+) -> Result<AssetIndexDocument, PrepareError> {
+    if let Some(hash) = &index.sha1
+        && !verify(bytes, hash)
+    {
+        return Err(index_error(index, "SHA-1 mismatch"));
+    }
+    AssetIndexDocument::parse(bytes).map_err(|error| index_error(index, error))
+}
+
+fn index_error(index: &AssetIndex, reason: impl ToString) -> PrepareError {
+    PrepareError::AssetIndexUnreadable {
+        id: index.id.clone(),
+        reason: reason.to_string(),
+    }
 }
 
 /// Downloads everything `version` needs that is not on disk.
@@ -148,9 +165,32 @@ pub async fn prepare(
     target: &Target,
     concurrency: usize,
 ) -> Result<Prepared, PrepareError> {
+    prepare_reporting(network, game_root, version, target, concurrency, |_| {}).await
+}
+
+pub(crate) async fn prepare_reporting(
+    network: &impl Network,
+    game_root: &Path,
+    version: &Version,
+    target: &Target,
+    concurrency: usize,
+    mut report: impl FnMut(Progress),
+) -> Result<Prepared, PrepareError> {
+    report(Progress::CheckingFiles);
     let index = ensure_asset_index(network, game_root, version).await?;
     let files = outstanding(game_root, version, &index, target);
-    let outcomes = download_all(network, &files, concurrency).await;
+    let total = files.len();
+    if total > 0 {
+        report(Progress::Downloading {
+            processed: 0,
+            total,
+        });
+    }
+    let outcomes = download_all_reporting(network, &files, concurrency, |processed| {
+        report(Progress::Downloading { processed, total });
+    })
+    .await;
+    report(Progress::Finishing);
     let mut prepared = summarise(&outcomes);
 
     // The flat tree copies from the object store, so it is built after the

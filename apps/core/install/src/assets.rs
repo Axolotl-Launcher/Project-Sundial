@@ -290,14 +290,28 @@ pub async fn download_all(
     files: &[MissingFile],
     concurrency: usize,
 ) -> Vec<DownloadOutcome> {
+    download_all_reporting(network, files, concurrency, |_| {}).await
+}
+
+pub(crate) async fn download_all_reporting(
+    network: &impl Network,
+    files: &[MissingFile],
+    concurrency: usize,
+    mut report: impl FnMut(usize),
+) -> Vec<DownloadOutcome> {
     let limit = if concurrency == 0 {
         DEFAULT_CONCURRENCY
     } else {
         concurrency
     };
+    let mut processed = 0;
     stream::iter(files)
         .map(|file| download(network, file))
         .buffer_unordered(limit)
+        .inspect(|_| {
+            processed += 1;
+            report(processed);
+        })
         .collect()
         .await
 }
