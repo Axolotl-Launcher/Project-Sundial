@@ -9,9 +9,13 @@
 //! must not be damaged by an older one.
 
 mod document;
+pub mod files;
 mod instance;
+pub mod javas;
+pub mod jobs;
 mod settings;
 #[cfg(test)]
+#[path = "../../../../tests/apps/core/state/src/test_support.rs"]
 mod test_support;
 
 pub use instance::{

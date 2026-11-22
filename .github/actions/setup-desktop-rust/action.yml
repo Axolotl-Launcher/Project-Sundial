@@ -32,3 +32,8 @@ runs:
         save-if: ${{ inputs.save-cache }}
         cache-on-failure: true
         cache-bin: false
+
+    # rust-cache overrides the workspace default with CARGO_INCREMENTAL=0.
+    - name: Enable incremental compilation
+      shell: bash
+      run: echo 'CARGO_INCREMENTAL=1' >> "$GITHUB_ENV"

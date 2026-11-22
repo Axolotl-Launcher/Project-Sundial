@@ -37,10 +37,64 @@ pub enum ThemeChoice {
     Light,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// Where a download source prefers to fetch from.
+///
+/// `Auto` tries the official source and falls back to a mirror; the other two
+/// pin one side. The reference spells them the same way, so a user's habit
+/// carries over unchanged.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourcePreference {
+    #[default]
+    Auto,
+    OfficialOnly,
+    MirrorPreferred,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SettingsData {
     #[serde(default)]
     pub theme: ThemeChoice,
+    /// How many files may be requested at once.
+    #[serde(default = "default_concurrency")]
+    pub max_concurrent_downloads: u32,
+    /// How many files may be written at once.
+    #[serde(default = "default_concurrency")]
+    pub max_concurrent_writes: u32,
+    /// The page the launcher opens on.
+    #[serde(default)]
+    pub default_page: String,
+    /// Whether the launcher may send usage data.
+    #[serde(default)]
+    pub telemetry: bool,
+    /// Where the game's metadata comes from.
+    #[serde(default)]
+    pub minecraft_metadata_source: SourcePreference,
+    /// Where the game's files come from.
+    #[serde(default)]
+    pub minecraft_file_source: SourcePreference,
+}
+
+/// The download width a fresh install starts with.
+///
+/// Enough to keep a connection busy without saturating a household link, and
+/// the reference's own default.
+fn default_concurrency() -> u32 {
+    10
+}
+
+impl Default for SettingsData {
+    fn default() -> Self {
+        Self {
+            theme: ThemeChoice::default(),
+            max_concurrent_downloads: default_concurrency(),
+            max_concurrent_writes: default_concurrency(),
+            default_page: "home".into(),
+            telemetry: false,
+            minecraft_metadata_source: SourcePreference::default(),
+            minecraft_file_source: SourcePreference::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -199,104 +253,5 @@ pub fn save_settings(root: &Path, data: &SettingsData) -> Result<(), SettingsErr
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test_support::TempRoot;
-
-    fn seed(root: &Path, contents: &str) -> PathBuf {
-        let path = root.join(SETTINGS_FILE);
-        fs::write(&path, contents).expect("seed");
-        path
-    }
-
-    #[test]
-    fn a_missing_file_is_created_with_defaults() {
-        let temp = TempRoot::new();
-
-        let loaded = load_settings(temp.path()).expect("load");
-
-        assert_eq!(loaded.origin, SettingsOrigin::Created);
-        assert_eq!(loaded.data, SettingsData::default());
-
-        let written = fs::read_to_string(temp.path().join(SETTINGS_FILE)).expect("read back");
-        assert!(written.contains(r#""schema_version": 1"#));
-        assert!(written.contains(r#""theme": "dark""#));
-    }
-
-    #[test]
-    fn a_saved_theme_roundtrips() {
-        let temp = TempRoot::new();
-        let data = SettingsData {
-            theme: ThemeChoice::Light,
-        };
-
-        save_settings(temp.path(), &data).expect("save");
-        let loaded = load_settings(temp.path()).expect("load");
-
-        assert_eq!(loaded.data, data);
-        assert_eq!(loaded.origin, SettingsOrigin::Stored);
-    }
-
-    #[test]
-    fn an_unreadable_document_is_quarantined_and_defaults_apply() {
-        let temp = TempRoot::new();
-        seed(temp.path(), "{ not a document }");
-
-        let loaded = load_settings(temp.path()).expect("load");
-
-        assert_eq!(loaded.data, SettingsData::default());
-        let SettingsOrigin::Quarantined { path } = &loaded.origin else {
-            panic!("expected quarantine, got {:?}", loaded.origin);
-        };
-        assert_eq!(
-            fs::read_to_string(path).expect("kept bytes"),
-            "{ not a document }"
-        );
-        assert!(temp.path().join(SETTINGS_FILE).is_file());
-    }
-
-    #[test]
-    fn a_document_from_another_schema_is_read_only() {
-        let temp = TempRoot::new();
-        let contents = r#"{"schema_version":2,"data":{"theme":"light"}}"#;
-        let path = seed(temp.path(), contents);
-        let before = fs::read(&path).expect("before");
-
-        let loaded = load_settings(temp.path()).expect("load");
-
-        assert_eq!(
-            loaded.origin,
-            SettingsOrigin::ReadOnlyOtherSchema { found: 2 }
-        );
-        assert_eq!(loaded.data, SettingsData::default());
-        assert_eq!(fs::read(&path).expect("after"), before);
-    }
-
-    #[test]
-    fn saving_over_another_schema_is_refused() {
-        let temp = TempRoot::new();
-        let contents = r#"{"schema_version":2,"data":{"theme":"light"}}"#;
-        let path = seed(temp.path(), contents);
-        let before = fs::read(&path).expect("before");
-
-        let error = save_settings(temp.path(), &SettingsData::default()).expect_err("must refuse");
-
-        assert!(matches!(
-            error,
-            SettingsError::RefusedSchema { found: 2, .. }
-        ));
-        assert_eq!(fs::read(&path).expect("after"), before);
-    }
-
-    #[test]
-    fn saving_over_an_unreadable_document_is_refused() {
-        let temp = TempRoot::new();
-        let path = seed(temp.path(), "{ broken");
-        let before = fs::read(&path).expect("before");
-
-        let error = save_settings(temp.path(), &SettingsData::default()).expect_err("must refuse");
-
-        assert!(matches!(error, SettingsError::RefusedUnreadable { .. }));
-        assert_eq!(fs::read(&path).expect("after"), before);
-    }
-}
+#[path = "../../../../tests/apps/core/state/src/settings.rs"]
+mod tests;

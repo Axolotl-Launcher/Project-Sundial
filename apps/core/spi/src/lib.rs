@@ -16,6 +16,11 @@ pub use axlauncher_domain::Id;
 
 use std::path::{Path, PathBuf};
 
+mod loader;
+pub use loader::{
+    LoaderError, LoaderFile, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader,
+};
+
 /// Fetches bytes over the network.
 pub trait Network {
     /// Resolves a URL's body. The error is the provider's own type, boxed so
@@ -28,20 +33,49 @@ pub trait Network {
 pub enum FetchError {
     /// Worth retrying: a timeout, a 5xx, a dropped connection.
     Retryable(String),
-    /// Not worth retrying: a 404, a malformed URL.
+    /// Not worth retrying: a malformed URL, no transport configured.
     Fatal(String),
+    /// The server answered with a client error, and the answer itself is the
+    /// reason.
+    ///
+    /// The body is kept because an API can put meaning in it: a version that
+    /// does not exist and a request the server rejected can both arrive as a
+    /// 4xx, and only the body tells them apart. Dropping it would leave a
+    /// caller unable to say which happened.
+    Rejected {
+        /// The HTTP status the server answered with.
+        status: u16,
+        body: Vec<u8>,
+    },
 }
 
 impl std::fmt::Display for FetchError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Retryable(reason) => write!(formatter, "retryable: {reason}"),
-            Self::Fatal(reason) => write!(formatter, "{reason}"),
+            Self::Fatal(reason) => formatter.write_str(reason),
+            Self::Rejected { status, body } => {
+                write!(formatter, "HTTP {status}: {}", body_excerpt(body))
+            }
         }
     }
 }
 
 impl std::error::Error for FetchError {}
+
+/// How much of a rejected body a message quotes.
+const BODY_EXCERPT_LEN: usize = 200;
+
+/// The start of a rejected body, made printable, so a message stays a message.
+fn body_excerpt(body: &[u8]) -> String {
+    let text = String::from_utf8_lossy(body);
+    let trimmed = text.trim();
+    let mut excerpt: String = trimmed.chars().take(BODY_EXCERPT_LEN).collect();
+    if trimmed.chars().count() > BODY_EXCERPT_LEN {
+        excerpt.push('…');
+    }
+    excerpt
+}
 
 /// Reads and writes bytes under the launcher's data directory.
 pub trait Storage {
@@ -146,6 +180,16 @@ pub trait Java {
     /// Otherwise the provider falls back to what this platform offers, and
     /// `None` means nothing was found. The result suits `mode`.
     fn executable(&self, preferred: Option<&Path>, mode: JavaMode) -> Option<PathBuf>;
+
+    /// Resolves an executable whose runtime reports `major`.
+    ///
+    /// A version document states the major version its classes need. Returning
+    /// a runtime of a different major starts the game on a JVM that cannot load
+    /// it, and the failure surfaces as a class-file error instead of a message
+    /// about Java. A provider answers `None` when it cannot find a matching
+    /// runtime, so the caller can say which version is missing rather than
+    /// starting the game on the wrong one.
+    fn executable_for(&self, major: u32, mode: JavaMode) -> Option<PathBuf>;
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -204,3 +248,7 @@ pub trait Telemetry {
 pub struct Event {
     pub name: String,
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/apps/core/spi/src/lib.rs"]
+mod tests;

@@ -45,3 +45,14 @@ SPDX-License-Identifier = "GPL-3.0-only"
 path = "packaging/macos/Info.plist"
 SPDX-FileCopyrightText = "2026 Axolotl Team"
 SPDX-License-Identifier = "GPL-3.0-only"
+
+# Third-party skills retain their upstream copyright and license notices.
+[[annotations]]
+path = [".agents/skills/gpui-kit/**", ".agents/skills/gpui-kit-design-guides/**"]
+SPDX-FileCopyrightText = "2024 - 2026 Longbridge <https://longbridge.com>"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = ".agents/skills/cargo-workflows/**"
+SPDX-FileCopyrightText = "2026 Nikita Pochaev"
+SPDX-License-Identifier = "BSD-3-Clause"
