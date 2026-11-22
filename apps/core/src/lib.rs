@@ -11,6 +11,7 @@ pub use axlauncher_content as content;
 pub use axlauncher_domain as domain;
 pub use axlauncher_install as install;
 pub use axlauncher_launch as launch;
+pub use axlauncher_loader as loader;
 pub use axlauncher_mod_metadata as mod_metadata;
 pub use axlauncher_network as network;
 pub use axlauncher_observability as observability;

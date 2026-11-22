@@ -568,6 +568,7 @@ dependencies = [
  "axlauncher_domain",
  "axlauncher_install",
  "axlauncher_launch",
+ "axlauncher_loader",
  "axlauncher_mod_metadata",
  "axlauncher_network",
  "axlauncher_observability",
@@ -588,7 +589,7 @@ version = "0.1.0"
 dependencies = [
  "axlauncher_core",
  "axlauncher_ui",
- "dirs 5.0.1",
+ "dirs 6.0.0",
 ]
 
 [[package]]
@@ -603,6 +604,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "zip",
 ]
 
 [[package]]
@@ -614,6 +616,15 @@ dependencies = [
  "serde",
  "serde_json",
  "zip",
+]
+
+[[package]]
+name = "axlauncher_loader"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_spi",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -660,8 +671,12 @@ name = "axlauncher_policy_tests"
 version = "0.1.0"
 dependencies = [
  "axlauncher_content",
+ "axlauncher_install",
+ "axlauncher_launch",
  "axlauncher_spi",
  "axlauncher_state",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

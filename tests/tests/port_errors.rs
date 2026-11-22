@@ -30,10 +30,14 @@ fn every_port_error_is_display_and_error() {
     is_display::<axlauncher_spi::LaunchError>();
     is_error::<axlauncher_spi::LaunchError>();
 
+    is_display::<axlauncher_spi::LoaderError>();
+    is_error::<axlauncher_spi::LoaderError>();
+
     is_display_and_error::<axlauncher_spi::FetchError>();
     is_display_and_error::<axlauncher_spi::StorageError>();
     is_display_and_error::<axlauncher_spi::InstallError>();
     is_display_and_error::<axlauncher_spi::LaunchError>();
+    is_display_and_error::<axlauncher_spi::LoaderError>();
 }
 
 #[test]
@@ -52,4 +56,28 @@ fn a_port_error_reads_as_a_sentence() {
 
     let missing = axlauncher_spi::LaunchError::NotFound("no such file".into());
     assert!(missing.to_string().contains("no such file"));
+}
+
+#[test]
+fn a_loader_error_names_the_loader_and_keeps_its_cause() {
+    let unavailable = axlauncher_spi::LoaderError::Unavailable {
+        loader: axlauncher_spi::LoaderKind::Fabric,
+        source: axlauncher_spi::FetchError::Retryable("timed out".into()),
+    };
+    assert!(unavailable.to_string().contains("fabric"));
+    assert!(unavailable.to_string().contains("timed out"));
+    assert!(Error::source(&unavailable).is_some());
+
+    let no_versions = axlauncher_spi::LoaderError::NoVersions {
+        loader: axlauncher_spi::LoaderKind::Quilt,
+        game_version: "1.5.2".into(),
+    };
+    assert!(no_versions.to_string().contains("quilt"));
+    assert!(no_versions.to_string().contains("1.5.2"));
+
+    let unknown = axlauncher_spi::LoaderError::UnknownVersion {
+        loader: axlauncher_spi::LoaderKind::Forge,
+        version: "1.0".into(),
+    };
+    assert!(unknown.to_string().contains("1.0"));
 }

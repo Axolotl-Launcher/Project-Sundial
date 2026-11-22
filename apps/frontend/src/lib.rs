@@ -166,12 +166,7 @@ impl RootView {
             return;
         };
 
-        let instance = Instance {
-            id,
-            name,
-            game_version: None,
-            loader: None,
-        };
+        let instance = Instance::new(id, name);
 
         match create(&root, &instance) {
             Ok(()) => {

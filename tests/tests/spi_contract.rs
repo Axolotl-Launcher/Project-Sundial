@@ -120,6 +120,10 @@ impl Java for FixedJava {
     fn executable(&self, _preferred: Option<&Path>, _mode: JavaMode) -> Option<PathBuf> {
         Some(self.0.clone())
     }
+
+    fn executable_for(&self, _major: u32, _mode: JavaMode) -> Option<PathBuf> {
+        Some(self.0.clone())
+    }
 }
 
 #[test]
@@ -129,5 +133,84 @@ fn a_java_provider_satisfies_the_port() {
     assert_eq!(
         java.executable(None, JavaMode::Windowed),
         Some(PathBuf::from("/opt/jdk/bin/java"))
+    );
+}
+
+/// A loader provider the contract test has never seen, standing in for any
+/// other.
+struct FixedLoader;
+
+impl axlauncher_spi::ModLoader for FixedLoader {
+    fn kind(&self) -> axlauncher_spi::LoaderKind {
+        axlauncher_spi::LoaderKind::Fabric
+    }
+
+    async fn versions(
+        &self,
+        _game_version: &str,
+    ) -> Result<Vec<axlauncher_spi::LoaderVersion>, axlauncher_spi::LoaderError> {
+        Ok(vec![axlauncher_spi::LoaderVersion {
+            version: "0.20.1".into(),
+            stable: Some(true),
+        }])
+    }
+
+    async fn profile(
+        &self,
+        request: axlauncher_spi::LoaderRequest,
+    ) -> Result<axlauncher_spi::LoaderProfile, axlauncher_spi::LoaderError> {
+        Ok(axlauncher_spi::LoaderProfile {
+            version_id: "fabric-loader-0.20.1-1.21.11".into(),
+            document: format!(r#"{{"inheritsFrom":"{}"}}"#, request.game_version).into_bytes(),
+            files: vec![axlauncher_spi::LoaderFile {
+                path: "libraries/example.jar".into(),
+                bytes: b"jar".to_vec(),
+            }],
+        })
+    }
+}
+
+/// Written against the port: it installs whatever the provider resolves,
+/// without naming a loader.
+fn install_from(
+    loader: &impl axlauncher_spi::ModLoader,
+    game_root: &Path,
+    game_version: &str,
+) -> Result<Vec<String>, String> {
+    let profile = futures_lite_block_on(loader.profile(axlauncher_spi::LoaderRequest {
+        game_version: game_version.into(),
+        loader_version: None,
+    }))
+    .map_err(|error| error.to_string())?;
+
+    let placed = axlauncher_install::loader::place(game_root, &profile)
+        .map_err(|error| error.to_string())?;
+    Ok(vec![
+        placed.version_id,
+        placed.document.display().to_string(),
+    ])
+}
+
+#[test]
+fn a_caller_written_against_the_loader_port_works_with_any_provider() {
+    let root = std::env::temp_dir().join(format!("axlauncher-spi-contract-{}", std::process::id()));
+    std::fs::create_dir_all(&root).expect("temp root");
+
+    let installed = install_from(&FixedLoader, &root, "1.21.11").expect("install");
+
+    assert_eq!(installed[0], "fabric-loader-0.20.1-1.21.11");
+    assert!(
+        Path::new(&installed[1]).is_file(),
+        "the version document is where a launch looks for it"
+    );
+    assert!(root.join("libraries/example.jar").is_file());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_loader_kind_is_read_back_from_its_stored_spelling() {
+    assert_eq!(
+        axlauncher_spi::LoaderKind::parse("quilt"),
+        Some(axlauncher_spi::LoaderKind::Quilt)
     );
 }

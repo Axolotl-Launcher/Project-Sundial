@@ -1,0 +1,10 @@
+{
+  "name": "@axlauncher/loader",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cargo build -p axlauncher_loader",
+    "lint": "cargo clippy -p axlauncher_loader --all-targets -- -D warnings",
+    "test": "cargo test -p axlauncher_loader"
+  }
+}

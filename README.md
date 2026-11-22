@@ -5,6 +5,8 @@
 
 Rust + [GPUI Kit](https://gpui-kit.com) 桌面应用骨架，pnpm + Turbo 负责任务编排。
 
+修改仓库前先读 [AGENTS.md](AGENTS.md)，其中列出了代码归属、修改前的影响分析和交付前的检查。
+
 ## 结构
 
 ```
@@ -13,6 +15,7 @@ apps/core/domain      axlauncher_domain      —— 领域标识与基础类型
 apps/core/content     axlauncher_content     —— 内容模型与 provider
 apps/core/install     axlauncher_install     —— 安装计划与执行
 apps/core/launch      axlauncher_launch      —— 启动、Java 发现、进程
+apps/core/loader      axlauncher_loader      —— 加载器版本查询与版本配置解析
 apps/core/state       axlauncher_state       —— 应用状态与持久化
 apps/core/storage     axlauncher_storage     —— 文件系统与缓存原语
 apps/core/network     axlauncher_network     —— HTTP 与协议客户端
@@ -39,8 +42,9 @@ platforms/*    ->  frontend
 ```
 
 `spi` 定义端口（`Network`、`Storage`、`ContentProvider`、`Installer`、`Launcher`、
-`StateStore`、`Telemetry`），各系统提供实现，`frontend` 在启动时决定装配哪一个。
-调用方只依赖 `spi`，替换实现是装配改动而非逐处修改。
+`StateStore`、`Telemetry`、`ModLoader`），各系统提供实现，`frontend` 在启动时决定装配哪一个。
+服务调用方依赖 `spi`。原子写入、下载校验和游戏清单模型有明确的跨 crate 复用边界，
+具体归属和允许的依赖见 [crate 职责说明](.agents/docs/crates.md)。
 
 异步端口用返回位置 `impl Trait` 而非 `async_trait`，不产生每次调用的装箱。
 `tests/tests/spi_contract.rs` 验证：一个只针对端口编写的调用方，能与任意
@@ -66,7 +70,7 @@ pnpm install                                   # 安装 turbo
 pnpm dev:windows                               # 运行 Windows 壳（turbo -> cargo run）
 pnpm build                                     # 构建当前平台（turbo 只调度本机平台壳）
 pnpm test / pnpm lint                          # 各包 cargo test / clippy，按依赖顺序
-pnpm check                                     # 本地全套校验（不含 clippy/deny）
+pnpm check                                     # 本机包的 lint/test、格式、脚本和钩子检查
 pnpm deny                                      # cargo deny check
 pnpm shear                                     # cargo shear（未使用依赖）
 pnpm nextest                                   # cargo nextest run --workspace
@@ -132,9 +136,9 @@ pnpm file-length  # 拒绝超过 500 行的代码文件
 
 ## CI
 
-`.github/workflows/ci.yml` 在 Ubuntu 与 Windows 上跑 fmt、clippy（PR 上硬失败）、
-nextest、cargo-shear、cargo-deny；`hygiene` job 跑 typos 与 tombi。分支保护只需
-一个 required check：`CI result`。
+`ci.yml` 在 Ubuntu、Windows 和 macOS 上运行 Rust 格式检查、Clippy、Nextest 和依赖检查。
+Ubuntu 上的 Hygiene 和 Hooks 任务负责脚本、仓库规则和 Git 钩子检查。
+分支保护使用汇总检查 `CI result`。
 
 ## turbo 的平台过滤
 
