@@ -38,6 +38,11 @@ impl DataDir {
         self.root.join("versions")
     }
 
+    /// One version's folder: document, client jar and game files.
+    pub fn version(&self, id: &str) -> PathBuf {
+        self.versions().join(id)
+    }
+
     pub fn libraries(&self) -> PathBuf {
         self.root.join("libraries")
     }
@@ -46,9 +51,71 @@ impl DataDir {
         self.root.join("assets")
     }
 
+    /// Content-addressed asset objects.
+    pub fn assets_objects(&self) -> PathBuf {
+        self.assets().join("objects")
+    }
+
+    /// Where one asset object lives, under the two-character prefix its hash
+    /// selects.
+    pub fn asset_object(&self, hash: &str) -> Option<PathBuf> {
+        let prefix = hash.get(..2)?;
+        Some(self.assets_objects().join(prefix).join(hash))
+    }
+
+    /// Asset index documents, as Mojang names them.
+    pub fn asset_indexes(&self) -> PathBuf {
+        self.assets().join("indexes")
+    }
+
+    /// The flat tree an index with `virtual` materialises, which the game reads
+    /// by plain path.
+    pub fn virtual_assets(&self, index_id: &str) -> PathBuf {
+        self.assets().join("virtual").join(index_id)
+    }
+
+    /// The flat tree an index with `map_to_resources` materialises.
+    pub fn legacy_resources(&self) -> PathBuf {
+        self.root.join("resources")
+    }
+
+    /// Logging configurations the game's JVM arguments point at.
+    pub fn log_configs(&self) -> PathBuf {
+        self.assets().join("log_configs")
+    }
+
+    /// Unpacked native libraries, one folder per version.
+    pub fn natives(&self) -> PathBuf {
+        self.root.join("natives")
+    }
+
+    pub fn version_natives(&self, version_id: &str) -> PathBuf {
+        self.natives().join(version_id)
+    }
+
+    /// Java runtimes this launcher manages, one folder per component.
+    pub fn java_versions(&self) -> PathBuf {
+        self.root.join("java")
+    }
+
+    /// Install job documents, one per job.
+    pub fn jobs(&self) -> PathBuf {
+        self.root.join("jobs")
+    }
+
+    /// Launcher-owned caches: fetched documents that can be rebuilt.
+    pub fn caches(&self) -> PathBuf {
+        self.root.join("caches")
+    }
+
     /// The settings document.
     pub fn settings(&self) -> PathBuf {
         self.root.join("settings.json")
+    }
+
+    /// The document holding the chosen and discovered Java runtimes.
+    pub fn javas(&self) -> PathBuf {
+        self.root.join("javas.json")
     }
 }
 
@@ -106,51 +173,5 @@ impl Storage for RootedStorage {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
-
-    static COUNTER: AtomicU32 = AtomicU32::new(0);
-
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new() -> Self {
-            let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
-            let path = std::env::temp_dir().join(format!(
-                "axlauncher-storage-{}-{unique}",
-                std::process::id()
-            ));
-            fs::create_dir_all(&path).expect("temp directory");
-            Self(path)
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-
-    #[test]
-    fn write_atomic_replaces_the_target_and_leaves_no_temporary() {
-        let directory = TempDir::new();
-        let target = directory.0.join("settings.json");
-        fs::write(&target, b"old").expect("seed");
-
-        write_atomic(&target, b"new").expect("write");
-
-        assert_eq!(fs::read(&target).expect("read"), b"new");
-        assert!(!directory.0.join("settings.json.tmp").exists());
-    }
-
-    #[test]
-    fn write_atomic_creates_missing_parents() {
-        let directory = TempDir::new();
-        let target = directory.0.join("nested").join("file.json");
-
-        write_atomic(&target, b"data").expect("write");
-
-        assert_eq!(fs::read(&target).expect("read"), b"data");
-    }
-}
+#[path = "../../../../tests/apps/core/storage/src/lib.rs"]
+mod tests;

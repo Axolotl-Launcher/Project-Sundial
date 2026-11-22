@@ -15,6 +15,7 @@ apps/core/domain      axlauncher_domain      —— 领域标识与基础类型
 apps/core/content     axlauncher_content     —— 内容模型与 provider
 apps/core/install     axlauncher_install     —— 安装计划与执行
 apps/core/launch      axlauncher_launch      —— 启动、Java 发现、进程
+apps/core/loader      axlauncher_loader      —— 加载器版本查询与版本配置解析
 apps/core/state       axlauncher_state       —— 应用状态与持久化
 apps/core/storage     axlauncher_storage     —— 文件系统与缓存原语
 apps/core/network     axlauncher_network     —— HTTP 与协议客户端
@@ -41,7 +42,7 @@ platforms/*    ->  frontend
 ```
 
 `spi` 定义端口（`Network`、`Storage`、`ContentProvider`、`Installer`、`Launcher`、
-`StateStore`、`Telemetry`），各系统提供实现，`frontend` 在启动时决定装配哪一个。
+`StateStore`、`Telemetry`、`ModLoader`），各系统提供实现，`frontend` 在启动时决定装配哪一个。
 服务调用方依赖 `spi`。原子写入、下载校验和游戏清单模型有明确的跨 crate 复用边界，
 具体归属和允许的依赖见 [crate 职责说明](.agents/docs/crates.md)。
 

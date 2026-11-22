@@ -28,6 +28,9 @@ See [.agents/AGENTS.md](.agents/AGENTS.md) for agent documentation and temporary
 
 ## Where changes belong
 
+Keep tests under `tests/` and mirror the path to the source. Follow the
+layout and module rules in [tests/AGENTS.md](tests/AGENTS.md).
+
 Each resource has an owner. Use its existing API or SPI port. Only the owner
 may introduce direct resource access. Inject providers at the frontend.
 The [crate boundaries](.agents/docs/crates.md) define the allowed dependencies,
@@ -44,7 +47,7 @@ and its pinned gpui-pre together.
 launcher conversion belongs in an independent tool. An unknown instance
 `schema_version` must yield `DiscoveryError::UnsupportedSchema`. The
 [path policy](tests/tests/external_formats.rs) and
-[instance tests](apps/core/state/src/instance/tests.rs) cover these boundaries.
+[instance tests](tests/apps/core/state/src/instance/tests.rs) cover these boundaries.
 For Minecraft's own manifests, [game format notes](docs/game-format-changes.md)
 explain which fields select each launch path.
 

@@ -38,26 +38,33 @@ impl Network for ReqwestNetwork {
             .send()
             .await
             .map_err(|error| FetchError::Retryable(error.to_string()))?;
-        if let Some(error) = status_error(response.status()) {
-            return Err(error);
-        }
-        response
+        let status = response.status();
+        let bytes = response
             .bytes()
             .await
-            .map(|bytes| bytes.to_vec())
-            .map_err(|error| FetchError::Retryable(error.to_string()))
+            .map_err(|error| FetchError::Retryable(error.to_string()))?
+            .to_vec();
+
+        if status.is_success() {
+            return Ok(bytes);
+        }
+        Err(status_error(status, bytes))
     }
 }
 
-/// The error a non-success response stands for, or `None` when it succeeded.
-fn status_error(status: reqwest::StatusCode) -> Option<FetchError> {
+/// The error a non-success response stands for.
+///
+/// The body travels with a client error because an API can answer "this
+/// version does not exist" as a 4xx whose body says so. A server error is
+/// retryable and its body is a page, not an answer, so it is not kept.
+fn status_error(status: reqwest::StatusCode, body: Vec<u8>) -> FetchError {
     if status.is_client_error() {
-        return Some(FetchError::Fatal(format!("HTTP {status}")));
+        return FetchError::Rejected {
+            status: status.as_u16(),
+            body,
+        };
     }
-    if status.is_success() {
-        return None;
-    }
-    Some(FetchError::Retryable(format!("HTTP {status}")))
+    FetchError::Retryable(format!("HTTP {status}"))
 }
 
 /// Whether `bytes` hashes to `expected_sha1`, compared without regard to hex case.
@@ -67,42 +74,5 @@ pub fn verify(bytes: &[u8], expected_sha1: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// SHA-1 of the empty input, as `sha1sum` reports it.
-    const EMPTY_SHA1: &str = "da39a3ee5e6b4b0d3255bfef95601890afd80709";
-    /// SHA-1 of `abc`, as `sha1sum` reports it.
-    const ABC_SHA1: &str = "a9993e364706816aba3e25717850c26c9cd0d89d";
-
-    #[test]
-    fn verify_accepts_a_matching_hash_in_either_case() {
-        assert!(verify(b"", EMPTY_SHA1));
-        assert!(verify(b"", &EMPTY_SHA1.to_uppercase()));
-        assert!(verify(b"abc", ABC_SHA1));
-        assert!(verify(b"abc", &ABC_SHA1.to_uppercase()));
-    }
-
-    #[test]
-    fn verify_rejects_a_different_hash() {
-        assert!(!verify(b"", ABC_SHA1));
-        assert!(!verify(b"abc", EMPTY_SHA1));
-        let zeros = "0".repeat(EMPTY_SHA1.len());
-        assert!(!verify(b"", &zeros));
-    }
-
-    #[test]
-    fn non_success_statuses_carry_the_retry_advice() {
-        assert_eq!(
-            status_error(reqwest::StatusCode::NOT_FOUND),
-            Some(FetchError::Fatal("HTTP 404 Not Found".into()))
-        );
-        assert_eq!(
-            status_error(reqwest::StatusCode::INTERNAL_SERVER_ERROR),
-            Some(FetchError::Retryable(
-                "HTTP 500 Internal Server Error".into()
-            ))
-        );
-        assert_eq!(status_error(reqwest::StatusCode::OK), None);
-    }
-}
+#[path = "../../../../tests/apps/core/network/src/lib.rs"]
+mod tests;

@@ -42,6 +42,8 @@ fn library(artifact: Artifact, rules: Option<Vec<Rule>>) -> Library {
         }),
         natives: None,
         rules,
+        url: None,
+        include_in_classpath: true,
     }
 }
 
@@ -158,6 +160,7 @@ fn missing_assets_uses_the_two_character_fan_out() {
                 size: ABC.len() as u64,
             },
         )]),
+        ..AssetIndexDocument::default()
     };
 
     let missing = missing_assets(root.path(), &index);
@@ -188,6 +191,7 @@ fn missing_assets_skips_a_correct_object() {
                 size: ABC.len() as u64,
             },
         )]),
+        ..AssetIndexDocument::default()
     };
 
     assert!(missing_assets(root.path(), &index).is_empty());
@@ -357,4 +361,89 @@ impl std::future::Future for YieldOnce {
 
 fn yield_once() -> YieldOnce {
     YieldOnce { yielded: false }
+}
+
+#[test]
+fn a_virtual_index_copies_objects_into_its_flat_tree() {
+    let root = tempfile::tempdir().unwrap();
+    let hash = "0123456789abcdef0123456789abcdef01234567";
+    write_file(root.path(), &format!("assets/objects/01/{hash}"), ABC);
+    let index = AssetIndexDocument {
+        objects: BTreeMap::from([(
+            "minecraft/sounds/a.ogg".to_owned(),
+            AssetObject {
+                hash: hash.into(),
+                size: ABC.len() as u64,
+            },
+        )]),
+        virtual_map: true,
+        ..AssetIndexDocument::default()
+    };
+
+    let failures = materialise_flat(root.path(), "legacy", &index);
+
+    assert!(failures.is_empty(), "{failures:?}");
+    let flat = root
+        .path()
+        .join("assets/virtual/legacy/minecraft/sounds/a.ogg");
+    assert_eq!(fs::read(&flat).expect("flat copy"), ABC);
+}
+
+#[test]
+fn a_map_to_resources_index_copies_into_resources() {
+    let root = tempfile::tempdir().unwrap();
+    let hash = "0123456789abcdef0123456789abcdef01234567";
+    write_file(root.path(), &format!("assets/objects/01/{hash}"), ABC);
+    let index = AssetIndexDocument {
+        objects: BTreeMap::from([(
+            "sound/a.ogg".to_owned(),
+            AssetObject {
+                hash: hash.into(),
+                size: ABC.len() as u64,
+            },
+        )]),
+        map_to_resources: true,
+        ..AssetIndexDocument::default()
+    };
+
+    materialise_flat(root.path(), "pre-1.6", &index);
+
+    let flat = root.path().join("resources").join("sound").join("a.ogg");
+    assert_eq!(fs::read(&flat).expect("flat copy"), ABC);
+}
+
+#[test]
+fn a_modern_index_asks_for_no_flat_tree() {
+    let root = tempfile::tempdir().unwrap();
+    let index = AssetIndexDocument::default();
+
+    assert!(materialise_flat(root.path(), "34", &index).is_empty());
+    assert!(!root.path().join("assets/virtual").exists());
+    assert!(!root.path().join("resources").exists());
+}
+
+#[test]
+fn a_flat_tree_is_not_rebuilt_when_it_is_current() {
+    let root = tempfile::tempdir().unwrap();
+    let hash = "0123456789abcdef0123456789abcdef01234567";
+    write_file(root.path(), &format!("assets/objects/01/{hash}"), ABC);
+    write_file(root.path(), "assets/virtual/legacy/a.ogg", ABC);
+    let index = AssetIndexDocument {
+        objects: BTreeMap::from([(
+            "a.ogg".to_owned(),
+            AssetObject {
+                hash: hash.into(),
+                size: ABC.len() as u64,
+            },
+        )]),
+        virtual_map: true,
+        ..AssetIndexDocument::default()
+    };
+
+    materialise_flat(root.path(), "legacy", &index);
+
+    // The destination is untouched: it already had the right size, so a
+    // second pass did not need to read the object at all.
+    let flat = root.path().join("assets/virtual/legacy/a.ogg");
+    assert_eq!(fs::read(&flat).expect("flat copy"), ABC);
 }

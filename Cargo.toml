@@ -9,6 +9,7 @@ members = [
   "apps/core/domain",
   "apps/core/install",
   "apps/core/launch",
+  "apps/core/loader",
   "apps/core/mod_metadata",
   "apps/core/network",
   "apps/core/observability",
@@ -38,7 +39,7 @@ repository = "https://github.com/Axolotl-Launcher/Axolotl-2.0"
 license = "GPL-3.0-only"
 
 [workspace.dependencies]
-dirs = "5"
+dirs = "6"
 # gpui-kit 0.10.0 一揽子锁定 GPUI 家族（gpui-pre 0.3.12 快照、gpui-base、
 # gpui-component 与 Lucide 资源），是 Zed crates/gpui 的长期跟进快照。
 # 升级时须整体升级 gpui-kit，不要单独改 gpui-pre。
@@ -110,6 +111,7 @@ axlauncher_domain = { path = "apps/core/domain" }
 axlauncher_frontend = { path = "apps/frontend" }
 axlauncher_install = { path = "apps/core/install" }
 axlauncher_launch = { path = "apps/core/launch" }
+axlauncher_loader = { path = "apps/core/loader" }
 axlauncher_mod_metadata = { path = "apps/core/mod_metadata" }
 axlauncher_network = { path = "apps/core/network" }
 axlauncher_observability = { path = "apps/core/observability" }

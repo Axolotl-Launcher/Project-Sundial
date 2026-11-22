@@ -52,6 +52,16 @@ variant, and are read for discovery when reusing them.
 `launcher_profiles_microsoft_store.json` appears nowhere in the reference: it is
 a Store-launcher detail that no launch path depends on.
 
+**Confirmed the hard way (26.3, 2026-11-22).** Launching 26.3 on the Java 21
+that happened to be first on `PATH` produced
+`UnsupportedClassVersionError: class file version 69.0 … only recognizes up to
+65.0`, because 26.x is compiled for Java 25. The version document states the
+requirement, so a launcher that ignores it makes the user's environment the
+deciding factor and reports the failure in the JVM's vocabulary rather than as
+"this version needs Java 25". A JDK's `release` file beside `bin/` gives the
+major version without starting a process, which is what discovery needs when it
+must choose among several installed runtimes.
+
 ## 5. 1.19: split natives — the change that is easiest to get wrong
 
 Native JARs are now declared as ordinary four-part Maven coordinates
@@ -73,6 +83,14 @@ The reference picks the classifier without a version test, and caches modern
 natives by SHA-1 rather than substituting the Maven artifact — a substitution
 could pair a different classifier with the same base name and produce an
 ABI-incompatible set of libraries.
+
+**Confirmed the hard way (26.3, 2026-11-22).** A build that extracted the
+classifier jar but left it off the classpath started the game, which then died
+inside LWJGL with `Failed to locate library: lwjgl.dll` and the message's own
+advice: add the JAR that contains the shared library to the classpath. The
+natives were present on disk and still unusable, because LWJGL looks for its
+shared library through the classifier jar first. Extraction and classpath are
+not alternatives for any version after 1.19 — both are load-bearing.
 
 ## 6. 26.x: year-based versions and Java 25
 

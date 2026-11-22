@@ -28,11 +28,11 @@ fn reads_a_manifest_and_uses_the_directory_as_id() {
 
     assert_eq!(
         discover(temp.path()).expect("discovery"),
-        vec![Instance {
-            id: "survival".into(),
-            name: "Survival".into(),
-            game_version: Some("1.21".into()),
-            loader: Some("fabric".into()),
+        vec![{
+            let mut instance = Instance::new("survival", "Survival");
+            instance.game_version = Some("1.21".into());
+            instance.loader = Some("fabric".into());
+            instance
         }]
     );
 }
@@ -96,12 +96,10 @@ fn a_manifest_without_a_name_is_rejected() {
 }
 
 fn sample(id: &str, name: &str) -> Instance {
-    Instance {
-        id: id.into(),
-        name: name.into(),
-        game_version: Some("1.21".into()),
-        loader: Some("fabric".into()),
-    }
+    let mut instance = Instance::new(id, name);
+    instance.game_version = Some("1.21".into());
+    instance.loader = Some("fabric".into());
+    instance
 }
 
 #[test]
@@ -210,4 +208,53 @@ fn save_refuses_an_unreadable_manifest_and_leaves_it_alone() {
 
     assert!(matches!(error, InstanceError::RefusedUnreadable { .. }));
     assert_eq!(fs::read(&manifest).expect("after"), before);
+}
+
+#[test]
+fn a_manifest_from_the_earlier_build_still_parses() {
+    let temp = TempRoot::new();
+    write_manifest(
+        temp.path(),
+        "old",
+        r#"{"schema_version":1,"name":"Old","game_version":"1.20.1"}"#,
+    );
+
+    let found = discover(temp.path()).expect("discovery");
+    let instance = &found[0];
+
+    assert_eq!(instance.name, "Old");
+    assert_eq!(instance.install_stage, InstallStage::NotInstalled);
+    assert_eq!(instance.created, 0);
+    assert!(instance.link.is_none());
+}
+
+#[test]
+fn the_kept_fields_round_trip_through_a_save() {
+    let temp = TempRoot::new();
+    let mut instance = sample("kept", "Kept");
+    instance.created = 1_700_000_000_000;
+    instance.modified = 1_700_000_001_000;
+    instance.last_played = Some(1_700_000_002_000);
+    instance.submitted_time_played = 3_600_000;
+    instance.recent_time_played = 60_000;
+    instance.install_stage = InstallStage::Installed;
+    instance.icon_path = Some("icon.png".into());
+    instance.link = Some(InstanceLink {
+        kind: "modrinth_project".into(),
+        project_id: Some("abc".into()),
+        version_id: None,
+    });
+
+    create(temp.path(), &instance).expect("create");
+    let found = discover(temp.path()).expect("discovery");
+
+    assert_eq!(found, vec![instance]);
+}
+
+#[test]
+fn a_ready_instance_is_told_apart_from_a_half_installed_one() {
+    assert!(InstallStage::Installed.is_ready());
+    assert!(InstallStage::PackInstalled.is_ready());
+    assert!(!InstallStage::MinecraftInstalling.is_ready());
+    assert!(!InstallStage::NotInstalled.is_ready());
 }

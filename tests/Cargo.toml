@@ -14,8 +14,14 @@ publish = false
 [lib]
 path = "src/lib.rs"
 
+[[test]]
+name = "real_manifest"
+path = "apps/core/launch/tests/real_manifest.rs"
+
 [dev-dependencies]
 axlauncher_content = { workspace = true }
+axlauncher_install = { workspace = true }
+axlauncher_launch = { workspace = true }
 axlauncher_spi = { workspace = true }
 axlauncher_state = { workspace = true }
 serde = { workspace = true }

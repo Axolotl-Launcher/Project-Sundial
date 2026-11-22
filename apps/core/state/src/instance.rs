@@ -18,7 +18,53 @@ pub const INSTANCE_SCHEMA_VERSION: u32 = 1;
 
 const MANIFEST: &str = "instance.json";
 
+/// How far an instance's install has got.
+///
+/// A half-installed instance must be distinguishable from a ready one, or the
+/// launcher offers to start a game whose files are still arriving.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InstallStage {
+    /// Never installed.
+    #[default]
+    NotInstalled,
+    /// The game's own files are arriving.
+    MinecraftInstalling,
+    /// The game is ready and no content pack has been applied.
+    Installed,
+    /// A content pack is being applied on top of a ready game.
+    PackInstalling,
+    /// The game and its content pack are ready.
+    PackInstalled,
+}
+
+impl InstallStage {
+    /// Whether the instance's files are complete enough to launch.
+    pub fn is_ready(self) -> bool {
+        matches!(self, Self::Installed | Self::PackInstalled)
+    }
+}
+
+/// Where an instance came from, when it was not created here.
+///
+/// Only the identity of the external project is kept: the server, hosting and
+/// shared-instance columns the reference also has belong to features this
+/// project does not have, and a field nothing reads is a field that rots.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstanceLink {
+    /// The kind of project, in the reference's vocabulary (`modrinth_project`).
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_id: Option<String>,
+}
+
 /// The on-disk manifest, one per instance directory.
+///
+/// Every field the launcher can grow without is optional with a default, so a
+/// document written by an earlier build still parses. The field names follow
+/// the reference's columns, so an external converter is a direct map.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceManifest {
     pub schema_version: u32,
@@ -27,6 +73,27 @@ pub struct InstanceManifest {
     pub game_version: Option<String>,
     #[serde(default)]
     pub loader: Option<String>,
+    /// An icon's path, relative to the instance directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_path: Option<String>,
+    /// Unix milliseconds.
+    #[serde(default)]
+    pub created: i64,
+    #[serde(default)]
+    pub modified: i64,
+    /// Unix milliseconds; absent until the instance is first played.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_played: Option<i64>,
+    /// Total milliseconds played, as the reference counts it.
+    #[serde(default)]
+    pub submitted_time_played: i64,
+    /// Milliseconds played since the last submission to the total.
+    #[serde(default)]
+    pub recent_time_played: i64,
+    #[serde(default)]
+    pub install_stage: InstallStage,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<InstanceLink>,
 }
 
 /// One instance as the launcher shows it.
@@ -37,6 +104,34 @@ pub struct Instance {
     pub name: String,
     pub game_version: Option<String>,
     pub loader: Option<String>,
+    pub icon_path: Option<String>,
+    pub created: i64,
+    pub modified: i64,
+    pub last_played: Option<i64>,
+    pub submitted_time_played: i64,
+    pub recent_time_played: i64,
+    pub install_stage: InstallStage,
+    pub link: Option<InstanceLink>,
+}
+
+impl Instance {
+    /// An instance with nothing but the fields `create` needs filled in.
+    pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            game_version: None,
+            loader: None,
+            icon_path: None,
+            created: 0,
+            modified: 0,
+            last_played: None,
+            submitted_time_played: 0,
+            recent_time_played: 0,
+            install_stage: InstallStage::default(),
+            link: None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -153,6 +248,14 @@ fn read_manifest(path: &Path, id: String) -> Result<Instance, DiscoveryError> {
         name: manifest.name,
         game_version: manifest.game_version,
         loader: manifest.loader,
+        icon_path: manifest.icon_path,
+        created: manifest.created,
+        modified: manifest.modified,
+        last_played: manifest.last_played,
+        submitted_time_played: manifest.submitted_time_played,
+        recent_time_played: manifest.recent_time_played,
+        install_stage: manifest.install_stage,
+        link: manifest.link,
     })
 }
 
@@ -286,6 +389,14 @@ fn write_manifest(path: &Path, instance: &Instance) -> Result<(), InstanceError>
         name: instance.name.clone(),
         game_version: instance.game_version.clone(),
         loader: instance.loader.clone(),
+        icon_path: instance.icon_path.clone(),
+        created: instance.created,
+        modified: instance.modified,
+        last_played: instance.last_played,
+        submitted_time_played: instance.submitted_time_played,
+        recent_time_played: instance.recent_time_played,
+        install_stage: instance.install_stage,
+        link: instance.link.clone(),
     };
     let bytes = serde_json::to_vec_pretty(&manifest).expect("instance manifest serializes");
     write_atomic(path, &bytes).map_err(|source| InstanceError::Write {
@@ -323,6 +434,14 @@ fn normalise(instance: &Instance) -> Result<Instance, InstanceError> {
         name: name.to_string(),
         game_version: trimmed(instance.game_version.as_deref()),
         loader: trimmed(instance.loader.as_deref()),
+        icon_path: instance.icon_path.clone(),
+        created: instance.created,
+        modified: instance.modified,
+        last_played: instance.last_played,
+        submitted_time_played: instance.submitted_time_played,
+        recent_time_played: instance.recent_time_played,
+        install_stage: instance.install_stage,
+        link: instance.link.clone(),
     })
 }
 
@@ -334,4 +453,5 @@ fn trimmed(value: Option<&str>) -> Option<String> {
 }
 
 #[cfg(test)]
+#[path = "../../../../tests/apps/core/state/src/instance/tests.rs"]
 mod tests;

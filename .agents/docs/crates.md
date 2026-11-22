@@ -15,8 +15,10 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 | Launcher data paths, blob storage and atomic writes | `storage` owns `DataDir`, `RootedStorage` and `write_atomic`. | Use `DataDir` for launcher paths and `Storage` for blob reads and writes. Document owners that need atomic replacement use `write_atomic`. The `Storage::write` contract permits ordinary writes. |
 | Settings and instance manifests | `state` discovers, reads, creates and saves its own documents. It handles schema checks and quarantine. | Use `load_settings`, `save_settings`, `discover`, `create` or `save`. Use `StateStore` for the separate ID-based `InstanceRecord` API. |
 | Installation files and asset indexes | `install` checks for missing libraries and assets, reads the asset index and writes fetched bytes. | Use `prepare::prepare` for the implemented preparation flow. Inject `Network` for downloads and reuse `network::verify` for digest checks. The SPI `Installer` accepts an `InstallPlan`. Its current `StepInstaller` implementation is a stub. |
+| Mod loader metadata services | `loader` lists versions and resolves version profiles through an injected `Network`. | Use the `ModLoader` SPI port. The `install` crate places the resulting profile and handles installation processors. |
 | Game version documents, classpath, JARs and natives | `launch` reads version files and JARs, evaluates launch rules and extracts natives. | Use `flow::launch` for prepared installations. Installation planning reuses `version::Version`, the library model and `rules::Target` to decide what to download. |
-| Java discovery and child processes | `launch` provides `SystemJava` and `ProcessLauncher`. | Resolve the runtime through `Java::executable`. Pass the prepared `LaunchCommand` to `Launcher::launch`. |
+| Installation processors | `install` plans and runs the Java processors declared in a version profile. | Use `install::processors` for installation steps. Use `Launcher` to start a game. |
+| Java discovery and game processes | `launch` provides `SystemJava` and `ProcessLauncher`. | Resolve the runtime through `Java::executable`. Pass the prepared `LaunchCommand` to `Launcher::launch`. |
 | Event output | `telemetry` implements the event sink. | Call `Telemetry::record(Event)`. Command metrics belong to `observability`. |
 | Desktop UI and startup environment | `ui` directly depends on gpui-kit. `frontend` chooses the application data root and wires the window. | Frontend code imports components through `axlauncher_ui` and calls system APIs through `core`. Platform shells call `frontend::run`. |
 
@@ -33,6 +35,7 @@ view handle the result.
 | `axlauncher_spi` | [spi](../../apps/core/spi/src/lib.rs) | Provider traits, requests, results and errors shared across boundaries. Signatures use domain or SPI types. |
 | `axlauncher_content` | [content](../../apps/core/content/src/lib.rs) | The installable content catalogue. `StaticProvider` implements `ContentProvider::list` and returns `ContentSummary` records. |
 | `axlauncher_resources` | [resources](../../apps/core/resources/src/lib.rs) | User-managed resource records, currently `Favorite`. Downloadable game assets belong to install. |
+| `axlauncher_loader` | [loader](../../apps/core/loader/src/lib.rs) | `ModLoader` providers that list versions and resolve profiles, currently Fabric and Quilt. |
 | `axlauncher_mod_metadata` | [mod_metadata](../../apps/core/mod_metadata/src/lib.rs) | Mod and loader metadata, currently the `Loader` enum. Game launch rules belong to launch. |
 | `axlauncher_scheduler` | [scheduler](../../apps/core/scheduler/src/lib.rs) | Background work scheduling policy, currently priority `Band`. The originating system owns the work itself. |
 | `axlauncher_observability` | [observability](../../apps/core/observability/src/lib.rs) | Command metrics and diagnostic records, currently `CommandMetric`. Telemetry owns event output. |
