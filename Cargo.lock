@@ -662,6 +662,8 @@ dependencies = [
  "axlauncher_content",
  "axlauncher_spi",
  "axlauncher_state",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
