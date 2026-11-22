@@ -8,6 +8,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use axlauncher_launch::version::{Artifact, LibraryDownloads, OsRule, Rule};
 use futures::executor::block_on;
 
+use crate::test_tempfile as tempfile;
+
 /// SHA-1 of `abc`, as `sha1sum` reports it.
 const ABC_SHA1: &str = "a9993e364706816aba3e25717850c26c9cd0d89d";
 /// SHA-1 of `axlauncher`, as `sha1sum` reports it.

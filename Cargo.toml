@@ -236,10 +236,9 @@ opt-level = "s"
 strip = true
 lto = false
 
-# A CI profile that ignores incremental compilation so caches stay meaningful.
+# CI tests skip optimization and debug information.
 [profile.ci]
 inherits = "release"
 opt-level = 0
 debug = false
 lto = "off"
-incremental = false

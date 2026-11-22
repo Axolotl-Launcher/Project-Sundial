@@ -10,6 +10,10 @@ pub mod processors;
 
 use axlauncher_spi::{InstallError, InstallPlan, Installer};
 
+// Cargo Shear scans imports inside the crate but misses the mirrored tests.
+#[cfg(test)]
+use tempfile as test_tempfile;
+
 /// Runs each planned step in order, stopping at the first failure.
 #[derive(Debug, Default)]
 pub struct StepInstaller;

@@ -6,6 +6,8 @@ use axlauncher_spi::Network;
 use std::collections::BTreeMap;
 use std::fs;
 
+use crate::test_tempfile as tempfile;
+
 struct FakeNetwork {
     bodies: BTreeMap<String, Vec<u8>>,
 }
