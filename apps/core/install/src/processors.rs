@@ -447,4 +447,5 @@ fn read_main_class(jar: &Path) -> Result<String, ProcessorError> {
 }
 
 #[cfg(test)]
+#[path = "../../../../tests/apps/core/install/src/processors/tests.rs"]
 mod tests;

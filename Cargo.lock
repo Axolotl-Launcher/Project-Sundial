@@ -661,6 +661,7 @@ name = "axlauncher_policy_tests"
 version = "0.1.0"
 dependencies = [
  "axlauncher_content",
+ "axlauncher_launch",
  "axlauncher_spi",
  "axlauncher_state",
 ]

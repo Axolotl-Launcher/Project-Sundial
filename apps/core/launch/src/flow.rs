@@ -278,4 +278,5 @@ fn assemble(
 }
 
 #[cfg(test)]
+#[path = "../../../../tests/apps/core/launch/src/flow/tests.rs"]
 mod tests;

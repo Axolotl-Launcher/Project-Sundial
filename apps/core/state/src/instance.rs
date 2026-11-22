@@ -453,4 +453,5 @@ fn trimmed(value: Option<&str>) -> Option<String> {
 }
 
 #[cfg(test)]
+#[path = "../../../../tests/apps/core/state/src/instance/tests.rs"]
 mod tests;

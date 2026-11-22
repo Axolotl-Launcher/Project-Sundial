@@ -244,4 +244,5 @@ fn record_skipped(skipped: &mut BTreeSet<String>, name: String) {
 }
 
 #[cfg(test)]
+#[path = "../../../../tests/apps/core/launch/src/natives/tests.rs"]
 mod tests;

@@ -305,4 +305,5 @@ fn reason(error: FetchError) -> String {
 }
 
 #[cfg(test)]
+#[path = "../../../../tests/apps/core/install/src/assets/tests.rs"]
 mod tests;
