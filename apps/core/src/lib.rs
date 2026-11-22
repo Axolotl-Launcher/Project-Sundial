@@ -7,6 +7,8 @@
 //! than by directory convention: a system can only call what it declares.
 //! Applications depend on `axlauncher_core` and never on a system directly.
 
+pub mod desktop;
+
 pub use axlauncher_content as content;
 pub use axlauncher_domain as domain;
 pub use axlauncher_install as install;

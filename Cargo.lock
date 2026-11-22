@@ -574,6 +574,7 @@ dependencies = [
  "axlauncher_observability",
  "axlauncher_resources",
  "axlauncher_scheduler",
+ "axlauncher_spi",
  "axlauncher_state",
  "axlauncher_storage",
  "axlauncher_telemetry",
