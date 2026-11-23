@@ -24,6 +24,8 @@ use serde::Deserialize;
 
 use crate::prepare::Progress;
 
+mod record;
+
 /// The index of every runtime Mojang publishes.
 const RUNTIME_INDEX: &str = "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 
@@ -152,13 +154,27 @@ struct RuntimeManifest {
 }
 
 #[derive(Deserialize)]
-struct RuntimeFile {
+pub(super) struct RuntimeFile {
     #[serde(rename = "type")]
     kind: String,
     #[serde(default)]
     executable: bool,
     #[serde(default)]
     downloads: Option<Downloads>,
+}
+
+impl RuntimeFile {
+    /// The digest the file must have on disk, whichever form the manifest used.
+    ///
+    /// `raw` is the decompressed file, and it is what lands on disk whether or
+    /// not the object was shipped packed, so it is the digest to check.
+    pub(super) fn digest(&self) -> Option<&str> {
+        self.downloads
+            .as_ref()?
+            .raw
+            .as_ref()
+            .map(|raw| raw.sha1.as_str())
+    }
 }
 
 #[derive(Deserialize)]
@@ -175,8 +191,8 @@ struct Object {
     sha1: String,
 }
 
-/// A runtime for `major` is fetched once and reused: an existing executable
-/// under the runtime directory is accepted as the installed answer.
+/// A runtime for `major` is fetched once and reused: a directory carrying this
+/// launcher's completion marker is accepted as the installed answer.
 pub async fn install(
     network: &impl Network,
     runtimes: &Path,
@@ -196,25 +212,17 @@ pub async fn install(
 
     let directory = runtimes.join(component);
     let java = executable_in(&directory, platform);
-    // An executable alone does not prove the runtime is complete: an
-    // interrupted download can leave `bin/java` in place with `lib/` missing.
-    // Every JDK ships the `release` file beside `bin/`, so it is the marker a
-    // finished install leaves behind.
-    if java.is_file() && home_of(&directory, platform).join("release").is_file() {
+    // The record is checked before anything is fetched: a complete runtime is
+    // answered without a network round trip, which is what makes a launch work
+    // offline once its runtime is in place.
+    if let Some(recorded) = record::read(&directory)
+        && record::matches(&directory, &recorded)
+    {
         return Ok(installed(java, &entry.version.name, major, component));
     }
 
-    let manifest_bytes = fetch(network, &entry.manifest.url).await?;
-    if !verify(&manifest_bytes, &entry.manifest.sha1) {
-        return Err(RuntimeError::Verify {
-            path: entry.manifest.url.clone(),
-        });
-    }
-    let manifest: RuntimeManifest =
-        serde_json::from_slice(&manifest_bytes).map_err(|error| RuntimeError::Malformed {
-            reason: error.to_string(),
-        })?;
-
+    let manifest = runtime_manifest(network, &entry.manifest).await?;
+    let recorded = record::from_manifest(&manifest.files);
     let files: Vec<(String, RuntimeFile)> = manifest.files.into_iter().collect();
     let total = files.len();
     report(Progress::Downloading {
@@ -246,8 +254,34 @@ pub async fn install(
             reason: format!("the runtime has no {}", java.display()),
         });
     }
+    // Written only now, after every file landed: an interrupted install leaves
+    // no record, so the next attempt downloads again instead of accepting it.
+    let recorded = serde_json::to_vec(&recorded).map_err(|error| RuntimeError::Malformed {
+        reason: error.to_string(),
+    })?;
+    let marker = record::marker_path(&directory);
+    write_atomic(&marker, &recorded).map_err(|source| RuntimeError::Write {
+        path: marker,
+        source,
+    })?;
     report(Progress::Finishing);
     Ok(installed(java, &entry.version.name, major, component))
+}
+
+/// Fetches and verifies the manifest a runtime entry names.
+async fn runtime_manifest(
+    network: &impl Network,
+    reference: &ManifestRef,
+) -> Result<RuntimeManifest, RuntimeError> {
+    let bytes = fetch(network, &reference.url).await?;
+    if !verify(&bytes, &reference.sha1) {
+        return Err(RuntimeError::Verify {
+            path: reference.url.clone(),
+        });
+    }
+    serde_json::from_slice(&bytes).map_err(|error| RuntimeError::Malformed {
+        reason: error.to_string(),
+    })
 }
 
 fn installed(java: PathBuf, full_version: &str, major: u32, component: &str) -> InstalledRuntime {
@@ -394,7 +428,7 @@ fn make_executable(path: &Path) -> Result<(), RuntimeError> {
 }
 
 /// A manifest path, checked to stay under the runtime directory.
-fn safe_join(root: &Path, name: &str) -> Option<PathBuf> {
+pub(super) fn safe_join(root: &Path, name: &str) -> Option<PathBuf> {
     let mut relative = PathBuf::new();
     for component in Path::new(name).components() {
         match component {

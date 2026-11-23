@@ -180,8 +180,36 @@ fn a_runtime_lands_with_verified_files_and_an_executable_java() {
     let _ = fs::remove_dir_all(&root);
 }
 
+/// Installs once, so later assertions start from a tree this launcher made.
+fn install_once(platform: &str, root: &Path) -> (PathBuf, BTreeMap<String, Vec<u8>>) {
+    let (_, responses) = fixture(platform);
+    let installed = block_on(install(
+        &FakeNetwork {
+            responses: responses.clone(),
+        },
+        root,
+        21,
+        |_| {},
+    ))
+    .expect("install");
+    let _ = installed;
+    (root.join("java-runtime-delta"), responses)
+}
+
+/// The index alone: a second manifest or object fetch fails the call.
+fn index_only(responses: &BTreeMap<String, Vec<u8>>) -> FakeNetwork {
+    FakeNetwork {
+        responses: BTreeMap::from([(
+            RUNTIME_INDEX.to_string(),
+            responses.get(RUNTIME_INDEX).cloned().expect("index"),
+        )]),
+    }
+}
+
+/// A killed install leaves no record, so a tree that looks finished is rebuilt
+/// rather than trusted.
 #[test]
-fn a_runtime_already_in_place_is_not_downloaded_again() {
+fn a_runtime_without_the_record_is_downloaded_again() {
     let Some(platform) = platform() else {
         return;
     };
@@ -191,28 +219,85 @@ fn a_runtime_already_in_place_is_not_downloaded_again() {
     let home = home_of(&directory, platform);
     let java = home.join("bin").join(JAVA_BIN);
     fs::create_dir_all(java.parent().expect("parent")).expect("dir");
-    fs::write(&java, RAW_BODY).expect("seed");
-    // The runtime counts as installed only with the release file a finished JDK
-    // ships beside `bin/`.
+    fs::write(&java, b"truncated").expect("seed");
     fs::write(home.join("release"), b"JAVA_VERSION=\"21.0.7\"\n").expect("release");
 
-    // Only the index is answered: a second manifest or object fetch fails.
-    let mut index_only = BTreeMap::new();
-    index_only.insert(
-        RUNTIME_INDEX.to_string(),
-        responses.get(RUNTIME_INDEX).cloned().expect("index"),
-    );
-    let installed = block_on(install(
-        &FakeNetwork {
-            responses: index_only,
-        },
-        &root,
-        21,
-        |_| {},
-    ))
-    .expect("install");
+    let installed =
+        block_on(install(&FakeNetwork { responses }, &root, 21, |_| {})).expect("install");
 
-    assert_eq!(installed.java, java);
+    assert_eq!(fs::read(&installed.java).expect("java"), RAW_BODY);
+    assert!(
+        record::marker_path(&directory).is_file(),
+        "the record is written"
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_complete_runtime_is_reused_without_a_network_round_trip() {
+    let Some(platform) = platform() else {
+        return;
+    };
+    let root = temp();
+    let (directory, responses) = install_once(platform, &root);
+
+    // Every fetch but the index fails, so a reuse that needs the manifest would
+    // error instead of returning.
+    let installed = block_on(install(&index_only(&responses), &root, 21, |_| {})).expect("reuse");
+
+    assert_eq!(
+        installed.java,
+        directory
+            .join(home_of(Path::new(""), platform))
+            .join("bin")
+            .join(JAVA_BIN)
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// A file that was there when the record was written and is gone now makes the
+/// runtime unusable, so it is rebuilt rather than reported as installed.
+#[test]
+fn a_runtime_that_lost_a_file_is_downloaded_again() {
+    let Some(platform) = platform() else {
+        return;
+    };
+    let root = temp();
+    let (directory, responses) = install_once(platform, &root);
+    let home = home_of(&directory, platform);
+    fs::remove_file(home.join("lib/packed.txt")).expect("remove");
+
+    let installed =
+        block_on(install(&FakeNetwork { responses }, &root, 21, |_| {})).expect("install");
+
+    assert_eq!(
+        fs::read(home.join("lib/packed.txt")).expect("restored"),
+        PLAIN_BODY
+    );
+    assert!(installed.java.is_file());
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// The record names a digest per file, so a file altered in place is not the
+/// one that was installed.
+#[test]
+fn a_runtime_whose_file_changed_is_downloaded_again() {
+    let Some(platform) = platform() else {
+        return;
+    };
+    let root = temp();
+    let (directory, responses) = install_once(platform, &root);
+    let home = home_of(&directory, platform);
+    fs::write(home.join("lib/plain.txt"), b"tampered").expect("tamper");
+
+    let installed =
+        block_on(install(&FakeNetwork { responses }, &root, 21, |_| {})).expect("install");
+
+    assert_eq!(
+        fs::read(home.join("lib/plain.txt")).expect("restored"),
+        PLAIN_BODY
+    );
+    assert!(installed.java.is_file());
     let _ = fs::remove_dir_all(&root);
 }
 
