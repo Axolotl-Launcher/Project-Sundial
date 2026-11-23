@@ -43,12 +43,21 @@ impl Installation {
     }
 }
 
+/// Whether a profile's loader names no loader, whatever its spelling.
+///
+/// A hand-edited or imported marker can spell the kind with other case or
+/// surrounding space. Every action must agree on which profiles that describes,
+/// or a profile is accepted in one place and refused in another.
+pub(crate) fn is_vanilla(kind: &str) -> bool {
+    kind.trim().eq_ignore_ascii_case("vanilla")
+}
+
 /// An original game version can be prepared without a loader installer.
 pub(crate) fn vanilla_version(game: &Game) -> Option<&str> {
     if game
         .loader
         .as_ref()
-        .is_some_and(|loader| loader.kind != "vanilla")
+        .is_some_and(|loader| !is_vanilla(&loader.kind))
     {
         return None;
     }
@@ -141,8 +150,7 @@ fn download_failure(prepared: &Prepared) -> String {
 /// fail at the end of a download. The name is read through the SPI's own parser,
 /// so a spelling the port accepts is not refused here.
 pub(crate) fn supported_loader(kind: &str) -> bool {
-    let kind = kind.trim();
-    kind.eq_ignore_ascii_case("vanilla")
+    is_vanilla(kind)
         || matches!(
             LoaderKind::parse(kind),
             Some(LoaderKind::Fabric | LoaderKind::Quilt | LoaderKind::Forge | LoaderKind::NeoForge)
@@ -241,9 +249,7 @@ async fn download_loader(
                 &network,
                 &axlauncher_core::storage::DataDir::new(data_root).java_versions(),
                 required,
-                |stage| {
-                    let _ = progress.send(stage);
-                },
+                |stage| report_progress(&progress, stage),
             )
             .await
             .map_err(|error| error.to_string())?;
@@ -358,19 +364,24 @@ async fn install_with(
         target: &Target::host(),
         concurrency,
     }
-    .install(|stage| {
-        // A loader install downloads the whole game: thousands of assets and
-        // dozens of libraries. Every tick would rebuild the panel, so this
-        // collapses them the same way the vanilla path does.
-        if let Progress::Downloading { processed, total } = stage
-            && processed != total
-            && !processed.is_multiple_of((total / 100).max(1))
-        {
-            return;
-        }
-        let _ = progress.send(stage);
-    })
+    .install(|stage| report_progress(progress, stage))
     .await
+}
+
+/// Reports a stage the panel can afford to rebuild for.
+///
+/// An install downloads thousands of assets and dozens of libraries, and a
+/// runtime is several hundred files. Every tick rebuilds the panel, so the
+/// per-file counts are collapsed to about a hundred while the named phases and
+/// the final count always reach it.
+fn report_progress(progress: &watch::Sender<Progress>, stage: Progress) {
+    if let Progress::Downloading { processed, total } = stage
+        && processed != total
+        && !processed.is_multiple_of((total / 100).max(1))
+    {
+        return;
+    }
+    let _ = progress.send(stage);
 }
 
 /// A runtime the launcher installed becomes the user's choice for its major,
@@ -380,11 +391,16 @@ fn record_runtime(data_root: &Path, installed: &runtime::InstalledRuntime) {
         return;
     };
     let mut document = loaded.javas;
-    document.choose(ChosenJava {
-        major_version: installed.major,
-        full_version: installed.full_version.clone(),
-        architecture: std::env::consts::ARCH.to_string(),
-        path: installed.java.display().to_string(),
-    });
+    // `chosen` is the user's intent; a runtime this install fetched is only
+    // what provides a still-unanswered major. Replacing a choice the user made
+    // would silently override their configuration.
+    if document.chosen_for(installed.major).is_none() {
+        document.choose(ChosenJava {
+            major_version: installed.major,
+            full_version: installed.full_version.clone(),
+            architecture: std::env::consts::ARCH.to_string(),
+            path: installed.java.display().to_string(),
+        });
+    }
     let _ = javas::save(data_root, &document);
 }

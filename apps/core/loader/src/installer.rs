@@ -72,12 +72,16 @@ pub(crate) fn parse(
         .as_object()
         .cloned()
         .ok_or_else(|| malformed(kind, "the installer's version profile is not an object"))?;
-    let version_id = object
+    let stated = object
         .get("id")
         .and_then(Value::as_str)
         .or_else(|| install.get("version").and_then(Value::as_str))
-        .map(str::to_string)
         .ok_or_else(|| malformed(kind, "the installer names no version id"))?;
+    // Forge and NeoForge's 1.20.1 line both call their profile
+    // `1.20.1-forge-<build>`, so the installer's own id is not unique across
+    // loaders. It becomes a directory that an install of the other loader would
+    // overwrite; naming the loader keeps every provider's ids its own.
+    let version_id = managed_id(kind, stated);
 
     let inherits = object
         .get("inheritsFrom")
@@ -89,6 +93,10 @@ pub(crate) fn parse(
             format!("the installer extends {inherits:?}, not Minecraft {game_version}"),
         ));
     }
+
+    // The document carries the id a launch asks for, so it names the same
+    // managed directory the caller writes.
+    object.insert("id".into(), Value::String(version_id.clone()));
 
     fold_processors(&mut object, &install);
     fold_libraries(&mut object, &install);
@@ -102,6 +110,20 @@ pub(crate) fn parse(
         document,
         files,
     })
+}
+
+/// The version id this build manages for one installer's stated id.
+///
+/// NeoForge's 1.20.1 line still ships installers whose profile calls itself
+/// `1.20.1-forge-<build>` — the same shape Forge publishes — so the id becomes a
+/// directory that an install of the other loader overwrites. Naming the loader
+/// keeps the two apart; every other id is kept as stated, so reinstalling a
+/// build reaches the same directory.
+fn managed_id(kind: LoaderKind, stated: &str) -> String {
+    if kind == LoaderKind::NeoForge && stated.contains("-forge-") && !stated.contains("neoforge") {
+        return stated.replace("-forge-", "-neoforge-");
+    }
+    stated.to_string()
 }
 
 /// Copies the installer's processors onto the profile.

@@ -65,15 +65,13 @@ impl Java for SystemJava {
         // Discovery looks for the console executable: it is the one every JDK
         // ships. The requested mode is reached through its sibling afterwards,
         // because a JDK keeps both on Windows.
+        // A document that states no major gets the user's own default: the
+        // managed runtimes are only an answer when a major is known, because
+        // which of them fits is exactly the question this call cannot ask.
         let candidates = std::iter::once(preferred)
             .flatten()
             .filter(|path| path.is_file())
             .map(Path::to_path_buf)
-            .chain(
-                self.runtime_roots
-                    .iter()
-                    .find_map(|root| managed_executable(root, JavaMode::Console)),
-            )
             .chain(
                 self.java_home
                     .as_deref()

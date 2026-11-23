@@ -80,17 +80,20 @@ pub(crate) fn install_key(game: &Game) -> Option<String> {
     let Some(loader) = game.loader.as_ref() else {
         return Some(game.minecraft.clone());
     };
-    if loader.kind == "vanilla" {
+    if crate::installations::is_vanilla(&loader.kind) {
         return Some(game.minecraft.clone());
     }
     if !crate::installations::supported_loader(&loader.kind) {
         return None;
     }
+    // Two markers that name the same loader in different case must share one
+    // slot, or installing one leaves the other looking uninstalled forever.
+    let kind = axlauncher_core::spi::LoaderKind::parse(&loader.kind)?.as_str();
     Some(match loader.version.as_deref() {
         Some(version) if !version.trim().is_empty() => {
-            format!("{}:{}:{}", game.minecraft, loader.kind, version.trim())
+            format!("{}:{}:{}", game.minecraft, kind, version.trim())
         }
-        _ => format!("{}:{}", game.minecraft, loader.kind),
+        _ => format!("{}:{}", game.minecraft, kind),
     })
 }
 

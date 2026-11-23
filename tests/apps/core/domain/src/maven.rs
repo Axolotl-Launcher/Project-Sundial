@@ -34,3 +34,13 @@ fn an_incomplete_coordinate_has_no_path() {
     assert_eq!(path("::1"), None);
     assert_eq!(path(""), None);
 }
+
+#[test]
+fn a_coordinate_that_escapes_the_repository_has_no_path() {
+    assert_eq!(path("../../evil:artifact:1"), None);
+    assert_eq!(path("org.example:artifact:1/../../.."), None);
+    assert_eq!(path("org.example:artifact:1.0:../../x"), None);
+    assert_eq!(path("org.example:artifact:1@../../x"), None);
+    assert_eq!(path("org.example:artifact:1:classifier:extra"), None);
+    assert_eq!(path("org..example:artifact:1"), None);
+}

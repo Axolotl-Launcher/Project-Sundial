@@ -74,6 +74,7 @@ fn an_installer_becomes_one_self_contained_profile() {
 
     assert_eq!(profile.version_id, "1.20.1-forge-1");
     let document: Value = serde_json::from_slice(&profile.document).expect("document");
+    assert_eq!(document["id"], "1.20.1-forge-1");
     assert_eq!(document["processors"].as_array().map(Vec::len), Some(1));
     let libraries = document["libraries"].as_array().expect("libraries");
     assert_eq!(libraries.len(), 1);
@@ -87,6 +88,20 @@ fn an_installer_becomes_one_self_contained_profile() {
         document["data"]["MAPPINGS"]["client"], "[de.oceanlabs.mcp:mcp_config:1:mappings@txt]",
         "a coordinate is already one"
     );
+}
+
+#[test]
+fn a_neoforge_legacy_installer_gets_its_own_version_id() {
+    // NeoForge's 1.20.1 builds ship a profile that calls itself
+    // `1.20.1-forge-<build>`, the same id Forge publishes. Written under that
+    // id, one loader's install would overwrite the other's.
+    let bytes = installer("1.20.1");
+
+    let profile = parse(LoaderKind::NeoForge, &bytes, "1.20.1").expect("profile");
+
+    assert_eq!(profile.version_id, "1.20.1-neoforge-1");
+    let document: Value = serde_json::from_slice(&profile.document).expect("document");
+    assert_eq!(document["id"], "1.20.1-neoforge-1");
 }
 
 #[test]

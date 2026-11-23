@@ -10,7 +10,7 @@ use axlauncher_core::state::profile::{self, Game, InstallStatus};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::Context;
 
-use crate::installations::{self, Installation, supported_loader, vanilla_version};
+use crate::installations::{self, Installation, vanilla_version};
 use crate::launches::{self, Launch};
 
 use super::RootView;
@@ -40,10 +40,7 @@ impl RootView {
             cx.notify();
             return;
         };
-        if matches!(
-            self.installation(&game_root, &key),
-            Some(Installation::Running(_) | Installation::Complete)
-        ) {
+        if self.install_in_progress(&game_root, &key, game) {
             return;
         }
         let concurrency = self
@@ -63,7 +60,7 @@ impl RootView {
         let loader = game
             .loader
             .as_ref()
-            .filter(|loader| loader.kind != "vanilla");
+            .filter(|loader| !installations::is_vanilla(&loader.kind));
         match loader {
             Some(_) => installations::start_loader(
                 data_root,
@@ -75,6 +72,19 @@ impl RootView {
                 cx,
             ),
             None => installations::start(game_root, version, concurrency, cx),
+        }
+    }
+
+    /// Whether this profile already has an install the button must not repeat.
+    ///
+    /// Complete describes the shared slot, not this profile: a second profile
+    /// that names the same game and loader and has written no version id of its
+    /// own still needs to run. It is the only action that would produce one.
+    fn install_in_progress(&self, game_root: &Path, key: &str, game: &Game) -> bool {
+        match self.installation(game_root, key) {
+            Some(Installation::Running(_)) => true,
+            Some(Installation::Complete) => game.version_id.is_some(),
+            Some(Installation::Failed(_)) | None => false,
         }
     }
 
@@ -300,15 +310,18 @@ fn mark_failed(directory: &Path) -> Result<(), String> {
 }
 
 /// The loader a creation form asks for, or nothing for a vanilla profile.
+///
+/// The kind is stored in the spelling the SPI knows, so a marker this build
+/// writes is read the same way by every action that reads it.
 fn loader_choice(kind: &str, version: &str) -> Result<Option<(String, Option<String>)>, String> {
-    if kind.is_empty() || kind == "vanilla" {
+    if kind.is_empty() || installations::is_vanilla(kind) {
         return Ok(None);
     }
-    if !supported_loader(kind) {
+    let Some(parsed) = axlauncher_core::spi::LoaderKind::parse(kind) else {
         return Err(format!("Loader {kind} is not available in this build yet."));
-    }
+    };
     let version = (!version.is_empty()).then(|| version.to_string());
-    Ok(Some((kind.to_string(), version)))
+    Ok(Some((parsed.as_str().to_string(), version)))
 }
 
 /// A directory name derived from a display name.

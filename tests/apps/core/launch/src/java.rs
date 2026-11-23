@@ -239,12 +239,24 @@ fn an_installed_runtime_is_preferred_over_the_environment() {
 }
 
 #[test]
-fn an_installed_runtime_is_used_when_the_environment_names_none() {
+fn a_version_without_a_stated_major_does_not_get_a_managed_runtime() {
     let temp = TempDir::new();
     let managed = jdk_home(&temp.path().join("managed"), "21.0.7");
-    let java = SystemJava::with_environment(None, None).with_runtime_roots(vec![managed.clone()]);
+    let environment = jdk_home(&temp.path().join("env"), "8.0.392");
+    let search_path = std::env::join_paths([environment.join("bin")]).expect("path");
+
+    // A pre-1.17 document asks for nothing in particular. Picking a managed
+    // runtime there would start an old game on whatever the launcher fetched
+    // last, so the user's own Java is the answer.
+    let java =
+        SystemJava::with_environment(None, Some(search_path)).with_runtime_roots(vec![managed]);
 
     let found = java.executable(None, JavaMode::Console).expect("java");
 
-    assert!(found.starts_with(&managed), "{}", found.display());
+    assert!(
+        found.starts_with(&environment),
+        "expected the environment runtime {}, got {}",
+        environment.display(),
+        found.display()
+    );
 }
