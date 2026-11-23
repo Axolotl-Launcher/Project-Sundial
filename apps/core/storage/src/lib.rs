@@ -10,6 +10,14 @@ use std::path::{Path, PathBuf};
 
 use axlauncher_spi::{Storage, StorageError};
 
+mod atomic_file;
+pub use atomic_file::AtomicFile;
+
+/// Opens an existing file for sequential verification.
+pub fn open_for_read(path: &Path) -> io::Result<fs::File> {
+    fs::File::open(path)
+}
+
 /// The launcher's on-disk root and the directories under it.
 ///
 /// One type owns the layout so a path is never assembled from string literals
@@ -111,6 +119,21 @@ impl DataDir {
     /// Launcher-owned caches: fetched documents that can be rebuilt.
     pub fn caches(&self) -> PathBuf {
         self.root.join("caches")
+    }
+
+    /// The latest successful test transfer from the development panel.
+    pub fn download_debug_file(&self) -> PathBuf {
+        self.caches().join("download-debug.bin")
+    }
+
+    /// A unique cache directory that keeps the outputs of one development test.
+    pub fn new_download_debug_batch(&self) -> io::Result<PathBuf> {
+        let batches = self.caches().join("download-debug-batches");
+        fs::create_dir_all(&batches)?;
+        tempfile::Builder::new()
+            .prefix("batch-")
+            .tempdir_in(batches)
+            .map(tempfile::TempDir::keep)
     }
 
     /// The settings document.

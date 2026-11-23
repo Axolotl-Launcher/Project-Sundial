@@ -11,6 +11,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+axlauncher_download_engine = { workspace = true }
 axlauncher_launch = { workspace = true }
 axlauncher_network = { workspace = true }
 axlauncher_spi = { workspace = true }

@@ -46,18 +46,6 @@ impl RootView {
         ) {
             return;
         }
-        if let Some(loader) = &game.loader
-            && loader.kind != "vanilla"
-            && !supported_loader(&loader.kind)
-        {
-            self.activity.error(format!(
-                "Loader {} is not available in this build yet.",
-                loader.kind
-            ));
-            cx.notify();
-            return;
-        }
-
         let concurrency = self
             .settings
             .as_ref()
@@ -70,6 +58,7 @@ impl RootView {
             Installation::Running(Progress::Version),
             cx,
         );
+        self.monitor_downloads(cx);
 
         let loader = game
             .loader

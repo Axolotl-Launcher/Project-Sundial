@@ -7,6 +7,7 @@ members = [
   "apps/core",
   "apps/core/content",
   "apps/core/domain",
+  "apps/core/download_engine",
   "apps/core/install",
   "apps/core/launch",
   "apps/core/loader",
@@ -90,8 +91,9 @@ trash = "5.4.0"
 # Filesystem work beyond std.
 walkdir = "2.5.1"
 
+hickory-proto = { version = "0.26.3", default-features = false, features = ["std"] }
 # Networking.
-reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "stream"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["http2", "json", "rustls", "stream"] }
 rustls = "0.23.46"
 url = "2.5.9"
 uuid = { version = "1.29.3", features = ["serde", "v4"] }
@@ -108,6 +110,7 @@ keyring = "4.2.0"
 axlauncher_content = { path = "apps/core/content" }
 axlauncher_core = { path = "apps/core" }
 axlauncher_domain = { path = "apps/core/domain" }
+axlauncher_download_engine = { path = "apps/core/download_engine" }
 axlauncher_frontend = { path = "apps/frontend" }
 axlauncher_install = { path = "apps/core/install" }
 axlauncher_launch = { path = "apps/core/launch" }
@@ -186,7 +189,6 @@ unused_must_use = "deny"
 ignored = [
   "async-trait",
   "base64",
-  "bytes",
   "chrono",
   "crc32fast",
   "dashmap",
@@ -214,7 +216,6 @@ ignored = [
   "tracing-subscriber",
   "trash",
   "unicode-normalization",
-  "url",
   "walkdir",
   "webpki-roots",
   "which",

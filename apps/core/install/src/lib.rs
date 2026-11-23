@@ -14,6 +14,8 @@ use axlauncher_spi::{InstallError, InstallPlan, Installer};
 
 // Cargo Shear scans imports inside the crate but misses the mirrored tests.
 #[cfg(test)]
+use sha1_smol as test_sha1;
+#[cfg(test)]
 use tempfile as test_tempfile;
 
 /// Runs each planned step in order, stopping at the first failure.

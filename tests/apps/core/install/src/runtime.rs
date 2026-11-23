@@ -17,7 +17,7 @@ fn sha1(bytes: &[u8]) -> String {
 }
 
 fn hex_sha1(bytes: &[u8]) -> String {
-    let mut hash = sha1_smol::Sha1::new();
+    let mut hash = crate::test_sha1::Sha1::new();
     hash.update(bytes);
     hash.digest().to_string()
 }

@@ -3,6 +3,7 @@
 
 use super::*;
 use axlauncher_spi::FetchError;
+
 use futures::executor::block_on;
 
 const VERSION_URL: &str = "https://example.invalid/version.json";

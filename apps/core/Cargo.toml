@@ -17,6 +17,7 @@ path = "../../tests/apps/core/tests/desktop_backend.rs"
 [dependencies]
 axlauncher_content = { workspace = true }
 axlauncher_domain = { workspace = true }
+axlauncher_download_engine = { workspace = true }
 axlauncher_install = { workspace = true }
 axlauncher_launch = { workspace = true }
 axlauncher_loader = { workspace = true }

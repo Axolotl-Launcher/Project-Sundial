@@ -13,6 +13,7 @@
 //! macro: the workspace's MSRV supports it, and it avoids a box per call.
 
 pub mod desktop;
+mod transfer;
 
 pub use axlauncher_domain::Id;
 
@@ -22,12 +23,30 @@ mod loader;
 pub use loader::{
     LoaderError, LoaderFile, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader,
 };
+pub use transfer::{ByteRange, DownloadBody, DownloadProtocol, DownloadResponse, ResponseRange};
 
 /// Fetches bytes over the network.
 pub trait Network {
     /// Resolves a URL's body. The error is the provider's own type, boxed so
     /// callers need not name it.
     fn fetch(&self, url: &str) -> impl Future<Output = Result<Vec<u8>, FetchError>>;
+
+    /// Opens a file transfer. Providers that only fetch bodies may return a full response.
+    fn open_download(
+        &self,
+        url: &str,
+        _protocol: DownloadProtocol,
+        _range: Option<ByteRange>,
+    ) -> impl Future<Output = Result<DownloadResponse<impl DownloadBody>, FetchError>> {
+        async move {
+            let body = bytes::Bytes::from(self.fetch(url).await?);
+            Ok(DownloadResponse {
+                length: Some(body.len() as u64),
+                range: None,
+                body: Some(body),
+            })
+        }
+    }
 }
 
 /// Why a fetch failed, reduced to what a caller can act on.

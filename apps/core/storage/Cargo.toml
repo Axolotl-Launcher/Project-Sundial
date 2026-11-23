@@ -12,6 +12,7 @@ license.workspace = true
 
 [dependencies]
 axlauncher_spi = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

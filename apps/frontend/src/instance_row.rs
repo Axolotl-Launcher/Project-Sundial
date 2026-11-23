@@ -88,7 +88,7 @@ pub(crate) fn row(
 fn description(instance: &DiscoveredProfile, muted: Hsla) -> impl IntoElement + use<> {
     let profile = &instance.profile;
     let details = profile.game.as_ref().map_or_else(
-        || "unknown version".to_string(),
+        || "No Minecraft version".to_string(),
         |game| match &game.loader {
             Some(loader) => format!("{} · {}", game.minecraft, loader.kind),
             None => game.minecraft.clone(),
