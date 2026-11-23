@@ -3,7 +3,7 @@
 
 //! Read-only version and launch diagnostics for the selected profile.
 
-use axlauncher_core::launch::{LaunchCommand, LaunchRequest, SystemJava, flow};
+use axlauncher_core::launch::{LaunchCommand, LaunchRequest, SystemJava, flow, plan::Session};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{Context, Task};
 
@@ -35,7 +35,8 @@ impl RootView {
         let Some(request) = self.launch_request(entry, self.player_name(cx)) else {
             return;
         };
-        let task = cx.background_spawn(async move { inspect(&request, preview) });
+        let session = preview.then(|| self.preview_session(cx));
+        let task = cx.background_spawn(async move { inspect(&request, session.as_ref()) });
         self.inspection.output = None;
         self.inspection.task = Some(cx.spawn(async move |view, cx| {
             let output = task.await;
@@ -51,10 +52,10 @@ impl RootView {
     }
 }
 
-fn inspect(request: &LaunchRequest, preview: bool) -> Result<Output, String> {
+fn inspect(request: &LaunchRequest, session: Option<&Session>) -> Result<Output, String> {
     let java = SystemJava::from_environment();
-    if preview {
-        return flow::preview(&java, request)
+    if let Some(session) = session {
+        return flow::preview_with_session(&java, request, session)
             .map(Output::Command)
             .map_err(|error| error.to_string());
     }

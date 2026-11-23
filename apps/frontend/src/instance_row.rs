@@ -28,6 +28,7 @@ pub(crate) fn row(
     selected: bool,
     installations: Option<&HashMap<String, Installation>>,
     launch: Option<&(String, Launch)>,
+    account_pending: bool,
     muted: Hsla,
     cx: &mut Context<'_, RootView>,
 ) -> impl IntoElement + use<> {
@@ -46,6 +47,7 @@ pub(crate) fn row(
             &instance.directory,
             install,
             launch,
+            account_pending,
             muted,
             cx,
         ))
@@ -117,6 +119,7 @@ fn instance_actions(
     directory: &Path,
     install: Option<(&str, Option<&Installation>)>,
     launch: Option<&Launch>,
+    account_pending: bool,
     muted: Hsla,
     cx: &mut Context<'_, RootView>,
 ) -> impl IntoElement + use<> {
@@ -155,7 +158,7 @@ fn instance_actions(
         .h_flex()
         .gap_2()
         .children(install_button)
-        .child(launch_button(directory, busy, cx));
+        .child(launch_button(directory, busy || account_pending, cx));
     div()
         .v_flex()
         .gap_1()

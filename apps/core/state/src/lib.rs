@@ -8,6 +8,7 @@
 //! format belongs to a separate tool (see AGENTS.md), and a newer build's data
 //! must not be damaged by an older one.
 
+pub mod accounts;
 mod document;
 pub mod files;
 pub mod javas;

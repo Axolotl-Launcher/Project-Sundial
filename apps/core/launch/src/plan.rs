@@ -28,26 +28,69 @@ pub struct Layout {
 }
 
 /// Who the game will think is playing.
-///
-/// Offline values are the default for this build; a real account supplies the
-/// same fields.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Session {
-    pub player_name: String,
-    pub uuid: String,
-    pub access_token: String,
-    pub user_type: String,
+    player_name: String,
+    uuid: String,
+    access_token: String,
+    user_type: &'static str,
 }
+
+const REDACTED_TOKEN: &str = "[redacted]";
 
 impl Session {
     /// A session with no account behind it. The token is the placeholder the
     /// game accepts for offline play.
     pub fn offline(player_name: impl Into<String>) -> Self {
+        Self::offline_profile(player_name, "00000000-0000-0000-0000-000000000000")
+    }
+
+    /// A saved offline identity with the profile UUID supplied by its owner.
+    pub fn offline_profile(player_name: impl Into<String>, uuid: impl Into<String>) -> Self {
         Self {
             player_name: player_name.into(),
-            uuid: "00000000-0000-0000-0000-000000000000".into(),
+            uuid: uuid.into(),
             access_token: "0".into(),
-            user_type: "legacy".into(),
+            user_type: "legacy",
+        }
+    }
+
+    /// A Microsoft profile and its Minecraft access token.
+    pub fn microsoft(
+        player_name: impl Into<String>,
+        uuid: impl Into<String>,
+        access_token: String,
+    ) -> Self {
+        Self {
+            player_name: player_name.into(),
+            uuid: uuid.into(),
+            access_token,
+            user_type: "msa",
+        }
+    }
+
+    /// An identity for diagnostics that do not require a live token.
+    pub fn microsoft_preview(player_name: impl Into<String>, uuid: impl Into<String>) -> Self {
+        Self::microsoft(player_name, uuid, REDACTED_TOKEN.to_owned())
+    }
+
+    pub(super) fn redacted(&self) -> Self {
+        if self.user_type == "msa" {
+            return Self::microsoft_preview(&self.player_name, &self.uuid);
+        }
+        self.clone()
+    }
+
+    pub(super) fn redact_command(&self, command: &mut LaunchCommand) {
+        if self.user_type != "msa" || self.access_token.is_empty() {
+            return;
+        }
+        for argument in command
+            .args
+            .iter_mut()
+            .filter(|argument| argument.contains(&self.access_token))
+        {
+            *argument = argument.replace(&self.access_token, REDACTED_TOKEN);
         }
     }
 }
@@ -184,7 +227,7 @@ fn values(
         .with("auth_uuid", session.uuid.clone())
         .with("auth_access_token", session.access_token.clone())
         .with("auth_session", session.access_token.clone())
-        .with("user_type", session.user_type.clone())
+        .with("user_type", session.user_type)
         .with("user_properties", "{}")
 }
 

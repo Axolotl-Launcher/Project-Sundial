@@ -19,6 +19,7 @@ use crate::installations::Installation;
 use crate::launches::Launch;
 use crate::{Loaded, Startup, load_at, palette_for};
 
+pub(crate) mod accounts;
 mod actions;
 mod activity;
 mod create_instance;
@@ -39,6 +40,7 @@ pub(crate) struct RootView {
     theme: ThemeChoice,
     root_input: Entity<InputState>,
     player_input: Entity<InputState>,
+    accounts: accounts::AccountsPanel,
     instances: instances::InstancesState,
     create_instance: create_instance::CreateInstance,
     download_debug: download_debug::DownloadDebug,
@@ -71,6 +73,7 @@ impl RootView {
             .unwrap_or_default();
         let create_instance = create_instance::CreateInstance::new(window, cx);
         let download_debug = download_debug::DownloadDebug::new(window, cx);
+        let accounts = accounts::AccountsPanel::new(loaded.root.as_deref(), window, cx);
         let mut view = Self {
             root: loaded.root,
             notice: loaded.notice,
@@ -79,6 +82,7 @@ impl RootView {
             theme,
             root_input,
             player_input,
+            accounts,
             instances: instances::InstancesState::new(loaded.profiles),
             create_instance,
             download_debug,
@@ -90,6 +94,7 @@ impl RootView {
         };
 
         view.record_data_root();
+        view.refresh_accounts(cx);
         view
     }
 
@@ -125,6 +130,10 @@ impl RootView {
     fn apply_loaded(&mut self, loaded: Loaded, window: &mut Window, cx: &mut Context<'_, Self>) {
         let same_root = self.root == loaded.root;
         self.root = loaded.root;
+        if !same_root {
+            self.accounts.reset(self.root.as_deref());
+        }
+        self.refresh_accounts(cx);
         self.settings = loaded.settings;
         self.origin = loaded.origin;
         self.notice = loaded.notice;
@@ -205,6 +214,7 @@ impl Render for RootView {
                     .min_h_0()
                     .gap_5()
                     .overflow_y_scrollbar()
+                    .child(self.render_accounts(cx))
                     .child(self.render_instances(cx))
                     .child(self.render_download_debug(cx))
                     .child(self.render_launch(cx))

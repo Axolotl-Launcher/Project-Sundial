@@ -45,7 +45,7 @@ pub struct LaunchRequest {
 /// What a completed launch produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchOutcome {
-    /// The command the launcher was given.
+    /// The command the launcher was given, with account tokens redacted.
     pub command: LaunchCommand,
     /// How many native files were unpacked.
     pub natives: usize,
@@ -184,11 +184,22 @@ pub async fn launch(
     launcher: &impl Launcher,
     request: LaunchRequest,
 ) -> Result<LaunchOutcome, FlowError> {
+    let session = Session::offline(request.player_name.clone());
+    launch_with_session(java, launcher, request, &session).await
+}
+
+/// Starts Minecraft with a session already resolved by the caller.
+pub async fn launch_with_session(
+    java: &impl Java,
+    launcher: &impl Launcher,
+    request: LaunchRequest,
+    session: &Session,
+) -> Result<LaunchOutcome, FlowError> {
     let target = Target::host();
     let (version, _) = load_version(&request)?;
     let executable = java_executable(java, &version, &request)?;
     let natives = unpack_natives(&request, &version, &target)?;
-    let command = assemble(&executable, &version, &request, &target)?;
+    let mut command = assemble(&executable, &version, &request, session, &target)?;
 
     launcher
         .launch(command.clone())
@@ -198,14 +209,31 @@ pub async fn launch(
             source,
         })?;
 
+    session.redact_command(&mut command);
     Ok(LaunchOutcome { command, natives })
 }
 
 /// Builds the command without extracting natives or launching the game.
 pub fn preview(java: &impl Java, request: &LaunchRequest) -> Result<LaunchCommand, FlowError> {
+    let session = Session::offline(request.player_name.clone());
+    preview_with_session(java, request, &session)
+}
+
+/// Builds a diagnostic command with any Minecraft access token redacted.
+pub fn preview_with_session(
+    java: &impl Java,
+    request: &LaunchRequest,
+    session: &Session,
+) -> Result<LaunchCommand, FlowError> {
     let (version, _) = load_version(request)?;
     let executable = java_executable(java, &version, request)?;
-    assemble(&executable, &version, request, &Target::host())
+    assemble(
+        &executable,
+        &version,
+        request,
+        &session.redacted(),
+        &Target::host(),
+    )
 }
 
 /// Inspects the local version even when its matching Java runtime is unavailable.
@@ -303,6 +331,7 @@ fn assemble(
     executable: &Path,
     version: &Version,
     request: &LaunchRequest,
+    session: &Session,
     target: &Target,
 ) -> Result<LaunchCommand, FlowError> {
     let layout = Layout {
@@ -312,9 +341,7 @@ fn assemble(
         launcher_name: LAUNCHER_NAME.to_owned(),
         launcher_version: LAUNCHER_VERSION.to_owned(),
     };
-    let session = Session::offline(request.player_name.clone());
-
-    plan::build(executable, version, &layout, &session, target)
+    plan::build(executable, version, &layout, session, target)
         .map_err(|source| FlowError::Plan { source })
 }
 

@@ -12,6 +12,7 @@
 //! Traits here use return-position `impl Trait` rather than the `async_trait`
 //! macro: the workspace's MSRV supports it, and it avoids a box per call.
 
+pub mod auth;
 pub mod desktop;
 mod transfer;
 
@@ -213,7 +214,7 @@ pub trait Java {
     fn executable_for(&self, major: u32, mode: JavaMode) -> Option<PathBuf>;
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct LaunchCommand {
     pub program: String,
     pub args: Vec<String>,
@@ -222,6 +223,17 @@ pub struct LaunchCommand {
     /// Variables added to, or removed from, the inherited environment. A `None`
     /// value removes the name.
     pub environment: Vec<(String, Option<String>)>,
+}
+
+impl std::fmt::Debug for LaunchCommand {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LaunchCommand")
+            .field("program", &self.program)
+            .field("argument_count", &self.args.len())
+            .field("working_directory", &self.working_directory)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Why a launch did not reach a successful exit.

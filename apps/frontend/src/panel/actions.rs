@@ -65,6 +65,9 @@ impl RootView {
     }
 
     pub(crate) fn launch(&mut self, directory: &Path, cx: &mut Context<'_, Self>) {
+        if self.account_selection_pending() {
+            return;
+        }
         let Some(entry) = self.instances.find(directory) else {
             return;
         };
@@ -88,8 +91,12 @@ impl RootView {
         {
             return;
         }
+        let player = match self.accounts.selected_microsoft() {
+            Some((service, id)) => launches::Player::Microsoft(service, id),
+            None => launches::Player::Offline(self.preview_session(cx)),
+        };
         self.set_launch(directory, &request.version_id, Launch::Starting, cx);
-        launches::start(request, vanilla, cx);
+        launches::start(request, player, vanilla, cx);
     }
 
     pub(crate) fn set_launch(
