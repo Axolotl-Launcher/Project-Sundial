@@ -11,10 +11,10 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 
 | Resource | Direct access belongs to | Entry point for callers |
 | --- | --- | --- |
-| HTTP | `network` owns the HTTP client and classifies transport failures. | Inject `Network` and call `fetch`. Handle retryability through `FetchError`. |
+| HTTP and DNS | `network` owns HTTP clients, DNS routing and transport error classification. | Inject `Network`. Call `fetch` for metadata and `open_download` for streaming file responses with optional byte ranges. |
 | Launcher data paths, blob storage and atomic writes | `storage` owns `DataDir`, `RootedStorage` and `write_atomic`. | Use `DataDir` for launcher paths and `Storage` for blob reads and writes. Document owners that need atomic replacement use `write_atomic`. The `Storage::write` contract permits ordinary writes. |
 | Settings and instance manifests | `state` owns the settings document, `.axlprofile` discovery and instance resource scans. | Use `load_settings` and `save_settings` for settings. Use `profile::discover`, `profile::read` and `profile::scan_resources` for instances. `StateStore` serves the separate ID-based `InstanceRecord` API. |
-| File downloads | `download_engine` runs batches with bounded concurrency, checks supplied SHA-1 digests and writes completed files atomically. | Pass file requests and an injected `Network` to `download_engine::download_all` or `download_engine::download_all_reporting`. |
+| File downloads | `download_engine` schedules connections and ranges, manages shared bandwidth and buffers, tries alternate sources and verifies files before promotion. | Pass file requests and an injected `Network` to `download_engine::download_all` or `download_engine::download_all_reporting`. Use `DownloadEngine` for explicit policy and source ordering. |
 | Installation files and asset indexes | `install` checks for missing libraries and assets, handles Minecraft metadata and plans where game files belong. | Use `prepare::prepare` for the implemented preparation flow. It passes planned files to `download_engine`. The SPI `Installer` accepts an `InstallPlan`. Its current `StepInstaller` implementation is a stub. |
 | Mod loader metadata services | `loader` lists versions and resolves version profiles through an injected `Network`. | Use the `ModLoader` SPI port. The `install` crate places the resulting profile and handles installation processors. |
 | Game version documents, classpath, JARs and natives | `launch` reads version files and JARs, evaluates launch rules and extracts natives. | Use `flow::launch` for prepared installations. Installation planning reuses `version::Version`, the library model and `rules::Target` to decide what to download. |
@@ -25,6 +25,21 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 
 The frontend resolves the managed profiles directory with `DataDir`. Instance
 discovery and manifest access belong to `state`.
+
+## Download protocol behavior
+
+File transfers require HTTP/2 by default. Metadata uses ordinary HTTP negotiation.
+Known files use a full request below 4 MiB and start with an 8 MiB range at or
+above 4 MiB, limited to the file length. Only standalone jobs probe for an
+unknown size. A range retry keeps bytes already written while the response
+still matches its representation. The staging file is promoted after SHA-1 or
+size verification. The shared engine defaults to 256 connections globally and
+16 per file. The desktop setting controls how many files may be queued at once.
+
+Direct hostname lookups race two weighted DoH upstreams separately for A and
+AAAA, with system DNS fallback when neither address family resolves. The
+transport handles IP literals and proxy requests without a DoH lookup for the
+destination. Applications can pass system DNS suffixes through `DohConfig`.
 
 ## Workspace inventory
 
@@ -64,7 +79,7 @@ discovery and manifest access belong to `state`.
    or atomic write operation in its owning crate.
 3. Core systems normally depend only on domain and SPI within the workspace.
    State and launch may depend on storage for atomic writes. The download engine
-   uses storage for atomic writes and network for digest verification. Install
+   uses storage for staged file writes and network for digest verification. Install
    uses the download engine for planned files, storage for installation paths
    and atomic writes, network for metadata digest verification and launch for
    the shared version model and rules. Keep calls across these edges within the

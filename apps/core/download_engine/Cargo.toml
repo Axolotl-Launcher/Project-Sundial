@@ -14,7 +14,10 @@ license.workspace = true
 axlauncher_network = { workspace = true }
 axlauncher_spi = { workspace = true }
 axlauncher_storage = { workspace = true }
+bytes = { workspace = true }
 futures = { workspace = true }
+tokio = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

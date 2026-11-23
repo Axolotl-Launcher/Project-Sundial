@@ -12,9 +12,13 @@ license.workspace = true
 
 [dependencies]
 axlauncher_spi = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
 hex = { workspace = true }
+hickory-proto = { workspace = true }
 reqwest = { workspace = true }
 sha1_smol = { workspace = true }
+tokio = { workspace = true, features = ["net"] }
 
 [lints]
 workspace = true

@@ -6,18 +6,26 @@
 #![forbid(unsafe_code)]
 
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
-use axlauncher_network::verify;
-use axlauncher_spi::{FetchError, Network};
-use axlauncher_storage::write_atomic;
+use axlauncher_spi::Network;
 use futures::stream::{self, StreamExt};
+
+mod engine;
+mod ranges;
+mod resources;
+mod transfer;
+
+pub use engine::{DownloadEngine, DownloadJob, DownloadPolicy, TransferStats};
 
 // Cargo Shear scans imports inside the crate but misses the mirrored tests.
 #[cfg(test)]
 use tempfile as test_tempfile;
 
 /// The number of downloads in flight when a caller passes zero.
-pub const DEFAULT_CONCURRENCY: usize = 4;
+pub const DEFAULT_CONCURRENCY: usize = 256;
+
+static SHARED_ENGINE: LazyLock<DownloadEngine> = LazyLock::new(DownloadEngine::default);
 
 /// The source, destination and metadata for one file to download.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,29 +85,25 @@ pub async fn download_all_reporting(
 async fn download(network: &impl Network, file: &MissingFile) -> DownloadOutcome {
     DownloadOutcome {
         path: file.path.clone(),
-        result: fetch_and_write(network, file).await,
-    }
-}
-
-async fn fetch_and_write(network: &impl Network, file: &MissingFile) -> Result<(), String> {
-    let bytes = network.fetch(&file.url).await.map_err(reason)?;
-    if let Some(expected) = &file.sha1
-        && !verify(&bytes, expected)
-    {
-        return Err(format!("SHA-1 mismatch for {}", file.path.display()));
-    }
-    write_atomic(&file.path, &bytes)
-        .map_err(|error| format!("cannot write {}: {error}", file.path.display()))
-}
-
-/// The text of a fetch error, with the retry advice dropped.
-fn reason(error: FetchError) -> String {
-    match error {
-        FetchError::Retryable(reason) | FetchError::Fatal(reason) => reason,
-        rejected @ FetchError::Rejected { .. } => rejected.to_string(),
+        result: DownloadEngine::shared()
+            .download(
+                network,
+                DownloadJob {
+                    sources: &[&file.url],
+                    destination: &file.path,
+                    sha1: file.sha1.as_deref(),
+                    size: file.size,
+                    batch: true,
+                },
+            )
+            .await,
     }
 }
 
 #[cfg(test)]
 #[path = "../../../../tests/apps/core/download_engine/src/lib.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../tests/apps/core/download_engine/src/streaming.rs"]
+mod streaming;

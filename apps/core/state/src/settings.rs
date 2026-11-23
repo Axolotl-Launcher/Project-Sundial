@@ -57,7 +57,7 @@ pub struct SettingsData {
     #[serde(default)]
     pub theme: ThemeChoice,
     /// How many files may be requested at once.
-    #[serde(default = "default_concurrency")]
+    #[serde(default = "default_download_concurrency")]
     pub max_concurrent_downloads: u32,
     /// How many files may be written at once.
     #[serde(default = "default_concurrency")]
@@ -79,10 +79,11 @@ pub struct SettingsData {
     pub extra: BTreeMap<String, serde_json::Value>,
 }
 
-/// The download width a fresh install starts with.
-///
-/// Enough to keep a connection busy without saturating a household link, and
-/// the reference's own default.
+const fn default_download_concurrency() -> u32 {
+    256
+}
+
+/// The file-writing width a fresh install starts with.
 fn default_concurrency() -> u32 {
     10
 }
@@ -91,7 +92,7 @@ impl Default for SettingsData {
     fn default() -> Self {
         Self {
             theme: ThemeChoice::default(),
-            max_concurrent_downloads: default_concurrency(),
+            max_concurrent_downloads: default_download_concurrency(),
             max_concurrent_writes: default_concurrency(),
             default_page: "home".into(),
             telemetry: false,

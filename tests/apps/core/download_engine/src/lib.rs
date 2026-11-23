@@ -7,6 +7,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use axlauncher_spi::FetchError;
 use futures::executor::block_on;
 
 use crate::test_tempfile as tempfile;
