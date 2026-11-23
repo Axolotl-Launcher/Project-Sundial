@@ -16,6 +16,7 @@ mod ranges;
 mod resources;
 mod transfer;
 
+pub use axlauncher_spi::DownloadProtocol;
 pub use engine::{DownloadEngine, DownloadJob, DownloadPolicy, TransferStats};
 
 // Cargo Shear scans imports inside the crate but misses the mirrored tests.

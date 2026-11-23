@@ -47,6 +47,10 @@ impl Quota {
         self.0.usage.lock().expect("connection quota lock").active
     }
 
+    pub(crate) fn limit(&self) -> usize {
+        self.0.usage.lock().expect("connection quota lock").limit
+    }
+
     pub(crate) async fn acquire(&self) -> Lease {
         // Tokio's FIFO mutex keeps a single waiter at the head of each quota.
         let _position = self.0.queue.lock().await;

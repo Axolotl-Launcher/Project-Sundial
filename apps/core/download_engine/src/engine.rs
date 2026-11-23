@@ -65,6 +65,9 @@ pub struct DownloadJob<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TransferStats {
     pub active_connections: usize,
+    pub connection_limit: usize,
+    pub connections_per_file: usize,
+    pub protocol: DownloadProtocol,
     /// Body bytes received, including data that an attempt discarded.
     pub bytes_received: u64,
 }
@@ -120,6 +123,9 @@ impl DownloadEngine {
     pub fn stats(&self) -> TransferStats {
         TransferStats {
             active_connections: self.connections.active(),
+            connection_limit: self.connections.limit(),
+            connections_per_file: self.policy.connections_per_file.get(),
+            protocol: self.policy.protocol,
             bytes_received: self.bytes_received.load(Ordering::Relaxed),
         }
     }

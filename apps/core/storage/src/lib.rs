@@ -121,6 +121,11 @@ impl DataDir {
         self.root.join("caches")
     }
 
+    /// The latest successful test transfer from the development panel.
+    pub fn download_debug_file(&self) -> PathBuf {
+        self.caches().join("download-debug.bin")
+    }
+
     /// The settings document.
     pub fn settings(&self) -> PathBuf {
         self.root.join("settings.json")

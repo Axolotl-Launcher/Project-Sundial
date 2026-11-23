@@ -216,7 +216,6 @@ ignored = [
   "tracing-subscriber",
   "trash",
   "unicode-normalization",
-  "uuid",
   "walkdir",
   "webpki-roots",
   "which",
