@@ -35,7 +35,15 @@ pub struct ProcessLauncher;
 
 impl Launcher for ProcessLauncher {
     async fn launch(&self, command: LaunchCommand) -> Result<(), LaunchError> {
-        process::run(command, || {}).await
+        process::run(command, None, || {}).await
+    }
+
+    async fn launch_redacting(
+        &self,
+        command: LaunchCommand,
+        token: Option<&str>,
+    ) -> Result<(), LaunchError> {
+        process::run(command, token.map(str::to_owned), || {}).await
     }
 }
 
@@ -50,8 +58,16 @@ struct ReportingProcessLauncher<F>(std::sync::Arc<F>);
 
 impl<F: Fn() + Send + Sync + 'static> Launcher for ReportingProcessLauncher<F> {
     async fn launch(&self, command: LaunchCommand) -> Result<(), LaunchError> {
+        self.launch_redacting(command, None).await
+    }
+
+    async fn launch_redacting(
+        &self,
+        command: LaunchCommand,
+        token: Option<&str>,
+    ) -> Result<(), LaunchError> {
         let started = self.0.clone();
-        process::run(command, move || started()).await
+        process::run(command, token.map(str::to_owned), move || started()).await
     }
 }
 

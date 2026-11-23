@@ -6,8 +6,11 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use axlauncher_core::launch::plan::{Session, YggdrasilAgent};
-use axlauncher_core::state::accounts::{Account, AccountId, AccountService, AccountSnapshot};
+use axlauncher_core::launch::plan::Session;
+use axlauncher_core::launch_accounts;
+use axlauncher_core::state::accounts::{
+    Account, AccountId, AccountService, AccountSnapshot, SignInCommit,
+};
 use axlauncher_core::storage::{DataDir, SystemCredentials};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
@@ -23,6 +26,15 @@ mod third_party;
 
 pub(crate) type DesktopAccounts = AccountService<SystemCredentials>;
 type AccountResult = (Option<AccountSnapshot>, Option<String>);
+
+#[derive(Default)]
+struct SignInCancellation(SignInCommit);
+
+impl Drop for SignInCancellation {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
 
 pub(super) struct AccountsPanel {
     service: Option<Arc<DesktopAccounts>>,
@@ -106,29 +118,23 @@ fn service(root: Option<&Path>) -> Option<Arc<DesktopAccounts>> {
 }
 
 impl RootView {
+    fn observe_sign_in_commit(&self, commit: SignInCommit, cx: &mut Context<'_, Self>) {
+        cx.spawn(async move |view, cx| {
+            commit.settled().await;
+            let _ = view.update(cx, |_, cx| cx.notify());
+        })
+        .detach();
+    }
     pub(super) fn preview_session(&self, cx: &Context<'_, Self>) -> Session {
         let Some(account) = self.accounts.selected() else {
             return Session::offline(self.player_name(cx));
         };
-        let uuid = account.id().uuid().simple().to_string();
-        match account.id() {
-            AccountId::Offline(_) => Session::offline_profile(account.name(), uuid),
-            AccountId::Microsoft(_) => Session::microsoft_preview(account.name(), uuid),
-            AccountId::Yggdrasil { .. } => self.third_party_preview(account, uuid),
-        }
-    }
-
-    fn third_party_preview(&self, account: &Account, uuid: String) -> Session {
-        let server = account
-            .server()
-            .expect("validated third-party account record");
-        let data = DataDir::new(self.root.as_ref().expect("saved account data root"));
-        let path = std::path::absolute(data.auth_agent()).unwrap_or_else(|_| data.auth_agent());
-        Session::yggdrasil_preview(
-            account.name(),
-            uuid,
-            YggdrasilAgent::new(path, server.url()),
-        )
+        let service = self
+            .accounts
+            .service
+            .as_ref()
+            .expect("saved account service");
+        launch_accounts::preview(account, service.data_dir())
     }
 
     pub(super) fn refresh_accounts(&mut self, cx: &mut Context<'_, Self>) {
@@ -311,7 +317,7 @@ async fn apply(action: AccountAction, service: &DesktopAccounts) -> AccountResul
         AccountAction::Select(id) => service.select(id).map(|()| None),
         AccountAction::Remove(id) => service.remove(id).await.map(|cleared| {
             (!cleared).then_some(
-                "The account was removed, but its system credential could not be cleared.",
+                "The account was removed. The launcher will retry clearing its system credential.",
             )
         }),
     };

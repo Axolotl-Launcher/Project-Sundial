@@ -3,6 +3,7 @@
 
 use std::collections::VecDeque;
 use std::sync::Mutex as SyncMutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use axlauncher_spi::auth::{Body, CredentialError, Request, Response, TransportError};
 
@@ -14,28 +15,175 @@ use crate::test_support::TempRoot;
 struct CredentialMemory {
     values: SyncMutex<HashMap<String, String>>,
     unavailable: bool,
+    fail_write: AtomicBool,
+    fail_read: AtomicBool,
+    fail_remove: AtomicBool,
+    cancel_during_write: SyncMutex<Option<SignInCommit>>,
 }
 
 impl CredentialStore for &CredentialMemory {
     fn read(&self, key: &str) -> Result<Option<String>, CredentialError> {
+        if self.fail_read.load(Ordering::Relaxed) {
+            return Err(CredentialError);
+        }
         Ok(self.values.lock().unwrap().get(key).cloned())
     }
 
     fn write(&self, key: &str, secret: &str) -> Result<(), CredentialError> {
-        if self.unavailable {
+        if self.unavailable || self.fail_write.load(Ordering::Relaxed) {
             return Err(CredentialError);
         }
         self.values
             .lock()
             .unwrap()
             .insert(key.to_owned(), secret.to_owned());
+        if let Some(commit) = self.cancel_during_write.lock().unwrap().take() {
+            commit.cancel();
+        }
         Ok(())
     }
 
     fn remove(&self, key: &str) -> Result<(), CredentialError> {
+        if self.fail_remove.load(Ordering::Relaxed) {
+            return Err(CredentialError);
+        }
         self.values.lock().unwrap().remove(key);
         Ok(())
     }
+}
+
+#[test]
+fn cancelling_during_a_keyring_write_never_saves_or_selects_the_account() {
+    runtime().block_on(async {
+        let directory = TempRoot::new();
+        let data = DataDir::new(directory.path());
+        let keyring = CredentialMemory::default();
+        let service = AccountService::new(data.clone(), &keyring);
+        service.add_offline("Previous", None).unwrap();
+        let commit = SignInCommit::default();
+        *keyring.cancel_during_write.lock().unwrap() = Some(commit.clone());
+        assert!(matches!(
+            service
+                .remember_with_commit(verify().await, None, &commit)
+                .await,
+            Err(AccountError::Cancelled)
+        ));
+        assert_eq!(
+            service.snapshot().await.unwrap().selected().unwrap().name(),
+            "Previous"
+        );
+        assert!(keyring.values.lock().unwrap().is_empty());
+        assert!(
+            Document::load(&data)
+                .unwrap()
+                .retired_credentials
+                .is_empty()
+        );
+    });
+}
+
+#[test]
+fn failed_reauthentication_keeps_the_saved_key_and_removal_retries_after_restart() {
+    runtime().block_on(async {
+        let directory = TempRoot::new();
+        let data = DataDir::new(directory.path());
+        let keyring = CredentialMemory::default();
+        let service = AccountService::new(data.clone(), &keyring);
+        service.remember(verify().await, None).await.unwrap();
+        let id = service.snapshot().await.unwrap().selected().unwrap().id();
+        let old = Document::load(&data)
+            .unwrap()
+            .find(id)
+            .unwrap()
+            .credential
+            .unwrap();
+        keyring.fail_write.store(true, Ordering::Relaxed);
+        service.remember(verify().await, Some(id)).await.unwrap();
+        assert_eq!(
+            service.snapshot().await.unwrap().persistence(id),
+            Some(Persistence::SessionOnly)
+        );
+        let restarted = AccountService::new(data.clone(), &keyring);
+        assert_eq!(
+            restarted.snapshot().await.unwrap().persistence(id),
+            Some(Persistence::Saved)
+        );
+        assert_eq!(
+            Document::load(&data).unwrap().find(id).unwrap().credential,
+            Some(old)
+        );
+        keyring.fail_remove.store(true, Ordering::Relaxed);
+        assert!(!restarted.remove(id).await.unwrap());
+        assert!(
+            Document::load(&data)
+                .unwrap()
+                .retired_credentials
+                .contains(&old)
+        );
+        keyring.fail_remove.store(false, Ordering::Relaxed);
+        let restarted = AccountService::new(data.clone(), &keyring);
+        assert!(restarted.snapshot().await.unwrap().selected().is_none());
+        assert!(keyring.values.lock().unwrap().is_empty());
+        assert!(
+            Document::load(&data)
+                .unwrap()
+                .retired_credentials
+                .is_empty()
+        );
+    });
+}
+
+#[test]
+fn missing_credentials_and_keyring_read_failures_have_distinct_statuses() {
+    runtime().block_on(async {
+        let root = TempRoot::new();
+        let keyring = CredentialMemory::default();
+        let service = AccountService::new(DataDir::new(root.path()), &keyring);
+        service.remember(verify().await, None).await.unwrap();
+        let id = service.snapshot().await.unwrap().selected().unwrap().id();
+        keyring.fail_read.store(true, Ordering::Relaxed);
+        assert_eq!(
+            service.snapshot().await.unwrap().persistence(id),
+            Some(Persistence::StoreUnavailable)
+        );
+        keyring.fail_read.store(false, Ordering::Relaxed);
+        keyring.values.lock().unwrap().clear();
+        assert_eq!(
+            service.snapshot().await.unwrap().persistence(id),
+            Some(Persistence::SignInRequired)
+        );
+    });
+}
+
+async fn verify() -> VerifiedAccount {
+    BrowserLogin::begin()
+        .finish(&Exchange::new(false, true), "code")
+        .await
+        .unwrap()
+}
+
+#[test]
+fn cancellation_while_waiting_for_the_session_lock_prevents_persistence() {
+    runtime().block_on(async {
+        let directory = TempRoot::new();
+        let data = DataDir::new(directory.path());
+        let keyring = CredentialMemory::default();
+        let service = AccountService::new(data.clone(), &keyring);
+        let commit = SignInCommit::default();
+        let lock = service.sessions.lock().await;
+        let mut saving =
+            std::pin::pin!(service.remember_with_commit(verify().await, None, &commit));
+        tokio::select! {
+            biased;
+            _ = &mut saving => panic!("save must wait for the mutex"),
+            () = std::future::ready(()) => (),
+        }
+        commit.cancel();
+        drop(lock);
+        assert!(matches!(saving.await, Err(AccountError::Cancelled)));
+        assert!(!data.accounts().exists());
+        assert!(keyring.values.lock().unwrap().is_empty());
+    });
 }
 
 struct Exchange {

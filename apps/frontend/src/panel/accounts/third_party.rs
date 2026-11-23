@@ -7,16 +7,15 @@ use std::sync::Arc;
 
 use axlauncher_core::network::auth::AuthHttp;
 use axlauncher_core::state::accounts::yggdrasil::{self, Profile, ProfileChoice, SignIn};
-use axlauncher_core::state::accounts::{AccountId, AccountSnapshot};
+use axlauncher_core::state::accounts::{AccountError, AccountId, AccountSnapshot, SignInCommit};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, AsyncWindowContext, Button, ButtonVariants, Context, Disableable,
     ElementId, Entity, FocusHandle, Focusable, Input, InputEvent, InputState, IntoElement, Label,
     Task, WeakEntity, Window, h_flex, v_flex,
 };
-use tokio::sync::oneshot;
 
-use super::{DesktopAccounts, RootView};
+use super::{DesktopAccounts, RootView, SignInCancellation};
 
 type ResultState = Result<Outcome, String>;
 
@@ -28,7 +27,7 @@ enum Outcome {
 
 struct Attempt {
     _task: Task<()>,
-    cancel: Option<oneshot::Sender<()>>,
+    cancellation: SignInCancellation,
 }
 
 pub(super) struct Form {
@@ -90,6 +89,15 @@ impl Form {
     }
 
     pub(super) fn render(&self, cx: &Context<'_, RootView>) -> AnyElement {
+        let saving = self
+            .request
+            .as_ref()
+            .is_some_and(|attempt| attempt.cancellation.0.is_saving());
+        let status = if saving {
+            "Saving account"
+        } else {
+            "Contacting the sign-in server"
+        };
         let fields = match &self.choice {
             Some(choice) => self.render_profiles(choice, cx),
             None => self.render_fields(cx),
@@ -99,7 +107,7 @@ impl Form {
             .child(fields)
             .when(self.is_working(), |column| {
                 column.child(
-                    Label::new("Contacting the sign-in server")
+                    Label::new(status)
                         .text_sm()
                         .text_color(cx.theme().muted_foreground),
                 )
@@ -112,7 +120,7 @@ impl Form {
                         .disabled(
                             self.request
                                 .as_ref()
-                                .is_some_and(|attempt| attempt.cancel.is_none()),
+                                .is_some_and(|attempt| !attempt.cancellation.0.is_pending()),
                         )
                         .on_click(
                             cx.listener(|view, _, window, cx| view.cancel_third_party(window, cx)),
@@ -231,9 +239,7 @@ impl RootView {
             self.close_third_party(window, cx);
             return;
         };
-        if let Some(cancel) = attempt.cancel.take() {
-            let _ = cancel.send(());
-        }
+        attempt.cancellation.0.cancel();
         cx.notify();
     }
 
@@ -296,14 +302,16 @@ impl RootView {
         let worker = Arc::clone(&service);
         let expected = self.accounts.third_party.expected;
         self.accounts.error = None;
-        let (cancel, cancelled) = oneshot::channel();
-        let task = cx.background_spawn(async move { run(request, &worker, expected, cancelled) });
+        let cancellation = SignInCancellation::default();
+        let commit = cancellation.0.clone();
+        self.observe_sign_in_commit(commit.clone(), cx);
+        let task = cx.background_spawn(async move { run(request, &worker, expected, &commit) });
         let task = cx.spawn_in(window, async move |view, cx| {
             show_result(view, cx, service, task).await;
         });
         self.accounts.third_party.request = Some(Attempt {
             _task: task,
-            cancel: Some(cancel),
+            cancellation,
         });
         cx.notify();
     }
@@ -318,7 +326,18 @@ impl RootView {
         if !self.accounts.is_current(service) {
             return;
         }
-        self.accounts.third_party.request = None;
+        let cancelled = self
+            .accounts
+            .third_party
+            .request
+            .take()
+            .is_some_and(|attempt| {
+                !attempt.cancellation.0.is_pending() && !attempt.cancellation.0.is_saving()
+            });
+        if cancelled {
+            self.close_third_party(window, cx);
+            return;
+        }
         match result {
             Ok(Outcome::Profiles(choice)) => self.accounts.third_party.choice = Some(choice),
             Ok(Outcome::Cancelled) => self.close_third_party(window, cx),
@@ -348,13 +367,13 @@ fn run(
     request: Request,
     service: &DesktopAccounts,
     expected: Option<AccountId>,
-    cancelled: oneshot::Receiver<()>,
+    commit: &SignInCommit,
 ) -> ResultState {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|_| "Could not start third-party sign-in.".to_owned())?;
-    runtime.block_on(sign_in(request, service, expected, cancelled))
+    runtime.block_on(sign_in(request, service, expected, commit))
 }
 
 async fn show_result(
@@ -373,21 +392,26 @@ async fn sign_in(
     request: Request,
     service: &DesktopAccounts,
     expected: Option<AccountId>,
-    cancelled: oneshot::Receiver<()>,
+    commit: &SignInCommit,
 ) -> ResultState {
     let outcome = tokio::select! {
         biased;
-        _ = cancelled => return Ok(Outcome::Cancelled),
+        _ = commit.cancelled() => return Ok(Outcome::Cancelled),
         result = authenticate(request) => result?,
     };
     let verified = match outcome {
-        SignIn::Choose(choice) => return Ok(Outcome::Profiles(choice)),
+        SignIn::Choose(choice) if commit.is_pending() => return Ok(Outcome::Profiles(choice)),
+        SignIn::Choose(_) => return Ok(Outcome::Cancelled),
         SignIn::Complete(verified) => verified,
     };
-    service
-        .remember_yggdrasil(verified, expected)
+    match service
+        .remember_yggdrasil_with_commit(verified, expected, commit)
         .await
-        .map_err(|error| error.to_string())?;
+    {
+        Ok(()) => (),
+        Err(AccountError::Cancelled) => return Ok(Outcome::Cancelled),
+        Err(error) => return Err(error.to_string()),
+    }
     service
         .snapshot()
         .await

@@ -119,6 +119,12 @@ pub(super) struct Tokens {
     client_token: String,
 }
 
+impl Tokens {
+    pub(super) fn is_usable(&self) -> bool {
+        !self.access_token.is_empty() && !self.client_token.is_empty()
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Reply {

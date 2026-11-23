@@ -48,7 +48,7 @@ fn a_successful_command_finishes() {
     let directory = TempDir::new();
     let (sender, started) = std::sync::mpsc::channel();
     assert_eq!(
-        block_on(run(exit_command(0, directory.path()), move || sender
+        block_on(run(exit_command(0, directory.path()), None, move || sender
             .send(())
             .unwrap())),
         Ok(())
@@ -59,15 +59,16 @@ fn a_successful_command_finishes() {
 #[test]
 fn a_non_zero_exit_reports_its_code() {
     let directory = TempDir::new();
-    assert_eq!(
-        block_on(run(exit_command(7, directory.path()), || {})),
-        Err(LaunchError::Exited { code: Some(7) })
-    );
+    assert!(matches!(
+        block_on(run(exit_command(7, directory.path()), None, || {})),
+        Err(LaunchError::ExitedWithLog { code: Some(7), .. })
+    ));
 }
 
 #[test]
 fn a_missing_program_is_not_found() {
     let directory = TempDir::new();
+    let previous = axlauncher_storage::open_instance_console_log(directory.path()).unwrap();
     let command = LaunchCommand {
         program: PathBuf::from("surely-not-a-program-here")
             .display()
@@ -78,40 +79,57 @@ fn a_missing_program_is_not_found() {
     };
 
     assert!(matches!(
-        block_on(run(command, || panic!("missing program did not start"))),
+        block_on(run(command, None, || panic!(
+            "missing program did not start"
+        ))),
         Err(LaunchError::NotFound(_))
     ));
+    assert_eq!(
+        std::fs::read_dir(previous.path().parent().unwrap())
+            .unwrap()
+            .count(),
+        1
+    );
 }
 
 #[test]
 fn launch_captures_both_process_streams_without_changing_game_logs() {
     let directory = TempDir::new();
-    let log = axlauncher_storage::instance_console_log(directory.path());
+    let previous = axlauncher_storage::open_instance_console_log(directory.path()).unwrap();
     let game_log = directory.path().join("logs/latest.log");
-    std::fs::create_dir(game_log.parent().unwrap()).unwrap();
     std::fs::write(&game_log, "existing game log").unwrap();
-    std::fs::write(&log, "previous process output").unwrap();
+    std::fs::write(previous.path(), "previous process output").unwrap();
 
     let mut command = exit_command(0, directory.path());
     #[cfg(windows)]
-    let script = "echo game-stdout & echo jvm-stderr 1>&2 & exit 7";
+    let script = "echo game-stdout:test-secret & echo jvm-stderr:test-secret 1>&2 & exit 7";
     #[cfg(not(windows))]
-    let script = "echo game-stdout; echo jvm-stderr >&2; exit 7";
+    let script = "echo game-stdout:test-secret; echo jvm-stderr:test-secret >&2; exit 7";
     command.args[1] = script.to_owned();
+    let first = run(command.clone(), Some("test-secret".to_owned()), || {});
+    let second = run(command, Some("test-secret".to_owned()), || {});
+    let first = check_capture(block_on(first));
+    let second = check_capture(block_on(second));
+    assert_ne!(first, second);
     assert_eq!(
-        block_on(run(command, || {})),
-        Err(LaunchError::Exited { code: Some(7) })
-    );
-
-    let captured = std::fs::read_to_string(log).unwrap();
-    assert_eq!(
-        captured.lines().map(str::trim).collect::<Vec<_>>(),
-        ["game-stdout", "jvm-stderr"]
+        std::fs::read_to_string(previous.path()).unwrap(),
+        "previous process output"
     );
     assert_eq!(
         std::fs::read_to_string(game_log).unwrap(),
         "existing game log"
     );
+}
+
+fn check_capture(result: Result<(), LaunchError>) -> PathBuf {
+    let LaunchError::ExitedWithLog { code: Some(7), log } = result.unwrap_err() else {
+        panic!("expected a logged exit")
+    };
+    let captured = std::fs::read_to_string(&log).unwrap();
+    assert!(captured.contains("game-stdout:[redacted]"));
+    assert!(captured.contains("jvm-stderr:[redacted]"));
+    assert!(!captured.contains("test-secret"));
+    log
 }
 
 #[test]

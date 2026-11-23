@@ -151,6 +151,11 @@ impl Session {
         self.user_type == "msa" || self.agent.is_some()
     }
 
+    pub(super) fn console_secret(&self) -> Option<&str> {
+        (self.has_online_token() && !self.access_token.is_empty())
+            .then_some(self.access_token.as_str())
+    }
+
     /// Xbox account metadata for manifests that declare `auth_xuid`.
     pub fn with_xuid(mut self, xuid: Option<String>) -> Self {
         self.xuid = xuid;

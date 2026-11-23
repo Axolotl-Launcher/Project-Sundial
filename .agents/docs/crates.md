@@ -68,7 +68,7 @@ lookup for the destination.
 | `axlauncher_install` | [install](../../apps/core/install/src/lib.rs) | Installation planning, metadata and preparation of game files before launch. |
 | `axlauncher_launch` | [launch](../../apps/core/launch/src/lib.rs) | Building and executing a command from prepared files. JAR extraction uses the crate-local `NativeReader` interface. |
 | `axlauncher_telemetry` | [telemetry](../../apps/core/telemetry/src/lib.rs) | Event sink implementation, currently `LoggingTelemetry`. |
-| `axlauncher_core` | [core](../../apps/core/src/lib.rs) | Application-facing system re-exports and the brand constant. Domain behavior belongs in the owning child crate. |
+| `axlauncher_core` | [core](../../apps/core/src/lib.rs) | Application-facing system re-exports, account-based launch preparation across systems, and the brand constant. Domain behavior belongs in the owning child crate. |
 | `axlauncher_ui` | [ui](../../apps/ui/src/lib.rs) | Palette, theme installation and component re-exports. |
 | `axlauncher_frontend` | [frontend](../../apps/frontend/src/lib.rs) | Root view, interaction state, windows and provider selection. |
 | `axlauncher_platform_windows` | [Windows](../../platforms/windows/src/main.rs) | Windows executable entry point. |

@@ -146,14 +146,18 @@ impl RootView {
 
     fn login_status(&self, cx: &mut Context<'_, Self>) -> AnyElement {
         let attempt = self.accounts.login.as_ref().expect("sign-in in progress");
-        let controls = match &attempt.stage {
-            Stage::Starting => Label::new("Starting Microsoft sign-in").into_any_element(),
-            Stage::Browser { url } => h_flex()
-                .gap_2()
-                .child(Label::new("Continue in your browser"))
-                .child(open_browser(url, cx))
-                .into_any_element(),
-            Stage::Device { url, code } => device_controls(url, code, cx),
+        let controls = if attempt.cancellation.0.is_saving() {
+            Label::new("Saving account").into_any_element()
+        } else {
+            match &attempt.stage {
+                Stage::Starting => Label::new("Starting Microsoft sign-in").into_any_element(),
+                Stage::Browser { url } => h_flex()
+                    .gap_2()
+                    .child(Label::new("Continue in your browser"))
+                    .child(open_browser(url, cx))
+                    .into_any_element(),
+                Stage::Device { url, code } => device_controls(url, code, cx),
+            }
         };
         h_flex()
             .gap_2()
@@ -163,7 +167,7 @@ impl RootView {
                 Button::new("cancel-sign-in")
                     .ghost()
                     .label("Cancel sign-in")
-                    .disabled(attempt.cancel.is_none())
+                    .disabled(!attempt.cancellation.0.is_pending())
                     .on_click(cx.listener(|view, _, _, cx| view.cancel_sign_in(cx))),
             )
             .into_any_element()
@@ -318,6 +322,7 @@ fn account_label(account: &Account, persistence: Option<Persistence>) -> String 
     let status = match persistence {
         Some(Persistence::SessionOnly) => " · This session only",
         Some(Persistence::SignInRequired) => " · Sign-in required",
+        Some(Persistence::StoreUnavailable) => " · Credential store unavailable",
         _ => "",
     };
     format!("{} · {kind}{status}", account.name())

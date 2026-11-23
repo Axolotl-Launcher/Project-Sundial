@@ -6,15 +6,15 @@
 use std::sync::Arc;
 
 use axlauncher_core::network::auth::{AuthHttp, BrowserCallback, CallbackError};
-use axlauncher_core::state::accounts::AccountId;
 use axlauncher_core::state::accounts::microsoft::{
     BrowserLogin, CALLBACK_PATH, CALLBACK_PORT, DeviceLogin, VerifiedAccount,
 };
+use axlauncher_core::state::accounts::{AccountError, AccountId, SignInCommit};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{AsyncApp, Context, Task, WeakEntity};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
-use super::{AccountSnapshot, DesktopAccounts, RootView};
+use super::{AccountSnapshot, DesktopAccounts, RootView, SignInCancellation};
 
 type LoginResult = Result<Option<AccountSnapshot>, String>;
 
@@ -26,7 +26,7 @@ pub(super) enum Method {
 
 pub(super) struct Attempt {
     pub(super) stage: Stage,
-    pub(super) cancel: Option<oneshot::Sender<()>>,
+    pub(super) cancellation: SignInCancellation,
 }
 
 pub(super) enum Stage {
@@ -48,11 +48,13 @@ impl RootView {
         if self.accounts.is_busy() {
             return;
         }
-        let (cancel, cancelled) = oneshot::channel();
+        let cancellation = SignInCancellation::default();
+        let commit = cancellation.0.clone();
+        self.observe_sign_in_commit(commit.clone(), cx);
         let (sender, events) = mpsc::unbounded_channel();
         self.accounts.login = Some(Attempt {
             stage: Stage::Starting,
-            cancel: Some(cancel),
+            cancellation,
         });
         self.accounts.error = None;
         let worker = Arc::clone(&service);
@@ -61,7 +63,7 @@ impl RootView {
                 .enable_all()
                 .build()
                 .map_err(|_| "Could not start Microsoft sign-in.".to_owned())?;
-            runtime.block_on(run(&worker, method, expected, &sender, cancelled))
+            runtime.block_on(run(&worker, method, expected, &sender, &commit))
         });
         cx.spawn(async move |view, cx| {
             show_attempt(view, cx, service, events, task).await;
@@ -82,7 +84,7 @@ impl RootView {
         let Some(attempt) = &mut self.accounts.login else {
             return;
         };
-        if attempt.cancel.is_some()
+        if attempt.cancellation.0.is_pending()
             && let Stage::Browser { url } = &stage
         {
             cx.open_url(url);
@@ -108,13 +110,8 @@ impl RootView {
     }
 
     pub(super) fn cancel_sign_in(&mut self, cx: &mut Context<'_, Self>) {
-        if let Some(sender) = self
-            .accounts
-            .login
-            .as_mut()
-            .and_then(|attempt| attempt.cancel.take())
-        {
-            let _ = sender.send(());
+        if let Some(attempt) = &self.accounts.login {
+            attempt.cancellation.0.cancel();
         }
         cx.notify();
     }
@@ -139,19 +136,23 @@ async fn run(
     method: Method,
     expected: Option<AccountId>,
     sender: &mpsc::UnboundedSender<Stage>,
-    cancelled: oneshot::Receiver<()>,
+    commit: &SignInCommit,
 ) -> LoginResult {
     let network =
         AuthHttp::desktop().map_err(|_| "Could not initialize Microsoft sign-in.".to_owned())?;
     let verified = tokio::select! {
         biased;
-        _ = cancelled => return Ok(None),
+        _ = commit.cancelled() => return Ok(None),
         verified = authorize(method, &network, sender) => verified?,
     };
-    service
-        .remember(verified, expected)
+    match service
+        .remember_with_commit(verified, expected, commit)
         .await
-        .map_err(|error| error.to_string())?;
+    {
+        Ok(()) => (),
+        Err(AccountError::Cancelled) => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    }
     let snapshot = service
         .snapshot()
         .await

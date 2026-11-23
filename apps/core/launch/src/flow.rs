@@ -203,7 +203,7 @@ pub async fn launch_with_session(
     let mut command = assemble(&executable, &version, &request, session, &target)?;
 
     launcher
-        .launch(command.clone())
+        .launch_redacting(command.clone(), session.console_secret())
         .await
         .map_err(|source| FlowError::Launch {
             program: executable,

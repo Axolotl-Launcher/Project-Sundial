@@ -13,7 +13,9 @@ use uuid::Uuid;
 
 use super::microsoft::{self, MicrosoftError, Tokens, VerifiedAccount};
 use super::yggdrasil::{self, YggdrasilError};
-use super::{Account, AccountError, AccountId, Document};
+use super::{Account, AccountError, AccountId, Document, SignInCommit};
+
+mod persistence;
 
 const REFRESH_RETRY_DELAY: Duration = Duration::from_secs(15);
 
@@ -23,6 +25,7 @@ pub enum Persistence {
     Saved,
     SessionOnly,
     SignInRequired,
+    StoreUnavailable,
 }
 
 /// Account metadata and selection available to the desktop view.
@@ -90,9 +93,16 @@ impl<S: CredentialStore> AccountService<S> {
         }
     }
 
+    pub fn data_dir(&self) -> &DataDir {
+        &self.data
+    }
+
     pub async fn snapshot(&self) -> Result<AccountSnapshot, AccountError> {
         let sessions = self.sessions.lock().await;
         let document = Document::load(&self.data)?;
+        if !document.retired_credentials.is_empty() {
+            let _ = self.cleanup_retired();
+        }
         let persistence = document
             .accounts
             .iter()
@@ -102,7 +112,10 @@ impl<S: CredentialStore> AccountService<S> {
                     .accounts
                     .get(&account.id)
                     .filter(|entry| entry.credential == account.credential);
-                (account.id, persistence(account, cached))
+                (
+                    account.id,
+                    persistence::status(&self.store, account, cached),
+                )
             })
             .collect();
         Ok(AccountSnapshot {
@@ -125,7 +138,10 @@ impl<S: CredentialStore> AccountService<S> {
         let mut sessions = self.sessions.lock().await;
         let credential = Document::update(&self.data, |document| document.remove(id))?;
         sessions.accounts.remove(&id);
-        Ok(self.discard(credential))
+        Ok(credential.is_none_or(|key| {
+            self.cleanup_retired()
+                .is_ok_and(|remaining| !remaining.contains(&key))
+        }))
     }
 
     /// Saves a verified account or replaces the credentials for the expected identity.
@@ -133,6 +149,16 @@ impl<S: CredentialStore> AccountService<S> {
         &self,
         verified: VerifiedAccount,
         expected: Option<AccountId>,
+    ) -> Result<(), AccountError> {
+        self.remember_with_commit(verified, expected, &SignInCommit::default())
+            .await
+    }
+
+    pub async fn remember_with_commit(
+        &self,
+        verified: VerifiedAccount,
+        expected: Option<AccountId>,
+        commit: &SignInCommit,
     ) -> Result<(), AccountError> {
         let id = AccountId::Microsoft(verified.profile.id);
         if expected.is_some_and(|expected| id != expected) {
@@ -153,6 +179,7 @@ impl<S: CredentialStore> AccountService<S> {
                 tokens: Some(verified.session),
                 ..Cached::default()
             },
+            commit,
         )
         .await
     }
@@ -162,6 +189,16 @@ impl<S: CredentialStore> AccountService<S> {
         &self,
         verified: yggdrasil::VerifiedAccount,
         expected: Option<AccountId>,
+    ) -> Result<(), AccountError> {
+        self.remember_yggdrasil_with_commit(verified, expected, &SignInCommit::default())
+            .await
+    }
+
+    pub async fn remember_yggdrasil_with_commit(
+        &self,
+        verified: yggdrasil::VerifiedAccount,
+        expected: Option<AccountId>,
+        commit: &SignInCommit,
     ) -> Result<(), AccountError> {
         let id = verified.server.account_id(verified.profile.id());
         if expected.is_some_and(|expected| id != expected) {
@@ -178,39 +215,24 @@ impl<S: CredentialStore> AccountService<S> {
             third_party: Some((Instant::now(), verified.tokens)),
             ..Cached::default()
         };
-        self.save(account, expected, &secret, cached).await
+        self.save(account, expected, &secret, cached, commit).await
     }
 
     async fn save(
         &self,
-        mut account: Account,
+        account: Account,
         expected: Option<AccountId>,
         secret: &str,
         mut cached: Cached,
+        commit: &SignInCommit,
     ) -> Result<(), AccountError> {
         let mut sessions = self.sessions.lock().await;
         let id = account.id;
-        let key = Uuid::new_v4();
-        let credential = self
-            .store
-            .write(&key.to_string(), secret)
-            .is_ok()
-            .then_some(key);
-        account.credential = credential;
-        let previous =
-            Document::update(&self.data, |document| document.remember(account, expected))
-                .inspect_err(|_| {
-                    self.discard(credential);
-                })?;
-        self.discard(previous);
+        let (credential, persisted) = self.persist(account, expected, secret, commit)?;
         cached.credential = credential;
-        cached.session_only = credential.is_none();
+        cached.session_only = !persisted;
         sessions.accounts.insert(id, cached);
         Ok(())
-    }
-
-    fn discard(&self, credential: Option<Uuid>) -> bool {
-        credential.is_none_or(|key| self.store.remove(&key.to_string()).is_ok())
     }
 
     /// Resolves the identity chosen at launch time, refreshing online credentials when needed.
@@ -240,7 +262,7 @@ impl<S: CredentialStore> AccountService<S> {
                 access_token,
             });
         }
-        let tokens = self.access_token(network, cached).await?;
+        let tokens = self.access_token(network, id, cached).await?;
         Ok(LaunchIdentity::Microsoft {
             account,
             access_token: tokens.access.clone(),
@@ -277,7 +299,7 @@ impl<S: CredentialStore> AccountService<S> {
             && (cached.session_only || updated.access_token != tokens.access_token)
         {
             let secret = serde_json::to_string(&updated).expect("Yggdrasil tokens serialize");
-            cached.session_only = self.store.write(&key.to_string(), &secret).is_err();
+            cached.session_only = !self.write_current_secret(account.id, key, &secret)?;
         }
         let access_token = updated.access_token.clone();
         cached.third_party = Some((Instant::now(), updated));
@@ -301,6 +323,7 @@ impl<S: CredentialStore> AccountService<S> {
     async fn access_token<'a>(
         &self,
         network: &impl AuthNetwork,
+        id: AccountId,
         cached: &'a mut Cached,
     ) -> Result<&'a Tokens, AccountError> {
         if cached.tokens.as_ref().is_some_and(Tokens::is_current) {
@@ -323,7 +346,7 @@ impl<S: CredentialStore> AccountService<S> {
         if let Some(key) = cached.credential
             && (cached.session_only || tokens.refresh != refresh)
         {
-            cached.session_only = self.store.write(&key.to_string(), &tokens.refresh).is_err();
+            cached.session_only = !self.write_current_secret(id, key, &tokens.refresh)?;
         }
         cached.tokens = Some(tokens);
         cached.failure = None;
@@ -367,22 +390,6 @@ impl Cached {
         }
         Err(error.into())
     }
-}
-
-fn persistence(account: &Account, cached: Option<&Cached>) -> Persistence {
-    if cached.is_some_and(|entry| {
-        entry.third_party_sign_in_required
-            || matches!(entry.failure, Some((_, MicrosoftError::SignInAgain)))
-    }) {
-        return Persistence::SignInRequired;
-    }
-    if cached.is_some_and(|entry| entry.session_only) {
-        return Persistence::SessionOnly;
-    }
-    if account.credential.is_some() {
-        return Persistence::Saved;
-    }
-    Persistence::SignInRequired
 }
 
 #[cfg(test)]

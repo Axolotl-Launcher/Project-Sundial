@@ -175,6 +175,15 @@ impl std::error::Error for InstallError {}
 /// Starts a prepared process and reports when it exits.
 pub trait Launcher {
     fn launch(&self, command: LaunchCommand) -> impl Future<Output = Result<(), LaunchError>>;
+
+    /// The console output of this launch may contain the supplied session token.
+    fn launch_redacting(
+        &self,
+        command: LaunchCommand,
+        _token: Option<&str>,
+    ) -> impl Future<Output = Result<(), LaunchError>> {
+        self.launch(command)
+    }
 }
 
 /// Which of the platform's Java executables to run.
@@ -243,6 +252,10 @@ pub enum LaunchError {
     NotFound(String),
     /// The game ran and exited non-zero; `None` means it was killed.
     Exited { code: Option<i32> },
+    /// The child exited after console output was captured to a launch-specific file.
+    ExitedWithLog { code: Option<i32>, log: PathBuf },
+    /// The process ran, but its console output could not be fully captured.
+    ConsoleOutput(String),
 }
 
 impl std::fmt::Display for LaunchError {
@@ -251,6 +264,15 @@ impl std::fmt::Display for LaunchError {
             Self::NotFound(reason) => write!(formatter, "cannot start the program: {reason}"),
             Self::Exited { code: Some(code) } => write!(formatter, "exited with code {code}"),
             Self::Exited { code: None } => write!(formatter, "was terminated without an exit code"),
+            Self::ExitedWithLog { code, log } => write!(
+                formatter,
+                "{}. See {}",
+                Self::Exited { code: *code },
+                log.display()
+            ),
+            Self::ConsoleOutput(reason) => {
+                write!(formatter, "could not capture console output: {reason}")
+            }
         }
     }
 }

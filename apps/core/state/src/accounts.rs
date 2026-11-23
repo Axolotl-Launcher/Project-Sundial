@@ -12,10 +12,13 @@ use uuid::Uuid;
 
 pub mod microsoft;
 mod sessions;
+mod sign_in;
+pub use sign_in::SignInCommit;
 pub mod yggdrasil;
 pub use sessions::{AccountService, AccountSnapshot, LaunchIdentity, Persistence};
 
-const SCHEMA_VERSION: u32 = 2;
+// Older writers must leave the durable credential cleanup queue intact.
+const SCHEMA_VERSION: u32 = 3;
 
 /// A Minecraft profile identified within its account type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -95,6 +98,8 @@ fn offline_uuid(name: &str) -> Uuid {
 /// Why an account document or an identity could not be used.
 #[derive(Debug, thiserror::Error)]
 pub enum AccountError {
+    #[error("Sign-in was cancelled.")]
+    Cancelled,
     #[error("Use 1–16 letters, numbers, or underscores for the player name.")]
     InvalidName,
     #[error("Enter a valid Minecraft UUID.")]
@@ -130,6 +135,8 @@ struct Schema {
 struct Document {
     accounts: Vec<Account>,
     selected: Option<AccountId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    retired_credentials: Vec<Uuid>,
 }
 
 impl Document {
@@ -169,25 +176,14 @@ impl Document {
         let credential = self.find(id)?.credential;
         self.accounts.retain(|account| account.id != id);
         self.selected = self.selected.filter(|selected| *selected != id);
+        self.retired_credentials.extend(credential);
         Ok(credential)
     }
 
-    fn remember(
-        &mut self,
-        account: Account,
-        expected: Option<AccountId>,
-    ) -> Result<Option<Uuid>, AccountError> {
-        if let Some(expected) = expected {
-            self.find(expected)?;
-        }
-        let previous = self
-            .find(account.id)
-            .ok()
-            .and_then(|existing| existing.credential);
+    fn remember(&mut self, account: Account) {
         self.accounts.retain(|existing| existing.id != account.id);
         self.selected = Some(account.id);
         self.accounts.push(account);
-        Ok(previous)
     }
 
     fn update<T>(
@@ -197,13 +193,17 @@ impl Document {
         let _lock = data.lock_accounts().map_err(AccountError::Write)?;
         let mut document = Self::load(data)?;
         let output = change(&mut document)?;
+        document.save(data)?;
+        Ok(output)
+    }
+
+    fn save(&self, data: &DataDir) -> Result<(), AccountError> {
         let bytes = serde_json::to_vec_pretty(&Encoded {
             schema_version: SCHEMA_VERSION,
-            document: &document,
+            document: self,
         })
         .expect("account document serializes");
-        write_atomic(&data.accounts(), &bytes).map_err(AccountError::Write)?;
-        Ok(output)
+        write_atomic(&data.accounts(), &bytes).map_err(AccountError::Write)
     }
 }
 

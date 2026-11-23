@@ -6,17 +6,14 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use axlauncher_core::install::{auth_agent, vanilla};
-use axlauncher_core::launch::plan::YggdrasilAgent;
+use axlauncher_core::install::vanilla;
 use axlauncher_core::launch::{
-    FlowError, LaunchError, LaunchRequest, ProcessLauncher, SystemJava, Target, flow, plan::Session,
+    FlowError, LaunchRequest, ProcessLauncher, SystemJava, Target, flow, plan::Session,
 };
 use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::network::auth::AuthHttp;
-use axlauncher_core::state::accounts::{AccountId, LaunchIdentity, yggdrasil};
-use axlauncher_core::storage::{DataDir, instance_console_log};
+use axlauncher_core::{launch_accounts, state::accounts::AccountId};
 use axlauncher_ui::{AppContext, AsyncApp, Context, WeakEntity};
-use base64::{Engine as _, engine::general_purpose::STANDARD};
 use tokio::sync::{oneshot, watch};
 
 use crate::RootView;
@@ -124,7 +121,7 @@ async fn run(
             session
         }
         Player::Online(service, id) => {
-            let result = online_session(&service, id, &request.game_root).await;
+            let result = online_session(&service, id).await;
             let _ = resolved.send(service);
             match result {
                 Ok(session) => session,
@@ -135,7 +132,6 @@ async fn run(
     let launcher = ProcessLauncher::reporting(move || {
         sender.send_replace(true);
     });
-    let console_log = instance_console_log(&request.instance_directory);
     match flow::launch_with_session(
         &SystemJava::from_environment(),
         &launcher,
@@ -148,77 +144,16 @@ async fn run(
         Err(FlowError::NoMatchingJava { required, .. }) => Launch::Failed(format!(
             "Java {required} is required. Set JAVA_HOME or PATH to a Java {required} installation and reopen the launcher."
         )),
-        Err(FlowError::Launch {
-            source: source @ LaunchError::Exited { .. },
-            ..
-        }) => Launch::Failed(format!(
-            "Minecraft {source}. See {}.",
-            console_log.display()
-        )),
         Err(error) => Launch::Failed(error.to_string()),
     }
 }
 
-async fn online_session(
-    service: &DesktopAccounts,
-    id: AccountId,
-    game_root: &Path,
-) -> Result<Session, String> {
+async fn online_session(service: &DesktopAccounts, id: AccountId) -> Result<Session, String> {
     let network =
         AuthHttp::desktop().map_err(|_| "Could not initialize online sign-in.".to_owned())?;
-    match service
-        .resolve(id, &network)
-        .await
-        .map_err(|error| error.to_string())?
-    {
-        LaunchIdentity::Microsoft {
-            account,
-            access_token,
-            xuid,
-        } => Ok(Session::microsoft(
-            account.name(),
-            account.id().uuid().simple().to_string(),
-            access_token,
-        )
-        .with_xuid(xuid)),
-        LaunchIdentity::Offline(account) => Ok(Session::offline_profile(
-            account.name(),
-            account.id().uuid().simple().to_string(),
-        )),
-        LaunchIdentity::Yggdrasil {
-            account,
-            access_token,
-        } => {
-            let server = account
-                .server()
-                .ok_or("The third-party account is missing its server.")?;
-            let data = DataDir::new(
-                game_root
-                    .parent()
-                    .ok_or("Could not determine the game data directory.")?,
-            );
-            let agent = third_party_agent(&network, server, &data).await?;
-            Ok(Session::yggdrasil(
-                account.name(),
-                id.uuid().simple().to_string(),
-                access_token,
-                agent,
-            ))
-        }
-    }
-}
-
-async fn third_party_agent(
-    network: &AuthHttp,
-    server: &yggdrasil::Server,
-    data: &DataDir,
-) -> Result<YggdrasilAgent, String> {
-    let download = ReqwestNetwork::desktop()
-        .map_err(|_| "Could not initialize the authentication agent download.")?;
-    let (metadata, path) = tokio::join!(
-        yggdrasil::launch_metadata(network, server),
-        auth_agent::prepare(&download, data)
-    );
-    Ok(YggdrasilAgent::new(path?, server.url())
-        .with_metadata(STANDARD.encode(metadata.map_err(|error| error.to_string())?)))
+    launch_accounts::prepare(service, id, &network, || {
+        ReqwestNetwork::desktop()
+            .map_err(|_| "Could not initialize the authentication agent download.".to_owned())
+    })
+    .await
 }

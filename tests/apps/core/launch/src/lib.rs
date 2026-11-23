@@ -167,12 +167,13 @@ fn a_non_zero_exit_reports_its_code() {
     command.working_directory = temp.path().to_path_buf();
     let result = finish(ProcessLauncher.launch(command));
 
-    assert_eq!(
+    assert!(matches!(
         result,
-        Err(LaunchError::Exited {
-            code: Some(FAILURE_CODE)
+        Err(LaunchError::ExitedWithLog {
+            code: Some(FAILURE_CODE),
+            ..
         })
-    );
+    ));
 }
 
 #[test]
