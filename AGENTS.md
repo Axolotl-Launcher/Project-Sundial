@@ -51,6 +51,28 @@ launcher conversion belongs in an independent tool. An unknown instance
 For Minecraft's own manifests, [game format notes](docs/game-format-changes.md)
 explain which fields select each launch path.
 
+## Engineering discipline
+
+These rules decide what gets built and what gets deleted. They outrank a
+habit carried over from another project.
+
+1. **No backward compatibility.** Delete what is obsolete. Do not add a
+   compatibility layer, a migration script or a fallback path.
+2. **Simplest implementation that meets the need.** No preventive abstraction
+   and no configuration layer kept for a use case that does not exist yet.
+3. **Grow in layers.** Get a minimal end-to-end path working, then add to it.
+   Never dismantle something that works today because complexity is expected
+   later.
+4. **Keep components modular and concerns separate.**
+5. **Prefer a maintained third-party library.** Do not rewrite what a mature
+   library already does well without a specific reason.
+6. **Survey what the current dependencies already provide** before adding a
+   crate or writing it yourself. Do not assume a library lacks the capability.
+7. **Architect for the long term.** A stopgap accepted as temporary is not an
+   option.
+8. **Study how mature products solve the same problem** and use a proven
+   pattern instead of inventing one.
+
 ## Code and review
 
 - Express constraints with types or lints. Where those cannot carry a rule,
