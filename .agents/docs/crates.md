@@ -11,10 +11,11 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 
 | Resource | Direct access belongs to | Entry point for callers |
 | --- | --- | --- |
-| HTTP | `network` owns the HTTP client and classifies transport failures. | Inject `Network` and call `fetch`. Handle retryability through `FetchError`. |
+| HTTP and DNS | `network` owns HTTP clients, DNS routing and transport error classification. | Inject `Network`. Call `fetch` for metadata and `open_download` for streaming file responses with optional byte ranges. |
 | Launcher data paths, blob storage and atomic writes | `storage` owns `DataDir`, `RootedStorage` and `write_atomic`. | Use `DataDir` for launcher paths and `Storage` for blob reads and writes. Document owners that need atomic replacement use `write_atomic`. The `Storage::write` contract permits ordinary writes. |
-| Settings and instance manifests | `state` owns the settings document, `.axlprofile` discovery and instance resource scans. | Use `load_settings` and `save_settings` for settings. Use `profile::discover`, `profile::read` and `profile::scan_resources` for instances. `StateStore` serves the separate ID-based `InstanceRecord` API. |
-| Installation files and asset indexes | `install` checks for missing libraries and assets, reads the asset index and writes fetched bytes. | Use `prepare::prepare` for the implemented preparation flow. Inject `Network` for downloads and reuse `network::verify` for digest checks. The SPI `Installer` accepts an `InstallPlan`. Its current `StepInstaller` implementation is a stub. |
+| Settings and instance manifests | `state` owns the settings document, `.axlprofile` creation and discovery, and instance resource scans. | Use `load_settings` and `save_settings` for settings. Use `profile::create_blank`, `profile::discover`, `profile::read` and `profile::scan_resources` for instances. `StateStore` serves the separate ID-based `InstanceRecord` API. |
+| File downloads | `download_engine` schedules connections and ranges, manages shared bandwidth and buffers, tries alternate sources and verifies files before promotion. | Pass file requests and an injected `Network` to `download_engine::download_all` or `download_engine::download_all_reporting`. Use `DownloadEngine` for explicit policy and source ordering. |
+| Installation files and asset indexes | `install` checks for missing libraries and assets, handles Minecraft metadata and plans where game files belong. | Use `prepare::prepare` for the implemented preparation flow. It passes planned files to `download_engine`. The SPI `Installer` accepts an `InstallPlan`. Its current `StepInstaller` implementation is a stub. |
 | Mod loader metadata services | `loader` lists versions and resolves version profiles through an injected `Network`. | Use the `ModLoader` SPI port. The `install` crate places the resulting profile and handles installation processors. |
 | Game version documents, classpath, JARs and natives | `launch` reads version files and JARs, evaluates launch rules and extracts natives. | Use `flow::launch` for prepared installations. Installation planning reuses `version::Version`, the library model and `rules::Target` to decide what to download. |
 | Installation processors | `install` plans and runs the Java processors declared in a version profile. | Use `install::processors` for installation steps. Use `Launcher` to start a game. |
@@ -24,6 +25,28 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 
 The frontend resolves the managed profiles directory with `DataDir`. Instance
 discovery and manifest access belong to `state`.
+
+## Download protocol behavior
+
+File transfers use HTTP/1.1 by default, including range requests. HTTP/2 is
+available through an explicit download policy. Metadata negotiates HTTP normally.
+HTTP/1.1 downloads can split known files from 32 KiB, with an initial range
+size of at least 16 KiB. Under contention, the scheduler weights each file's
+share by its remaining bytes and applies changes as connections are released.
+HTTP/2 retains its 4 MiB range threshold and 8 MiB initial range. Only
+standalone jobs probe for an unknown size. A range retry keeps bytes already
+written when the server returns the requested interval and total size. The
+staging file is promoted after checking SHA-1 when supplied, or the expected
+size when only size is supplied. The shared engine defaults to
+256 connections globally and 16 per file. The desktop setting controls how
+many files may be queued at once.
+
+Direct lookups race weighted DoH upstreams, with two active per address family.
+If neither family resolves within the DoH budget, the operating system
+resolves the name. Single-label hosts and local DNS suffixes use the system
+resolver directly. Applications can supply more suffixes through `DohConfig`.
+The transport handles IP literals and proxy requests without a DNS-over-HTTPS
+lookup for the destination.
 
 ## Workspace inventory
 
@@ -40,7 +63,8 @@ discovery and manifest access belong to `state`.
 | `axlauncher_network` | [network](../../apps/core/network/src/lib.rs) | HTTP transport, retry classification and the shared download digest check. |
 | `axlauncher_storage` | [storage](../../apps/core/storage/src/lib.rs) | Data directory layout, filesystem primitives and the byte storage provider. Document owners define schemas. |
 | `axlauncher_state` | [state](../../apps/core/state/src/lib.rs) | Launcher settings and instance persistence, plus the in-memory `StateStore` implementation. |
-| `axlauncher_install` | [install](../../apps/core/install/src/lib.rs) | Installation plans, download preparation and filling missing files before launch. |
+| `axlauncher_download_engine` | [download_engine](../../apps/core/download_engine/src/lib.rs) | Execution and progress reporting for file downloads. |
+| `axlauncher_install` | [install](../../apps/core/install/src/lib.rs) | Installation planning, metadata and preparation of game files before launch. |
 | `axlauncher_launch` | [launch](../../apps/core/launch/src/lib.rs) | Building and executing a command from prepared files. JAR extraction uses the crate-local `NativeReader` interface. |
 | `axlauncher_telemetry` | [telemetry](../../apps/core/telemetry/src/lib.rs) | Event sink implementation, currently `LoggingTelemetry`. |
 | `axlauncher_core` | [core](../../apps/core/src/lib.rs) | Application-facing system re-exports and the brand constant. Domain behavior belongs in the owning child crate. |
@@ -61,8 +85,10 @@ discovery and manifest access belong to `state`.
    be used directly. Keep one implementation of each parser, integrity check
    or atomic write operation in its owning crate.
 3. Core systems normally depend only on domain and SPI within the workspace.
-   State and launch may depend on storage for atomic writes. Install may also
-   use storage for atomic writes, network for digest verification and launch for
+   State and launch may depend on storage for atomic writes. The download engine
+   uses storage for staged file writes and network for digest verification. Install
+   uses the download engine for planned files, storage for installation paths
+   and atomic writes, network for metadata digest verification and launch for
    the shared version model and rules. Keep calls across these edges within the
    listed purposes.
 4. When ownership changes, update this guide and the

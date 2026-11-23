@@ -18,6 +18,41 @@ fn put(root: &Path, relative: &str, bytes: &[u8]) {
 }
 
 #[test]
+fn blank_instances_round_trip_without_downloaded_content() {
+    let temp = TempRoot::new();
+    let instances = temp.path().join("instances");
+    let blank = create_blank(&instances, "  空白实例  ", None).unwrap();
+    let vanilla = create_blank(&instances, "空白实例", Some(" 1.21.11 ")).unwrap();
+
+    assert_ne!(blank, vanilla);
+    assert_eq!(fs::read_dir(&blank).unwrap().count(), 1);
+    let blank = read(&blank).unwrap().unwrap();
+    assert_eq!(blank.instance.name, "空白实例");
+    assert_eq!(blank.install.status, InstallStatus::NotInstalled);
+    assert!(blank.game.is_none());
+    assert!(blank.content.files.is_empty());
+    let version = read(&vanilla).unwrap().unwrap().game.unwrap();
+    assert_eq!(version.minecraft, "1.21.11");
+    assert!(version.loader.is_none());
+    assert_eq!(discover(&instances).instances.len(), 2);
+}
+
+#[test]
+fn invalid_input_never_creates_an_instance_directory() {
+    let temp = TempRoot::new();
+    let instances = temp.path().join("instances");
+    assert!(matches!(
+        create_blank(&instances, " \t ", None),
+        Err(CreateError::InvalidName)
+    ));
+    assert!(matches!(
+        create_blank(&instances, "Example", Some("../outside")),
+        Err(CreateError::InvalidVersion)
+    ));
+    assert!(!instances.exists());
+}
+
+#[test]
 fn discovery_uses_only_direct_profile_markers_and_retains_good_instances() {
     let temp = TempRoot::new();
     let root = temp.path();

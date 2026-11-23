@@ -566,6 +566,7 @@ version = "0.1.0"
 dependencies = [
  "axlauncher_content",
  "axlauncher_domain",
+ "axlauncher_download_engine",
  "axlauncher_install",
  "axlauncher_launch",
  "axlauncher_loader",
@@ -585,12 +586,28 @@ name = "axlauncher_domain"
 version = "0.1.0"
 
 [[package]]
+name = "axlauncher_download_engine"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_network",
+ "axlauncher_spi",
+ "axlauncher_storage",
+ "bytes",
+ "futures",
+ "tempfile",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "axlauncher_frontend"
 version = "0.1.0"
 dependencies = [
  "axlauncher_core",
  "axlauncher_ui",
  "dirs 6.0.0",
+ "futures",
+ "tempfile",
  "tokio",
 ]
 
@@ -598,6 +615,7 @@ dependencies = [
 name = "axlauncher_install"
 version = "0.1.0"
 dependencies = [
+ "axlauncher_download_engine",
  "axlauncher_launch",
  "axlauncher_network",
  "axlauncher_spi",
@@ -638,9 +656,13 @@ name = "axlauncher_network"
 version = "0.1.0"
 dependencies = [
  "axlauncher_spi",
+ "bytes",
+ "futures",
  "hex",
+ "hickory-proto",
  "reqwest",
  "sha1_smol",
+ "tokio",
 ]
 
 [[package]]
@@ -697,6 +719,7 @@ name = "axlauncher_spi"
 version = "0.1.0"
 dependencies = [
  "axlauncher_domain",
+ "bytes",
 ]
 
 [[package]]
@@ -707,6 +730,7 @@ dependencies = [
  "axlauncher_storage",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -714,6 +738,7 @@ name = "axlauncher_storage"
 version = "0.1.0"
 dependencies = [
  "axlauncher_spi",
+ "tempfile",
 ]
 
 [[package]]
@@ -1368,6 +1393,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "critical-section"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
+
+[[package]]
 name = "crossbeam-deque"
 version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1435,6 +1466,12 @@ checksum = "261af4dc7a06ea8a527a8717d8cbba3417530d6ea14e1edb3de6b67806be474f"
 dependencies = [
  "cmov",
 ]
+
+[[package]]
+name = "data-encoding"
+version = "2.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
 
 [[package]]
 name = "data-url"
@@ -3026,6 +3063,25 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
+name = "hickory-proto"
+version = "0.26.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12b92608f679a6fa515dd1d15c1ff89443026e391200a2c840c7afcba482893d"
+dependencies = [
+ "data-encoding",
+ "idna",
+ "ipnet",
+ "jni",
+ "once_cell",
+ "rand 0.10.4",
+ "ring",
+ "thiserror 2.0.21",
+ "tinyvec",
+ "tracing",
+ "url",
+]
 
 [[package]]
 name = "hkdf"
@@ -4746,6 +4802,10 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+dependencies = [
+ "critical-section",
+ "portable-atomic",
+]
 
 [[package]]
 name = "oo7"
@@ -5600,6 +5660,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-util",
+ "h2",
  "http",
  "http-body",
  "http-body-util",

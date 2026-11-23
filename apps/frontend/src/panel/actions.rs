@@ -32,6 +32,7 @@ impl RootView {
         self.activity
             .info(format!("Installing {version} in {}", root.display()));
         self.set_installation(&root, version, Installation::Running(Progress::Version), cx);
+        self.monitor_downloads(cx);
         installations::start(root, version.to_owned(), concurrency, cx);
     }
 

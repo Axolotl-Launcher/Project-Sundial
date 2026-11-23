@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! The read side of the portable profile document and its local resources.
+//! Portable profile documents and their local resources.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -12,8 +12,10 @@ use std::path::Path;
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 
+mod create;
 mod discovery;
 mod resources;
+pub use create::{CreateError, create_blank};
 pub use discovery::{DiscoveredProfile, DiscoveryError, ProfileDiscovery, discover};
 pub use resources::{Resource, ResourceKind, scan_resources};
 
@@ -195,9 +197,7 @@ fn validate(profile: &Profile) -> Result<(), String> {
     {
         return Err("id must be a UUID".into());
     }
-    if profile.instance.name.trim().is_empty()
-        || profile.instance.name.chars().any(char::is_control)
-    {
+    if !visible_name(&profile.instance.name) {
         return Err("instance name must be visible text".into());
     }
     if profile
@@ -212,6 +212,10 @@ fn validate(profile: &Profile) -> Result<(), String> {
         validate_game(game)?;
     }
     validate_files(&profile.content.files)
+}
+
+fn visible_name(name: &str) -> bool {
+    !name.trim().is_empty() && !name.chars().any(char::is_control)
 }
 
 fn validate_game(game: &Game) -> Result<(), String> {

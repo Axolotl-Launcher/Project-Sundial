@@ -11,16 +11,17 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+axlauncher_download_engine = { workspace = true }
 axlauncher_launch = { workspace = true }
 axlauncher_network = { workspace = true }
 axlauncher_spi = { workspace = true }
 axlauncher_storage = { workspace = true }
-futures = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 zip = { workspace = true }
 
 [dev-dependencies]
+futures = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

@@ -115,13 +115,7 @@ impl RootView {
             .child(
                 v_flex()
                     .gap_3()
-                    .when_some(data, |column, data| {
-                        column.child(
-                            Label::new(data.instances().display().to_string())
-                                .text_xs()
-                                .text_color(muted),
-                        )
-                    })
+                    .child(self.render_create_instance(data.as_ref(), cx))
                     .children(profiles.issues.iter().enumerate().map(|(index, issue)| {
                         Label::new(issue.to_string())
                             .id(ElementId::named_usize("profile-discovery-issue", index))

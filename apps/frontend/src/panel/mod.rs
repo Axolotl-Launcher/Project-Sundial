@@ -21,6 +21,8 @@ use crate::{Loaded, Startup, load_at, palette_for};
 
 mod actions;
 mod activity;
+mod create_instance;
+mod download_debug;
 mod environment;
 mod instances;
 mod launch;
@@ -38,6 +40,8 @@ pub(crate) struct RootView {
     root_input: Entity<InputState>,
     player_input: Entity<InputState>,
     instances: instances::InstancesState,
+    create_instance: create_instance::CreateInstance,
+    download_debug: download_debug::DownloadDebug,
     inspection: launch::Inspection,
     installations: HashMap<PathBuf, HashMap<String, Installation>>,
     launches: HashMap<PathBuf, (String, Launch)>,
@@ -65,6 +69,8 @@ impl RootView {
             .as_ref()
             .map(|settings| settings.theme)
             .unwrap_or_default();
+        let create_instance = create_instance::CreateInstance::new(window, cx);
+        let download_debug = download_debug::DownloadDebug::new(window, cx);
         let mut view = Self {
             root: loaded.root,
             notice: loaded.notice,
@@ -74,6 +80,8 @@ impl RootView {
             root_input,
             player_input,
             instances: instances::InstancesState::new(loaded.profiles),
+            create_instance,
+            download_debug,
             inspection: launch::Inspection::default(),
             installations: HashMap::new(),
             launches: HashMap::new(),
@@ -198,6 +206,7 @@ impl Render for RootView {
                     .gap_5()
                     .overflow_y_scrollbar()
                     .child(self.render_instances(cx))
+                    .child(self.render_download_debug(cx))
                     .child(self.render_launch(cx))
                     .child(self.render_environment(cx))
                     .child(self.render_activity(cx)),
