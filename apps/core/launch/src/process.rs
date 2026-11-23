@@ -40,7 +40,7 @@ pub(crate) fn run(
 }
 
 fn wait(command: &LaunchCommand, started: impl FnOnce()) -> Result<(), LaunchError> {
-    let mut child = build(command)
+    let mut child = build_with_output(command)?
         .spawn()
         .map_err(|error| LaunchError::NotFound(error.to_string()))?;
     started();
@@ -55,6 +55,24 @@ fn wait(command: &LaunchCommand, started: impl FnOnce()) -> Result<(), LaunchErr
             code: status.code(),
         })
     }
+}
+
+fn build_with_output(command: &LaunchCommand) -> Result<std::process::Command, LaunchError> {
+    // The game's Log4j configuration maintains its own logs. Redirect the two
+    // process streams separately from those logs, including early JVM errors.
+    let instance = &command.working_directory;
+    let (output, errors) = axlauncher_storage::open_instance_console_log(instance)
+        .and_then(|file| Ok((file.try_clone()?, file)))
+        .map_err(|error| {
+            let log = axlauncher_storage::instance_console_log(instance);
+            LaunchError::NotFound(format!(
+                "cannot open console log {}: {error}",
+                log.display()
+            ))
+        })?;
+    let mut child = build(command);
+    child.stdout(output).stderr(errors);
+    Ok(child)
 }
 
 /// The child command a `LaunchCommand` describes.

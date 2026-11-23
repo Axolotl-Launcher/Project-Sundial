@@ -20,6 +20,23 @@ pub fn open_for_read(path: &Path) -> io::Result<fs::File> {
     fs::File::open(path)
 }
 
+/// The instance log for the most recent Java process's stdout and stderr.
+pub fn instance_console_log(instance: &Path) -> PathBuf {
+    instance.join("logs").join("launcher-console.log")
+}
+
+/// Opens a fresh console log inside an existing instance directory.
+pub fn open_instance_console_log(instance: &Path) -> io::Result<fs::File> {
+    let path = instance_console_log(instance);
+    let parent = path.parent().expect("console log directory");
+    match fs::create_dir(parent) {
+        Ok(()) => (),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => (),
+        Err(error) => return Err(error),
+    }
+    fs::File::create(path)
+}
+
 /// The launcher's on-disk root and the directories under it.
 ///
 /// One type owns the layout so a path is never assembled from string literals

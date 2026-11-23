@@ -25,9 +25,9 @@ pub use plan::{Layout, Session};
 pub use rules::Target;
 pub use version::Version;
 
-pub use axlauncher_spi::{Java, JavaMode, LaunchCommand};
+pub use axlauncher_spi::{Java, JavaMode, LaunchCommand, LaunchError};
 
-use axlauncher_spi::{LaunchError, Launcher};
+use axlauncher_spi::Launcher;
 
 /// Starts the command as a child process and waits for it.
 #[derive(Debug, Default)]
@@ -58,3 +58,5 @@ impl<F: Fn() + Send + Sync + 'static> Launcher for ReportingProcessLauncher<F> {
 #[cfg(test)]
 #[path = "../../../../tests/apps/core/launch/src/lib.rs"]
 mod tests;
+#[cfg(test)]
+pub(crate) use tests::TempDir as TestTempDir;

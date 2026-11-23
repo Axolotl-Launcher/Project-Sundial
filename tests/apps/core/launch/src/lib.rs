@@ -127,10 +127,10 @@ fn environment_names(dump: &str) -> Vec<&str> {
         .collect()
 }
 
-struct TempDir(PathBuf);
+pub(crate) struct TempDir(PathBuf);
 
 impl TempDir {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
         let path =
@@ -139,7 +139,7 @@ impl TempDir {
         Self(path)
     }
 
-    fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.0
     }
 }
@@ -152,14 +152,20 @@ impl Drop for TempDir {
 
 #[test]
 fn a_successful_command_returns_ok() {
-    let result = finish(ProcessLauncher.launch(command_from(exit_script(SUCCESS_CODE))));
+    let temp = TempDir::new();
+    let mut command = command_from(exit_script(SUCCESS_CODE));
+    command.working_directory = temp.path().to_path_buf();
+    let result = finish(ProcessLauncher.launch(command));
 
     assert_eq!(result, Ok(()));
 }
 
 #[test]
 fn a_non_zero_exit_reports_its_code() {
-    let result = finish(ProcessLauncher.launch(command_from(exit_script(FAILURE_CODE))));
+    let temp = TempDir::new();
+    let mut command = command_from(exit_script(FAILURE_CODE));
+    command.working_directory = temp.path().to_path_buf();
+    let result = finish(ProcessLauncher.launch(command));
 
     assert_eq!(
         result,
@@ -171,7 +177,9 @@ fn a_non_zero_exit_reports_its_code() {
 
 #[test]
 fn a_missing_program_is_not_found() {
-    let command = command_from(("axlauncher-no-such-program".to_owned(), Vec::new()));
+    let temp = TempDir::new();
+    let mut command = command_from(("axlauncher-no-such-program".to_owned(), Vec::new()));
+    command.working_directory = temp.path().to_path_buf();
 
     let result = finish(ProcessLauncher.launch(command));
 

@@ -9,12 +9,12 @@ use std::sync::Arc;
 use axlauncher_core::install::{auth_agent, vanilla};
 use axlauncher_core::launch::plan::YggdrasilAgent;
 use axlauncher_core::launch::{
-    FlowError, LaunchRequest, ProcessLauncher, SystemJava, Target, flow, plan::Session,
+    FlowError, LaunchError, LaunchRequest, ProcessLauncher, SystemJava, Target, flow, plan::Session,
 };
 use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::network::auth::AuthHttp;
 use axlauncher_core::state::accounts::{AccountId, LaunchIdentity, yggdrasil};
-use axlauncher_core::storage::DataDir;
+use axlauncher_core::storage::{DataDir, instance_console_log};
 use axlauncher_ui::{AppContext, AsyncApp, Context, WeakEntity};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use tokio::sync::{oneshot, watch};
@@ -135,6 +135,7 @@ async fn run(
     let launcher = ProcessLauncher::reporting(move || {
         sender.send_replace(true);
     });
+    let console_log = instance_console_log(&request.instance_directory);
     match flow::launch_with_session(
         &SystemJava::from_environment(),
         &launcher,
@@ -146,6 +147,13 @@ async fn run(
         Ok(_) => Launch::Exited,
         Err(FlowError::NoMatchingJava { required, .. }) => Launch::Failed(format!(
             "Java {required} is required. Set JAVA_HOME or PATH to a Java {required} installation and reopen the launcher."
+        )),
+        Err(FlowError::Launch {
+            source: source @ LaunchError::Exited { .. },
+            ..
+        }) => Launch::Failed(format!(
+            "Minecraft {source}. See {}.",
+            console_log.display()
         )),
         Err(error) => Launch::Failed(error.to_string()),
     }
