@@ -57,7 +57,7 @@ impl Exchange {
             ("/user/authenticate", r#"{"Token":"xbox"}"#),
             (
                 "/xsts/authorize",
-                r#"{"Token":"xsts","DisplayClaims":{"xui":[{"uhs":"hash"}]}}"#,
+                r#"{"Token":"xsts","DisplayClaims":{"xui":[{"uhs":"hash","xid":"2533274790000000"}]}}"#,
             ),
             (
                 "/launcher/login",
@@ -185,7 +185,8 @@ fn saves_only_identity_in_json_and_coalesces_refresh_after_restart() {
             reopened.resolve(id, &refresh)
         );
         for result in [first, second] {
-            assert!(matches!(result.unwrap(), LaunchIdentity::Microsoft { access_token, .. } if access_token == "minecraft-access"));
+            assert!(matches!(result.unwrap(), LaunchIdentity::Microsoft { access_token, xuid, .. }
+                if access_token == "minecraft-access" && xuid.as_deref() == Some("2533274790000000")));
         }
         refresh.all_requests_sent();
         assert!(refresh.forms.lock().unwrap()[0].contains("refresh_token=first-refresh"));

@@ -131,6 +131,7 @@ fn missing_libraries_ignores_a_library_excluded_for_the_target() {
     let root = tempfile::tempdir().unwrap();
     let only_macos = vec![Rule {
         action: "allow".into(),
+        features: std::collections::BTreeMap::new(),
         os: Some(OsRule {
             name: Some("osx".into()),
             arch: None,

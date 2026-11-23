@@ -20,7 +20,7 @@ fn microsoft_token_reaches_only_the_launcher() {
         launched
             .args
             .iter()
-            .any(|argument| argument == &format!("--legacy-session={token}"))
+            .any(|argument| argument == &format!("--legacy-session=token:{token}:profile-uuid"))
     );
     for expected in ["OnlinePlayer", "profile-uuid", "msa"] {
         assert!(launched.args.iter().any(|argument| argument == expected));
@@ -71,4 +71,131 @@ fn third_party_agent_precedes_the_main_class_and_keeps_the_token_out_of_diagnost
             .iter()
             .any(|argument| argument.starts_with("-javaagent:"))
     );
+}
+
+#[test]
+fn positional_legacy_manifest_gets_its_session_and_classpath() {
+    let fixture = Fixture::new();
+    let java = FakeJava::found(fixture.java());
+    write_file(
+        &fixture.version_document(),
+        br#"{
+        "id":"1.21","mainClass":"net.minecraft.launchwrapper.Launch","libraries":[],
+        "minecraftArguments":"${auth_player_name} ${auth_session} --gameDir ${game_directory}"
+    }"#,
+    );
+    let request = fixture.request();
+    let preview = preview_with_session(&java, &request, &Session::offline("OldPlayer")).unwrap();
+    let entry = preview
+        .args
+        .iter()
+        .position(|arg| arg == "net.minecraft.launchwrapper.Launch")
+        .unwrap();
+    let before = &preview.args[..entry];
+    assert!(
+        before
+            .windows(2)
+            .any(|pair| pair[0] == "-cp" && pair[1].ends_with("1.21.jar"))
+    );
+    assert!(
+        before
+            .iter()
+            .any(|arg| arg.starts_with("-Djava.library.path="))
+    );
+    assert_eq!(&preview.args[entry + 1..entry + 3], ["OldPlayer", "-"]);
+}
+
+#[test]
+fn modern_manifest_receives_only_available_account_fields() {
+    let fixture = Fixture::new();
+    let java = FakeJava::found(fixture.java());
+    write_file(&fixture.version_document(), br#"{
+        "id":"1.21","mainClass":"net.minecraft.client.main.Main","libraries":[],
+        "arguments":{"game":["--username","${auth_player_name}","--uuid","${auth_uuid}",
+            "--accessToken","${auth_access_token}","--clientId","${clientid}","--xuid","${auth_xuid}"]}
+    }"#);
+    let request = fixture.request();
+    let session = Session::microsoft("ModernPlayer", "profile-uuid", "token-value".into())
+        .with_xuid(Some("2533274790000000".to_owned()));
+    let command = preview_with_session(&java, &request, &session).unwrap();
+    assert!(
+        command
+            .args
+            .windows(2)
+            .any(|pair| pair == ["--xuid", "2533274790000000"])
+    );
+    assert!(
+        command
+            .args
+            .windows(2)
+            .any(|pair| pair == ["--accessToken", "[redacted]"])
+    );
+    assert!(
+        !command
+            .args
+            .iter()
+            .any(|arg| arg == "--clientId" || arg == "--userType")
+    );
+    let offline = preview_with_session(
+        &java,
+        &request,
+        &Session::offline_profile("OfflinePlayer", "offline-uuid"),
+    )
+    .unwrap();
+    assert!(!offline.args.iter().any(|arg| arg == "--xuid"));
+    assert!(
+        offline
+            .args
+            .windows(2)
+            .any(|pair| pair == ["--accessToken", "0"])
+    );
+}
+
+#[test]
+fn normal_launches_skip_the_manifest_demo_flag_for_every_account_type() {
+    let fixture = Fixture::new();
+    let java = FakeJava::found(fixture.java());
+    write_file(&fixture.version_document(), br#"{
+        "id":"1.21","mainClass":"net.minecraft.client.main.Main","libraries":[],
+        "arguments":{"game":["--username","${auth_player_name}","--accessToken","${auth_access_token}",
+            {"rules":[{"action":"allow","features":{"is_demo_user":true}}],"value":"--demo"},
+            {"rules":[{"action":"allow","features":{"is_demo_user":false}}],"value":"--normal-feature"}]}
+    }"#);
+    let agent = plan::YggdrasilAgent::new(
+        fixture.game_root().join("agent.jar"),
+        "https://example.test/api",
+    );
+    let sessions = [
+        Session::offline_profile("OfflinePlayer", "offline-uuid"),
+        Session::microsoft("OnlinePlayer", "online-uuid", "test-token".into()),
+        Session::yggdrasil(
+            "ExternalPlayer",
+            "external-uuid",
+            "test-token".into(),
+            agent,
+        ),
+    ];
+    for session in sessions {
+        let command = preview_with_session(&java, &fixture.request(), &session).unwrap();
+        assert!(!command.args.iter().any(|arg| arg == "--demo"));
+        assert!(command.args.iter().any(|arg| arg == "--normal-feature"));
+    }
+}
+
+#[test]
+fn flat_named_arguments_drop_unavailable_fields_without_leaving_placeholders() {
+    let fixture = Fixture::new();
+    let java = FakeJava::found(fixture.java());
+    write_file(&fixture.version_document(), br#"{
+        "id":"1.21","mainClass":"net.minecraft.client.main.Main","libraries":[],
+        "minecraftArguments":"--username ${auth_player_name} --session ${auth_session} --clientId ${clientid} --xuid ${auth_xuid}"
+    }"#);
+    let session = Session::microsoft("LegacyPlayer", "profile-uuid", "token-value".into());
+    let command = preview_with_session(&java, &fixture.request(), &session).unwrap();
+    assert!(command.args.ends_with(&[
+        "--username".into(),
+        "LegacyPlayer".into(),
+        "--session".into(),
+        "token:[redacted]:profile-uuid".into()
+    ]));
 }

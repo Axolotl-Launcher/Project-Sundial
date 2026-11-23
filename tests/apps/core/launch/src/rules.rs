@@ -14,6 +14,7 @@ fn target(os: &str, arch: &str) -> Target {
 fn rule(action: &str, os: Option<&str>, arch: Option<&str>) -> Rule {
     Rule {
         action: action.into(),
+        features: std::collections::BTreeMap::new(),
         os: (os.is_some() || arch.is_some()).then(|| OsRule {
             name: os.map(str::to_string),
             arch: arch.map(str::to_string),
@@ -61,6 +62,18 @@ fn an_arch_rule_compares_the_architecture() {
 fn rules_that_match_nothing_exclude_the_item() {
     let rules = [rule("allow", Some("osx"), None)];
     assert!(!allows(Some(&rules), &target("linux", "x86_64")));
+}
+
+#[test]
+fn feature_conditions_and_platform_conditions_must_both_match() {
+    let windows = target("windows", "x86_64");
+    let mut condition = rule("allow", Some("windows"), None);
+    condition.features.insert("is_demo_user".into(), true);
+    assert!(!allows(Some(std::slice::from_ref(&condition)), &windows));
+
+    condition.features.insert("is_demo_user".into(), false);
+    assert!(allows(Some(std::slice::from_ref(&condition)), &windows));
+    assert!(!allows(Some(&[condition]), &target("linux", "x86_64")));
 }
 
 #[test]

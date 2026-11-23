@@ -166,11 +166,13 @@ async fn online_session(
         LaunchIdentity::Microsoft {
             account,
             access_token,
+            xuid,
         } => Ok(Session::microsoft(
             account.name(),
             account.id().uuid().simple().to_string(),
             access_token,
-        )),
+        )
+        .with_xuid(xuid)),
         LaunchIdentity::Offline(account) => Ok(Session::offline_profile(
             account.name(),
             account.id().uuid().simple().to_string(),

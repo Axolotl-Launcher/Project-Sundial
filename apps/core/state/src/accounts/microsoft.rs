@@ -67,6 +67,7 @@ pub(super) struct Profile {
 pub(super) struct Tokens {
     pub access: String,
     pub refresh: String,
+    pub xuid: Option<String>,
     expires: Instant,
 }
 
@@ -109,6 +110,7 @@ struct XstsClaims {
 #[derive(Deserialize)]
 struct UserClaim {
     uhs: String,
+    xid: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -206,8 +208,14 @@ async fn exchange(
     Ok(Tokens {
         access: token.access_token,
         refresh,
+        xuid: claim.xid.as_deref().and_then(xuid),
         expires,
     })
+}
+
+fn xuid(input: &str) -> Option<String> {
+    let value = input.parse::<u64>().ok()?;
+    (value != 0).then(|| value.to_string())
 }
 
 async fn authorize_xbox(

@@ -35,6 +35,7 @@ pub struct Session {
     access_token: String,
     user_type: &'static str,
     agent: Option<YggdrasilAgent>,
+    xuid: Option<String>,
 }
 
 const REDACTED_TOKEN: &str = "[redacted]";
@@ -88,6 +89,7 @@ impl Session {
             access_token: "0".into(),
             user_type: "legacy",
             agent: None,
+            xuid: None,
         }
     }
 
@@ -103,6 +105,7 @@ impl Session {
             access_token,
             user_type: "msa",
             agent: None,
+            xuid: None,
         }
     }
 
@@ -124,6 +127,7 @@ impl Session {
             access_token,
             user_type: "legacy",
             agent: Some(agent),
+            xuid: None,
         }
     }
 
@@ -145,6 +149,19 @@ impl Session {
 
     fn has_online_token(&self) -> bool {
         self.user_type == "msa" || self.agent.is_some()
+    }
+
+    /// Xbox account metadata for manifests that declare `auth_xuid`.
+    pub fn with_xuid(mut self, xuid: Option<String>) -> Self {
+        self.xuid = xuid;
+        self
+    }
+
+    fn legacy_session(&self) -> String {
+        if self.has_online_token() {
+            return format!("token:{}:{}", self.access_token, self.uuid);
+        }
+        "-".to_owned()
     }
 
     pub(super) fn redact_command(&self, command: &mut LaunchCommand) {
@@ -203,13 +220,11 @@ pub fn build(
         &client_jar,
         target,
     );
-    let mut values = values(version, layout, session, &classpath, target);
-    values.omit("auth_xuid");
-    values.omit("clientid");
-    values.omit("user_properties");
+    let values = version_values(version, layout, &classpath, target);
+    let values = account_values(values, session);
     let arguments = version.arguments.clone().unwrap_or_default();
 
-    let mut args = arguments::resolved(&arguments.jvm, target, &values);
+    let mut args = jvm_arguments(&arguments, target, &values);
     args.extend(session.agent.iter().flat_map(YggdrasilAgent::arguments));
     args.extend(logging_argument(version, layout));
     args.push(version.main_class.clone());
@@ -241,13 +256,24 @@ pub fn client_jar(game_root: &Path, version_id: &str) -> PathBuf {
         .join(format!("{version_id}.jar"))
 }
 
-fn values(
-    version: &Version,
-    layout: &Layout,
-    session: &Session,
-    classpath: &str,
+fn jvm_arguments(
+    arguments: &crate::version::Arguments,
     target: &Target,
-) -> Values {
+    values: &Values,
+) -> Vec<String> {
+    if !arguments.jvm.is_empty() {
+        return arguments::resolved(&arguments.jvm, target, values);
+    }
+    [
+        "-Djava.library.path=${natives_directory}",
+        "-cp",
+        "${classpath}",
+    ]
+    .map(|argument| arguments::substitute(argument, values))
+    .into()
+}
+
+fn version_values(version: &Version, layout: &Layout, classpath: &str, target: &Target) -> Values {
     let assets_index = version
         .asset_index
         .as_ref()
@@ -290,10 +316,22 @@ fn values(
         .with("assets_index_name", assets_index)
         .with("version_name", version.id.clone())
         .with("version_type", version.kind.clone())
+}
+
+fn account_values(mut values: Values, session: &Session) -> Values {
+    values.omit("clientid");
+    if let Some(xuid) = &session.xuid {
+        values = values.with("auth_xuid", xuid.clone());
+    } else {
+        values.omit("auth_xuid");
+    }
+    values
         .with("auth_player_name", session.player_name.clone())
         .with("auth_uuid", session.uuid.clone())
         .with("auth_access_token", session.access_token.clone())
-        .with("auth_session", session.access_token.clone())
+        .with("access_token", session.access_token.clone())
+        .with("accessToken", session.access_token.clone())
+        .with("auth_session", session.legacy_session())
         .with("user_type", session.user_type)
         .with("user_properties", "{}")
 }

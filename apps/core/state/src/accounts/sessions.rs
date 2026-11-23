@@ -51,6 +51,7 @@ pub enum LaunchIdentity {
     Microsoft {
         account: Account,
         access_token: String,
+        xuid: Option<String>,
     },
     Yggdrasil {
         account: Account,
@@ -239,10 +240,11 @@ impl<S: CredentialStore> AccountService<S> {
                 access_token,
             });
         }
-        let access_token = self.access_token(network, cached).await?;
+        let tokens = self.access_token(network, cached).await?;
         Ok(LaunchIdentity::Microsoft {
             account,
-            access_token,
+            access_token: tokens.access.clone(),
+            xuid: tokens.xuid.clone(),
         })
     }
 
@@ -296,13 +298,13 @@ impl<S: CredentialStore> AccountService<S> {
             .ok_or_else(|| YggdrasilError::SignInAgain.into())
     }
 
-    async fn access_token(
+    async fn access_token<'a>(
         &self,
         network: &impl AuthNetwork,
-        cached: &mut Cached,
-    ) -> Result<String, AccountError> {
-        if let Some(tokens) = cached.tokens.as_ref().filter(|tokens| tokens.is_current()) {
-            return Ok(tokens.access.clone());
+        cached: &'a mut Cached,
+    ) -> Result<&'a Tokens, AccountError> {
+        if cached.tokens.as_ref().is_some_and(Tokens::is_current) {
+            return Ok(cached.tokens.as_ref().expect("current Microsoft tokens"));
         }
         if let Some((time, error)) = &cached.failure
             && (matches!(error, MicrosoftError::SignInAgain)
@@ -323,10 +325,9 @@ impl<S: CredentialStore> AccountService<S> {
         {
             cached.session_only = self.store.write(&key.to_string(), &tokens.refresh).is_err();
         }
-        let access = tokens.access.clone();
         cached.tokens = Some(tokens);
         cached.failure = None;
-        Ok(access)
+        Ok(cached.tokens.as_ref().expect("refreshed Microsoft tokens"))
     }
 
     fn refresh_token(&self, cached: &mut Cached) -> Result<String, AccountError> {
@@ -358,11 +359,11 @@ fn mark_yggdrasil_failure(cached: &mut Cached, error: &AccountError) {
 }
 
 impl Cached {
-    fn recover(&self, error: MicrosoftError) -> Result<String, AccountError> {
+    fn recover(&self, error: MicrosoftError) -> Result<&Tokens, AccountError> {
         if !matches!(error, MicrosoftError::SignInAgain)
             && let Some(tokens) = self.tokens.as_ref().filter(|tokens| tokens.is_valid())
         {
-            return Ok(tokens.access.clone());
+            return Ok(tokens);
         }
         Err(error.into())
     }

@@ -26,6 +26,7 @@ const LAUNCHER_NAME: &str = "Axolotl Launcher";
 
 /// The launcher version the game is told about.
 const LAUNCHER_VERSION: &str = env!("CARGO_PKG_VERSION");
+const LEGACY_JAVA: u32 = 8;
 
 /// Everything a launch needs from its caller.
 #[derive(Debug, Clone)]
@@ -270,9 +271,8 @@ fn load_version(request: &LaunchRequest) -> Result<(Version, Option<String>), Fl
 /// The Java executable the game runs on, if this system offers one.
 ///
 /// The version document states the major version its classes were built for. A
-/// document without that field asks for nothing in particular, which is what
-/// every manifest written before 1.17 does; those run on the launcher's default
-/// runtime.
+/// document with flat arguments and no Java requirement prefers Java 8 when it
+/// is installed. An explicit runtime choice still takes precedence.
 fn java_executable(
     java: &impl Java,
     version: &Version,
@@ -281,6 +281,12 @@ fn java_executable(
     let preferred = request.java_preference.as_deref();
 
     let Some(required) = version.java_version.as_ref().map(|java| java.major) else {
+        if preferred.is_none()
+            && version.minecraft_arguments.is_some()
+            && let Some(legacy) = java.executable_for(LEGACY_JAVA, JavaMode::Windowed)
+        {
+            return Ok(legacy);
+        }
         return java
             .executable(preferred, JavaMode::Windowed)
             .ok_or_else(|| FlowError::NoJava {

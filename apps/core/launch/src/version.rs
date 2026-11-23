@@ -393,6 +393,8 @@ pub struct Rule {
     pub action: String,
     #[serde(default)]
     pub os: Option<OsRule>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub features: BTreeMap<String, bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]

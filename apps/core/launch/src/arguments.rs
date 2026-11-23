@@ -243,15 +243,30 @@ pub fn legacy_game(legacy: &str, modern: &[String], values: &Values) -> Vec<Stri
         .collect();
 
     let mut tokens = legacy.split_whitespace().peekable();
-    let mut kept = Vec::new();
+    let mut assembler = Assembler::default();
+    let values = LegacyValues(values);
     while let Some(token) = tokens.next() {
         if !modern_options.contains(token) {
-            kept.push(substitute(token, values));
+            assembler.push(token, &values);
             continue;
         }
         skip_inline_value(&mut tokens);
     }
-    kept
+    assembler.finish()
+}
+
+struct LegacyValues<'a>(&'a Values);
+
+impl Resolve for LegacyValues<'_> {
+    fn resolve(&self, name: &str) -> Value {
+        if self.0.is_omitted(name) {
+            return Value::Absent;
+        }
+        match self.0.get(name) {
+            Some(value) => Value::Present(value.to_owned()),
+            None => Value::Present(format!("${{{name}}}")),
+        }
+    }
 }
 
 /// Consumes the value that follows a dropped option, when it has one.
