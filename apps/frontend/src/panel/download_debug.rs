@@ -23,6 +23,8 @@ use tokio::sync::oneshot;
 use super::RootView;
 use crate::installations::Installation;
 
+mod batch;
+
 // Cargo Shear scans imports inside the crate but misses the mirrored tests.
 #[cfg(test)]
 use tempfile as test_tempfile;
@@ -33,6 +35,7 @@ const MAX_VISIBLE_INSTALLATIONS: usize = 8;
 
 pub(super) struct DownloadDebug {
     url: Entity<InputState>,
+    batch: batch::BatchDebug,
     stats: TransferStats,
     sampled_at: Instant,
     bytes_per_second: f64,
@@ -73,6 +76,7 @@ impl DownloadDebug {
         cx.subscribe(&url, RootView::download_probe_event).detach();
         Self {
             url,
+            batch: batch::BatchDebug::new(window, cx),
             stats: DownloadEngine::shared().stats(),
             sampled_at: Instant::now(),
             bytes_per_second: 0.,
@@ -125,7 +129,9 @@ impl RootView {
 
     fn sample_downloads(&mut self, cx: &mut Context<'_, Self>) -> bool {
         self.download_debug.sample();
+        self.download_debug.batch.drain_outcomes();
         let keep_sampling = self.download_debug.status.is_running()
+            || self.download_debug.batch.is_running()
             || self
                 .installations
                 .values()
@@ -230,6 +236,7 @@ impl RootView {
                     .when_some(state.status.message(), |column, message| {
                         column.child(Label::new(message).text_sm().text_color(status_color))
                     })
+                    .child(self.render_batch_probe(cx))
                     .children(self.render_installation_progress(cx)),
             )
             .into_any_element()
