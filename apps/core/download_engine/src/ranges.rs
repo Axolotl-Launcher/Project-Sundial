@@ -19,9 +19,8 @@ const SEGMENT_TIME: Duration = Duration::from_secs(2);
 const SEGMENT_RETRIES: usize = 3;
 
 #[derive(Clone, Copy)]
-pub(crate) struct RangeSource<'a> {
+pub(crate) struct RangeSource {
     pub(crate) total: u64,
-    pub(crate) validator: Option<&'a str>,
     pub(crate) width: usize,
     pub(crate) chunk: u64,
     pub(crate) minimum: u64,
@@ -36,7 +35,7 @@ struct Work {
 pub(crate) async fn download<Net: Network>(
     transfer: &Transfer<'_, Net>,
     stage: &Mutex<&mut AtomicFile>,
-    source: RangeSource<'_>,
+    source: RangeSource,
     first: ByteRange,
     connection: Connection<'_, impl DownloadBody>,
     final_round: bool,
@@ -90,14 +89,14 @@ async fn run<Net: Network>(
     transfer: &Transfer<'_, Net>,
     stage: &Mutex<&mut AtomicFile>,
     work: Work,
-    source: RangeSource<'_>,
+    source: RangeSource,
     final_round: bool,
     initial: Option<Connection<'_, impl DownloadBody>>,
 ) -> (Work, CopyResult, Duration) {
     let start = Instant::now();
     let split_slow = !final_round && work.retries < SEGMENT_RETRIES;
     let result = transfer
-        .segment(stage, work.interval, source, split_slow, initial)
+        .segment(stage, work.interval, source.total, split_slow, initial)
         .await;
     (work, result, start.elapsed())
 }

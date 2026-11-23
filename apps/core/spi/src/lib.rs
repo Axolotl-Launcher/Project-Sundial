@@ -37,14 +37,12 @@ pub trait Network {
         url: &str,
         _protocol: DownloadProtocol,
         _range: Option<ByteRange>,
-        _validator: Option<&str>,
     ) -> impl Future<Output = Result<DownloadResponse<impl DownloadBody>, FetchError>> {
         async move {
             let body = bytes::Bytes::from(self.fetch(url).await?);
             Ok(DownloadResponse {
                 length: Some(body.len() as u64),
                 range: None,
-                validator: None,
                 body: Some(body),
             })
         }

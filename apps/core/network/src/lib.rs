@@ -100,14 +100,13 @@ impl Network for ReqwestNetwork {
         url: &str,
         protocol: DownloadProtocol,
         range: Option<ByteRange>,
-        validator: Option<&str>,
     ) -> Result<DownloadResponse<impl DownloadBody>, FetchError> {
         let (client, version) = match protocol {
             DownloadProtocol::Automatic => (&self.client, None),
             DownloadProtocol::Http1 => (&self.file_http1, Some(reqwest::Version::HTTP_11)),
             DownloadProtocol::Http2 => (&self.file_http2, Some(reqwest::Version::HTTP_2)),
         };
-        transfer::open(client, url, version, range, validator).await
+        transfer::open(client, url, version, range).await
     }
 }
 

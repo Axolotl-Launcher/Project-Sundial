@@ -34,7 +34,7 @@ fn default_policy_uses_http1_and_the_expected_connection_budgets() {
 struct RangeNetwork {
     requests: RefCell<Vec<Option<ByteRange>>>,
     fail_once: Cell<bool>,
-    change_revision: bool,
+    ignore_later_ranges: bool,
     length: Option<u64>,
     protocol: Option<DownloadProtocol>,
 }
@@ -49,7 +49,6 @@ impl Network for RangeNetwork {
         _url: &str,
         protocol: DownloadProtocol,
         range: Option<ByteRange>,
-        validator: Option<&str>,
     ) -> Result<DownloadResponse<impl DownloadBody>, FetchError> {
         assert_eq!(protocol, self.protocol.unwrap_or_default());
         self.requests.borrow_mut().push(range);
@@ -59,16 +58,11 @@ impl Network for RangeNetwork {
             end: total,
         });
         let interrupted = interval.start == 8 * MIB && self.fail_once.replace(false);
-        let changed = self.change_revision && validator.is_some();
-        let version = if changed || (self.change_revision && range.is_none()) {
-            "\"second\""
-        } else {
-            "\"first\""
-        };
+        let ignored = self.ignore_later_ranges && interval.start > 0;
         let range = range
-            .filter(|_| !changed)
+            .filter(|_| !ignored)
             .map(|interval| ResponseRange { interval, total });
-        let length = if changed {
+        let length = if ignored {
             total
         } else {
             interval.end - interval.start
@@ -76,13 +70,12 @@ impl Network for RangeNetwork {
         Ok(DownloadResponse {
             length: Some(length),
             range,
-            validator: Some(version.into()),
             body: PatternBody {
-                offset: if changed { 0 } else { interval.start },
-                end: if changed { total } else { interval.end },
+                offset: if ignored { 0 } else { interval.start },
+                end: if ignored { total } else { interval.end },
                 first: true,
                 interrupted,
-                version: u8::from(version == "\"second\""),
+                version: u8::from(self.ignore_later_ranges && range.is_none()),
             },
         })
     }
@@ -233,11 +226,11 @@ fn explicitly_selected_http2_keeps_small_files_on_a_single_request() {
 }
 
 #[test]
-fn a_changed_representation_is_restarted_as_a_whole_file() {
+fn an_ignored_range_restarts_as_a_whole_file() {
     let root = test_tempfile::tempdir().unwrap();
     let destination = root.path().join("file");
     let network = RangeNetwork {
-        change_revision: true,
+        ignore_later_ranges: true,
         ..RangeNetwork::default()
     };
     let engine = DownloadEngine::default();
@@ -256,6 +249,44 @@ fn a_changed_representation_is_restarted_as_a_whole_file() {
     assert_eq!(requests.last(), Some(&None));
     assert_contents(&destination, 1);
     assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn multipart_downloads_accept_all_protocols_without_a_digest() {
+    for protocol in [
+        DownloadProtocol::Http1,
+        DownloadProtocol::Http2,
+        DownloadProtocol::Automatic,
+    ] {
+        assert_multipart_without_digest(protocol);
+    }
+}
+
+fn assert_multipart_without_digest(protocol: DownloadProtocol) {
+    let root = test_tempfile::tempdir().unwrap();
+    let destination = root.path().join("file");
+    let network = RangeNetwork {
+        protocol: Some(protocol),
+        ..RangeNetwork::default()
+    };
+    let engine = DownloadEngine::new(DownloadPolicy {
+        protocol,
+        ..DownloadPolicy::default()
+    });
+    let job = DownloadJob {
+        sources: &[DATA_SOURCE],
+        destination: &destination,
+        sha1: None,
+        size: Some(LENGTH),
+        batch: true,
+    };
+
+    block_on(engine.download(&network, job)).unwrap();
+
+    let requests = network.requests.into_inner();
+    assert!(requests.len() > 1);
+    assert!(requests.iter().all(Option::is_some));
+    assert_contents(&destination, 0);
 }
 
 #[test]

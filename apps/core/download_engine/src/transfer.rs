@@ -90,10 +90,10 @@ impl<Net: Network> Transfer<'_, Net> {
         let stage = Mutex::new(staging);
         let attempt = match job.size {
             Some(total) if total >= self.range_threshold() => {
-                self.ranged(&stage, job, total, final_round).await
+                self.ranged(&stage, total, final_round).await
             }
             None if !job.batch && self.engine.policy.connections_per_file.get() > 1 => {
-                self.probe(&stage, job, final_round).await
+                self.probe(&stage, final_round).await
             }
             _ => Err(TransferError::RangeUnavailable),
         };
@@ -109,31 +109,29 @@ impl<Net: Network> Transfer<'_, Net> {
         if let Some(share) = self.share {
             share.set_remaining(None);
         }
-        let connection = self.open(None, None).await?;
-        self.whole(connection, &stage, job, final_round).await
+        let connection = self.open(None).await?;
+        self.whole(connection, &stage).await
     }
 
     async fn probe(
         &self,
         stage: &Mutex<&mut AtomicFile>,
-        job: DownloadJob<'_>,
         final_round: bool,
     ) -> Result<(), TransferError> {
-        let connection = self.open_for_range(PROBE, None).await?;
+        let connection = self.open_for_range(PROBE).await?;
         let Some(range) = connection.response.range else {
-            return self.whole(connection, stage, job, final_round).await;
+            return self.whole(connection, stage).await;
         };
         if range.interval != PROBE || range.total < self.range_threshold() {
             return Err(TransferError::RangeUnavailable);
         }
         drop(connection);
-        self.ranged(stage, job, range.total, final_round).await
+        self.ranged(stage, range.total, final_round).await
     }
 
     async fn ranged(
         &self,
         stage: &Mutex<&mut AtomicFile>,
-        job: DownloadJob<'_>,
         total: u64,
         final_round: bool,
     ) -> Result<(), TransferError> {
@@ -143,21 +141,15 @@ impl<Net: Network> Transfer<'_, Net> {
         }
         let end = total.min(chunk);
         let interval = ByteRange { start: 0, end };
-        let connection = self.open_for_range(interval, None).await?;
+        let connection = self.open_for_range(interval).await?;
         let Some(range) = connection.response.range else {
-            return self.whole(connection, stage, job, final_round).await;
+            return self.whole(connection, stage).await;
         };
         if range.interval != interval || range.total != total {
             return Err(TransferError::RangeUnavailable);
         }
-        let validator = connection.response.validator.clone();
-        if self.share.is_some() && interval.end < total && validator.is_none() && job.sha1.is_none()
-        {
-            return Err(TransferError::RangeUnavailable);
-        }
         let source = RangeSource {
             total,
-            validator: validator.as_deref(),
             width,
             chunk,
             minimum,
@@ -198,8 +190,6 @@ impl<Net: Network> Transfer<'_, Net> {
         &self,
         mut connection: Connection<'_, impl DownloadBody>,
         stage: &Mutex<&mut AtomicFile>,
-        job: DownloadJob<'_>,
-        final_round: bool,
     ) -> Result<(), TransferError> {
         if connection.response.range.is_some() {
             return Err(TransferError::RangeUnavailable);
@@ -208,24 +198,14 @@ impl<Net: Network> Transfer<'_, Net> {
             share.set_remaining(None);
         }
         let length = connection.response.length;
-        let large = length
-            .or(job.size)
-            .is_some_and(|length| length >= RANGE_THRESHOLD);
-        self.copy(
-            &mut connection.response.body,
-            stage,
-            0,
-            length,
-            large && !final_round,
-        )
-        .await
-        .result
+        self.copy(&mut connection.response.body, stage, 0, length, false)
+            .await
+            .result
     }
 
     async fn open(
         &self,
         range: Option<ByteRange>,
-        validator: Option<&str>,
     ) -> Result<Connection<'_, impl DownloadBody>, TransferError> {
         let share = match self.share {
             Some(share) => Some(share.acquire().await),
@@ -235,7 +215,7 @@ impl<Net: Network> Transfer<'_, Net> {
         let global = self.engine.connections.acquire().await;
         let response = self
             .network
-            .open_download(self.source, self.engine.policy.protocol, range, validator)
+            .open_download(self.source, self.engine.policy.protocol, range)
             .await?;
         Ok(Connection {
             response,
@@ -248,32 +228,29 @@ impl<Net: Network> Transfer<'_, Net> {
     async fn open_for_range(
         &self,
         range: ByteRange,
-        validator: Option<&str>,
     ) -> Result<Connection<'_, impl DownloadBody>, TransferError> {
-        self.open(Some(range), validator)
-            .await
-            .map_err(|error| match error {
-                TransferError::Network(FetchError::Rejected {
-                    status: 206 | 416, ..
-                }) => TransferError::RangeUnavailable,
-                other => other,
-            })
+        self.open(Some(range)).await.map_err(|error| match error {
+            TransferError::Network(FetchError::Rejected {
+                status: 206 | 416, ..
+            }) => TransferError::RangeUnavailable,
+            other => other,
+        })
     }
 
     pub(crate) async fn segment<Body: DownloadBody>(
         &self,
         stage: &Mutex<&mut AtomicFile>,
         range: ByteRange,
-        source: RangeSource<'_>,
+        total: u64,
         split_slow: bool,
         initial: Option<Connection<'_, Body>>,
     ) -> CopyResult {
         if let Some(connection) = initial {
             return self
-                .copy_segment(stage, range, source, split_slow, connection)
+                .copy_segment(stage, range, total, split_slow, connection)
                 .await;
         }
-        let connection = match self.open_for_range(range, source.validator).await {
+        let connection = match self.open_for_range(range).await {
             Ok(connection) => connection,
             Err(error) => {
                 return CopyResult {
@@ -282,7 +259,7 @@ impl<Net: Network> Transfer<'_, Net> {
                 };
             }
         };
-        self.copy_segment(stage, range, source, split_slow, connection)
+        self.copy_segment(stage, range, total, split_slow, connection)
             .await
     }
 
@@ -290,21 +267,16 @@ impl<Net: Network> Transfer<'_, Net> {
         &self,
         stage: &Mutex<&mut AtomicFile>,
         range: ByteRange,
-        source: RangeSource<'_>,
+        total: u64,
         split_slow: bool,
         mut connection: Connection<'_, impl DownloadBody>,
     ) -> CopyResult {
         let expected = ResponseRange {
             interval: range,
-            total: source.total,
+            total,
         };
         let response = &mut connection.response;
-        let changed = response
-            .validator
-            .as_deref()
-            .zip(source.validator)
-            .is_some_and(|(received, expected)| received != expected);
-        if response.range != Some(expected) || changed {
+        if response.range != Some(expected) {
             return CopyResult {
                 end: range.start,
                 result: Err(TransferError::RangeUnavailable),

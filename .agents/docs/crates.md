@@ -35,8 +35,9 @@ size of at least 16 KiB. Under contention, the scheduler weights each file's
 share by its remaining bytes and applies changes as connections are released.
 HTTP/2 retains its 4 MiB range threshold and 8 MiB initial range. Only
 standalone jobs probe for an unknown size. A range retry keeps bytes already
-written while the response still matches its representation. The staging file
-is promoted after SHA-1 or size verification. The shared engine defaults to
+written when the server returns the requested interval and total size. The
+staging file is promoted after checking SHA-1 when supplied, or the expected
+size when only size is supplied. The shared engine defaults to
 256 connections globally and 16 per file. The desktop setting controls how
 many files may be queued at once.
 

@@ -32,8 +32,6 @@ pub struct ResponseRange {
 pub struct DownloadResponse<Body> {
     pub length: Option<u64>,
     pub range: Option<ResponseRange>,
-    /// A strong entity tag suitable for subsequent `If-Range` requests.
-    pub validator: Option<String>,
     pub body: Body,
 }
 

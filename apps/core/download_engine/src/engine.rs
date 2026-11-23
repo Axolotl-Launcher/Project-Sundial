@@ -26,6 +26,7 @@ const RETRY_DELAYS: [Duration; 4] = [
     Duration::from_secs(1),
 ];
 const DEFAULT_FILE_CONNECTIONS: NonZeroUsize = NonZeroUsize::new(16).unwrap();
+const DEFAULT_BUFFER_BUDGET: NonZeroUsize = NonZeroUsize::new(16 * 1024 * 1024).unwrap();
 
 /// Limits shared by all transfers performed by one engine.
 #[derive(Debug, Clone, Copy)]
@@ -44,7 +45,7 @@ impl Default for DownloadPolicy {
             connections: NonZeroUsize::new(DEFAULT_CONCURRENCY).unwrap(),
             connections_per_host: NonZeroUsize::MAX,
             connections_per_file: DEFAULT_FILE_CONNECTIONS,
-            buffer_bytes: NonZeroUsize::new(16 * 1024 * 1024).unwrap(),
+            buffer_bytes: DEFAULT_BUFFER_BUDGET,
             bytes_per_second: None,
             protocol: DownloadProtocol::default(),
         }
@@ -56,6 +57,7 @@ impl Default for DownloadPolicy {
 pub struct DownloadJob<'a> {
     pub sources: &'a [&'a str],
     pub destination: &'a Path,
+    /// The expected digest, verified before promotion when provided.
     pub sha1: Option<&'a str>,
     pub size: Option<u64>,
     /// Unknown-size files in a batch skip Range discovery.

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use axlauncher_spi::{ByteRange, DownloadBody, DownloadResponse, FetchError, ResponseRange};
 use bytes::Bytes;
-use reqwest::header::{ACCEPT_ENCODING, CONTENT_RANGE, ETAG, IF_RANGE, RANGE};
+use reqwest::header::{ACCEPT_ENCODING, CONTENT_RANGE, RANGE};
 use reqwest::{Client, Response, StatusCode, Version};
 
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -17,7 +17,6 @@ pub(super) async fn open(
     url: &str,
     version: Option<Version>,
     range: Option<ByteRange>,
-    validator: Option<&str>,
 ) -> Result<DownloadResponse<impl DownloadBody>, FetchError> {
     let mut request = client.get(url).header(ACCEPT_ENCODING, "identity");
     if let Some(version) = version {
@@ -28,9 +27,6 @@ pub(super) async fn open(
             return Err(FetchError::Fatal("empty byte range".into()));
         }
         request = request.header(RANGE, format!("bytes={}-{}", range.start, range.end - 1));
-        if let Some(validator) = validator {
-            request = request.header(IF_RANGE, validator);
-        }
     }
     let mut response = tokio::time::timeout(RESPONSE_TIMEOUT, request.send())
         .await
@@ -77,11 +73,6 @@ fn describe(response: Response) -> Result<DownloadResponse<ResponseBody>, FetchE
     } else {
         None
     };
-    let validator = headers
-        .get(ETAG)
-        .and_then(|value| value.to_str().ok())
-        .filter(|tag| tag.starts_with('"') && tag.ends_with('"'))
-        .map(str::to_owned);
     let length = response.content_length();
     let timeout = if range.is_some() {
         RANGE_READ_TIMEOUT
@@ -91,7 +82,6 @@ fn describe(response: Response) -> Result<DownloadResponse<ResponseBody>, FetchE
     Ok(DownloadResponse {
         length,
         range,
-        validator,
         body: ResponseBody { response, timeout },
     })
 }
