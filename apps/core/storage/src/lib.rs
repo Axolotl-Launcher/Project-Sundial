@@ -148,6 +148,11 @@ impl DataDir {
         self.root.join("accounts.json")
     }
 
+    /// The managed Java authentication agent for third-party accounts.
+    pub fn auth_agent(&self) -> PathBuf {
+        self.meta().join("authlib-injector-1.2.8.jar")
+    }
+
     /// Locks account document updates across launcher processes until the file is dropped.
     pub fn lock_accounts(&self) -> io::Result<fs::File> {
         fs::create_dir_all(&self.root)?;

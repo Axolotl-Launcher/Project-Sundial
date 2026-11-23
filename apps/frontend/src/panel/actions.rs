@@ -91,8 +91,8 @@ impl RootView {
         {
             return;
         }
-        let player = match self.accounts.selected_microsoft() {
-            Some((service, id)) => launches::Player::Microsoft(service, id),
+        let player = match self.accounts.selected_online() {
+            Some((service, id)) => launches::Player::Online(service, id),
             None => launches::Player::Offline(self.preview_session(cx)),
         };
         self.set_launch(directory, &request.version_id, Launch::Starting, cx);

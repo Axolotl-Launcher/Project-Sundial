@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use super::*;
+
+#[path = "account_tests.rs"]
+mod account_tests;
 use crate::SystemJava;
 use axlauncher_spi::LaunchCommand;
 use std::fs;
@@ -312,33 +315,6 @@ fn preview_matches_the_launch_command_without_extracting_natives() {
 
     let outcome = finish(launch(&java, &Recorder::default(), request)).expect("launch");
     assert_eq!(command, outcome.command);
-}
-
-#[test]
-fn microsoft_token_reaches_only_the_launcher() {
-    let fixture = Fixture::new();
-    let java = FakeJava::found(fixture.java());
-    let request = fixture.request();
-    let launcher = Recorder::default();
-    let token = "private-test-token";
-    let session = Session::microsoft("OnlinePlayer", "profile-uuid", token.to_owned());
-
-    let preview = preview_with_session(&java, &request, &session).expect("preview");
-    let outcome = finish(launch_with_session(&java, &launcher, request, &session)).expect("launch");
-    let launched = &launcher.commands()[0];
-    assert!(launched.args.iter().any(|argument| argument == token));
-    assert!(
-        launched
-            .args
-            .iter()
-            .any(|argument| argument == &format!("--legacy-session={token}"))
-    );
-    for expected in ["OnlinePlayer", "profile-uuid", "msa"] {
-        assert!(launched.args.iter().any(|argument| argument == expected));
-    }
-    assert!(!format!("{launched:?}").contains(token));
-    assert!(!preview.args.join(" ").contains(token));
-    assert_eq!(preview, outcome.command);
 }
 
 #[test]

@@ -34,9 +34,44 @@ pub struct Session {
     uuid: String,
     access_token: String,
     user_type: &'static str,
+    agent: Option<YggdrasilAgent>,
 }
 
 const REDACTED_TOKEN: &str = "[redacted]";
+
+/// The JVM agent routes Minecraft's session services to a third-party server.
+#[derive(Clone)]
+pub struct YggdrasilAgent {
+    path: PathBuf,
+    root: String,
+    metadata: Option<String>,
+}
+
+impl YggdrasilAgent {
+    pub fn new(path: PathBuf, root: impl Into<String>) -> Self {
+        Self {
+            path,
+            root: root.into(),
+            metadata: None,
+        }
+    }
+
+    pub fn with_metadata(mut self, encoded: String) -> Self {
+        self.metadata = Some(encoded);
+        self
+    }
+
+    fn arguments(&self) -> impl Iterator<Item = String> {
+        let agent = format!("-javaagent:{}={}", self.path.display(), self.root);
+        let metadata = self
+            .metadata
+            .as_ref()
+            .map(|value| format!("-Dauthlibinjector.yggdrasil.prefetched={value}"));
+        [agent, "-Dauthlibinjector.side=client".to_owned()]
+            .into_iter()
+            .chain(metadata)
+    }
+}
 
 impl Session {
     /// A session with no account behind it. The token is the placeholder the
@@ -52,6 +87,7 @@ impl Session {
             uuid: uuid.into(),
             access_token: "0".into(),
             user_type: "legacy",
+            agent: None,
         }
     }
 
@@ -66,6 +102,7 @@ impl Session {
             uuid: uuid.into(),
             access_token,
             user_type: "msa",
+            agent: None,
         }
     }
 
@@ -74,15 +111,44 @@ impl Session {
         Self::microsoft(player_name, uuid, REDACTED_TOKEN.to_owned())
     }
 
-    pub(super) fn redacted(&self) -> Self {
-        if self.user_type == "msa" {
-            return Self::microsoft_preview(&self.player_name, &self.uuid);
+    /// A server-authenticated Minecraft profile using the third-party JVM agent.
+    pub fn yggdrasil(
+        player_name: impl Into<String>,
+        uuid: impl Into<String>,
+        access_token: String,
+        agent: YggdrasilAgent,
+    ) -> Self {
+        Self {
+            player_name: player_name.into(),
+            uuid: uuid.into(),
+            access_token,
+            user_type: "legacy",
+            agent: Some(agent),
         }
-        self.clone()
+    }
+
+    pub fn yggdrasil_preview(
+        player_name: impl Into<String>,
+        uuid: impl Into<String>,
+        agent: YggdrasilAgent,
+    ) -> Self {
+        Self::yggdrasil(player_name, uuid, REDACTED_TOKEN.to_owned(), agent)
+    }
+
+    pub(super) fn redacted(&self) -> Self {
+        let mut session = self.clone();
+        if self.has_online_token() {
+            session.access_token = REDACTED_TOKEN.to_owned();
+        }
+        session
+    }
+
+    fn has_online_token(&self) -> bool {
+        self.user_type == "msa" || self.agent.is_some()
     }
 
     pub(super) fn redact_command(&self, command: &mut LaunchCommand) {
-        if self.user_type != "msa" || self.access_token.is_empty() {
+        if !self.has_online_token() || self.access_token.is_empty() {
             return;
         }
         for argument in command
@@ -144,6 +210,7 @@ pub fn build(
     let arguments = version.arguments.clone().unwrap_or_default();
 
     let mut args = arguments::resolved(&arguments.jvm, target, &values);
+    args.extend(session.agent.iter().flat_map(YggdrasilAgent::arguments));
     args.extend(logging_argument(version, layout));
     args.push(version.main_class.clone());
 

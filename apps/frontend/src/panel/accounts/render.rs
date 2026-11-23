@@ -30,7 +30,7 @@ impl RootView {
                 format!(
                     "Launch as {} · {}",
                     account.name(),
-                    account_kind(account.id())
+                    account_provider(account)
                 )
             },
         );
@@ -53,6 +53,9 @@ impl RootView {
                     .when(self.accounts.login.is_some(), |panel| {
                         panel.child(self.login_status(cx))
                     })
+                    .when(self.accounts.third_party.is_open(), |panel| {
+                        panel.child(self.accounts.third_party.render(cx))
+                    })
                     .when_some(self.accounts.error.clone(), |panel, error| {
                         panel.child(Label::new(error).text_sm().text_color(danger))
                     })
@@ -62,6 +65,7 @@ impl RootView {
     }
 
     fn account_commands(&self, disabled: bool, cx: &mut Context<'_, Self>) -> AnyElement {
+        let disabled = disabled || self.accounts.third_party.is_open();
         let temporary = self
             .accounts
             .selected()
@@ -94,6 +98,7 @@ impl RootView {
                         cx.listener(|view, _, window, cx| view.open_offline_form(window, cx)),
                     ),
             )
+            .child(self.accounts.third_party.button(disabled, cx))
             .children(temporary)
             .into_any_element()
     }
@@ -200,8 +205,7 @@ fn account_row(
     } else {
         label
     };
-    let reauth =
-        matches!(id, AccountId::Microsoft(_)).then(|| reauth_button(account, disabled, cx));
+    let reauth = id.is_online().then(|| reauth_button(account, disabled, cx));
     h_flex()
         .gap_3()
         .justify_between()
@@ -249,12 +253,29 @@ fn account_row(
 
 fn reauth_button(account: &Account, disabled: bool, cx: &Context<'_, RootView>) -> Button {
     let id = account.id();
+    let server = account.server().map(|server| (id, server.url().to_owned()));
     Button::new(account_element("reauthenticate", id))
         .label("Sign in again…")
         .accessibility_label(format!("Sign in again as {}", account.name()))
         .ghost()
         .disabled(disabled)
-        .on_click(cx.listener(move |view, _, _, cx| view.sign_in(Method::Browser, Some(id), cx)))
+        .on_click(cx.listener(move |view, _, window, cx| {
+            reauthenticate(view, id, server.clone(), window, cx);
+        }))
+}
+
+fn reauthenticate(
+    view: &mut RootView,
+    id: AccountId,
+    server: Option<(AccountId, String)>,
+    window: &mut axlauncher_ui::Window,
+    cx: &mut Context<'_, RootView>,
+) {
+    match id {
+        AccountId::Microsoft(_) => view.sign_in(Method::Browser, Some(id), cx),
+        AccountId::Yggdrasil { .. } => view.open_third_party(server, window, cx),
+        AccountId::Offline(_) => (),
+    }
 }
 
 fn temporary_button(disabled: bool, cx: &Context<'_, RootView>) -> Button {
@@ -293,7 +314,7 @@ fn open_browser(url: &str, cx: &Context<'_, RootView>) -> Button {
 }
 
 fn account_label(account: &Account, persistence: Option<Persistence>) -> String {
-    let kind = account_kind(account.id());
+    let kind = account_provider(account);
     let status = match persistence {
         Some(Persistence::SessionOnly) => " · This session only",
         Some(Persistence::SignInRequired) => " · Sign-in required",
@@ -302,13 +323,20 @@ fn account_label(account: &Account, persistence: Option<Persistence>) -> String 
     format!("{} · {kind}{status}", account.name())
 }
 
+fn account_provider(account: &Account) -> &str {
+    account
+        .server()
+        .map_or_else(|| account_kind(account.id()), |server| server.name())
+}
+
 fn account_kind(id: AccountId) -> &'static str {
     match id {
         AccountId::Offline(_) => "Offline",
         AccountId::Microsoft(_) => "Microsoft",
+        AccountId::Yggdrasil { .. } => "Third party",
     }
 }
 
 fn account_element(role: &str, id: AccountId) -> ElementId {
-    ElementId::Name(format!("{role}:{}:{}", account_kind(id), id.uuid()).into())
+    ElementId::Name(format!("{role}:{id:?}").into())
 }

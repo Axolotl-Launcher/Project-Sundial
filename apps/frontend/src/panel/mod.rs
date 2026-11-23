@@ -131,7 +131,7 @@ impl RootView {
         let same_root = self.root == loaded.root;
         self.root = loaded.root;
         if !same_root {
-            self.accounts.reset(self.root.as_deref());
+            self.accounts.reset(self.root.as_deref(), window, cx);
         }
         self.refresh_accounts(cx);
         self.settings = loaded.settings;

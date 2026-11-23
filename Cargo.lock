@@ -616,6 +616,7 @@ version = "0.1.0"
 dependencies = [
  "axlauncher_core",
  "axlauncher_ui",
+ "base64 0.23.1",
  "dirs 6.0.0",
  "futures",
  "tempfile",
@@ -632,8 +633,10 @@ dependencies = [
  "axlauncher_spi",
  "axlauncher_storage",
  "futures",
+ "hex",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "tempfile",
  "zip",
 ]

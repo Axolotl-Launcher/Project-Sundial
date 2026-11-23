@@ -6,7 +6,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use axlauncher_core::launch::plan::Session;
+use axlauncher_core::launch::plan::{Session, YggdrasilAgent};
 use axlauncher_core::state::accounts::{Account, AccountId, AccountService, AccountSnapshot};
 use axlauncher_core::storage::{DataDir, SystemCredentials};
 use axlauncher_ui::prelude::*;
@@ -19,6 +19,7 @@ use super::RootView;
 
 mod login;
 mod render;
+mod third_party;
 
 pub(crate) type DesktopAccounts = AccountService<SystemCredentials>;
 type AccountResult = (Option<AccountSnapshot>, Option<String>);
@@ -33,6 +34,7 @@ pub(super) struct AccountsPanel {
     uuid: Entity<InputState>,
     offline_trigger: FocusHandle,
     login: Option<login::Attempt>,
+    third_party: third_party::Form,
 }
 
 impl AccountsPanel {
@@ -58,25 +60,32 @@ impl AccountsPanel {
             uuid,
             offline_trigger: cx.focus_handle(),
             login: None,
+            third_party: third_party::Form::new(window, cx),
         }
     }
 
-    pub(super) fn reset(&mut self, root: Option<&Path>) {
+    pub(super) fn reset(
+        &mut self,
+        root: Option<&Path>,
+        window: &mut Window,
+        cx: &mut Context<'_, RootView>,
+    ) {
         self.service = service(root);
         self.snapshot = None;
         self.error = None;
         self.working = false;
         self.add_offline = false;
         self.login = None;
+        self.third_party.reset(window, cx);
     }
 
     pub(super) fn selected(&self) -> Option<&Account> {
         self.snapshot.as_ref()?.selected()
     }
 
-    pub(super) fn selected_microsoft(&self) -> Option<(Arc<DesktopAccounts>, AccountId)> {
+    pub(super) fn selected_online(&self) -> Option<(Arc<DesktopAccounts>, AccountId)> {
         let id = self.selected()?.id();
-        matches!(id, AccountId::Microsoft(_))
+        id.is_online()
             .then(|| (self.service.clone().expect("saved account service"), id))
     }
 
@@ -87,7 +96,7 @@ impl AccountsPanel {
     }
 
     fn is_busy(&self) -> bool {
-        self.working || self.login.is_some()
+        self.working || self.login.is_some() || self.third_party.is_working()
     }
 }
 
@@ -105,7 +114,21 @@ impl RootView {
         match account.id() {
             AccountId::Offline(_) => Session::offline_profile(account.name(), uuid),
             AccountId::Microsoft(_) => Session::microsoft_preview(account.name(), uuid),
+            AccountId::Yggdrasil { .. } => self.third_party_preview(account, uuid),
         }
+    }
+
+    fn third_party_preview(&self, account: &Account, uuid: String) -> Session {
+        let server = account
+            .server()
+            .expect("validated third-party account record");
+        let data = DataDir::new(self.root.as_ref().expect("saved account data root"));
+        let path = std::path::absolute(data.auth_agent()).unwrap_or_else(|_| data.auth_agent());
+        Session::yggdrasil_preview(
+            account.name(),
+            uuid,
+            YggdrasilAgent::new(path, server.url()),
+        )
     }
 
     pub(super) fn refresh_accounts(&mut self, cx: &mut Context<'_, Self>) {

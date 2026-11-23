@@ -12,9 +12,10 @@ use uuid::Uuid;
 
 pub mod microsoft;
 mod sessions;
+pub mod yggdrasil;
 pub use sessions::{AccountService, AccountSnapshot, LaunchIdentity, Persistence};
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 
 /// A Minecraft profile identified within its account type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -22,13 +23,20 @@ const SCHEMA_VERSION: u32 = 1;
 pub enum AccountId {
     Offline(Uuid),
     Microsoft(Uuid),
+    Yggdrasil { profile: Uuid, server: Uuid },
 }
 
 impl AccountId {
     pub fn uuid(self) -> Uuid {
         match self {
-            Self::Offline(uuid) | Self::Microsoft(uuid) => uuid,
+            Self::Offline(uuid) | Self::Microsoft(uuid) | Self::Yggdrasil { profile: uuid, .. } => {
+                uuid
+            }
         }
+    }
+
+    pub fn is_online(self) -> bool {
+        !matches!(self, Self::Offline(_))
     }
 }
 
@@ -39,6 +47,8 @@ pub struct Account {
     name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     credential: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    server: Option<yggdrasil::Server>,
 }
 
 impl Account {
@@ -60,6 +70,7 @@ impl Account {
             id: AccountId::Offline(uuid),
             name: name.to_owned(),
             credential: None,
+            server: None,
         })
     }
 
@@ -69,6 +80,10 @@ impl Account {
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    pub fn server(&self) -> Option<&yggdrasil::Server> {
+        self.server.as_ref()
     }
 }
 
@@ -94,12 +109,16 @@ pub enum AccountError {
     Read(#[source] io::Error),
     #[error("The account file is unreadable: {0}")]
     Decode(#[source] serde_json::Error),
+    #[error("The account file contains an invalid third-party server identity.")]
+    InvalidServer,
     #[error("Could not save the account file: {0}")]
     Write(#[source] io::Error),
     #[error("Could not access the system credential store. Unlock it or sign in again.")]
     CredentialStore,
     #[error(transparent)]
     Microsoft(#[from] microsoft::MicrosoftError),
+    #[error(transparent)]
+    Yggdrasil(#[from] yggdrasil::YggdrasilError),
 }
 
 #[derive(Deserialize)]
@@ -197,8 +216,25 @@ struct Encoded<'a> {
 
 fn decode(bytes: &[u8]) -> Result<Document, AccountError> {
     let schema: Schema = serde_json::from_slice(bytes).map_err(AccountError::Decode)?;
-    if schema.schema_version != SCHEMA_VERSION {
+    if !(1..=SCHEMA_VERSION).contains(&schema.schema_version) {
         return Err(AccountError::UnsupportedSchema(schema.schema_version));
     }
-    serde_json::from_slice(bytes).map_err(AccountError::Decode)
+    let document: Document = serde_json::from_slice(bytes).map_err(AccountError::Decode)?;
+    if document
+        .accounts
+        .iter()
+        .any(|account| !account_has_expected_server(account))
+    {
+        return Err(AccountError::InvalidServer);
+    }
+    Ok(document)
+}
+
+fn account_has_expected_server(account: &Account) -> bool {
+    match account.id {
+        AccountId::Yggdrasil { .. } => account
+            .server()
+            .is_some_and(|server| server.account_id(account.id.uuid()) == account.id),
+        _ => account.server().is_none(),
+    }
 }

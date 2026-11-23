@@ -6,13 +6,17 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use axlauncher_core::install::vanilla;
+use axlauncher_core::install::{auth_agent, vanilla};
+use axlauncher_core::launch::plan::YggdrasilAgent;
 use axlauncher_core::launch::{
     FlowError, LaunchRequest, ProcessLauncher, SystemJava, Target, flow, plan::Session,
 };
+use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::network::auth::AuthHttp;
-use axlauncher_core::state::accounts::{AccountId, LaunchIdentity};
+use axlauncher_core::state::accounts::{AccountId, LaunchIdentity, yggdrasil};
+use axlauncher_core::storage::DataDir;
 use axlauncher_ui::{AppContext, AsyncApp, Context, WeakEntity};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use tokio::sync::{oneshot, watch};
 
 use crate::RootView;
@@ -20,7 +24,7 @@ use crate::panel::accounts::DesktopAccounts;
 
 pub(crate) enum Player {
     Offline(Session),
-    Microsoft(Arc<DesktopAccounts>, AccountId),
+    Online(Arc<DesktopAccounts>, AccountId),
 }
 
 pub(crate) enum Launch {
@@ -119,8 +123,8 @@ async fn run(
             drop(resolved);
             session
         }
-        Player::Microsoft(service, id) => {
-            let result = microsoft_session(&service, id).await;
+        Player::Online(service, id) => {
+            let result = online_session(&service, id, &request.game_root).await;
             let _ = resolved.send(service);
             match result {
                 Ok(session) => session,
@@ -147,9 +151,13 @@ async fn run(
     }
 }
 
-async fn microsoft_session(service: &DesktopAccounts, id: AccountId) -> Result<Session, String> {
+async fn online_session(
+    service: &DesktopAccounts,
+    id: AccountId,
+    game_root: &Path,
+) -> Result<Session, String> {
     let network =
-        AuthHttp::desktop().map_err(|_| "Could not initialize Microsoft sign-in.".to_owned())?;
+        AuthHttp::desktop().map_err(|_| "Could not initialize online sign-in.".to_owned())?;
     match service
         .resolve(id, &network)
         .await
@@ -167,5 +175,40 @@ async fn microsoft_session(service: &DesktopAccounts, id: AccountId) -> Result<S
             account.name(),
             account.id().uuid().simple().to_string(),
         )),
+        LaunchIdentity::Yggdrasil {
+            account,
+            access_token,
+        } => {
+            let server = account
+                .server()
+                .ok_or("The third-party account is missing its server.")?;
+            let data = DataDir::new(
+                game_root
+                    .parent()
+                    .ok_or("Could not determine the game data directory.")?,
+            );
+            let agent = third_party_agent(&network, server, &data).await?;
+            Ok(Session::yggdrasil(
+                account.name(),
+                id.uuid().simple().to_string(),
+                access_token,
+                agent,
+            ))
+        }
     }
+}
+
+async fn third_party_agent(
+    network: &AuthHttp,
+    server: &yggdrasil::Server,
+    data: &DataDir,
+) -> Result<YggdrasilAgent, String> {
+    let download = ReqwestNetwork::desktop()
+        .map_err(|_| "Could not initialize the authentication agent download.")?;
+    let (metadata, path) = tokio::join!(
+        yggdrasil::launch_metadata(network, server),
+        auth_agent::prepare(&download, data)
+    );
+    Ok(YggdrasilAgent::new(path?, server.url())
+        .with_metadata(STANDARD.encode(metadata.map_err(|error| error.to_string())?)))
 }
