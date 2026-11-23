@@ -17,6 +17,7 @@ use axlauncher_ui::{Bounds, Palette, WindowBounds, WindowOptions, kit, px, size}
 
 mod installations;
 mod instance_row;
+mod java;
 mod launches;
 mod panel;
 

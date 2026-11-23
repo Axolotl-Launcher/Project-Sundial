@@ -15,13 +15,17 @@ use std::path::{Path, PathBuf};
 
 use axlauncher_spi::{Java, JavaMode};
 
-use crate::platform::{executable_in_home, search_all, sibling};
+use crate::platform::{executable_in_home, managed_executable, managed_home, search_all, sibling};
 
 /// Java found through a configured path, `JAVA_HOME`, then the search path.
 #[derive(Debug, Clone, Default)]
 pub struct SystemJava {
     java_home: Option<PathBuf>,
     search_path: Option<OsString>,
+    /// Runtime directories this launcher installed, searched before the
+    /// system's own: what the launcher fetched is the runtime the game was
+    /// tested against.
+    runtime_roots: Vec<PathBuf>,
 }
 
 impl SystemJava {
@@ -39,7 +43,18 @@ impl SystemJava {
         Self {
             java_home,
             search_path,
+            runtime_roots: Vec::new(),
         }
+    }
+
+    /// Installed runtime directories, consulted when a major is known.
+    ///
+    /// They come before the environment's Java in that search: what the
+    /// launcher fetched for that major is the runtime the game was tested
+    /// against.
+    pub fn with_runtime_roots(mut self, roots: Vec<PathBuf>) -> Self {
+        self.runtime_roots = inventory(roots);
+        self
     }
 
     /// The configured `JAVA_HOME`, when the environment names one.
@@ -53,6 +68,9 @@ impl Java for SystemJava {
         // Discovery looks for the console executable: it is the one every JDK
         // ships. The requested mode is reached through its sibling afterwards,
         // because a JDK keeps both on Windows.
+        // A document that states no major gets the user's own default: the
+        // managed runtimes are only an answer when a major is known, because
+        // which of them fits is exactly the question this call cannot ask.
         let candidates = std::iter::once(preferred)
             .flatten()
             .filter(|path| path.is_file())
@@ -76,10 +94,14 @@ impl Java for SystemJava {
 
     fn executable_for(&self, major: u32, mode: JavaMode) -> Option<PathBuf> {
         let candidates = self
-            .java_home
-            .as_deref()
-            .and_then(|home| executable_in_home(home, JavaMode::Console))
-            .into_iter()
+            .runtime_roots
+            .iter()
+            .filter_map(|root| managed_executable(root, JavaMode::Console))
+            .chain(
+                self.java_home
+                    .as_deref()
+                    .and_then(|home| executable_in_home(home, JavaMode::Console)),
+            )
             .chain(self.search_everywhere(JavaMode::Console));
 
         candidates
@@ -98,6 +120,34 @@ impl SystemJava {
             .into_iter()
             .flatten()
     }
+}
+
+/// The runtime directories under one of `roots`, in a stable order.
+///
+/// A `roots` entry may be a component directory, as the installer names it, or
+/// the directory holding them. Listing happens here, in the crate that owns Java
+/// discovery, so a caller only names the location. The order is stable so that
+/// two runtimes claiming the same major are resolved the same way every launch.
+fn inventory(roots: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for root in roots {
+        if managed_home(&root).join("bin").is_dir() {
+            found.push(root);
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&root) else {
+            continue;
+        };
+        found.extend(
+            entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.is_dir() && managed_home(path).join("bin").is_dir()),
+        );
+    }
+    found.sort();
+    found.dedup();
+    found
 }
 
 /// The major version a runtime at `executable` reports, read from the release

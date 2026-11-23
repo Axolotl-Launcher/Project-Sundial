@@ -80,13 +80,15 @@ pub fn build(
         .iter()
         .rev()
         .filter_map(|library| {
-            let key = coordinate_key(library);
-            if !seen.insert(key) {
+            // Resolve the jar first: a library that does not contribute one
+            // must not claim the coordinate, or it would suppress the game
+            // library an installer profile also lists as its own tool.
+            let jar = library_jar(libraries_root, library, target)?;
+            if !seen.insert(coordinate_key(library)) {
                 return None;
             }
-            library_jar(libraries_root, library, target)
+            Some(jar.display().to_string())
         })
-        .map(|jar| jar.display().to_string())
         .collect();
     jars.reverse();
     jars.push(client_jar.display().to_string());
@@ -110,3 +112,7 @@ fn coordinate_key(library: &Library) -> String {
 #[cfg(test)]
 #[path = "../../../../tests/apps/core/launch/src/classpath.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../tests/apps/core/launch/src/classpath/tool_shadow_tests.rs"]
+mod tool_shadow_tests;

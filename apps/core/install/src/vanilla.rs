@@ -95,7 +95,7 @@ fn check_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn installation_lock(game_root: &Path) -> Result<File, String> {
+pub(crate) fn installation_lock(game_root: &Path) -> Result<File, String> {
     fs::create_dir_all(game_root)
         .map_err(|error| format!("Cannot create {}: {error}", game_root.display()))?;
     let path = game_root.join(".install.lock");
@@ -114,7 +114,7 @@ fn installation_lock(game_root: &Path) -> Result<File, String> {
     Ok(lock)
 }
 
-async fn ensure_version(
+pub(crate) async fn ensure_version(
     network: &impl Network,
     game_root: &Path,
     id: &str,

@@ -20,6 +20,7 @@ pub use axlauncher_network as network;
 pub use axlauncher_observability as observability;
 pub use axlauncher_resources as resources;
 pub use axlauncher_scheduler as scheduler;
+pub use axlauncher_spi as spi;
 pub use axlauncher_state as state;
 pub use axlauncher_storage as storage;
 pub use axlauncher_telemetry as telemetry;

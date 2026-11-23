@@ -50,6 +50,24 @@ pub(crate) fn executable_in_home(home: &Path, mode: JavaMode) -> Option<PathBuf>
     executable_in(&home.join("bin"), mode)
 }
 
+/// The JDK home a launcher-managed runtime directory holds.
+///
+/// A macOS runtime is a bundle, so its home sits below `jre.bundle`; elsewhere
+/// the component directory is the home. Discovery and installation must agree
+/// on this, or a runtime this launcher fetched is never found again.
+pub(crate) fn managed_home(root: &Path) -> PathBuf {
+    let bundle = root.join("jre.bundle").join("Contents").join("Home");
+    if bundle.is_dir() {
+        return bundle;
+    }
+    root.to_path_buf()
+}
+
+/// The Java executable in a launcher-managed runtime directory.
+pub(crate) fn managed_executable(root: &Path, mode: JavaMode) -> Option<PathBuf> {
+    executable_in_home(&managed_home(root), mode)
+}
+
 /// Every Java executable for `mode` on a `PATH`-shaped list, in path order.
 ///
 /// A `PATH` that holds several JDKs offers several answers, and a caller that

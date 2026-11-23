@@ -4,7 +4,7 @@
 use super::*;
 use axlauncher_spi::FetchError;
 
-use crate::test_futures::executor::block_on;
+use futures::executor::block_on;
 
 const VERSION_URL: &str = "https://example.invalid/version.json";
 const CLIENT_URL: &str = "https://example.invalid/client.jar";

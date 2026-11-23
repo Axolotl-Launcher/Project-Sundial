@@ -22,6 +22,7 @@ use crate::assets::{AssetIndexDocument, missing_assets, missing_libraries};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Progress {
     Version,
+    Loader,
     CheckingFiles,
     Downloading { processed: usize, total: usize },
     Finishing,

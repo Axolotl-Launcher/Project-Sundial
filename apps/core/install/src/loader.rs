@@ -132,13 +132,34 @@ fn resolve_document(game_root: &Path, profile: &LoaderProfile) -> Result<Vec<u8>
     };
     let mut version: Version = serde_json::from_slice(&profile.document).map_err(document_error)?;
     if version.id == profile.version_id && version.inherits_from.is_none() {
-        return Ok(profile.document.clone());
+        // A profile that is already self-contained still needs a jar id: with
+        // none it would run from a jar named after itself, and a document that
+        // never declares one has no parent to borrow it from.
+        if version.jar.is_some() {
+            return Ok(profile.document.clone());
+        }
+        version.jar = Some(version.id.clone());
+        return serde_json::to_vec(&version).map_err(document_error);
     }
-    let jar = version.jar.take();
+    // An installer's id must not equal the vanilla version it inherits from:
+    // the document under `versions/<game>/` is that parent, and writing over it
+    // would replace vanilla for every profile on the version.
+    if version
+        .inherits_from
+        .as_deref()
+        .is_some_and(|parent| parent == profile.version_id)
+    {
+        return Err(PlaceError::InvalidId {
+            id: profile.version_id.clone(),
+        });
+    }
     version.id.clone_from(&profile.version_id);
-    let mut resolved = resolve(&game_root.join("versions"), version)
+    // The resolution below already keeps the profile's jar when it names one
+    // and the parent's otherwise, defaulting to the profile's own id last.
+    // Overwriting `jar` here would discard the parent's, which is the jar a
+    // Fabric or Quilt profile must run.
+    let resolved = resolve(&game_root.join("versions"), version)
         .map_err(|source| PlaceError::Inheritance { source })?;
-    resolved.jar = jar;
     serde_json::to_vec(&resolved).map_err(document_error)
 }
 
@@ -180,6 +201,205 @@ fn safe_relative(path: &str) -> Option<PathBuf> {
         relative.push(segment);
     }
     Some(relative)
+}
+
+/// A loader that is installed and can be launched.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoaderInstalled {
+    /// The version id the launch asks for; the document on disk is under it.
+    pub version_id: String,
+    pub prepared: crate::prepare::Prepared,
+}
+
+/// Why a loader install stopped.
+#[derive(Debug)]
+pub enum LoaderInstallError {
+    /// The vanilla version underneath the loader could not be acquired.
+    Vanilla(String),
+    /// The loader's own metadata could not be resolved.
+    Provider(axlauncher_spi::LoaderError),
+    /// The resolved profile could not be written.
+    Place(PlaceError),
+    /// The profile on disk could not be read back.
+    Document {
+        id: String,
+        source: axlauncher_launch::version::VersionError,
+    },
+    /// The files the profile names could not be prepared.
+    Prepare(crate::prepare::PrepareError),
+    /// A file the profile names could not be written.
+    Incomplete { failure: String },
+    /// The profile's processors need a Java runtime this machine lacks.
+    Java { required: u32 },
+    /// A processor failed.
+    Processors(crate::processors::ProcessorError),
+}
+
+impl fmt::Display for LoaderInstallError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Vanilla(message) => formatter.write_str(message),
+            Self::Provider(error) => write!(formatter, "cannot resolve the loader: {error}"),
+            Self::Place(error) => write!(formatter, "cannot write the loader profile: {error}"),
+            Self::Document { id, source } => {
+                write!(formatter, "cannot read loader profile {id}: {source}")
+            }
+            Self::Prepare(error) => write!(formatter, "cannot prepare the loader's files: {error}"),
+            Self::Incomplete { failure } => {
+                write!(formatter, "cannot prepare the loader's files: {failure}")
+            }
+            Self::Java { required } => write!(
+                formatter,
+                "this loader needs Java {required}, and no matching runtime was found"
+            ),
+            Self::Processors(error) => {
+                write!(formatter, "cannot patch the loader's client: {error}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for LoaderInstallError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Provider(source) => Some(source),
+            Self::Place(source) => Some(source),
+            Self::Document { source, .. } => Some(source),
+            Self::Prepare(source) => Some(source),
+            Self::Processors(source) => Some(source),
+            Self::Incomplete { .. } | Self::Java { .. } | Self::Vanilla(_) => None,
+        }
+    }
+}
+
+/// A loader install is one download pass: the vanilla version underneath is
+/// acquired first, the profile is placed as a self-contained document (which
+/// resolves what it inherits and needs the parent on disk), and every file the
+/// resolved profile names is prepared. Preparing the resolved profile is what
+/// keeps the parent's client jar and libraries in the same pass instead of a
+/// second one.
+///
+/// `loader` is supplied by the caller rather than chosen here: this system may
+/// not depend on a provider, and which provider serves a kind is a wiring
+/// decision.
+/// Everything a loader install needs, gathered so the call site reads as one
+/// decision rather than seven positional arguments.
+pub struct InstallRequest<
+    'a,
+    N: axlauncher_spi::Network,
+    L: axlauncher_spi::ModLoader,
+    J: axlauncher_spi::Java,
+> {
+    pub network: &'a N,
+    pub loader: &'a L,
+    pub java: &'a J,
+    pub game_root: &'a Path,
+    pub request: axlauncher_spi::LoaderRequest,
+    pub target: &'a axlauncher_launch::Target,
+    pub concurrency: usize,
+}
+
+impl<N: axlauncher_spi::Network, L: axlauncher_spi::ModLoader, J: axlauncher_spi::Java>
+    InstallRequest<'_, N, L, J>
+{
+    pub async fn install(
+        &self,
+        mut report: impl FnMut(crate::prepare::Progress),
+    ) -> Result<LoaderInstalled, LoaderInstallError> {
+        let request = self.request.clone();
+        let _lock = crate::vanilla::installation_lock(self.game_root)
+            .map_err(LoaderInstallError::Vanilla)?;
+
+        report(crate::prepare::Progress::Version);
+        crate::vanilla::ensure_version(self.network, self.game_root, &request.game_version)
+            .await
+            .map_err(LoaderInstallError::Vanilla)?;
+
+        report(crate::prepare::Progress::Loader);
+        let game_version = request.game_version.clone();
+        let profile = self
+            .loader
+            .profile(request)
+            .await
+            .map_err(LoaderInstallError::Provider)?;
+        let placed = place(self.game_root, &profile).map_err(LoaderInstallError::Place)?;
+
+        let version =
+            axlauncher_launch::version::load(&self.game_root.join("versions"), &placed.version_id)
+                .map_err(|source| LoaderInstallError::Document {
+                    id: placed.version_id.clone(),
+                    source,
+                })?;
+
+        let prepared = crate::prepare::prepare_reporting(
+            self.network,
+            self.game_root,
+            &version,
+            self.target,
+            self.concurrency,
+            report,
+        )
+        .await
+        .map_err(LoaderInstallError::Prepare)?;
+
+        // A step whose tool jar failed to download would fail as a missing
+        // class rather than the HTTP error that caused it, so the file failures
+        // are reported before any processor runs.
+        if let Some(failure) = prepared.failures.first() {
+            return Err(LoaderInstallError::Incomplete {
+                failure: failure.clone(),
+            });
+        }
+
+        run_processors(
+            self.java,
+            self.game_root,
+            &game_version,
+            &version,
+            self.target,
+        )?;
+
+        Ok(LoaderInstalled {
+            version_id: placed.version_id,
+            prepared,
+        })
+    }
+}
+
+/// The patch steps are Java tools, so they run on the runtime the version
+/// document asks for, discovered through the Java port. A profile without
+/// processors — Fabric and Quilt — never asks for one, which keeps a loader
+/// install working on a machine whose only Java is the one the game itself
+/// will need.
+fn run_processors(
+    java: &impl axlauncher_spi::Java,
+    game_root: &Path,
+    game_version: &str,
+    version: &axlauncher_launch::Version,
+    target: &axlauncher_launch::Target,
+) -> Result<(), LoaderInstallError> {
+    if version.processors.is_empty() {
+        return Ok(());
+    }
+    let required = version
+        .java_version
+        .as_ref()
+        .map(|java| java.major)
+        .unwrap_or(8);
+    let executable = java
+        .executable_for(required, axlauncher_spi::JavaMode::Console)
+        .ok_or(LoaderInstallError::Java { required })?;
+    crate::processors::run(
+        &executable,
+        &game_root.join("libraries"),
+        game_root,
+        game_root,
+        game_version,
+        version,
+        target,
+    )
+    .map_err(LoaderInstallError::Processors)?;
+    Ok(())
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Superlogical Authors
+// SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! The steps a loader runs before the game starts.
@@ -30,6 +30,9 @@ use std::process::Command;
 use axlauncher_launch::classpath;
 use axlauncher_launch::rules::Target;
 use axlauncher_launch::version::{Processor, Version};
+
+mod templates;
+use templates::{launcher_data, library_path, resolve_template};
 
 /// The manifest entry a jar's entry point is read from.
 const MANIFEST: &str = "META-INF/MANIFEST.MF";
@@ -247,18 +250,57 @@ fn outputs_are_current(
     version: &Version,
     values: &[(&str, String)],
 ) -> bool {
-    let declared: Vec<&String> = if processor.outputs.is_empty() {
-        inferred_outputs(processor).into_iter().collect()
+    // An `outputs` map is keyed by the file the step writes and holds that
+    // file's digest as its value, so the keys are what must exist on disk. The
+    // value is the installer's own answer for what the file must contain, and a
+    // step interrupted mid-write leaves a file that exists but does not match:
+    // checking existence alone would treat that file as finished work.
+    let declared: Vec<(&String, Option<&String>)> = if processor.outputs.is_empty() {
+        inferred_outputs(processor)
+            .into_iter()
+            .map(|path| (path, None))
+            .collect()
     } else {
-        processor.outputs.values().collect()
+        processor
+            .outputs
+            .iter()
+            .map(|(path, sha)| (path, Some(sha)))
+            .collect()
     };
     if declared.is_empty() {
         return false;
     }
-    declared.into_iter().all(|template| {
-        resolve_template(template, libraries, version, values)
-            .is_ok_and(|path| Path::new(&path).is_file())
+    declared.into_iter().all(|(template, sha)| {
+        let Ok(path) = resolve_template(template, libraries, version, values) else {
+            return false;
+        };
+        // The digest is a template as well: installers state it as
+        // `{MC_SLIM_SHA}`, whose value is the hex digest the file must have.
+        let sha = sha
+            .and_then(|sha| resolve_template(sha, libraries, version, values).ok())
+            .filter(|sha| is_digest(sha));
+        output_is_current(Path::new(&path), sha.as_deref())
     })
+}
+
+/// Whether one declared output is on disk and, when a digest was stated, matches.
+///
+/// Existence alone is not proof of finished work: a step interrupted mid-write
+/// leaves a file that exists but does not hold what the installer says it
+/// should, and a later install would skip the step that repairs it.
+fn output_is_current(path: &Path, sha: Option<&str>) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    let Some(sha) = sha else {
+        return true;
+    };
+    std::fs::read(path).is_ok_and(|bytes| axlauncher_network::verify(&bytes, sha))
+}
+
+/// Whether `value` is a bare SHA-1 digest rather than a template.
+fn is_digest(value: &str) -> bool {
+    value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 /// The outputs a step names on its own command line instead of in `outputs`.
@@ -333,103 +375,6 @@ fn processor_arguments(
         .iter()
         .map(|argument| resolve_template(argument, libraries, version, values))
         .collect()
-}
-
-/// The values the launcher itself supplies, which no profile states.
-///
-/// A loader's processors refer to `{MINECRAFT_JAR}`, `{SIDE}` and friends as if
-/// they were data entries; they are not, because only the launcher knows the
-/// paths it chose. Supplying them here keeps the resolution rule uniform: a
-/// template is filled from one map, and whether a value came from the profile
-/// or from the launcher is not something a processor needs to know.
-fn launcher_data(
-    version: &Version,
-    game_root: &Path,
-    instance_directory: &Path,
-    game_version: &str,
-    libraries: &Path,
-) -> Vec<(&'static str, String)> {
-    let jar = axlauncher_launch::plan::client_jar(game_root, version.jar_id());
-    vec![
-        (SIDE, CLIENT.to_string()),
-        (MINECRAFT_JAR, jar.display().to_string()),
-        (MINECRAFT_VERSION, game_version.to_string()),
-        (ROOT, instance_directory.display().to_string()),
-        (LIBRARY_DIR, libraries.display().to_string()),
-    ]
-}
-
-/// The name of the side a processor runs for.
-const SIDE: &str = "SIDE";
-
-/// The vanilla jar the loader patches.
-const MINECRAFT_JAR: &str = "MINECRAFT_JAR";
-
-/// The game version the loader patches.
-const MINECRAFT_VERSION: &str = "MINECRAFT_VERSION";
-
-/// The game directory used as this processor's working directory.
-const ROOT: &str = "ROOT";
-
-/// The libraries directory the launcher chose.
-const LIBRARY_DIR: &str = "LIBRARY_DIR";
-
-/// One argument or output template, with `{NAME}` and `[coord]` resolved.
-///
-/// A `[coord]` is the whole template; a `{NAME}` may sit inside surrounding
-/// text, as `{ROOT}/libraries/` does, so the replacement is a substring search
-/// rather than an exact match.
-fn resolve_template(
-    template: &str,
-    libraries: &Path,
-    version: &Version,
-    values: &[(&str, String)],
-) -> Result<String, ProcessorError> {
-    if let Some(coordinate) = bracket(template) {
-        return library_path(libraries, coordinate)
-            .ok_or_else(|| ProcessorError::ToolMissing {
-                coordinate: coordinate.to_string(),
-            })
-            .map(|path| path.display().to_string());
-    }
-
-    let mut resolved = template.to_string();
-    for (name, value) in values {
-        resolved = resolved.replace(&format!("{{{name}}}"), value);
-    }
-    for (name, entry) in &version.data {
-        let value = match bracket(&entry.client) {
-            Some(coordinate) => library_path(libraries, coordinate)
-                .ok_or_else(|| ProcessorError::ToolMissing {
-                    coordinate: coordinate.to_string(),
-                })?
-                .display()
-                .to_string(),
-            None => unquote(&entry.client).to_string(),
-        };
-        resolved = resolved.replace(&format!("{{{name}}}"), &value);
-    }
-    Ok(resolved)
-}
-
-/// The text inside `[...]`, when a template is exactly that.
-fn bracket(template: &str) -> Option<&str> {
-    template
-        .strip_prefix('[')
-        .and_then(|rest| rest.strip_suffix(']'))
-}
-
-/// A `data` value written in single quotes is a literal, not a path.
-fn unquote(value: &str) -> &str {
-    value
-        .strip_prefix('\'')
-        .and_then(|rest| rest.strip_suffix('\''))
-        .unwrap_or(value)
-}
-
-/// Where a coordinate's jar lives under `libraries`.
-fn library_path(libraries: &Path, coordinate: &str) -> Option<PathBuf> {
-    axlauncher_launch::version::maven_path(coordinate).map(|path| libraries.join(path))
 }
 
 /// The entry point a tool's manifest declares.

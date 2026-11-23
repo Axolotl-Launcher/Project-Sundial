@@ -6,9 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use axlauncher_core::install::vanilla;
-use axlauncher_core::launch::{
-    FlowError, LaunchRequest, ProcessLauncher, SystemJava, Target, flow,
-};
+use axlauncher_core::launch::{FlowError, LaunchRequest, ProcessLauncher, Target, flow};
 use axlauncher_ui::{AppContext, AsyncApp, Context, WeakEntity};
 use tokio::sync::watch;
 
@@ -37,14 +35,19 @@ impl Launch {
     }
 }
 
-pub(crate) fn start(request: LaunchRequest, vanilla: bool, cx: &mut Context<'_, RootView>) {
+pub(crate) fn start(
+    request: LaunchRequest,
+    vanilla: bool,
+    data_root: PathBuf,
+    cx: &mut Context<'_, RootView>,
+) {
     let root = request.game_root.clone();
     let directory = request.instance_directory.clone();
     let version = request.version_id.clone();
     let (sender, mut started) = watch::channel(false);
     let task = cx.background_spawn(async move {
         match tokio::runtime::Builder::new_current_thread().build() {
-            Ok(runtime) => runtime.block_on(run(request, vanilla, sender)),
+            Ok(runtime) => runtime.block_on(run(request, vanilla, &data_root, sender)),
             Err(error) => Launch::Failed(error.to_string()),
         }
     });
@@ -75,12 +78,17 @@ fn finish_launch(
     cx: &mut Context<'_, RootView>,
 ) {
     if matches!(outcome, Launch::NeedsInstall(_)) {
-        view.clear_completed_installation(root, version);
+        view.clear_completed_installation(root, &directory);
     }
     view.set_launch(&directory, version, outcome, cx);
 }
 
-async fn run(request: LaunchRequest, vanilla: bool, sender: watch::Sender<bool>) -> Launch {
+async fn run(
+    request: LaunchRequest,
+    vanilla: bool,
+    data_root: &Path,
+    sender: watch::Sender<bool>,
+) -> Launch {
     if vanilla
         && let Err(error) =
             vanilla::check_files(&request.game_root, &request.version_id, &Target::host())
@@ -90,7 +98,7 @@ async fn run(request: LaunchRequest, vanilla: bool, sender: watch::Sender<bool>)
     let launcher = ProcessLauncher::reporting(move || {
         sender.send_replace(true);
     });
-    match flow::launch(&SystemJava::from_environment(), &launcher, request).await {
+    match flow::launch(&crate::java::managed(data_root), &launcher, request).await {
         Ok(_) => Launch::Exited,
         Err(FlowError::NoMatchingJava { required, .. }) => Launch::Failed(format!(
             "Java {required} is required. Set JAVA_HOME or PATH to a Java {required} installation and reopen the launcher."
