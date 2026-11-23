@@ -30,12 +30,15 @@ discovery and manifest access belong to `state`.
 
 File transfers use HTTP/1.1 by default, including range requests. HTTP/2 is
 available through an explicit download policy. Metadata negotiates HTTP normally.
-Known files use a full request below 4 MiB and start with an 8 MiB range at or
-above 4 MiB, limited to the file length. Only standalone jobs probe for an
-unknown size. A range retry keeps bytes already written while the response
-still matches its representation. The staging file is promoted after SHA-1 or
-size verification. The shared engine defaults to 256 connections globally and
-16 per file. The desktop setting controls how many files may be queued at once.
+HTTP/1.1 downloads can split known files from 32 KiB, with an initial range
+size of at least 16 KiB. Under contention, the scheduler weights each file's
+share by its remaining bytes and applies changes as connections are released.
+HTTP/2 retains its 4 MiB range threshold and 8 MiB initial range. Only
+standalone jobs probe for an unknown size. A range retry keeps bytes already
+written while the response still matches its representation. The staging file
+is promoted after SHA-1 or size verification. The shared engine defaults to
+256 connections globally and 16 per file. The desktop setting controls how
+many files may be queued at once.
 
 Direct hostname lookups race two weighted DoH upstreams separately for A and
 AAAA, with system DNS fallback when neither address family resolves. The

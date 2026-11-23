@@ -15,6 +15,7 @@ mod engine;
 mod ranges;
 mod resources;
 mod transfer;
+mod weighted;
 
 pub use axlauncher_spi::DownloadProtocol;
 pub use engine::{DownloadEngine, DownloadJob, DownloadPolicy, TransferStats};
@@ -23,7 +24,7 @@ pub use engine::{DownloadEngine, DownloadJob, DownloadPolicy, TransferStats};
 #[cfg(test)]
 use tempfile as test_tempfile;
 
-/// The number of downloads in flight when a caller passes zero.
+/// The default batch width and shared engine connection limit.
 pub const DEFAULT_CONCURRENCY: usize = 256;
 
 static SHARED_ENGINE: LazyLock<DownloadEngine> = LazyLock::new(DownloadEngine::default);
@@ -45,10 +46,11 @@ pub struct DownloadOutcome {
     pub result: Result<(), String>,
 }
 
-/// Fetches each file and checks its SHA-1 before writing if one was supplied.
+/// Downloads files concurrently and promotes them after verification.
 ///
-/// At most `concurrency` requests are in flight at once; zero means
-/// [`DEFAULT_CONCURRENCY`]. Outcomes arrive in completion order.
+/// At most `concurrency` file jobs are in flight, with zero using
+/// [`DEFAULT_CONCURRENCY`]. The engine applies its own connection limits to
+/// the requests each job makes. Outcomes arrive in completion order.
 pub async fn download_all(
     network: &impl Network,
     files: &[MissingFile],
@@ -58,7 +60,7 @@ pub async fn download_all(
 }
 
 /// Downloads files like [`download_all`], reporting the count after each
-/// completed attempt, including failures.
+/// file job resolves, including failures.
 pub async fn download_all_reporting(
     network: &impl Network,
     files: &[MissingFile],

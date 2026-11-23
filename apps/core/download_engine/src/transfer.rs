@@ -16,6 +16,7 @@ use bytes::Bytes;
 use crate::engine::{DownloadEngine, DownloadJob};
 use crate::ranges::{self, RangeSource};
 use crate::resources::{BUFFER_BYTES, Lease, Quota};
+use crate::weighted::{FileShare, MIN_RANGE_BYTES, ShareLease, range_width};
 
 const RANGE_THRESHOLD: u64 = 4 * 1024 * 1024;
 const PROBE: ByteRange = ByteRange { start: 0, end: 1 };
@@ -27,6 +28,7 @@ pub(crate) struct Transfer<'a, Net> {
     pub(crate) network: &'a Net,
     pub(crate) source: &'a str,
     pub(crate) host: &'a Quota,
+    pub(crate) share: Option<&'a FileShare<'a>>,
 }
 
 #[derive(Debug)]
@@ -70,11 +72,12 @@ impl fmt::Display for TransferError {
     }
 }
 
-pub(crate) struct Connection<Body> {
+pub(crate) struct Connection<'a, Body> {
     pub(crate) response: DownloadResponse<Body>,
     // Closes the response body before admitting another request.
     _host: Lease,
     _global: Lease,
+    _share: Option<ShareLease<'a>>,
 }
 
 impl<Net: Network> Transfer<'_, Net> {
@@ -86,7 +89,7 @@ impl<Net: Network> Transfer<'_, Net> {
     ) -> Result<(), TransferError> {
         let stage = Mutex::new(staging);
         let attempt = match job.size {
-            Some(total) if total >= RANGE_THRESHOLD => {
+            Some(total) if total >= self.range_threshold() => {
                 self.ranged(&stage, job, total, final_round).await
             }
             None if !job.batch && self.engine.policy.connections_per_file.get() > 1 => {
@@ -103,6 +106,9 @@ impl<Net: Network> Transfer<'_, Net> {
                 .set_len(0)?,
             Err(error) => return Err(error),
         }
+        if let Some(share) = self.share {
+            share.set_remaining(None);
+        }
         let connection = self.open(None, None).await?;
         self.whole(connection, &stage, job, final_round).await
     }
@@ -117,7 +123,7 @@ impl<Net: Network> Transfer<'_, Net> {
         let Some(range) = connection.response.range else {
             return self.whole(connection, stage, job, final_round).await;
         };
-        if range.interval != PROBE || range.total < RANGE_THRESHOLD {
+        if range.interval != PROBE || range.total < self.range_threshold() {
             return Err(TransferError::RangeUnavailable);
         }
         drop(connection);
@@ -131,12 +137,11 @@ impl<Net: Network> Transfer<'_, Net> {
         total: u64,
         final_round: bool,
     ) -> Result<(), TransferError> {
-        let parallel = self.engine.policy.connections_per_file.get() > 1;
-        let end = if parallel {
-            total.min(ranges::INITIAL_SEGMENT)
-        } else {
-            total
-        };
+        let (width, chunk, minimum) = self.range_plan(total);
+        if let Some(share) = self.share {
+            share.set_remaining(Some(total));
+        }
+        let end = total.min(chunk);
         let interval = ByteRange { start: 0, end };
         let connection = self.open_for_range(interval, None).await?;
         let Some(range) = connection.response.range else {
@@ -146,22 +151,61 @@ impl<Net: Network> Transfer<'_, Net> {
             return Err(TransferError::RangeUnavailable);
         }
         let validator = connection.response.validator.clone();
+        if self.share.is_some() && interval.end < total && validator.is_none() && job.sha1.is_none()
+        {
+            return Err(TransferError::RangeUnavailable);
+        }
         let source = RangeSource {
             total,
             validator: validator.as_deref(),
+            width,
+            chunk,
+            minimum,
         };
         ranges::download(self, stage, source, interval, connection, final_round).await
     }
 
+    fn range_threshold(&self) -> u64 {
+        if self.share.is_some() {
+            2 * MIN_RANGE_BYTES
+        } else {
+            RANGE_THRESHOLD
+        }
+    }
+
+    fn range_plan(&self, total: u64) -> (usize, u64, u64) {
+        let limit = self.engine.policy.connections_per_file.get();
+        let http1 = self.share.is_some();
+        let width = if http1 {
+            range_width(total, limit)
+        } else {
+            limit
+        };
+        let chunk = match (width, http1) {
+            (1, _) => total,
+            (_, true) => total.div_ceil(width as u64).min(ranges::INITIAL_SEGMENT),
+            (_, false) => ranges::INITIAL_SEGMENT,
+        };
+        let minimum = if http1 {
+            MIN_RANGE_BYTES
+        } else {
+            ranges::MIN_SEGMENT
+        };
+        (width, chunk, minimum)
+    }
+
     async fn whole(
         &self,
-        mut connection: Connection<impl DownloadBody>,
+        mut connection: Connection<'_, impl DownloadBody>,
         stage: &Mutex<&mut AtomicFile>,
         job: DownloadJob<'_>,
         final_round: bool,
     ) -> Result<(), TransferError> {
         if connection.response.range.is_some() {
             return Err(TransferError::RangeUnavailable);
+        }
+        if let Some(share) = self.share {
+            share.set_remaining(None);
         }
         let length = connection.response.length;
         let large = length
@@ -182,7 +226,11 @@ impl<Net: Network> Transfer<'_, Net> {
         &self,
         range: Option<ByteRange>,
         validator: Option<&str>,
-    ) -> Result<Connection<impl DownloadBody>, TransferError> {
+    ) -> Result<Connection<'_, impl DownloadBody>, TransferError> {
+        let share = match self.share {
+            Some(share) => Some(share.acquire().await),
+            None => None,
+        };
         let host = self.host.acquire().await;
         let global = self.engine.connections.acquire().await;
         let response = self
@@ -193,6 +241,7 @@ impl<Net: Network> Transfer<'_, Net> {
             response,
             _host: host,
             _global: global,
+            _share: share,
         })
     }
 
@@ -200,7 +249,7 @@ impl<Net: Network> Transfer<'_, Net> {
         &self,
         range: ByteRange,
         validator: Option<&str>,
-    ) -> Result<Connection<impl DownloadBody>, TransferError> {
+    ) -> Result<Connection<'_, impl DownloadBody>, TransferError> {
         self.open(Some(range), validator)
             .await
             .map_err(|error| match error {
@@ -217,7 +266,7 @@ impl<Net: Network> Transfer<'_, Net> {
         range: ByteRange,
         source: RangeSource<'_>,
         split_slow: bool,
-        initial: Option<Connection<Body>>,
+        initial: Option<Connection<'_, Body>>,
     ) -> CopyResult {
         if let Some(connection) = initial {
             return self
@@ -243,7 +292,7 @@ impl<Net: Network> Transfer<'_, Net> {
         range: ByteRange,
         source: RangeSource<'_>,
         split_slow: bool,
-        mut connection: Connection<impl DownloadBody>,
+        mut connection: Connection<'_, impl DownloadBody>,
     ) -> CopyResult {
         let expected = ResponseRange {
             interval: range,

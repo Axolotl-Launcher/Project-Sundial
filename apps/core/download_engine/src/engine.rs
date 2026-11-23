@@ -16,6 +16,7 @@ use url::Url;
 
 use crate::resources::{BUFFER_BYTES, Bandwidth, Quota, Quotas};
 use crate::transfer::{Transfer, TransferError};
+use crate::weighted::WeightedConnections;
 use crate::{DEFAULT_CONCURRENCY, SHARED_ENGINE};
 
 const RETRY_DELAYS: [Duration; 4] = [
@@ -81,6 +82,7 @@ pub struct DownloadEngine {
     pub(crate) bandwidth: Bandwidth,
     pub(crate) bytes_received: AtomicU64,
     destinations: Quotas<PathBuf>,
+    http1_connections: WeightedConnections,
 }
 
 impl Default for DownloadEngine {
@@ -100,6 +102,7 @@ impl DownloadEngine {
             bandwidth: Bandwidth::new(policy.bytes_per_second),
             bytes_received: AtomicU64::new(0),
             destinations: Quotas::default(),
+            http1_connections: WeightedConnections::new(policy.connections.get()),
             policy,
         }
     }
@@ -112,6 +115,7 @@ impl DownloadEngine {
     /// Changes global connection admission immediately for queued jobs.
     pub fn set_connection_limit(&self, limit: NonZeroUsize) {
         self.connections.set_limit(limit);
+        self.http1_connections.set_limit(limit.get());
     }
 
     /// `None` removes the shared bandwidth cap immediately.
@@ -208,14 +212,20 @@ impl DownloadEngine {
             .and_then(|url| url.host_str().map(str::to_owned))
             .ok_or_else(|| FetchError::Fatal(format!("invalid download URL: {source}")))?;
         let host = self.hosts.for_key(host, self.policy.connections_per_host);
+        let share = (self.policy.protocol == DownloadProtocol::Http1).then(|| {
+            self.http1_connections
+                .register(job.size, self.policy.connections_per_file.get())
+        });
         let transfer = Transfer {
             engine: self,
             network,
             source,
             host: &host,
+            share: share.as_ref(),
         };
         let mut staging = AtomicFile::new(job.destination)?;
         transfer.run(job, &mut staging, final_round).await?;
+        drop(share);
         verify(&mut staging, job).await?;
         staging.commit(job.destination)?;
         Ok(())

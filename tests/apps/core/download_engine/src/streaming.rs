@@ -19,6 +19,7 @@ use crate::{DownloadEngine, DownloadJob, DownloadPolicy, test_tempfile};
 
 const MIB: u64 = 1024 * 1024;
 const LENGTH: u64 = 16 * MIB;
+const SMALL_FILE: u64 = 64 * 1024 + 1;
 const DATA_SOURCE: &str = "https://example.invalid/file";
 
 #[test]
@@ -34,6 +35,8 @@ struct RangeNetwork {
     requests: RefCell<Vec<Option<ByteRange>>>,
     fail_once: Cell<bool>,
     change_revision: bool,
+    length: Option<u64>,
+    protocol: Option<DownloadProtocol>,
 }
 
 impl Network for RangeNetwork {
@@ -48,11 +51,12 @@ impl Network for RangeNetwork {
         range: Option<ByteRange>,
         validator: Option<&str>,
     ) -> Result<DownloadResponse<impl DownloadBody>, FetchError> {
-        assert_eq!(protocol, DownloadProtocol::Http1);
+        assert_eq!(protocol, self.protocol.unwrap_or_default());
         self.requests.borrow_mut().push(range);
+        let total = self.length.unwrap_or(LENGTH);
         let interval = range.unwrap_or(ByteRange {
             start: 0,
-            end: LENGTH,
+            end: total,
         });
         let interrupted = interval.start == 8 * MIB && self.fail_once.replace(false);
         let changed = self.change_revision && validator.is_some();
@@ -61,12 +65,11 @@ impl Network for RangeNetwork {
         } else {
             "\"first\""
         };
-        let range = range.filter(|_| !changed).map(|interval| ResponseRange {
-            interval,
-            total: LENGTH,
-        });
+        let range = range
+            .filter(|_| !changed)
+            .map(|interval| ResponseRange { interval, total });
         let length = if changed {
-            LENGTH
+            total
         } else {
             interval.end - interval.start
         };
@@ -76,7 +79,7 @@ impl Network for RangeNetwork {
             validator: Some(version.into()),
             body: PatternBody {
                 offset: if changed { 0 } else { interval.start },
-                end: if changed { LENGTH } else { interval.end },
+                end: if changed { total } else { interval.end },
                 first: true,
                 interrupted,
                 version: u8::from(version == "\"second\""),
@@ -131,7 +134,10 @@ fn the_first_known_range_is_eight_mib_and_an_interrupted_tail_resumes() {
         fail_once: Cell::new(true),
         ..RangeNetwork::default()
     };
-    let engine = DownloadEngine::default();
+    let engine = DownloadEngine::new(DownloadPolicy {
+        connections_per_file: NonZeroUsize::new(2).unwrap(),
+        ..DownloadPolicy::default()
+    });
     let job = DownloadJob {
         sources: &[DATA_SOURCE],
         destination: &destination,
@@ -162,6 +168,68 @@ fn the_first_known_range_is_eight_mib_and_an_interrupted_tail_resumes() {
     );
     assert_eq!(engine.stats().bytes_received, LENGTH);
     assert_contents(&destination, 0);
+}
+
+#[test]
+fn a_small_http1_file_uses_parallel_ranges_without_a_tiny_tail() {
+    let root = test_tempfile::tempdir().unwrap();
+    let destination = root.path().join("file");
+    let network = RangeNetwork {
+        length: Some(SMALL_FILE),
+        ..RangeNetwork::default()
+    };
+    let job = DownloadJob {
+        sources: &[DATA_SOURCE],
+        destination: &destination,
+        sha1: None,
+        size: Some(SMALL_FILE),
+        batch: true,
+    };
+
+    block_on(DownloadEngine::default().download(&network, job)).unwrap();
+
+    let requests = network.requests.into_inner();
+    assert!(requests.len() > 1);
+    assert!(requests.into_iter().all(|range| {
+        let range = range.unwrap();
+        range.end - range.start >= crate::weighted::MIN_RANGE_BYTES
+    }));
+    let contents = fs::read(destination).unwrap();
+    assert_eq!(contents.len() as u64, SMALL_FILE);
+    assert!(
+        contents
+            .into_iter()
+            .enumerate()
+            .all(|(offset, byte)| byte == pattern(offset as u64, 0))
+    );
+}
+
+#[test]
+fn explicitly_selected_http2_keeps_small_files_on_a_single_request() {
+    let root = test_tempfile::tempdir().unwrap();
+    let destination = root.path().join("file");
+    let protocol = DownloadProtocol::Http2;
+    let network = RangeNetwork {
+        length: Some(SMALL_FILE),
+        protocol: Some(protocol),
+        ..RangeNetwork::default()
+    };
+    let policy = DownloadPolicy {
+        protocol,
+        ..DownloadPolicy::default()
+    };
+    let job = DownloadJob {
+        sources: &[DATA_SOURCE],
+        destination: &destination,
+        sha1: None,
+        size: Some(SMALL_FILE),
+        batch: true,
+    };
+
+    block_on(DownloadEngine::new(policy).download(&network, job)).unwrap();
+
+    assert_eq!(network.requests.into_inner(), [None]);
+    assert_eq!(fs::metadata(destination).unwrap().len(), SMALL_FILE);
 }
 
 #[test]

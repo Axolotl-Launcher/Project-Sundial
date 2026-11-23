@@ -10,8 +10,9 @@ use axlauncher_storage::AtomicFile;
 use futures::{StreamExt, stream::FuturesUnordered};
 
 use crate::transfer::{Connection, CopyResult, Transfer, TransferError};
+use crate::weighted::MIN_RANGE_BYTES;
 
-const MIN_SEGMENT: u64 = 256 * 1024;
+pub(crate) const MIN_SEGMENT: u64 = 256 * 1024;
 pub(crate) const INITIAL_SEGMENT: u64 = 8 * 1024 * 1024;
 const MAX_SEGMENT: u64 = 32 * 1024 * 1024;
 const SEGMENT_TIME: Duration = Duration::from_secs(2);
@@ -21,6 +22,9 @@ const SEGMENT_RETRIES: usize = 3;
 pub(crate) struct RangeSource<'a> {
     pub(crate) total: u64,
     pub(crate) validator: Option<&'a str>,
+    pub(crate) width: usize,
+    pub(crate) chunk: u64,
+    pub(crate) minimum: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -34,17 +38,17 @@ pub(crate) async fn download<Net: Network>(
     stage: &Mutex<&mut AtomicFile>,
     source: RangeSource<'_>,
     first: ByteRange,
-    connection: Connection<impl DownloadBody>,
+    connection: Connection<'_, impl DownloadBody>,
     final_round: bool,
 ) -> Result<(), TransferError> {
-    let width = transfer.engine.policy.connections_per_file.get();
     let mut work = Schedule {
         remaining: ByteRange {
             start: first.end,
             end: source.total,
         },
         retries: VecDeque::new(),
-        chunk: INITIAL_SEGMENT,
+        chunk: source.chunk,
+        minimum: source.minimum,
     };
     let mut active = FuturesUnordered::new();
     active.push(run(
@@ -58,17 +62,27 @@ pub(crate) async fn download<Net: Network>(
         final_round,
         Some(connection),
     ));
+    let mut demand = source.width;
     loop {
-        let available = active.len()..width;
+        let available = active.len()..source.width;
         active.extend(
             available
                 .map_while(|_| work.next())
                 .map(|next| run(transfer, stage, next, source, final_round, None)),
         );
+        if let Some(share) = transfer.share
+            && demand != active.len().max(1)
+        {
+            demand = active.len().max(1);
+            share.set_width(demand);
+        }
         let Some((item, result, elapsed)) = active.next().await else {
             return Ok(());
         };
-        work.completed(item, result, elapsed)?;
+        let written = work.completed(item, result, elapsed)?;
+        if let Some(share) = transfer.share {
+            share.record_written(written);
+        }
     }
 }
 
@@ -78,7 +92,7 @@ async fn run<Net: Network>(
     work: Work,
     source: RangeSource<'_>,
     final_round: bool,
-    initial: Option<Connection<impl DownloadBody>>,
+    initial: Option<Connection<'_, impl DownloadBody>>,
 ) -> (Work, CopyResult, Duration) {
     let start = Instant::now();
     let split_slow = !final_round && work.retries < SEGMENT_RETRIES;
@@ -92,6 +106,7 @@ struct Schedule {
     remaining: ByteRange,
     retries: VecDeque<Work>,
     chunk: u64,
+    minimum: u64,
 }
 
 impl Schedule {
@@ -103,7 +118,7 @@ impl Schedule {
         if available == 0 {
             return None;
         }
-        let end = self.remaining.start + available.min(self.chunk);
+        let end = self.remaining.start + self.next_size(available);
         let interval = ByteRange {
             start: self.remaining.start,
             end,
@@ -115,18 +130,30 @@ impl Schedule {
         })
     }
 
+    fn next_size(&self, available: u64) -> u64 {
+        let bytes = available.min(self.chunk);
+        if self.minimum != MIN_RANGE_BYTES || !(1..self.minimum).contains(&(available - bytes)) {
+            return bytes;
+        }
+        if available < 2 * self.minimum {
+            available
+        } else {
+            available - self.minimum
+        }
+    }
+
     fn completed(
         &mut self,
         work: Work,
         result: CopyResult,
         elapsed: Duration,
-    ) -> Result<(), TransferError> {
+    ) -> Result<u64, TransferError> {
         let Err(error) = result.result else {
             let transferred = work.interval.end - work.interval.start;
             let suggested =
                 (transferred as f64 * SEGMENT_TIME.as_secs_f64() / elapsed.as_secs_f64()) as u64;
-            self.chunk = suggested.clamp(MIN_SEGMENT, MAX_SEGMENT);
-            return Ok(());
+            self.chunk = suggested.clamp(self.minimum, MAX_SEGMENT);
+            return Ok(transferred);
         };
         if !error.retryable() || work.retries >= SEGMENT_RETRIES {
             return Err(error);
@@ -143,12 +170,12 @@ impl Schedule {
             },
             work.retries + 1,
         );
-        Ok(())
+        Ok(start - work.interval.start)
     }
 
     fn requeue(&mut self, interval: ByteRange, retries: usize) {
         let remaining = interval.end - interval.start;
-        if remaining >= 2 * MIN_SEGMENT {
+        if remaining >= 2 * self.minimum {
             let middle = interval.start + remaining / 2;
             self.retries.push_back(Work {
                 interval: ByteRange {
