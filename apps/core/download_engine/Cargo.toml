@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2026 Axolotl Team
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "axlauncher_download_engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Bounded concurrent downloads with digest verification and atomic writes."
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+axlauncher_network = { workspace = true }
+axlauncher_spi = { workspace = true }
+axlauncher_storage = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

@@ -64,9 +64,15 @@ fn permitted_edge(owner: &str, dependency: &str, target_dir: &Path) -> bool {
             "axlauncher_spi" | "axlauncher_domain" => true,
             "axlauncher_storage" => matches!(
                 owner,
-                "axlauncher_install" | "axlauncher_state" | "axlauncher_launch"
+                "axlauncher_download_engine"
+                    | "axlauncher_install"
+                    | "axlauncher_state"
+                    | "axlauncher_launch"
             ),
-            "axlauncher_launch" | "axlauncher_network" => owner == "axlauncher_install",
+            "axlauncher_launch" | "axlauncher_download_engine" => owner == "axlauncher_install",
+            "axlauncher_network" => {
+                matches!(owner, "axlauncher_download_engine" | "axlauncher_install")
+            }
             _ => false,
         },
     }

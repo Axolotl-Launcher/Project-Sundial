@@ -7,6 +7,7 @@ members = [
   "apps/core",
   "apps/core/content",
   "apps/core/domain",
+  "apps/core/download_engine",
   "apps/core/install",
   "apps/core/launch",
   "apps/core/loader",
@@ -108,6 +109,7 @@ keyring = "4.2.0"
 axlauncher_content = { path = "apps/core/content" }
 axlauncher_core = { path = "apps/core" }
 axlauncher_domain = { path = "apps/core/domain" }
+axlauncher_download_engine = { path = "apps/core/download_engine" }
 axlauncher_frontend = { path = "apps/frontend" }
 axlauncher_install = { path = "apps/core/install" }
 axlauncher_launch = { path = "apps/core/launch" }

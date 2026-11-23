@@ -566,6 +566,7 @@ version = "0.1.0"
 dependencies = [
  "axlauncher_content",
  "axlauncher_domain",
+ "axlauncher_download_engine",
  "axlauncher_install",
  "axlauncher_launch",
  "axlauncher_loader",
@@ -585,6 +586,17 @@ name = "axlauncher_domain"
 version = "0.1.0"
 
 [[package]]
+name = "axlauncher_download_engine"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_network",
+ "axlauncher_spi",
+ "axlauncher_storage",
+ "futures",
+ "tempfile",
+]
+
+[[package]]
 name = "axlauncher_frontend"
 version = "0.1.0"
 dependencies = [
@@ -598,6 +610,7 @@ dependencies = [
 name = "axlauncher_install"
 version = "0.1.0"
 dependencies = [
+ "axlauncher_download_engine",
  "axlauncher_launch",
  "axlauncher_network",
  "axlauncher_spi",

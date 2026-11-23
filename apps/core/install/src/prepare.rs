@@ -10,15 +10,13 @@
 
 use std::path::{Path, PathBuf};
 
+use axlauncher_download_engine::{DownloadOutcome, MissingFile, download_all_reporting};
 use axlauncher_launch::Target;
 use axlauncher_launch::version::{AssetIndex, Version};
 use axlauncher_network::verify;
 use axlauncher_spi::{FetchError, Network};
 
-use crate::assets::{
-    AssetIndexDocument, DownloadOutcome, MissingFile, download_all_reporting, missing_assets,
-    missing_libraries,
-};
+use crate::assets::{AssetIndexDocument, missing_assets, missing_libraries};
 
 /// The phase and file counts a caller can display during installation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

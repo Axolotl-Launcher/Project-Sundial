@@ -11,13 +11,13 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub use axlauncher_download_engine::{
+    DEFAULT_CONCURRENCY, DownloadOutcome, MissingFile, download_all,
+};
 use axlauncher_launch::natives::classifier_download;
 use axlauncher_launch::rules::{self, Target};
 use axlauncher_launch::version::Library;
-use axlauncher_network::verify;
-use axlauncher_spi::{FetchError, Network};
 use axlauncher_storage::write_atomic;
-use futures::stream::{self, StreamExt};
 use serde::Deserialize;
 
 /// The directory under the game root that holds library artifacts.
@@ -37,18 +37,6 @@ const OBJECT_PREFIX_LEN: usize = 2;
 
 /// Where Mojang serves asset objects, as the asset index format defines them.
 const ASSET_OBJECT_BASE: &str = "https://resources.download.minecraft.net";
-
-/// The number of downloads in flight when a caller passes zero.
-pub const DEFAULT_CONCURRENCY: usize = 4;
-
-/// One file a version needs that is not in place yet.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MissingFile {
-    pub url: String,
-    pub path: PathBuf,
-    pub sha1: Option<String>,
-    pub size: Option<u64>,
-}
 
 /// The asset index document, reduced to what an install reads.
 ///
@@ -272,75 +260,6 @@ pub(crate) fn materialise_flat_at(
 fn copy_object(source: &Path, destination: &Path) -> std::io::Result<()> {
     let bytes = fs::read(source)?;
     write_atomic(destination, &bytes)
-}
-
-/// What happened to one file in a download run.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DownloadOutcome {
-    pub path: PathBuf,
-    pub result: Result<(), String>,
-}
-
-/// Fetches every file in `files`, writing only those whose SHA-1 matches.
-///
-/// At most `concurrency` requests are in flight at once; zero means
-/// [`DEFAULT_CONCURRENCY`]. Outcomes arrive in completion order.
-pub async fn download_all(
-    network: &impl Network,
-    files: &[MissingFile],
-    concurrency: usize,
-) -> Vec<DownloadOutcome> {
-    download_all_reporting(network, files, concurrency, |_| {}).await
-}
-
-pub(crate) async fn download_all_reporting(
-    network: &impl Network,
-    files: &[MissingFile],
-    concurrency: usize,
-    mut report: impl FnMut(usize),
-) -> Vec<DownloadOutcome> {
-    let limit = if concurrency == 0 {
-        DEFAULT_CONCURRENCY
-    } else {
-        concurrency
-    };
-    let mut processed = 0;
-    stream::iter(files)
-        .map(|file| download(network, file))
-        .buffer_unordered(limit)
-        .inspect(|_| {
-            processed += 1;
-            report(processed);
-        })
-        .collect()
-        .await
-}
-
-/// The outcome of fetching and writing one file.
-async fn download(network: &impl Network, file: &MissingFile) -> DownloadOutcome {
-    DownloadOutcome {
-        path: file.path.clone(),
-        result: fetch_and_write(network, file).await,
-    }
-}
-
-async fn fetch_and_write(network: &impl Network, file: &MissingFile) -> Result<(), String> {
-    let bytes = network.fetch(&file.url).await.map_err(reason)?;
-    if let Some(expected) = &file.sha1
-        && !verify(&bytes, expected)
-    {
-        return Err(format!("SHA-1 mismatch for {}", file.path.display()));
-    }
-    write_atomic(&file.path, &bytes)
-        .map_err(|error| format!("cannot write {}: {error}", file.path.display()))
-}
-
-/// The text of a fetch error, with the retry advice dropped.
-fn reason(error: FetchError) -> String {
-    match error {
-        FetchError::Retryable(reason) | FetchError::Fatal(reason) => reason,
-        rejected @ FetchError::Rejected { .. } => rejected.to_string(),
-    }
 }
 
 #[cfg(test)]

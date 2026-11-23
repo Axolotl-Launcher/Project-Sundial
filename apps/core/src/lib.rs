@@ -11,6 +11,7 @@ pub mod desktop;
 
 pub use axlauncher_content as content;
 pub use axlauncher_domain as domain;
+pub use axlauncher_download_engine as download_engine;
 pub use axlauncher_install as install;
 pub use axlauncher_launch as launch;
 pub use axlauncher_loader as loader;
