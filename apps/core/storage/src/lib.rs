@@ -126,6 +126,16 @@ impl DataDir {
         self.caches().join("download-debug.bin")
     }
 
+    /// A unique cache directory that keeps the outputs of one development test.
+    pub fn new_download_debug_batch(&self) -> io::Result<PathBuf> {
+        let batches = self.caches().join("download-debug-batches");
+        fs::create_dir_all(&batches)?;
+        tempfile::Builder::new()
+            .prefix("batch-")
+            .tempdir_in(batches)
+            .map(tempfile::TempDir::keep)
+    }
+
     /// The settings document.
     pub fn settings(&self) -> PathBuf {
         self.root.join("settings.json")

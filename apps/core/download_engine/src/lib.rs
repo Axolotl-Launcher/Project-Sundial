@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use axlauncher_spi::Network;
-use futures::stream::{self, StreamExt};
+use futures::stream::{self, Stream, StreamExt};
 
 mod engine;
 mod ranges;
@@ -67,21 +67,31 @@ pub async fn download_all_reporting(
     concurrency: usize,
     mut report: impl FnMut(usize),
 ) -> Vec<DownloadOutcome> {
-    let limit = if concurrency == 0 {
-        DEFAULT_CONCURRENCY
-    } else {
-        concurrency
-    };
     let mut processed = 0;
-    stream::iter(files)
-        .map(|file| download(network, file))
-        .buffer_unordered(limit)
+    download_batch(network, files, concurrency)
         .inspect(|_| {
             processed += 1;
             report(processed);
         })
         .collect()
         .await
+}
+
+/// Yields each file's outcome as it completes. Dropping the stream cancels
+/// unfinished jobs and preserves files that have already been promoted.
+pub fn download_batch<'a>(
+    network: &'a impl Network,
+    files: &'a [MissingFile],
+    concurrency: usize,
+) -> impl Stream<Item = DownloadOutcome> + 'a {
+    let limit = if concurrency == 0 {
+        DEFAULT_CONCURRENCY
+    } else {
+        concurrency
+    };
+    stream::iter(files)
+        .map(|file| download(network, file))
+        .buffer_unordered(limit)
 }
 
 /// The outcome of fetching and writing one file.
