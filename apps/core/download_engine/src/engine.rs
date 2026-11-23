@@ -45,7 +45,7 @@ impl Default for DownloadPolicy {
             connections_per_file: DEFAULT_FILE_CONNECTIONS,
             buffer_bytes: NonZeroUsize::new(16 * 1024 * 1024).unwrap(),
             bytes_per_second: None,
-            protocol: DownloadProtocol::Http2,
+            protocol: DownloadProtocol::default(),
         }
     }
 }

@@ -28,7 +28,8 @@ discovery and manifest access belong to `state`.
 
 ## Download protocol behavior
 
-File transfers require HTTP/2 by default. Metadata uses ordinary HTTP negotiation.
+File transfers use HTTP/1.1 by default, including range requests. HTTP/2 is
+available through an explicit download policy. Metadata negotiates HTTP normally.
 Known files use a full request below 4 MiB and start with an 8 MiB range at or
 above 4 MiB, limited to the file length. Only standalone jobs probe for an
 unknown size. A range retry keeps bytes already written while the response

@@ -28,7 +28,7 @@ fn reqwest_reports_a_partial_response_and_preserves_conditionals() {
         let mut response = network
             .open_download(
                 &url,
-                DownloadProtocol::Http1,
+                DownloadProtocol::default(),
                 Some(request),
                 Some("\"fixture\""),
             )
@@ -76,7 +76,7 @@ fn serve_range(listener: TcpListener) -> String {
 }
 
 #[test]
-fn the_desktop_file_client_transfers_over_http2() {
+fn the_desktop_file_client_transfers_over_http2_when_requested() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}/file", listener.local_addr().unwrap());
     let worker = std::thread::spawn(move || http2::serve_http2(listener, *b"h2"));
@@ -88,7 +88,7 @@ fn the_desktop_file_client_transfers_over_http2() {
     runtime.block_on(async {
         let network = ReqwestNetwork::desktop().unwrap();
         let mut response = network
-            .open_download(&url, DownloadProtocol::default(), None, None)
+            .open_download(&url, DownloadProtocol::Http2, None, None)
             .await
             .unwrap();
         assert_eq!(

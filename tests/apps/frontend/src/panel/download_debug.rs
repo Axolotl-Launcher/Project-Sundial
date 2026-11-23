@@ -1,20 +1,18 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
+use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 
 use super::*;
 
-#[path = "../../../../support/http2.rs"]
-mod http2;
-
 #[test]
-fn a_probe_saves_the_http2_response_under_the_data_root() {
+fn a_probe_saves_the_http1_response_under_the_data_root() {
     let root = test_tempfile::tempdir().unwrap();
     let destination = DataDir::new(root.path()).download_debug_file();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}/file", listener.local_addr().unwrap());
-    let server = std::thread::spawn(move || http2::serve_http2(listener, *b"ok"));
+    let server = std::thread::spawn(move || serve_http1(listener));
     let (_sender, cancellation) = oneshot::channel();
 
     let status = run_probe(url, destination.clone(), cancellation);
@@ -22,6 +20,19 @@ fn a_probe_saves_the_http2_response_under_the_data_root() {
     assert!(matches!(status, ProbeStatus::Complete(path) if path == destination));
     assert_eq!(std::fs::read(&destination).unwrap(), b"ok");
     server.join().unwrap();
+}
+
+fn serve_http1(listener: TcpListener) {
+    let (mut socket, _) = listener.accept().unwrap();
+    socket
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    let mut lines = BufReader::new(&socket).lines();
+    assert_eq!(lines.next().unwrap().unwrap(), "GET /file HTTP/1.1");
+    assert!(lines.map(Result::unwrap).any(|line| line.is_empty()));
+    socket
+        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+        .unwrap();
 }
 
 #[test]

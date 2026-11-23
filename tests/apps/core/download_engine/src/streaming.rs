@@ -22,9 +22,9 @@ const LENGTH: u64 = 16 * MIB;
 const DATA_SOURCE: &str = "https://example.invalid/file";
 
 #[test]
-fn default_policy_uses_http2_and_the_expected_connection_budgets() {
+fn default_policy_uses_http1_and_the_expected_connection_budgets() {
     let policy = DownloadPolicy::default();
-    assert_eq!(policy.protocol, DownloadProtocol::Http2);
+    assert_eq!(policy.protocol, DownloadProtocol::Http1);
     assert_eq!(policy.connections.get(), 256);
     assert_eq!(policy.connections_per_file.get(), 16);
 }
@@ -48,7 +48,7 @@ impl Network for RangeNetwork {
         range: Option<ByteRange>,
         validator: Option<&str>,
     ) -> Result<DownloadResponse<impl DownloadBody>, FetchError> {
-        assert_eq!(protocol, DownloadProtocol::Http2);
+        assert_eq!(protocol, DownloadProtocol::Http1);
         self.requests.borrow_mut().push(range);
         let interval = range.unwrap_or(ByteRange {
             start: 0,

@@ -5,12 +5,12 @@ use bytes::Bytes;
 
 use crate::FetchError;
 
-/// HTTP negotiation to use for a file transfer.
+/// HTTP negotiation to use for a file transfer. The default is HTTP/1.1.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum DownloadProtocol {
     Automatic,
-    Http1,
     #[default]
+    Http1,
     Http2,
 }
 
