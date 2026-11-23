@@ -36,10 +36,15 @@ pub(super) async fn open(
         .await
         .map_err(|_| FetchError::Retryable("download response timed out".into()))?
         .map_err(request_error)?;
-    if version.is_some_and(|required| response.version() != required) {
+    let received = response.version();
+    let compatible = match version {
+        Some(Version::HTTP_11) => matches!(received, Version::HTTP_10 | Version::HTTP_11),
+        Some(required) => received == required,
+        None => true,
+    };
+    if !compatible {
         return Err(FetchError::Fatal(format!(
-            "unexpected download protocol {:?}",
-            response.version()
+            "unexpected download protocol {received:?}"
         )));
     }
     let status = response.status();

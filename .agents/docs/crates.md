@@ -40,10 +40,12 @@ is promoted after SHA-1 or size verification. The shared engine defaults to
 256 connections globally and 16 per file. The desktop setting controls how
 many files may be queued at once.
 
-Direct hostname lookups race two weighted DoH upstreams separately for A and
-AAAA, with system DNS fallback when neither address family resolves. The
-transport handles IP literals and proxy requests without a DoH lookup for the
-destination. Applications can pass system DNS suffixes through `DohConfig`.
+Direct lookups race weighted DoH upstreams, with two active per address family.
+If neither family resolves within the DoH budget, the operating system
+resolves the name. Single-label hosts and local DNS suffixes use the system
+resolver directly. Applications can supply more suffixes through `DohConfig`.
+The transport handles IP literals and proxy requests without a DNS-over-HTTPS
+lookup for the destination.
 
 ## Workspace inventory
 

@@ -25,11 +25,32 @@ fn local_suffixes_match_domain_boundaries() {
     })
     .unwrap();
 
-    assert!(!resolver.0.uses_system_dns("router"));
+    assert!(resolver.0.uses_system_dns("router"));
+    assert!(resolver.0.uses_system_dns("printer.local"));
+    assert!(resolver.0.uses_system_dns("host.localhost"));
+    assert!(resolver.0.uses_system_dns("home.arpa"));
+    assert!(!resolver.0.uses_system_dns("not-home.arpa"));
     assert!(resolver.0.uses_system_dns("private.example"));
     assert!(resolver.0.uses_system_dns("host.private.example"));
     assert!(!resolver.0.uses_system_dns("unprivate.example"));
     assert!(!resolver.0.uses_system_dns("private.example.com"));
+}
+
+#[test]
+fn an_answer_from_a_third_upstream_survives_two_earlier_failures() {
+    let address = "192.0.2.17:0".parse::<SocketAddr>().unwrap();
+    let lookups = [
+        None,
+        None,
+        Some(Answer {
+            addresses: vec![address],
+            ttl: 15,
+        }),
+    ];
+
+    let answer = futures::executor::block_on(first_answer(lookups.map(std::future::ready)));
+
+    assert_eq!(answer.unwrap().addresses, [address]);
 }
 
 #[test]

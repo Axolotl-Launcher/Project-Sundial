@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use axlauncher_spi::FetchError;
 use futures::StreamExt;
-use futures::stream::FuturesUnordered;
+use futures::stream;
 use hickory_proto::op::{Message, MessageType, OpCode, Query, ResponseCode};
 use hickory_proto::rr::{Name, RData, RecordType};
 use reqwest::dns::{Addrs, Name as HttpName, Resolve, Resolving};
@@ -20,7 +20,8 @@ use reqwest::{Client, Url};
 
 const DOH_CONTENT_TYPE: &str = "application/dns-message";
 const MAX_DNS_MESSAGE: usize = u16::MAX as usize;
-const UPSTREAM_TIMEOUT: Duration = Duration::from_secs(30);
+const UPSTREAM_TIMEOUT: Duration = Duration::from_secs(4);
+const DOH_TIMEOUT: Duration = Duration::from_secs(10);
 const PARALLEL_UPSTREAMS: usize = 2;
 
 /// An encrypted resolver and its optional bootstrap address.
@@ -119,11 +120,7 @@ impl Resolver {
         let Ok(query_name) = Name::from_ascii(format!("{host}.")) else {
             return system_addresses(name).await;
         };
-        let (ipv4, ipv6) = futures::join!(
-            self.race(&query_name, RecordType::A),
-            self.race(&query_name, RecordType::AAAA),
-        );
-        if let Some(answer) = combine(ipv4, ipv6) {
+        if let Some(answer) = self.doh_addresses(&query_name).await {
             self.cache.lock().expect("DNS cache lock").insert(
                 host,
                 CachedAddresses {
@@ -136,13 +133,29 @@ impl Resolver {
         system_addresses(name).await
     }
 
+    async fn doh_addresses(&self, name: &Name) -> Option<Answer> {
+        let ipv4 = self.race(name, RecordType::A);
+        let ipv6 = self.race(name, RecordType::AAAA);
+        // Finish each family separately so a slow AAAA lookup cannot discard a good A answer.
+        let (ipv4, ipv6) = futures::join!(
+            tokio::time::timeout(DOH_TIMEOUT, ipv4),
+            tokio::time::timeout(DOH_TIMEOUT, ipv6),
+        );
+        combine(ipv4.ok().flatten(), ipv6.ok().flatten())
+    }
+
     fn uses_system_dns(&self, host: &str) -> bool {
-        self.system_suffixes.iter().any(|suffix| {
-            host == suffix
-                || host
-                    .strip_suffix(suffix)
-                    .is_some_and(|prefix| prefix.ends_with('.'))
-        })
+        !host.contains('.')
+            || host.ends_with(".localhost")
+            || host.ends_with(".local")
+            || host == "home.arpa"
+            || host.ends_with(".home.arpa")
+            || self.system_suffixes.iter().any(|suffix| {
+                host == suffix
+                    || host
+                        .strip_suffix(suffix)
+                        .is_some_and(|prefix| prefix.ends_with('.'))
+            })
     }
 
     fn cached(&self, host: &str, now: Instant) -> Option<Vec<SocketAddr>> {
@@ -155,13 +168,21 @@ impl Resolver {
         let mut candidates: Vec<_> = self.upstreams.iter().collect();
         candidates
             .sort_by_key(|upstream| std::cmp::Reverse(upstream.score.load(Ordering::Relaxed)));
-        let in_flight: FuturesUnordered<_> = candidates
-            .into_iter()
-            .take(PARALLEL_UPSTREAMS)
-            .map(|upstream| upstream.lookup(name, kind))
-            .collect();
-        in_flight.filter_map(std::future::ready).next().await
+        let mut lookups = Vec::with_capacity(candidates.len());
+        for upstream in candidates {
+            lookups.push(upstream.lookup(name, kind));
+        }
+        first_answer(lookups).await
     }
+}
+
+async fn first_answer(
+    lookups: impl IntoIterator<Item = impl Future<Output = Option<Answer>>>,
+) -> Option<Answer> {
+    let answers = stream::iter(lookups)
+        .buffer_unordered(PARALLEL_UPSTREAMS)
+        .filter_map(std::future::ready);
+    std::pin::pin!(answers).next().await
 }
 
 async fn system_addresses(host: &str) -> io::Result<Vec<SocketAddr>> {
