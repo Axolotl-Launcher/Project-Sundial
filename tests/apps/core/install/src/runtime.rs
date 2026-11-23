@@ -69,22 +69,30 @@ fn temp() -> PathBuf {
 }
 
 /// The index, manifest, and objects a minimal runtime is made of.
+///
+/// The manifest's names are relative to the component directory, as Mojang's
+/// are: a macOS runtime is a bundle, so its names carry the bundle's home.
 fn fixture(platform: &str) -> (Vec<u8>, BTreeMap<String, Vec<u8>>) {
     let manifest_url = "https://example.test/manifest.json";
     let raw_url = "https://example.test/java";
     let plain_url = "https://example.test/plain";
     let packed_url = "https://example.test/packed";
+    let home = if platform.starts_with("mac-os") {
+        "jre.bundle/Contents/Home/"
+    } else {
+        ""
+    };
 
     let packed = lzma(PLAIN_BODY);
     let manifest = format!(
         r#"{{"files": {{
-          "bin/{java_bin}": {{"type":"file","executable":true,"downloads":{{"raw":{{"url":"{raw_url}","sha1":"{raw_sha}"}}}}}},
-          "lib/plain.txt": {{"type":"file","executable":false,"downloads":{{"raw":{{"url":"{plain_url}","sha1":"{plain_sha}"}}}}}},
-          "lib/packed.txt": {{"type":"file","executable":false,"downloads":{{
+          "{home}bin/{java_bin}": {{"type":"file","executable":true,"downloads":{{"raw":{{"url":"{raw_url}","sha1":"{raw_sha}"}}}}}},
+          "{home}lib/plain.txt": {{"type":"file","executable":false,"downloads":{{"raw":{{"url":"{plain_url}","sha1":"{plain_sha}"}}}}}},
+          "{home}lib/packed.txt": {{"type":"file","executable":false,"downloads":{{
             "lzma":{{"url":"{packed_url}","sha1":"{packed_sha}"}},
             "raw":{{"url":"{plain_url}","sha1":"{plain_sha}"}}
           }}}},
-          "lib": {{"type":"directory"}}
+          "{home}lib": {{"type":"directory"}}
         }}}}"#,
         java_bin = JAVA_BIN,
         raw_sha = sha1(RAW_BODY),
@@ -106,6 +114,36 @@ fn fixture(platform: &str) -> (Vec<u8>, BTreeMap<String, Vec<u8>>) {
     responses.insert(plain_url.to_string(), PLAIN_BODY.to_vec());
     responses.insert(packed_url.to_string(), packed);
     (Vec::new(), responses)
+}
+
+/// The fixture writes manifest names, and the installer resolves a runtime's
+/// home from the component directory. On macOS those two disagree unless the
+/// names carry the bundle, which only a macOS run would otherwise reveal.
+#[test]
+fn the_fixture_names_its_files_where_the_platform_puts_the_home() {
+    for platform in ["windows-x64", "linux", "mac-os-arm64"] {
+        let (_, responses) = fixture(platform);
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&responses["https://example.test/manifest.json"])
+                .expect("manifest");
+        let java = home_of(Path::new("component"), platform)
+            .join("bin")
+            .join(JAVA_BIN);
+        let names: Vec<&String> = manifest["files"]
+            .as_object()
+            .expect("files")
+            .keys()
+            .collect();
+
+        assert!(
+            names
+                .iter()
+                .any(|name| safe_join(Path::new("component"), name).as_deref()
+                    == Some(java.as_path())),
+            "{platform} puts java at {}, but the fixture names {names:?}",
+            java.display()
+        );
+    }
 }
 
 #[test]
