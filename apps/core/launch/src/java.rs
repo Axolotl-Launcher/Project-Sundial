@@ -47,8 +47,11 @@ impl SystemJava {
         }
     }
 
-    /// Installed runtime directories are searched before the environment's:
-    /// what the launcher fetched is the runtime the game was tested against.
+    /// Installed runtime directories, consulted when a major is known.
+    ///
+    /// They come before the environment's Java in that search: what the
+    /// launcher fetched for that major is the runtime the game was tested
+    /// against.
     pub fn with_runtime_roots(mut self, roots: Vec<PathBuf>) -> Self {
         self.runtime_roots = inventory(roots);
         self
@@ -123,8 +126,8 @@ impl SystemJava {
 ///
 /// A `roots` entry may be a component directory, as the installer names it, or
 /// the directory holding them. Listing happens here, in the crate that owns Java
-/// discovery, so a caller only names the location. Sorting matters because the
-/// first usable runtime is what a version without a stated major gets.
+/// discovery, so a caller only names the location. The order is stable so that
+/// two runtimes claiming the same major are resolved the same way every launch.
 fn inventory(roots: Vec<PathBuf>) -> Vec<PathBuf> {
     let mut found = Vec::new();
     for root in roots {
