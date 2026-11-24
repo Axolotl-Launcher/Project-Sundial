@@ -85,6 +85,7 @@ impl RootView {
         let create_instance = create_instance::CreateInstance::new(window, cx);
         let download_debug = download_debug::DownloadDebug::new(window, cx);
         let accounts = accounts::AccountsPanel::new(loaded.root.as_deref(), window, cx);
+        let environment = environment::EnvironmentState::new(loaded.root.as_deref());
         let mut view = Self {
             root: loaded.root,
             notice: loaded.notice,
@@ -104,7 +105,7 @@ impl RootView {
             inspection: launch::Inspection::default(),
             installations: HashMap::new(),
             launches: HashMap::new(),
-            environment: environment::EnvironmentState::new(),
+            environment,
             activity: activity::ActivityLog::new(),
         };
 
@@ -157,7 +158,7 @@ impl RootView {
             .as_ref()
             .map(|settings| settings.theme)
             .unwrap_or_default();
-        self.environment.refresh();
+        self.environment.refresh(self.root.as_deref());
         self.instances.replace(loaded.profiles, same_root);
         self.inspection = launch::Inspection::default();
 
