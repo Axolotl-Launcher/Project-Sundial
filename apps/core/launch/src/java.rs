@@ -26,6 +26,9 @@ pub struct SystemJava {
     /// system's own: what the launcher fetched is the runtime the game was
     /// tested against.
     runtime_roots: Vec<PathBuf>,
+    /// The runtime the user recorded for each major version, outranking
+    /// discovery whenever the recorded file is still there.
+    chosen: Vec<(u32, PathBuf)>,
 }
 
 impl SystemJava {
@@ -44,6 +47,7 @@ impl SystemJava {
             java_home,
             search_path,
             runtime_roots: Vec::new(),
+            chosen: Vec::new(),
         }
     }
 
@@ -54,6 +58,17 @@ impl SystemJava {
     /// against.
     pub fn with_runtime_roots(mut self, roots: Vec<PathBuf>) -> Self {
         self.runtime_roots = inventory(roots);
+        self
+    }
+
+    /// The runtime the user recorded for each major version.
+    ///
+    /// A choice outranks every other source for its own major: the user named
+    /// the runtime, and discovery cannot know it is wrong. The entry is skipped
+    /// when its file is gone, so an uninstalled runtime leaves the game
+    /// launchable on whatever else the machine offers.
+    pub fn with_chosen(mut self, chosen: Vec<(u32, PathBuf)>) -> Self {
+        self.chosen = chosen;
         self
     }
 
@@ -93,6 +108,14 @@ impl Java for SystemJava {
     }
 
     fn executable_for(&self, major: u32, mode: JavaMode) -> Option<PathBuf> {
+        // The user named this runtime for this major. Nothing discovery finds
+        // can be a better answer, so the recorded path decides whenever it is
+        // still on disk. A path that has since been removed must not fail the
+        // launch: the search below still has the rest of the machine to offer.
+        if let Some(chosen) = self.chosen_executable(major) {
+            return Some(sibling(&chosen, mode).unwrap_or(chosen));
+        }
+
         let candidates = self
             .runtime_roots
             .iter()
@@ -112,6 +135,14 @@ impl Java for SystemJava {
 }
 
 impl SystemJava {
+    /// The recorded runtime for `major`, when its file is still there.
+    fn chosen_executable(&self, major: u32) -> Option<PathBuf> {
+        self.chosen
+            .iter()
+            .find(|(chosen_major, path)| *chosen_major == major && path.is_file())
+            .map(|(_, path)| path.clone())
+    }
+
     /// Every console executable the search path offers, in order.
     fn search_everywhere(&self, mode: JavaMode) -> impl Iterator<Item = PathBuf> + '_ {
         self.search_path

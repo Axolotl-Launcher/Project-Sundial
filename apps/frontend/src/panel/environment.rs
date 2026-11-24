@@ -19,8 +19,12 @@ use crate::{describe_origin, load_at, palette_for};
 use super::RootView;
 
 pub(super) struct EnvironmentState {
+    /// The data root whose `javas.json` the Java rows describe. The panel is
+    /// refreshed without arguments, so it keeps the root the user last picked.
+    root: Option<PathBuf>,
     java_home: Option<PathBuf>,
     default_java: Option<PathBuf>,
+    chosen: Vec<(u32, PathBuf)>,
     error: Option<String>,
     notice: Option<String>,
 }
@@ -28,8 +32,10 @@ pub(super) struct EnvironmentState {
 impl EnvironmentState {
     pub(super) fn new() -> Self {
         let mut state = Self {
+            root: None,
             java_home: None,
             default_java: None,
+            chosen: Vec::new(),
             error: None,
             notice: None,
         };
@@ -37,10 +43,21 @@ impl EnvironmentState {
         state
     }
 
+    /// Keeps the data root in step with the one the panel applied.
+    fn track(&mut self, root: Option<PathBuf>) {
+        self.root = root;
+    }
+
     pub(super) fn refresh(&mut self) {
         let java = SystemJava::from_environment();
         self.java_home = java.java_home().map(PathBuf::from);
         self.default_java = java.executable(None, JavaMode::Windowed);
+        self.chosen = self
+            .root
+            .clone()
+            .or_else(crate::data_root)
+            .map(|root| crate::java::chosen(&root))
+            .unwrap_or_default();
         self.error = None;
         self.notice = None;
     }
@@ -63,6 +80,27 @@ fn path_row(index: usize, label: &str, path: &std::path::Path, muted: Hsla) -> A
                 .text_color(muted),
         )
         .into_any_element()
+}
+
+/// One line per major the user recorded, so a launch's runtime is visible.
+fn chosen_rows(chosen: &[(u32, PathBuf)], muted: Hsla) -> Vec<AnyElement> {
+    if chosen.is_empty() {
+        return vec![
+            Label::new("Chosen Java: none")
+                .text_xs()
+                .text_color(muted)
+                .into_any_element(),
+        ];
+    }
+    chosen
+        .iter()
+        .map(|(major, path)| {
+            Label::new(format!("Java {major}: {}", path.display()))
+                .text_xs()
+                .text_color(muted)
+                .into_any_element()
+        })
+        .collect()
 }
 
 impl RootView {
@@ -198,7 +236,7 @@ impl RootView {
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "not found".to_string());
 
-        vec![
+        let mut rows = vec![
             Label::new(format!("JAVA_HOME: {java_home}"))
                 .text_xs()
                 .text_color(muted)
@@ -207,7 +245,12 @@ impl RootView {
                 .text_xs()
                 .text_color(muted)
                 .into_any_element(),
-        ]
+        ];
+        // A chosen runtime decides a launch, so the user must be able to see
+        // it here: the rows above describe the environment, which a choice
+        // overrides for its major.
+        rows.extend(chosen_rows(&self.environment.chosen, muted));
+        rows
     }
 
     fn settings_origin(&self) -> String {
@@ -234,6 +277,7 @@ impl RootView {
             }
         };
         let loaded = load_at(Some(path));
+        self.environment.track(loaded.root.clone());
         self.apply_loaded(loaded, window, cx);
         self.record_data_root();
         cx.notify();
