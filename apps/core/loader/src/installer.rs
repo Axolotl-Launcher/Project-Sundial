@@ -14,7 +14,8 @@
 //!   them beside itself;
 //! - `data/`: inputs a data entry names by path inside the jar.
 //!
-//! The profile this module returns is the installer's own `version.json` with
+//! Older Forge installers instead carry `versionInfo` and a universal JAR.
+//! The modern profile this module returns is the installer's `version.json` with
 //! the other three folded in, so one document describes everything an install
 //! has to do. Path-valued data entries are rewritten to coordinates under an
 //! `axlauncher.embedded` group whose files travel with the profile, which keeps
@@ -27,6 +28,8 @@ use std::path::Path;
 use axlauncher_domain::maven;
 use axlauncher_spi::{LoaderError, LoaderFile, LoaderKind, LoaderProfile};
 use serde_json::{Map, Value};
+
+mod forge_inline;
 
 /// The installation document every modern installer carries.
 const INSTALL_PROFILE: &str = "install_profile.json";
@@ -42,6 +45,8 @@ const EMBEDDED_GROUP: &str = "axlauncher.embedded";
 
 /// The side this launcher installs.
 const CLIENT: &str = "client";
+const MAX_INSTALLER_CONTENTS: u64 = 256 * 1024 * 1024;
+const MAX_INSTALLER_ENTRY: u64 = 64 * 1024 * 1024;
 
 /// Reads `bytes` as an installer and returns the profile it describes.
 pub(crate) fn parse(
@@ -49,18 +54,16 @@ pub(crate) fn parse(
     bytes: &[u8],
     game_version: &str,
 ) -> Result<LoaderProfile, LoaderError> {
-    let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
+    let archive = zip::ZipArchive::new(Cursor::new(bytes))
         .map_err(|error| malformed(kind, format!("the installer is not a zip archive: {error}")))?;
+    let mut archive = InstallerArchive {
+        zip: archive,
+        remaining: MAX_INSTALLER_CONTENTS,
+    };
 
     let install: Value = read_json(&mut archive, INSTALL_PROFILE, kind)?;
-    // The oldest installers state their profile inline under `versionInfo`
-    // instead of shipping it as `version.json`; naming that shape explains the
-    // failure instead of reporting a missing archive entry.
-    if install.get("versionInfo").is_some() {
-        return Err(malformed(
-            kind,
-            "the installer uses the pre-1.9 layout, which this build cannot install",
-        ));
+    if kind == LoaderKind::Forge && install.get("versionInfo").is_some() {
+        return forge_inline::parse(&mut archive, &install, game_version);
     }
     let profile_path = install
         .get("json")
@@ -174,7 +177,7 @@ fn fold_libraries(object: &mut Map<String, Value>, install: &Value) {
 /// Merges the installer's data entries, materialising path-shaped values.
 fn fold_data(
     kind: LoaderKind,
-    archive: &mut zip::ZipArchive<Cursor<&[u8]>>,
+    archive: &mut InstallerArchive<'_>,
     object: &mut Map<String, Value>,
     install: &Value,
     version_id: &str,
@@ -208,7 +211,7 @@ fn fold_data(
 /// Rewrites one side of a data entry that names a file inside the installer.
 fn fold_side(
     kind: LoaderKind,
-    archive: &mut zip::ZipArchive<Cursor<&[u8]>>,
+    archive: &mut InstallerArchive<'_>,
     entry: &mut Map<String, Value>,
     name: &str,
     side: &str,
@@ -236,9 +239,10 @@ fn fold_side(
 /// Lifts the installer's own Maven artifacts into the game's library tree.
 fn embedded_maven(
     kind: LoaderKind,
-    archive: &mut zip::ZipArchive<Cursor<&[u8]>>,
+    archive: &mut InstallerArchive<'_>,
 ) -> Result<Vec<LoaderFile>, LoaderError> {
     let names: Vec<String> = archive
+        .zip
         .file_names()
         .filter_map(Result::ok)
         .filter(|name| name.starts_with(EMBEDDED_MAVEN) && !name.ends_with('/'))
@@ -289,7 +293,7 @@ fn slash_path(path: &Path) -> String {
 }
 
 fn read_json(
-    archive: &mut zip::ZipArchive<Cursor<&[u8]>>,
+    archive: &mut InstallerArchive<'_>,
     name: &str,
     kind: LoaderKind,
 ) -> Result<Value, LoaderError> {
@@ -298,18 +302,42 @@ fn read_json(
         .map_err(|error| malformed(kind, format!("{name} does not parse: {error}")))
 }
 
+struct InstallerArchive<'a> {
+    zip: zip::ZipArchive<Cursor<&'a [u8]>>,
+    remaining: u64,
+}
+
 fn read_entry(
-    archive: &mut zip::ZipArchive<Cursor<&[u8]>>,
+    archive: &mut InstallerArchive<'_>,
     name: &str,
     kind: LoaderKind,
 ) -> Result<Vec<u8>, LoaderError> {
-    let mut entry = archive
+    let entry = archive
+        .zip
         .by_name(name)
         .map_err(|_| malformed(kind, format!("the installer has no {name}")))?;
-    let mut bytes = Vec::with_capacity(entry.size() as usize);
-    entry
-        .read_to_end(&mut bytes)
-        .map_err(|error| malformed(kind, format!("{name} cannot be read: {error}")))?;
+    let size = entry.size();
+    archive.remaining = archive
+        .remaining
+        .checked_sub(size)
+        .ok_or_else(|| malformed(kind, "an installer exceeding the unpacked size limit"))?;
+    bounded_entry(size, entry)
+        .map_err(|error| malformed(kind, format!("{name} cannot be read: {error}")))
+}
+
+fn bounded_entry(size: u64, reader: impl Read) -> std::io::Result<Vec<u8>> {
+    if size > MAX_INSTALLER_ENTRY {
+        return Err(std::io::Error::other(
+            "entry exceeds the unpacked size limit",
+        ));
+    }
+    let mut bytes = Vec::new();
+    reader.take(size + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 != size {
+        return Err(std::io::Error::other(
+            "entry size disagrees with its ZIP directory",
+        ));
+    }
     Ok(bytes)
 }
 

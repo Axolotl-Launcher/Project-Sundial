@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use axlauncher_network::verify_reader;
+use axlauncher_network::verify_reader_any;
 use axlauncher_spi::{DownloadProtocol, FetchError, Network};
 use axlauncher_storage::AtomicFile;
 use url::Url;
@@ -59,6 +59,8 @@ pub struct DownloadJob<'a> {
     pub destination: &'a Path,
     /// The expected digest, verified before promotion when provided.
     pub sha1: Option<&'a str>,
+    /// Additional digests accepted by the manifest for the same artifact.
+    pub sha1_alternatives: &'a [String],
     pub size: Option<u64>,
     /// Unknown-size files in a batch skip Range discovery.
     pub batch: bool,
@@ -241,19 +243,21 @@ async fn wait_before_retry(delay: Duration) {
 }
 
 async fn already_verified(job: DownloadJob<'_>) -> bool {
-    let Some(expected) = job.sha1 else {
+    if job.sha1.is_none() && job.sha1_alternatives.is_empty() {
         return false;
-    };
+    }
     let Ok(file) = axlauncher_storage::open_for_read(job.destination) else {
         return false;
     };
-    verify_file(file, expected).await.unwrap_or(false)
+    verify_file(file, job.sha1, job.sha1_alternatives)
+        .await
+        .unwrap_or(false)
 }
 
 async fn verify(staging: &mut AtomicFile, job: DownloadJob<'_>) -> Result<(), TransferError> {
-    if let Some(expected) = job.sha1 {
+    if job.sha1.is_some() || !job.sha1_alternatives.is_empty() {
         let file = staging.rewind()?.try_clone()?;
-        return verify_file(file, expected)
+        return verify_file(file, job.sha1, job.sha1_alternatives)
             .await?
             .then_some(())
             .ok_or_else(|| {
@@ -270,13 +274,14 @@ async fn verify(staging: &mut AtomicFile, job: DownloadJob<'_>) -> Result<(), Tr
     Ok(())
 }
 
-async fn verify_file(file: File, sha1: &str) -> io::Result<bool> {
+async fn verify_file(file: File, sha1: Option<&str>, alternatives: &[String]) -> io::Result<bool> {
     let Ok(runtime) = tokio::runtime::Handle::try_current() else {
-        return verify_reader(file, sha1);
+        return verify_reader_any(file, sha1, alternatives);
     };
-    let sha1 = sha1.to_owned();
+    let sha1 = sha1.map(str::to_owned);
+    let alternatives = alternatives.to_vec();
     runtime
-        .spawn_blocking(move || verify_reader(file, &sha1))
+        .spawn_blocking(move || verify_reader_any(file, sha1.as_deref(), &alternatives))
         .await
         .map_err(io::Error::other)?
 }

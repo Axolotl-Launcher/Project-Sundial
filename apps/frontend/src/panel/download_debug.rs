@@ -348,6 +348,7 @@ fn run_probe(url: String, destination: PathBuf, cancel: oneshot::Receiver<()>) -
             sources: &[&url],
             destination: &destination,
             sha1: None,
+            sha1_alternatives: &[],
             size: None,
             batch: false,
         };

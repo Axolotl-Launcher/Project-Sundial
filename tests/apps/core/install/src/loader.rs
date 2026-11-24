@@ -295,10 +295,11 @@ fn installing_a_loader_writes_the_profile_and_its_files() {
     assert!(installed.prepared.is_complete(), "{:?}", installed.prepared);
     assert!(document_path(&root, &installed.version_id).is_file());
     assert!(root.join("libraries/example/loader.jar").is_file());
-    assert!(
-        root.join("versions/1.21.11/1.21.11.jar").is_file(),
-        "the parent's client jar is one download pass"
-    );
+    let target = axlauncher_launch::Target::host();
+    check_files(&root, &installed.version_id, &target).expect("installed loader files");
+    std::fs::remove_file(root.join("versions/1.21.11/1.21.11.jar")).expect("remove inherited jar");
+    let error = check_files(&root, &installed.version_id, &target).expect_err("missing client");
+    assert!(error.contains("1.21.11.jar"), "{error}");
     let _ = std::fs::remove_dir_all(&root);
 }
 

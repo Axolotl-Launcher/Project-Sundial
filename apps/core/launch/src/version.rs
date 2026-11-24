@@ -304,6 +304,7 @@ impl Library {
             url: Some(format!("{}/{relative}", root.trim_end_matches('/'))),
             path: relative,
             sha1: None,
+            sha1_alternatives: Vec::new(),
             size: None,
         })
     }
@@ -367,6 +368,8 @@ pub struct Artifact {
     pub path: String,
     #[serde(default)]
     pub sha1: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sha1_alternatives: Vec<String>,
     #[serde(default)]
     pub size: Option<u64>,
     #[serde(default)]
@@ -404,17 +407,7 @@ fn safe_component(value: &str) -> bool {
 
 /// Reads `<root>/<id>/<id>.json` without resolving what it inherits.
 pub fn load(root: &Path, id: &str) -> Result<Version, VersionError> {
-    if !safe_component(id) {
-        return Err(VersionError::InvalidId { id: id.to_string() });
-    }
-
-    let path = root.join(id).join(format!("{id}.json"));
-    let bytes = std::fs::read(&path).map_err(|source| VersionError::Read {
-        path: path.clone(),
-        source,
-    })?;
-    let version: Version =
-        serde_json::from_slice(&bytes).map_err(|source| VersionError::Parse { path, source })?;
+    let version: Version = read_document(root, id)?;
 
     for candidate in [
         Some(version.id.as_str()),
@@ -432,6 +425,29 @@ pub fn load(root: &Path, id: &str) -> Result<Version, VersionError> {
     }
 
     Ok(version)
+}
+
+/// The original game's publication date, independent of the loader's build.
+pub(crate) fn release_time(root: &Path, id: &str) -> Result<Option<String>, VersionError> {
+    #[derive(Deserialize)]
+    struct Publication {
+        #[serde(rename = "releaseTime")]
+        release_time: Option<String>,
+    }
+
+    read_document::<Publication>(root, id).map(|publication| publication.release_time)
+}
+
+fn read_document<T: serde::de::DeserializeOwned>(root: &Path, id: &str) -> Result<T, VersionError> {
+    if !safe_component(id) {
+        return Err(VersionError::InvalidId { id: id.to_string() });
+    }
+    let path = root.join(id).join(format!("{id}.json"));
+    let bytes = std::fs::read(&path).map_err(|source| VersionError::Read {
+        path: path.clone(),
+        source,
+    })?;
+    serde_json::from_slice(&bytes).map_err(|source| VersionError::Parse { path, source })
 }
 
 /// Reads `<root>/<id>/<id>.json` and everything it inherits from.

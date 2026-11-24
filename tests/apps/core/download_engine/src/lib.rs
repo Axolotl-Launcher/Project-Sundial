@@ -26,6 +26,7 @@ fn missing_file(root: &Path, name: &str, sha1: &str, size: u64) -> MissingFile {
         url: format!("https://example.invalid/{name}"),
         path: root.join(name),
         sha1: Some(sha1.into()),
+        sha1_alternatives: Vec::new(),
         size: Some(size),
     }
 }
@@ -75,6 +76,19 @@ fn download_all_rejects_a_sha1_mismatch() {
     assert!(outcomes[0].result.is_err());
     assert!(!file.path.exists());
     assert!(!temporary_path(&file.path).exists());
+}
+
+#[test]
+fn download_all_accepts_an_alternative_manifest_digest() {
+    let root = tempfile::tempdir().unwrap();
+    let mut file = missing_file(root.path(), "alternate.bin", ABC_SHA1, WORD.len() as u64);
+    file.sha1_alternatives = vec![WORD_SHA1.to_uppercase()];
+    let network = FixedNetwork {
+        responses: BTreeMap::from([(file.url.clone(), Ok(WORD.to_vec()))]),
+    };
+    let outcomes = block_on(download_all(&network, std::slice::from_ref(&file), 1));
+    assert!(outcomes[0].result.is_ok(), "{:?}", outcomes[0]);
+    assert_eq!(fs::read(&file.path).unwrap(), WORD);
 }
 
 #[test]

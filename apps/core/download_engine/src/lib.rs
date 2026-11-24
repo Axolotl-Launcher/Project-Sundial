@@ -35,6 +35,7 @@ pub struct MissingFile {
     pub url: String,
     pub path: PathBuf,
     pub sha1: Option<String>,
+    pub sha1_alternatives: Vec<String>,
     /// The expected size used by callers when planning which files to fetch.
     pub size: Option<u64>,
 }
@@ -105,6 +106,7 @@ async fn download(network: &impl Network, file: &MissingFile) -> DownloadOutcome
                     sources: &[&file.url],
                     destination: &file.path,
                     sha1: file.sha1.as_deref(),
+                    sha1_alternatives: &file.sha1_alternatives,
                     size: file.size,
                     batch: true,
                 },

@@ -419,6 +419,7 @@ fn run_batch(
             url: link.url,
             path: directory.join(format!("{}.bin", link.line)),
             sha1: None,
+            sha1_alternatives: Vec::new(),
             size: None,
         })
         .collect();
