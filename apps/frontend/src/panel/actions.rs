@@ -3,7 +3,7 @@
 
 //! Install and launch actions for profiles shown in the panel.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use axlauncher_core::install::prepare::Progress;
 use axlauncher_core::state::profile::{self, Game, InstallStatus};
@@ -246,54 +246,6 @@ impl RootView {
     }
 }
 
-impl RootView {
-    /// A new profile gets its own UUID and a directory named after its display
-    /// name, made unique under `instances`: two profiles may share a name
-    /// without sharing an identity.
-    pub(crate) fn create_profile(&mut self, cx: &mut Context<'_, Self>) {
-        let Some(data_root) = self.root.clone() else {
-            return;
-        };
-        let name = self.new_name.read(cx).value().trim().to_string();
-        let minecraft = self.new_minecraft.read(cx).value().trim().to_string();
-        let kind = self.new_loader.read(cx).value().trim().to_ascii_lowercase();
-        let version = self.new_loader_version.read(cx).value().trim().to_string();
-
-        if name.is_empty() || minecraft.is_empty() {
-            self.activity
-                .error("A profile needs a name and a Minecraft version.");
-            cx.notify();
-            return;
-        }
-        let mut game = Game::new(minecraft);
-        let loader = match loader_choice(&kind, &version) {
-            Ok(loader) => loader,
-            Err(error) => {
-                self.activity.error(error);
-                cx.notify();
-                return;
-            }
-        };
-        if let Some((kind, version)) = loader {
-            game = game.with_loader(kind, version);
-        }
-
-        let instances = DataDir::new(&data_root).instances();
-        let directory = unique_directory(&instances, &name);
-        let profile = profile::Profile::new(name.clone(), Some(game));
-        match profile::save(&directory, &profile) {
-            Ok(()) => {
-                self.activity
-                    .success(format!("Created {name} at {}", directory.display()));
-                self.instances.replace(profile::discover(&instances), true);
-                self.instances.select(&directory);
-            }
-            Err(error) => self.activity.error(error.to_string()),
-        }
-        cx.notify();
-    }
-}
-
 /// Records a successful install on the profile, so a launch needs no provider.
 fn persist_install(directory: &Path, version_id: &str) -> Result<(), String> {
     let Some(mut profile) = profile::read(directory).map_err(|error| error.to_string())? else {
@@ -314,54 +266,4 @@ fn mark_failed(directory: &Path) -> Result<(), String> {
     };
     profile.set_install_status(InstallStatus::Failed);
     profile::save(directory, &profile).map_err(|error| error.to_string())
-}
-
-/// The loader a creation form asks for, or nothing for a vanilla profile.
-///
-/// The kind is stored in the spelling the SPI knows, so a marker this build
-/// writes is read the same way by every action that reads it.
-fn loader_choice(kind: &str, version: &str) -> Result<Option<(String, Option<String>)>, String> {
-    if kind.is_empty() || installations::is_vanilla(kind) {
-        return Ok(None);
-    }
-    let Some(parsed) = axlauncher_core::spi::LoaderKind::parse(kind) else {
-        return Err(format!("Loader {kind} is not available in this build yet."));
-    };
-    let version = (!version.is_empty()).then(|| version.to_string());
-    Ok(Some((parsed.as_str().to_string(), version)))
-}
-
-/// A directory name derived from a display name.
-fn slug(name: &str) -> String {
-    let mut slug: String = name
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    while slug.contains("--") {
-        slug = slug.replace("--", "-");
-    }
-    let slug = slug.trim_matches('-');
-    if slug.is_empty() {
-        "instance".to_string()
-    } else {
-        slug.to_string()
-    }
-}
-
-/// A free directory under `instances` for `name`.
-fn unique_directory(instances: &Path, name: &str) -> PathBuf {
-    let base = slug(name);
-    let mut candidate = instances.join(&base);
-    let mut attempt = 2;
-    while candidate.exists() {
-        candidate = instances.join(format!("{base}-{attempt}"));
-        attempt += 1;
-    }
-    candidate
 }

@@ -41,10 +41,6 @@ pub(crate) struct RootView {
     root_input: Entity<InputState>,
     player_input: Entity<InputState>,
     accounts: accounts::AccountsPanel,
-    new_name: Entity<InputState>,
-    new_minecraft: Entity<InputState>,
-    new_loader: Entity<InputState>,
-    new_loader_version: Entity<InputState>,
     instances: instances::InstancesState,
     create_instance: create_instance::CreateInstance,
     download_debug: download_debug::DownloadDebug,
@@ -69,13 +65,6 @@ impl RootView {
                 .default_value(root_text)
         });
         let player_input = cx.new(|cx| InputState::new(window, cx).placeholder(DEFAULT_PLAYER));
-        let new_name = cx.new(|cx| InputState::new(window, cx).placeholder("New profile name"));
-        let new_minecraft =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Minecraft, e.g. 1.21.11"));
-        let new_loader =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Loader: fabric or quilt"));
-        let new_loader_version =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Loader version (optional)"));
         cx.subscribe(&player_input, Self::player_changed).detach();
         let theme = loaded
             .settings
@@ -95,10 +84,6 @@ impl RootView {
             root_input,
             player_input,
             accounts,
-            new_name,
-            new_minecraft,
-            new_loader,
-            new_loader_version,
             instances: instances::InstancesState::new(loaded.profiles),
             create_instance,
             download_debug,

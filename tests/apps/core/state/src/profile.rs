@@ -22,7 +22,7 @@ fn blank_instances_round_trip_without_downloaded_content() {
     let temp = TempRoot::new();
     let instances = temp.path().join("instances");
     let blank = create_blank(&instances, "  空白实例  ", None).unwrap();
-    let vanilla = create_blank(&instances, "空白实例", Some(" 1.21.11 ")).unwrap();
+    let vanilla = create_blank(&instances, "空白实例", Some(Game::new(" 1.21.11 "))).unwrap();
 
     assert_ne!(blank, vanilla);
     assert_eq!(fs::read_dir(&blank).unwrap().count(), 1);
@@ -38,6 +38,36 @@ fn blank_instances_round_trip_without_downloaded_content() {
 }
 
 #[test]
+fn a_loader_is_written_with_the_profile_and_read_back() {
+    let temp = TempRoot::new();
+    let instances = temp.path().join("instances");
+    let game = Game::new("1.21.11").with_loader("fabric", Some("0.19.5".into()));
+    let created = create_blank(&instances, "Modded", Some(game)).unwrap();
+
+    let game = read(&created).unwrap().unwrap().game.unwrap();
+    assert_eq!(game.minecraft, "1.21.11");
+    let loader = game.loader.expect("loader");
+    assert_eq!(loader.kind, "fabric");
+    assert_eq!(loader.version.as_deref(), Some("0.19.5"));
+
+    let recommended = create_blank(
+        &instances,
+        "Recommended",
+        Some(Game::new("1.21.11").with_loader("quilt", None)),
+    )
+    .unwrap();
+    let loader = read(&recommended)
+        .unwrap()
+        .unwrap()
+        .game
+        .unwrap()
+        .loader
+        .expect("loader");
+    assert_eq!(loader.kind, "quilt");
+    assert!(loader.version.is_none());
+}
+
+#[test]
 fn invalid_input_never_creates_an_instance_directory() {
     let temp = TempRoot::new();
     let instances = temp.path().join("instances");
@@ -46,7 +76,11 @@ fn invalid_input_never_creates_an_instance_directory() {
         Err(CreateError::InvalidName)
     ));
     assert!(matches!(
-        create_blank(&instances, "Example", Some("../outside")),
+        create_blank(&instances, "Example", Some(Game::new("../outside"))),
+        Err(CreateError::InvalidVersion)
+    ));
+    assert!(matches!(
+        create_blank(&instances, "Example", Some(Game::new("  "))),
         Err(CreateError::InvalidVersion)
     ));
     assert!(!instances.exists());
