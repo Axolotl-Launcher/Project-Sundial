@@ -14,7 +14,8 @@
 //!   them beside itself;
 //! - `data/`: inputs a data entry names by path inside the jar.
 //!
-//! The profile this module returns is the installer's own `version.json` with
+//! Older Forge installers instead carry `versionInfo` and a universal JAR.
+//! The modern profile this module returns is the installer's `version.json` with
 //! the other three folded in, so one document describes everything an install
 //! has to do. Path-valued data entries are rewritten to coordinates under an
 //! `axlauncher.embedded` group whose files travel with the profile, which keeps
@@ -27,6 +28,8 @@ use std::path::Path;
 use axlauncher_domain::maven;
 use axlauncher_spi::{LoaderError, LoaderFile, LoaderKind, LoaderProfile};
 use serde_json::{Map, Value};
+
+mod forge_inline;
 
 /// The installation document every modern installer carries.
 const INSTALL_PROFILE: &str = "install_profile.json";
@@ -53,14 +56,8 @@ pub(crate) fn parse(
         .map_err(|error| malformed(kind, format!("the installer is not a zip archive: {error}")))?;
 
     let install: Value = read_json(&mut archive, INSTALL_PROFILE, kind)?;
-    // The oldest installers state their profile inline under `versionInfo`
-    // instead of shipping it as `version.json`; naming that shape explains the
-    // failure instead of reporting a missing archive entry.
-    if install.get("versionInfo").is_some() {
-        return Err(malformed(
-            kind,
-            "the installer uses the pre-1.9 layout, which this build cannot install",
-        ));
+    if kind == LoaderKind::Forge && install.get("versionInfo").is_some() {
+        return forge_inline::parse(&mut archive, &install, game_version);
     }
     let profile_path = install
         .get("json")

@@ -5,6 +5,9 @@ use std::io::{Cursor, Write};
 
 use super::*;
 
+#[path = "installer/forge_inline.rs"]
+mod forge_inline;
+
 const TOOL_JAR: &[u8] = b"tool";
 const BINPATCH: &[u8] = b"patch";
 

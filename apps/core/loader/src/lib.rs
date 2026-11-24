@@ -21,6 +21,7 @@ use serde::Deserialize;
 
 mod forge;
 mod installer;
+mod library;
 mod neoforge;
 mod versions;
 pub use forge::ForgeApi;
