@@ -19,6 +19,13 @@ use axlauncher_spi::{
 };
 use serde::Deserialize;
 
+mod forge;
+mod installer;
+mod neoforge;
+mod versions;
+pub use forge::ForgeApi;
+pub use neoforge::NeoForgeApi;
+
 /// Fabric's metadata service, whose scheme the `/versions/...` paths below are
 /// written for.
 const FABRIC_META: &str = "https://meta.fabricmc.net/v2";

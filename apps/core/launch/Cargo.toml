@@ -11,6 +11,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+axlauncher_domain = { workspace = true }
 axlauncher_spi = { workspace = true }
 axlauncher_storage = { workspace = true }
 serde = { workspace = true }

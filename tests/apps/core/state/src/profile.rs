@@ -215,3 +215,100 @@ fn local_resources_follow_old_directory_rules_and_the_actual_file_name() {
     );
     assert!(!root.join(FILE_NAME).exists());
 }
+
+#[test]
+fn a_new_profile_round_trips_through_save_and_read() {
+    let temp = TempRoot::new();
+    let directory = temp.path().join("survival");
+    let mut profile = Profile::new("Survival", Some(Game::new("1.21.11")));
+    profile.set_installed_version("fabric-loader-0.20.1-1.21.11");
+    profile.set_install_status(InstallStatus::Ready);
+
+    save(&directory, &profile).expect("save");
+    let loaded = read(&directory).expect("read").expect("present");
+
+    assert_eq!(loaded, profile);
+    assert!(loaded.id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'));
+}
+
+#[test]
+fn a_loader_selection_is_written_with_the_game() {
+    let temp = TempRoot::new();
+    let directory = temp.path().join("fabric");
+    let game = Game::new("1.21.11").with_loader("fabric", Some("0.20.1".into()));
+    let profile = Profile::new("Fabric", Some(game));
+
+    save(&directory, &profile).expect("save");
+    let loaded = read(&directory).expect("read").expect("present");
+    let game = loaded.game.expect("game");
+    let loader = game.loader.expect("loader");
+
+    assert_eq!(loader.kind, "fabric");
+    assert_eq!(loader.version.as_deref(), Some("0.20.1"));
+}
+
+#[test]
+fn keys_this_build_does_not_know_survive_a_rewrite() {
+    let temp = TempRoot::new();
+    let directory = temp.path().join("survival");
+    fs::create_dir_all(&directory).expect("directory");
+    let original = format!(
+        r#"{{"schema_version":1,"id":"{ID}","instance":{{"name":"Survival","accent":"green"}},"future":{{"nested":true}}}}"#
+    );
+    put(&directory, ".axlprofile", original.as_bytes());
+
+    let mut profile = read(&directory).expect("read").expect("present");
+    profile.set_install_status(InstallStatus::Ready);
+    save(&directory, &profile).expect("save");
+
+    let written: serde_json::Value =
+        serde_json::from_slice(&fs::read(directory.join(".axlprofile")).expect("bytes"))
+            .expect("json");
+    assert_eq!(written["future"]["nested"], true);
+    assert_eq!(written["instance"]["accent"], "green");
+    assert_eq!(written["install"]["status"], "ready");
+}
+
+#[test]
+fn another_schema_is_refused_and_left_alone() {
+    let temp = TempRoot::new();
+    let directory = temp.path().join("future");
+    put(&directory, ".axlprofile", br#"{"schema_version": 2}"#);
+
+    let error = save(&directory, &Profile::new("Future", None)).expect_err("refused");
+
+    assert!(matches!(
+        error,
+        ProfileWriteError::RefusedSchema { found: 2, .. }
+    ));
+    assert_eq!(
+        fs::read(directory.join(".axlprofile")).expect("bytes"),
+        br#"{"schema_version": 2}"#
+    );
+}
+
+#[test]
+fn an_unreadable_marker_is_refused_rather_than_replaced() {
+    let temp = TempRoot::new();
+    let directory = temp.path().join("broken");
+    put(&directory, ".axlprofile", b"{ not a document");
+
+    let error = save(&directory, &Profile::new("Broken", None)).expect_err("refused");
+
+    assert!(matches!(error, ProfileWriteError::RefusedMarker { .. }));
+    assert_eq!(
+        fs::read(directory.join(".axlprofile")).expect("bytes"),
+        b"{ not a document"
+    );
+}
+
+#[test]
+fn a_profile_that_breaks_the_document_rules_is_refused() {
+    let temp = TempRoot::new();
+    let directory = temp.path().join("bad");
+
+    let error = save(&directory, &Profile::new("   ", None)).expect_err("invalid");
+
+    assert!(matches!(error, ProfileWriteError::Invalid { .. }));
+    assert!(!directory.join(".axlprofile").exists());
+}

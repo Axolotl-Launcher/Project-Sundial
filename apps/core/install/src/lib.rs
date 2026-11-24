@@ -8,13 +8,14 @@ pub mod auth_agent;
 pub mod loader;
 pub mod prepare;
 pub mod processors;
+pub mod runtime;
 pub mod vanilla;
 
 use axlauncher_spi::{InstallError, InstallPlan, Installer};
 
 // Cargo Shear scans imports inside the crate but misses the mirrored tests.
 #[cfg(test)]
-use futures as test_futures;
+use sha1_smol as test_sha1;
 #[cfg(test)]
 use tempfile as test_tempfile;
 

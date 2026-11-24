@@ -4,9 +4,9 @@
 //! Instance rows and their install and launch actions.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use axlauncher_core::state::profile::DiscoveredProfile;
+use axlauncher_core::state::profile::{DiscoveredProfile, Game};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     Button, ButtonVariants, Context, Disableable, ElementId, Hsla, IntoElement, Label, StyledExt,
@@ -14,9 +14,23 @@ use axlauncher_ui::{
 };
 
 use crate::RootView;
-use crate::installations::{Installation, vanilla_version};
+use crate::installations::Installation;
 use crate::launches::Launch;
-use crate::panel::profile_version;
+use crate::panel::{install_key, profile_version};
+
+/// What one row's buttons need to know about its profile.
+struct ActionState<'a> {
+    directory: PathBuf,
+    game: Game,
+    install: Option<Option<&'a Installation>>,
+    launch: Option<&'a Launch>,
+    launchable: bool,
+    account_pending: bool,
+    /// Whether this profile recorded its own version id. A shared install slot
+    /// can be Complete from another profile, and this one still needs the
+    /// button that would produce its id.
+    recorded: bool,
+}
 
 /// One instance row.
 ///
@@ -33,24 +47,40 @@ pub(crate) fn row(
     cx: &mut Context<'_, RootView>,
 ) -> impl IntoElement + use<> {
     let action = instance.profile.game.as_ref().and_then(|game| {
-        let version = profile_version(game)?;
-        let install = vanilla_version(game).map(|version| {
-            (
-                version,
-                installations.and_then(|states| states.get(version)),
+        // A loader profile has no launchable version until its install
+        // produces one, so an absent version must not hide the install action
+        // that would create it.
+        let version = profile_version(game);
+        let install =
+            install_key(game).map(|key| installations.and_then(|states| states.get(&key)));
+        let launch = match (version, launch) {
+            (Some(version), Some((started_version, state)))
+                if state.is_active() || started_version == version =>
+            {
+                Some(state)
+            }
+            _ => None,
+        };
+        (install.is_some() || launch.is_some()).then(|| {
+            // The install slot is keyed by what the profile asked for, so a
+            // second profile naming the same game and loader shares it. Only a
+            // profile that recorded its own version id has an install to show;
+            // the other would hide Install behind someone else's Complete and
+            // have no version to launch.
+            instance_actions(
+                ActionState {
+                    directory: instance.directory.clone(),
+                    game: game.clone(),
+                    install,
+                    launch,
+                    launchable: version.is_some(),
+                    account_pending,
+                    recorded: game.version_id.is_some(),
+                },
+                muted,
+                cx,
             )
-        });
-        let launch = launch.and_then(|(started_version, state)| {
-            (state.is_active() || started_version == version).then_some(state)
-        });
-        Some(instance_actions(
-            &instance.directory,
-            install,
-            launch,
-            account_pending,
-            muted,
-            cx,
-        ))
+        })
     });
     let path = instance.directory.clone();
     let inspect = Button::new(ElementId::Name(
@@ -116,34 +146,33 @@ fn description(instance: &DiscoveredProfile, muted: Hsla) -> impl IntoElement + 
 }
 
 fn instance_actions(
-    directory: &Path,
-    install: Option<(&str, Option<&Installation>)>,
-    launch: Option<&Launch>,
-    account_pending: bool,
+    state: ActionState<'_>,
     muted: Hsla,
     cx: &mut Context<'_, RootView>,
 ) -> impl IntoElement + use<> {
-    let installation = install.and_then(|(_, state)| state);
-    let busy = launch.is_some_and(Launch::is_active)
-        || matches!(installation, Some(Installation::Running(_)));
-    let message = match (installation, launch) {
-        (_, Some(state)) if state.is_active() => Some(state.message().to_owned()),
-        (Some(state @ (Installation::Running(_) | Installation::Failed(_))), _) => {
-            Some(state.message())
-        }
-        (Some(Installation::Complete), Some(Launch::NeedsInstall(_))) => {
-            Some(Installation::Complete.message())
-        }
-        (_, Some(launch)) => Some(launch.message().to_owned()),
-        (installation, None) => installation.map(Installation::message),
+    let ActionState {
+        directory,
+        game,
+        install,
+        launch,
+        launchable,
+        account_pending,
+        recorded,
+    } = state;
+    let slot = install.flatten();
+    // Complete is the shared slot's answer, which another profile may have
+    // produced. A profile with no version id of its own still needs the button.
+    let installation = match slot {
+        Some(Installation::Complete) if !recorded => None,
+        other => other,
     };
-    let install_button = install.and_then(|(version, state)| {
-        let label = match state {
-            None => "Install",
-            Some(Installation::Failed(_)) => "Retry",
-            Some(Installation::Running(_) | Installation::Complete) => return None,
-        };
-        let version = version.to_owned();
+    let busy =
+        launch.is_some_and(Launch::is_active) || matches!(slot, Some(Installation::Running(_)));
+    let message = action_message(installation, launch);
+    let install_button = install.and_then(|_| {
+        let label = install_label(slot, recorded)?;
+        let directory = directory.clone();
+        let game = game.clone();
         Some(
             Button::new(ElementId::Name(
                 format!("install:{}", directory.display()).into(),
@@ -151,14 +180,14 @@ fn instance_actions(
             .primary()
             .disabled(busy)
             .label(label)
-            .on_click(cx.listener(move |view, _, _, cx| view.install(&version, cx))),
+            .on_click(cx.listener(move |view, _, _, cx| view.install_game(&directory, &game, cx))),
         )
     });
     let buttons = div()
         .h_flex()
         .gap_2()
         .children(install_button)
-        .child(launch_button(directory, busy || account_pending, cx));
+        .children(launchable.then(|| launch_button(&directory, busy || account_pending, cx)));
     div()
         .v_flex()
         .gap_1()
@@ -174,6 +203,32 @@ fn instance_actions(
                     .text_color(muted),
             )
         })
+}
+
+/// The line under the buttons, or nothing when there is nothing to say.
+fn action_message(installation: Option<&Installation>, launch: Option<&Launch>) -> Option<String> {
+    match (installation, launch) {
+        (_, Some(status)) if status.is_active() => Some(status.message().to_owned()),
+        (Some(status @ (Installation::Running(_) | Installation::Failed(_))), _) => {
+            Some(status.message())
+        }
+        (Some(Installation::Complete), Some(Launch::NeedsInstall(_))) => {
+            Some(Installation::Complete.message())
+        }
+        (_, Some(status)) => Some(status.message().to_owned()),
+        (installation, None) => installation.map(Installation::message),
+    }
+}
+
+/// The Install button's label, or nothing when it must not be shown.
+fn install_label(slot: Option<&Installation>, recorded: bool) -> Option<&'static str> {
+    match slot {
+        None => Some("Install"),
+        Some(Installation::Failed(_)) => Some("Retry"),
+        Some(Installation::Running(_)) => None,
+        Some(Installation::Complete) if recorded => None,
+        Some(Installation::Complete) => Some("Install"),
+    }
 }
 
 fn launch_button(directory: &Path, busy: bool, cx: &mut Context<'_, RootView>) -> Button {

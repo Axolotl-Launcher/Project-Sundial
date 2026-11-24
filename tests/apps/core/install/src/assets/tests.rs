@@ -127,6 +127,26 @@ fn missing_libraries_reports_a_wrong_size() {
 }
 
 #[test]
+fn a_library_the_processors_produce_is_not_scheduled_for_download() {
+    // A loader's patched client jar declares its path and hash but no URL: its
+    // processors write it, and planning a fetch for it fails every install.
+    let root = tempfile::tempdir().unwrap();
+    let mut produced = artifact("net/minecraftforge/forge/patch-client.jar");
+    produced.url = Some(String::new());
+    let library = library(produced, None);
+
+    assert!(missing_libraries(root.path(), &[library], &target()).is_empty());
+}
+
+#[test]
+fn a_library_path_that_leaves_the_game_root_is_dropped() {
+    let root = tempfile::tempdir().unwrap();
+    let library = library(artifact("../../escaped.jar"), None);
+
+    assert!(missing_libraries(root.path(), &[library], &target()).is_empty());
+}
+
+#[test]
 fn missing_libraries_ignores_a_library_excluded_for_the_target() {
     let root = tempfile::tempdir().unwrap();
     let only_macos = vec![Rule {

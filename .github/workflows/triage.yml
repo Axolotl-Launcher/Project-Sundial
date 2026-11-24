@@ -79,8 +79,11 @@ jobs:
           REVIEW_STATE: ${{ github.event.review.state }}
         run: |
           set -euo pipefail
+          # No checkout in this job, so gh cannot infer the repository.
           if [ "$REVIEW_STATE" = "dismissed" ]; then
-            gh pr edit "$PR_NUMBER" --remove-label "status: reviewed" --add-label "status: unreviewed"
+            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --remove-label "status: reviewed" --add-label "status: unreviewed"
           elif [ "$REVIEW_STATE" != "commented" ]; then
-            gh pr edit "$PR_NUMBER" --remove-label "status: unreviewed" --add-label "status: reviewed"
+            gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --remove-label "status: unreviewed" --add-label "status: reviewed"
           fi

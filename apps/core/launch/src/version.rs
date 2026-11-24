@@ -347,26 +347,11 @@ fn classifier(name: &str) -> Option<&str> {
 }
 
 /// The Maven path a coordinate maps onto.
+///
+/// The rule is shared with the loader providers, which address their own
+/// artifacts the same way, so it lives in the domain crate.
 pub fn maven_path(coordinate: &str) -> Option<PathBuf> {
-    let (body, extension) = match coordinate.split_once('@') {
-        Some((body, extension)) => (body, extension),
-        None => (coordinate, "jar"),
-    };
-    let mut parts = body.split(':');
-    let group = parts.next().filter(|part| !part.is_empty())?;
-    let artifact = parts.next().filter(|part| !part.is_empty())?;
-    let version = parts.next().filter(|part| !part.is_empty())?;
-    let classifier = parts.next().filter(|part| !part.is_empty());
-
-    let file = match classifier {
-        Some(classifier) => format!("{artifact}-{version}-{classifier}.{extension}"),
-        None => format!("{artifact}-{version}.{extension}"),
-    };
-    let mut path = PathBuf::new();
-    for segment in group.split('.') {
-        path.push(segment);
-    }
-    Some(path.join(artifact).join(version).join(file))
+    axlauncher_domain::maven::path(coordinate)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]

@@ -16,14 +16,16 @@ axlauncher_launch = { workspace = true }
 axlauncher_network = { workspace = true }
 axlauncher_spi = { workspace = true }
 axlauncher_storage = { workspace = true }
+futures = { workspace = true }
 hex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+xz2 = { workspace = true }
 zip = { workspace = true }
 
 [dev-dependencies]
-futures = { workspace = true }
+sha1_smol = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

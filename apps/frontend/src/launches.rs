@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use axlauncher_core::install::vanilla;
 use axlauncher_core::launch::{
-    FlowError, LaunchRequest, ProcessLauncher, SystemJava, Target, flow, plan::Session,
+    FlowError, LaunchRequest, ProcessLauncher, Target, flow, plan::Session,
 };
 use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::network::auth::AuthHttp;
@@ -51,6 +51,7 @@ pub(crate) fn start(
     request: LaunchRequest,
     player: Player,
     vanilla: bool,
+    data_root: PathBuf,
     cx: &mut Context<'_, RootView>,
 ) {
     let root = request.game_root.clone();
@@ -63,7 +64,9 @@ pub(crate) fn start(
             .enable_all()
             .build()
         {
-            Ok(runtime) => runtime.block_on(run(request, player, vanilla, sender, resolved)),
+            Ok(runtime) => {
+                runtime.block_on(run(request, player, vanilla, &data_root, sender, resolved))
+            }
             Err(error) => Launch::Failed(error.to_string()),
         }
     });
@@ -97,7 +100,7 @@ fn finish_launch(
     cx: &mut Context<'_, RootView>,
 ) {
     if matches!(outcome, Launch::NeedsInstall(_)) {
-        view.clear_completed_installation(root, version);
+        view.clear_completed_installation(root, &directory);
     }
     view.set_launch(&directory, version, outcome, cx);
 }
@@ -106,6 +109,7 @@ async fn run(
     request: LaunchRequest,
     player: Player,
     vanilla: bool,
+    data_root: &Path,
     sender: watch::Sender<bool>,
     resolved: oneshot::Sender<Arc<DesktopAccounts>>,
 ) -> Launch {
@@ -133,7 +137,7 @@ async fn run(
         sender.send_replace(true);
     });
     match flow::launch_with_session(
-        &SystemJava::from_environment(),
+        &crate::java::managed(data_root),
         &launcher,
         request,
         &session,

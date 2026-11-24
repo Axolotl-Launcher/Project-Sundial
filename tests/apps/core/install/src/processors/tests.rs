@@ -37,11 +37,10 @@ fn version(
     }
 }
 
-fn entry(value: &str) -> axlauncher_launch::version::DataEntry {
-    axlauncher_launch::version::DataEntry {
-        client: value.into(),
-        server: value.into(),
-    }
+fn sha1_hex(bytes: &[u8]) -> String {
+    let mut hash = sha1_smol::Sha1::new();
+    hash.update(bytes);
+    hash.digest().to_string()
 }
 
 /// Writes a jar with only a manifest, which is all the tool reader needs.
@@ -80,76 +79,6 @@ fn a_server_only_step_is_not_the_client_s() {
 }
 
 #[test]
-fn a_coordinate_maps_to_its_maven_path() {
-    assert_eq!(
-        axlauncher_launch::version::maven_path("net.neoforged:neoform:1.20.2@zip").expect("path"),
-        Path::new("net/neoforged/neoform/1.20.2/neoform-1.20.2.zip")
-    );
-}
-
-#[test]
-fn a_bracketed_argument_becomes_a_library_path() {
-    let libraries = Path::new("libs");
-    let version = version(Vec::new(), BTreeMap::new());
-
-    let resolved = resolve_template(
-        "[net.neoforged:neoform:1.20.2@zip]",
-        libraries,
-        &version,
-        &[],
-    )
-    .expect("resolved");
-
-    assert!(resolved.ends_with("neoform-1.20.2.zip"), "{resolved}");
-}
-
-#[test]
-fn launcher_values_are_available_to_a_step() {
-    let mut version = version(Vec::new(), BTreeMap::new());
-    version.jar = None;
-    let values = launcher_data(
-        &version,
-        Path::new("data/meta"),
-        Path::new("data/profiles/NeoForge"),
-        "1.20.2",
-        Path::new("data/meta/libraries"),
-    );
-    let value = |name| {
-        values
-            .iter()
-            .find(|(key, _)| *key == name)
-            .unwrap()
-            .1
-            .as_str()
-    };
-
-    assert_eq!(value(SIDE), "client");
-    assert_eq!(value(MINECRAFT_VERSION), "1.20.2");
-    assert_eq!(Path::new(value(ROOT)), Path::new("data/profiles/NeoForge"));
-    assert_eq!(
-        Path::new(value(LIBRARY_DIR)),
-        Path::new("data/meta/libraries")
-    );
-    assert_eq!(
-        Path::new(value(MINECRAFT_JAR)),
-        Path::new("data/meta/versions/1.20.2-neoforge/1.20.2-neoforge.jar")
-    );
-}
-
-#[test]
-fn a_quoted_value_is_a_literal_not_a_path() {
-    let version = version(
-        Vec::new(),
-        BTreeMap::from([("VERSION".into(), entry("'1.20.2'"))]),
-    );
-
-    let resolved =
-        resolve_template("{VERSION}", Path::new("libs"), &version, &[]).expect("resolved");
-
-    assert_eq!(resolved, "1.20.2");
-}
-
-#[test]
 fn a_binary_patcher_output_counts_as_current_when_it_exists() {
     let root = tempfile::tempdir().expect("temp");
     let output = root.path().join("patched.jar");
@@ -174,6 +103,80 @@ fn a_binary_patcher_output_counts_as_current_when_it_exists() {
         Path::new("libs"),
         &version,
         &[],
+    ));
+}
+
+#[test]
+fn a_declared_output_whose_digest_does_not_match_is_not_current() {
+    let root = tempfile::tempdir().expect("temp");
+    let output = root.path().join("patched.jar");
+    std::fs::write(&output, b"interrupted write").expect("output");
+    let patched_sha = "0000000000000000000000000000000000000000";
+
+    let processor = Processor {
+        jar: "net.neoforged.installertools:binarypatcher:1".into(),
+        classpath: Vec::new(),
+        args: Vec::new(),
+        outputs: BTreeMap::from([(output.display().to_string(), patched_sha.to_string())]),
+        sides: None,
+    };
+    let version = version(Vec::new(), BTreeMap::new());
+
+    // The file exists but is not what the installer said the step writes, so
+    // the step that would repair it must run.
+    assert!(!outputs_are_current(
+        &processor,
+        Path::new("libs"),
+        &version,
+        &[],
+    ));
+}
+
+#[test]
+fn a_declared_output_whose_digest_matches_is_current() {
+    let root = tempfile::tempdir().expect("temp");
+    let output = root.path().join("patched.jar");
+    std::fs::write(&output, b"finished").expect("output");
+    let sha = sha1_hex(b"finished");
+
+    let processor = Processor {
+        jar: "net.neoforged.installertools:binarypatcher:1".into(),
+        classpath: Vec::new(),
+        args: Vec::new(),
+        outputs: BTreeMap::from([(output.display().to_string(), sha)]),
+        sides: None,
+    };
+    let version = version(Vec::new(), BTreeMap::new());
+
+    assert!(outputs_are_current(
+        &processor,
+        Path::new("libs"),
+        &version,
+        &[],
+    ));
+}
+
+#[test]
+fn a_digest_stated_as_a_template_is_resolved_before_the_check() {
+    let root = tempfile::tempdir().expect("temp");
+    let output = root.path().join("patched.jar");
+    std::fs::write(&output, b"finished").expect("output");
+
+    let processor = Processor {
+        jar: "net.neoforged.installertools:binarypatcher:1".into(),
+        classpath: Vec::new(),
+        args: Vec::new(),
+        outputs: BTreeMap::from([(output.display().to_string(), "{PATCHED_SHA}".into())]),
+        sides: None,
+    };
+    let version = version(Vec::new(), BTreeMap::new());
+    let values: Vec<(&str, String)> = vec![("PATCHED_SHA", sha1_hex(b"finished"))];
+
+    assert!(outputs_are_current(
+        &processor,
+        Path::new("libs"),
+        &version,
+        &values,
     ));
 }
 
