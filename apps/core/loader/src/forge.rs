@@ -1,11 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Forge: a promotions list and an installer jar.
+//! Forge: a Maven catalog for browsing and promotions for the default build.
 //!
 //! Forge publishes two loader versions per game version, `latest` and
 //! `recommended`, in one small JSON document. Everything else about an install
-//! comes from the installer jar those entries name.
+//! comes from its installer jar. The Maven catalog also lists builds without a
+//! promotion, including historical builds.
 
 use std::collections::BTreeMap;
 
@@ -15,8 +16,8 @@ use axlauncher_spi::{
 };
 use serde::Deserialize;
 
-use crate::installer;
 use crate::versions::compare;
+use crate::{installer, maven_metadata};
 
 /// Where Forge lists the versions it recommends.
 const PROMOTIONS: &str =
@@ -61,13 +62,14 @@ impl<N: Network> ForgeApi<N> {
     }
 }
 
-/// The stability a promotion entry states, when it is one this build uses.
-fn promotion(key: &str, prefix: &str) -> Option<Option<bool>> {
-    match key.strip_prefix(prefix)? {
-        RECOMMENDED => Some(Some(true)),
-        LATEST => Some(Some(false)),
-        _ => None,
+fn loader_version<'a>(coordinate: &'a str, prefix: &str, repeated_game: &str) -> Option<&'a str> {
+    let version = coordinate.strip_prefix(prefix)?;
+    // A longer Minecraft version can share the prefix (such as 26.1 and
+    // 26.1-snapshot-1). A Forge build itself always starts with a digit.
+    if !version.as_bytes().first().is_some_and(u8::is_ascii_digit) {
+        return None;
     }
+    Some(version.strip_suffix(repeated_game).unwrap_or(version))
 }
 
 impl<N: Network> ModLoader for ForgeApi<N> {
@@ -76,6 +78,39 @@ impl<N: Network> ModLoader for ForgeApi<N> {
     }
 
     async fn versions(&self, game_version: &str) -> Result<Vec<LoaderVersion>, LoaderError> {
+        let prefix = format!("{game_version}-");
+        let repeated_game = format!("-{game_version}");
+        let coordinates = maven_metadata::fetch_versions(&self.network, self.kind(), MAVEN).await?;
+        let mut versions: Vec<LoaderVersion> = coordinates
+            .iter()
+            .filter_map(|coordinate| loader_version(coordinate, &prefix, &repeated_game))
+            .map(|version| LoaderVersion {
+                version: version.to_owned(),
+                stable: None,
+            })
+            .collect();
+        if versions.is_empty() {
+            return Err(LoaderError::NoVersions {
+                loader: self.kind(),
+                game_version: game_version.to_owned(),
+            });
+        }
+        versions.sort_by(|left, right| compare(&right.version, &left.version));
+        versions.dedup_by(|left, right| left.version == right.version);
+        Ok(versions)
+    }
+
+    async fn profile(&self, request: LoaderRequest) -> Result<LoaderProfile, LoaderError> {
+        let chosen = match &request.loader_version {
+            Some(requested) if !requested.trim().is_empty() => requested.clone(),
+            _ => self.default_version(&request.game_version).await?,
+        };
+        self.install(&request.game_version, &chosen).await
+    }
+}
+
+impl<N: Network> ForgeApi<N> {
+    async fn default_version(&self, game_version: &str) -> Result<String, LoaderError> {
         let bytes =
             self.network
                 .fetch(PROMOTIONS)
@@ -89,59 +124,17 @@ impl<N: Network> ModLoader for ForgeApi<N> {
                 loader: self.kind(),
                 reason: format!("a promotions list that does not parse: {error}"),
             })?;
-
-        let prefix = format!("{game_version}-");
-        let mut found: BTreeMap<String, Option<bool>> = BTreeMap::new();
-        let entries: Vec<(String, Option<bool>)> = promotions
-            .promos
-            .into_iter()
-            .filter_map(|(key, version)| promotion(&key, &prefix).map(|stable| (version, stable)))
-            .collect();
-        for (version, stable) in entries {
-            let best = match (found.get(&version), stable) {
-                (_, Some(true)) => Some(true),
-                (Some(existing), _) => *existing,
-                (None, _) => stable,
-            };
-            found.insert(version, best);
+        if let Some(version) = [RECOMMENDED, LATEST]
+            .iter()
+            .find_map(|channel| promotions.promos.get(&format!("{game_version}-{channel}")))
+        {
+            return Ok(version.clone());
         }
-
-        let mut versions: Vec<LoaderVersion> = found
-            .into_iter()
-            .map(|(version, stable)| LoaderVersion { version, stable })
-            .collect();
-        if versions.is_empty() {
-            return Err(LoaderError::NoVersions {
-                loader: self.kind(),
-                game_version: game_version.to_owned(),
-            });
-        }
-        versions.sort_by(|left, right| compare(&right.version, &left.version));
-        Ok(versions)
+        self.versions(game_version)
+            .await
+            .map(|mut versions| versions.remove(0).version)
     }
 
-    async fn profile(&self, request: LoaderRequest) -> Result<LoaderProfile, LoaderError> {
-        let chosen = match &request.loader_version {
-            // The promotions document names only the two recommended builds,
-            // and the Maven hosts every published one. A caller that names a
-            // version is taken at its word; the download decides whether it
-            // exists.
-            Some(requested) if !requested.trim().is_empty() => requested.clone(),
-            _ => {
-                let offers = self.versions(&request.game_version).await?;
-                offers
-                    .iter()
-                    .find(|offer| offer.stable == Some(true))
-                    .unwrap_or(&offers[0])
-                    .version
-                    .clone()
-            }
-        };
-        self.install(&request.game_version, &chosen).await
-    }
-}
-
-impl<N: Network> ForgeApi<N> {
     /// Downloads and parses the installer for one loader version.
     async fn install(
         &self,

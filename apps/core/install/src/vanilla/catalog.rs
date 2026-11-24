@@ -1,0 +1,85 @@
+// SPDX-FileCopyrightText: 2026 Axolotl Team
+// SPDX-License-Identifier: GPL-3.0-only
+
+//! The official Minecraft version catalog used by both browsing and installation.
+
+use axlauncher_spi::Network;
+use serde::Deserialize;
+
+pub(super) const CATALOG: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+
+/// Mojang's game versions in published order, newest first.
+#[derive(Debug, Deserialize)]
+pub struct MinecraftCatalog {
+    latest: Latest,
+    versions: Vec<MinecraftVersion>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Latest {
+    release: String,
+    snapshot: String,
+}
+
+/// A selectable Minecraft version and the manifest that installs it.
+#[derive(Debug, Deserialize)]
+pub struct MinecraftVersion {
+    id: String,
+    #[serde(rename = "type")]
+    kind: MinecraftVersionKind,
+    #[serde(rename = "releaseTime")]
+    release_time: String,
+    pub(super) url: String,
+    pub(super) sha1: String,
+}
+
+/// The version category Mojang assigns to an entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MinecraftVersionKind {
+    Release,
+    Snapshot,
+    OldBeta,
+    OldAlpha,
+    #[serde(other)]
+    Other,
+}
+
+impl MinecraftCatalog {
+    pub fn latest_release(&self) -> &str {
+        &self.latest.release
+    }
+
+    pub fn latest_snapshot(&self) -> &str {
+        &self.latest.snapshot
+    }
+
+    pub fn versions(&self) -> &[MinecraftVersion] {
+        &self.versions
+    }
+}
+
+impl MinecraftVersion {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn kind(&self) -> MinecraftVersionKind {
+        self.kind
+    }
+
+    /// The publication timestamp from the official catalog.
+    pub fn release_time(&self) -> &str {
+        &self.release_time
+    }
+}
+
+/// Fetches Mojang's catalog without downloading any game files.
+pub async fn versions(network: &impl Network) -> Result<MinecraftCatalog, String> {
+    let bytes = network
+        .fetch(CATALOG)
+        .await
+        .map_err(|error| format!("Cannot fetch the Mojang version list: {error}"))?;
+    serde_json::from_slice(&bytes)
+        .map_err(|error| format!("Cannot read the Mojang version list: {error}"))
+}

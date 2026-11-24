@@ -12,8 +12,8 @@ use axlauncher_spi::{
     LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader, Network,
 };
 
-use crate::installer;
 use crate::versions::compare;
+use crate::{installer, maven_metadata};
 
 /// The repository NeoForge publishes to.
 const MAVEN: &str = "https://maven.neoforged.net/releases/net/neoforged/neoforge";
@@ -53,16 +53,21 @@ impl<N: Network> ModLoader for NeoForgeApi<N> {
     }
 
     async fn versions(&self, game_version: &str) -> Result<Vec<LoaderVersion>, LoaderError> {
-        let prefix = format!("{}.", game_prefix(game_version));
-        let mut versions = self.versions_under(MAVEN, game_version, &prefix).await?;
-        if versions.is_empty() && game_version == LEGACY_GAME_VERSION {
-            // These builds were published before the artifact was renamed; they
-            // name the game version as a prefix instead.
-            let prefix = format!("{game_version}-");
-            versions = self
-                .versions_under(LEGACY_MAVEN, game_version, &prefix)
-                .await?;
-        }
+        let repository = if game_version == LEGACY_GAME_VERSION {
+            LEGACY_MAVEN
+        } else {
+            MAVEN
+        };
+        let mut versions: Vec<_> =
+            maven_metadata::fetch_versions(&self.network, self.kind(), repository)
+                .await?
+                .into_iter()
+                .filter(|version| matches_game(version, game_version))
+                .map(|version| LoaderVersion {
+                    stable: Some(!is_prerelease(&version)),
+                    version,
+                })
+                .collect();
         if versions.is_empty() {
             return Err(LoaderError::NoVersions {
                 loader: self.kind(),
@@ -70,6 +75,7 @@ impl<N: Network> ModLoader for NeoForgeApi<N> {
             });
         }
         versions.sort_by(|left, right| compare(&right.version, &left.version));
+        versions.dedup_by(|left, right| left.version == right.version);
         Ok(versions)
     }
 
@@ -111,94 +117,43 @@ impl<N: Network> ModLoader for NeoForgeApi<N> {
     }
 }
 
-impl<N: Network> NeoForgeApi<N> {
-    /// The versions one artifact's metadata lists under `prefix`.
-    async fn versions_under(
-        &self,
-        maven: &str,
-        game_version: &str,
-        prefix: &str,
-    ) -> Result<Vec<LoaderVersion>, LoaderError> {
-        let url = format!("{maven}/maven-metadata.xml");
-        let bytes = self
-            .network
-            .fetch(&url)
-            .await
-            .map_err(|source| LoaderError::Unavailable {
-                loader: self.kind(),
-                source,
-            })?;
-        let metadata = String::from_utf8_lossy(&bytes);
-
-        // The modern artifact spells a game version as a dotted line (`21.0.x`
-        // for 1.21); the 1.20.1 artifact prefixes the game version itself
-        // (`1.20.1-47.x`). `prefix` is the artifact's spelling, so the modern
-        // filter only applies when it is the dotted one.
-        let modern = prefix.ends_with('.');
-        Ok(versions_in(&metadata)
-            .into_iter()
-            .filter(|version| version.starts_with(prefix))
-            .filter(|version| !modern || matches_game(version, game_version, prefix))
-            .map(|version| {
-                let stable = Some(!is_prerelease(&version));
-                LoaderVersion { version, stable }
-            })
-            .collect())
+/// NeoForge encodes the game version before its build counter. From 26.x the
+/// full game version is included, with a zero for an omitted patch and build
+/// metadata identifying a particular Minecraft snapshot or pre-release.
+fn matches_game(version: &str, game_version: &str) -> bool {
+    if game_version == LEGACY_GAME_VERSION {
+        return version.starts_with("1.20.1-");
     }
-}
-
-/// The prefix a NeoForge version carries for a game version.
-///
-/// Minecraft `1.20.2` and NeoForge `20.2.x`; Minecraft `26.1` and NeoForge
-/// `26.1.x`. Dropping the leading `1.` is the whole rule.
-fn game_prefix(game_version: &str) -> &str {
-    game_version.strip_prefix("1.").unwrap_or(game_version)
-}
-
-/// Whether `version` is a NeoForge build for `game_version`.
-///
-/// A build for Minecraft `1.21` is spelled `21.0.x`, so the first two numeric
-/// components name the game version and the third is the loader's own build
-/// number. Minecraft `1.21.1` is the separate line `21.1.x`. A bare prefix
-/// match would let `21.1.x` answer for `1.21`, whose own builds are `21.0.x`.
-fn matches_game(version: &str, game_version: &str, prefix: &str) -> bool {
-    let Some(rest) = version.strip_prefix(prefix) else {
+    let (build, selector) = version
+        .split_once('+')
+        .map_or((version, None), |(build, tag)| (build, Some(tag)));
+    let build = build.split('-').next().unwrap_or_default();
+    let Some((game, _counter)) = build.rsplit_once('.') else {
         return false;
     };
-    // `1.21.1` -> `21.1.`: every build under that line is for this game. A
-    // `1.21` build is `21.0.x`, so any other second component belongs to a
-    // patch release.
-    if game_version.split('.').count() == 3 {
-        return true;
+    if let Some(snapshot) = game.strip_prefix("0.") {
+        return snapshot == game_version;
     }
-    let build = rest.split('.').next().unwrap_or_default();
-    build == "0"
+    let (base, qualifier) = game_version
+        .split_once('-')
+        .map_or((game_version, None), |(base, tag)| (base, Some(tag)));
+    let qualifier = qualifier.map(|tag| {
+        tag.strip_prefix("release-candidate-")
+            .map_or_else(|| tag.to_owned(), |number| format!("rc-{number}"))
+    });
+    if selector != qualifier.as_deref() {
+        return false;
+    }
+    let base = base.strip_prefix("1.").unwrap_or(base);
+    base == game || game.strip_suffix(".0") == Some(base)
 }
 
 /// Whether a NeoForge version names a pre-release.
 fn is_prerelease(version: &str) -> bool {
     let lower = version.to_ascii_lowercase();
-    ["-beta", "alpha", "-pre", "snapshot"]
+    ["-beta", "-alpha", "-rc", "-pre", "+", "snapshot"]
         .iter()
         .any(|tag| lower.contains(tag))
-}
-
-/// The versions a Maven metadata document lists.
-fn versions_in(metadata: &str) -> Vec<String> {
-    const OPEN: &str = "<version>";
-    const CLOSE: &str = "</version>";
-
-    let mut versions = Vec::new();
-    let mut rest = metadata;
-    while let Some(start) = rest.find(OPEN) {
-        let after = &rest[start + OPEN.len()..];
-        let Some(end) = after.find(CLOSE) else {
-            break;
-        };
-        versions.push(after[..end].trim().to_string());
-        rest = &after[end + CLOSE.len()..];
-    }
-    versions
 }
 
 #[cfg(test)]
