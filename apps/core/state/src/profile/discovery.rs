@@ -142,3 +142,7 @@ fn report_duplicate_ids(instances: &[DiscoveredProfile], issues: &mut Vec<Discov
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../../tests/apps/core/state/src/profile/discovery.rs"]
+mod tests;
