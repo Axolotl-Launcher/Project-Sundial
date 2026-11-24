@@ -143,7 +143,7 @@ async fn verified(
     if !rights
         .items
         .iter()
-        .any(|item| item.name == "game_minecraft")
+        .any(|item| matches!(item.name.as_str(), "game_minecraft" | "product_minecraft"))
     {
         return Err(MicrosoftError::NoLicense);
     }

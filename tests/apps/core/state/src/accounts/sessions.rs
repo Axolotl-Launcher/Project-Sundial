@@ -200,6 +200,13 @@ const SIGN_IN: [&str; 2] = [
 
 impl Exchange {
     fn new(refresh: bool, licensed: bool) -> Self {
+        Self::with_entitlements(
+            refresh,
+            licensed.then_some(r#"{"items":[{"name":"game_minecraft"}]}"#),
+        )
+    }
+
+    fn with_entitlements(refresh: bool, entitlements: Option<&'static str>) -> Self {
         let mut expected = vec![
             ("/token", SIGN_IN[usize::from(refresh)]),
             ("/user/authenticate", r#"{"Token":"xbox"}"#),
@@ -212,14 +219,11 @@ impl Exchange {
                 r#"{"access_token":"minecraft-access","expires_in":3600}"#,
             ),
         ];
-        match (refresh, licensed) {
+        match (refresh, entitlements) {
             (true, _) => (),
-            (false, false) => expected.push(("/entitlements/license", r#"{"items":[]}"#)),
-            (false, true) => expected.extend([
-                (
-                    "/entitlements/license",
-                    r#"{"items":[{"name":"game_minecraft"}]}"#,
-                ),
+            (false, None) => expected.push(("/entitlements/license", r#"{"items":[]}"#)),
+            (false, Some(body)) => expected.extend([
+                ("/entitlements/license", body),
                 (
                     "/minecraft/profile",
                     r#"{"id":"aeeee337fa3b48d1b2014866a1260456","name":"Example"}"#,
@@ -351,6 +355,19 @@ fn saves_only_identity_in_json_and_coalesces_refresh_after_restart() {
         assert!(reopened.remove(id).await.unwrap());
         assert!(reopened.snapshot().await.unwrap().selected().is_none());
         assert!(keyring.values.lock().unwrap().is_empty());
+    });
+}
+
+#[test]
+fn product_minecraft_entitlement_allows_fetching_the_java_profile() {
+    runtime().block_on(async {
+        let sign_in =
+            Exchange::with_entitlements(false, Some(r#"{"items":[{"name":"product_minecraft"}]}"#));
+        BrowserLogin::begin()
+            .finish(&sign_in, "code")
+            .await
+            .expect("product_minecraft grants Java Edition ownership");
+        sign_in.all_requests_sent();
     });
 }
 
