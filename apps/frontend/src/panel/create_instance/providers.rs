@@ -14,8 +14,9 @@ use axlauncher_core::spi::{LoaderError, LoaderKind, LoaderVersion, ModLoader};
 /// Every loader a new profile can name, in the order the form lists them.
 ///
 /// OptiFine is absent because no provider implements it in this build.
-pub(super) const KINDS: [LoaderKind; 4] = [
+pub(super) const KINDS: [LoaderKind; 5] = [
     LoaderKind::Fabric,
+    LoaderKind::LegacyFabric,
     LoaderKind::Quilt,
     LoaderKind::Forge,
     LoaderKind::NeoForge,
@@ -33,6 +34,11 @@ pub(super) async fn versions(
     match kind {
         LoaderKind::Fabric => {
             LoaderApi::fabric(network.clone())
+                .versions(game_version)
+                .await
+        }
+        LoaderKind::LegacyFabric => {
+            LoaderApi::legacy_fabric(network.clone())
                 .versions(game_version)
                 .await
         }

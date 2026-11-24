@@ -161,6 +161,7 @@ fn the_loader_choices_are_vanilla_plus_every_kind_with_a_provider() {
         kinds,
         vec![
             LoaderKind::Fabric,
+            LoaderKind::LegacyFabric,
             LoaderKind::Quilt,
             LoaderKind::Forge,
             LoaderKind::NeoForge,

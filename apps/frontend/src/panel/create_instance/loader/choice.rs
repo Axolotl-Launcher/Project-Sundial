@@ -62,6 +62,7 @@ pub(crate) fn choices() -> Vec<LoaderChoice> {
 pub(crate) fn kind_label(kind: LoaderKind) -> &'static str {
     match kind {
         LoaderKind::Fabric => "Fabric",
+        LoaderKind::LegacyFabric => "Legacy Fabric",
         LoaderKind::Quilt => "Quilt",
         LoaderKind::Forge => "Forge",
         LoaderKind::NeoForge => "NeoForge",

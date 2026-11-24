@@ -11,6 +11,7 @@ fn every_offered_loader_has_a_provider_and_optifine_is_not_offered() {
         KINDS,
         [
             LoaderKind::Fabric,
+            LoaderKind::LegacyFabric,
             LoaderKind::Quilt,
             LoaderKind::Forge,
             LoaderKind::NeoForge,

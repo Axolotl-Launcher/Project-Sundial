@@ -18,6 +18,7 @@ fn library(name: &str, path: &str, os: Option<&str>) -> Library {
             artifact: Some(Artifact {
                 path: path.into(),
                 sha1: None,
+                sha1_alternatives: Vec::new(),
                 size: None,
                 url: None,
             }),

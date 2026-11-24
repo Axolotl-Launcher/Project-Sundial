@@ -5,6 +5,9 @@ use std::io::{Cursor, Write};
 
 use super::*;
 
+#[path = "installer/forge_inline.rs"]
+mod forge_inline;
+
 const TOOL_JAR: &[u8] = b"tool";
 const BINPATCH: &[u8] = b"patch";
 
@@ -147,4 +150,25 @@ fn something_that_is_not_an_installer_is_malformed() {
     let error = parse(LoaderKind::Forge, b"not a zip", "1.20.1").expect_err("not a zip");
 
     assert!(matches!(error, LoaderError::Malformed { .. }), "{error}");
+}
+
+#[test]
+fn installer_entries_must_fit_the_limit_and_their_declared_size() {
+    assert!(bounded_entry(MAX_INSTALLER_ENTRY + 1, std::io::empty()).is_err());
+    assert!(bounded_entry(3, b"abcd".as_slice()).is_err());
+    assert_eq!(bounded_entry(3, b"abc".as_slice()).unwrap(), b"abc");
+}
+
+#[test]
+fn repeated_installer_reads_consume_the_same_budget() {
+    let bytes = installer("1.20.1");
+    let mut archive = InstallerArchive {
+        zip: zip::ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap(),
+        remaining: BINPATCH.len() as u64,
+    };
+    assert_eq!(
+        read_entry(&mut archive, "data/client.lzma", LoaderKind::Forge).unwrap(),
+        BINPATCH
+    );
+    assert!(read_entry(&mut archive, "data/client.lzma", LoaderKind::Forge).is_err());
 }

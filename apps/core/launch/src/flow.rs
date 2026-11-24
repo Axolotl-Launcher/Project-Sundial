@@ -13,6 +13,7 @@ use axlauncher_spi::{Java, JavaMode, LaunchCommand, LaunchError, Launcher};
 
 use crate::chain::{self, ChainError};
 use crate::jar::JarReader;
+use crate::language::GameLanguage;
 use crate::natives::{self, NativeError};
 use crate::plan::{self, Layout, PlanError, Session};
 use crate::rules::Target;
@@ -41,6 +42,8 @@ pub struct LaunchRequest {
     pub java_preference: Option<PathBuf>,
     /// Who the game will think is playing.
     pub player_name: String,
+    /// The initial language and the original Minecraft version it applies to.
+    pub game_language: Option<GameLanguage>,
 }
 
 /// What a completed launch produced.
@@ -110,6 +113,11 @@ pub enum FlowError {
         /// The plan failure, which names the file it needed.
         source: PlanError,
     },
+    /// The instance options could not be prepared before launch.
+    GameOptions {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     /// The launcher could not start the game.
     Launch {
         /// The executable that was to be started.
@@ -156,6 +164,13 @@ impl std::fmt::Display for FlowError {
             Self::Plan { source } => {
                 write!(formatter, "cannot assemble the launch command: {source}")
             }
+            Self::GameOptions { path, source } => {
+                write!(
+                    formatter,
+                    "cannot set the game language in {}: {source}",
+                    path.display()
+                )
+            }
             Self::Launch { program, source } => {
                 write!(formatter, "{} {source}", program.display())
             }
@@ -170,6 +185,7 @@ impl std::error::Error for FlowError {
             Self::Chain { source } => Some(source),
             Self::Natives { source, .. } => Some(source),
             Self::Plan { source } => Some(source),
+            Self::GameOptions { source, .. } => Some(source),
             Self::Launch { source, .. } => Some(source),
             Self::NoJava { .. } | Self::NoMatchingJava { .. } => None,
         }
@@ -201,6 +217,7 @@ pub async fn launch_with_session(
     let executable = java_executable(java, &version, &request)?;
     let natives = unpack_natives(&request, &version, &target)?;
     let mut command = assemble(&executable, &version, &request, session, &target)?;
+    prepare_game_language(&request)?;
 
     launcher
         .launch_redacting(command.clone(), session.console_secret())
@@ -212,6 +229,18 @@ pub async fn launch_with_session(
 
     session.redact_command(&mut command);
     Ok(LaunchOutcome { command, natives })
+}
+
+fn prepare_game_language(request: &LaunchRequest) -> Result<(), FlowError> {
+    let Some(language) = &request.game_language else {
+        return Ok(());
+    };
+    let time = version::release_time(&request.game_root.join(VERSIONS), language.minecraft())
+        .map_err(|source| FlowError::VersionDocument { source })?;
+    let path = request.instance_directory.join("options.txt");
+    language
+        .apply(time.as_deref(), &path)
+        .map_err(|source| FlowError::GameOptions { path, source })
 }
 
 /// Builds the command without extracting natives or launching the game.

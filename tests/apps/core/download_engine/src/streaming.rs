@@ -135,6 +135,7 @@ fn the_first_known_range_is_eight_mib_and_an_interrupted_tail_resumes() {
         sources: &[DATA_SOURCE],
         destination: &destination,
         sha1: None,
+        sha1_alternatives: &[],
         size: Some(LENGTH),
         batch: true,
     };
@@ -175,6 +176,7 @@ fn a_small_http1_file_uses_parallel_ranges_without_a_tiny_tail() {
         sources: &[DATA_SOURCE],
         destination: &destination,
         sha1: None,
+        sha1_alternatives: &[],
         size: Some(SMALL_FILE),
         batch: true,
     };
@@ -215,6 +217,7 @@ fn explicitly_selected_http2_keeps_small_files_on_a_single_request() {
         sources: &[DATA_SOURCE],
         destination: &destination,
         sha1: None,
+        sha1_alternatives: &[],
         size: Some(SMALL_FILE),
         batch: true,
     };
@@ -238,6 +241,7 @@ fn an_ignored_range_restarts_as_a_whole_file() {
         sources: &[DATA_SOURCE],
         destination: &destination,
         sha1: None,
+        sha1_alternatives: &[],
         size: None,
         batch: false,
     };
@@ -277,6 +281,7 @@ fn assert_multipart_without_digest(protocol: DownloadProtocol) {
         sources: &[DATA_SOURCE],
         destination: &destination,
         sha1: None,
+        sha1_alternatives: &[],
         size: Some(LENGTH),
         batch: true,
     };
@@ -298,6 +303,7 @@ fn a_batch_with_unknown_size_does_not_probe() {
         sources: &[DATA_SOURCE],
         destination: &destination,
         sha1: None,
+        sha1_alternatives: &[],
         size: None,
         batch: true,
     };
@@ -334,6 +340,7 @@ fn source_fallback_and_hash_reuse_preserve_a_verified_existing_file() {
         sources: &[first, DATA_SOURCE],
         destination: &destination,
         sha1: Some("a9993e364706816aba3e25717850c26c9cd0d89d"),
+        sha1_alternatives: &[],
         size: Some(4),
         batch: true,
     };

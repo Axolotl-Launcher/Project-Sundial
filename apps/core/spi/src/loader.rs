@@ -1,8 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Mod loaders: the port a Fabric, Quilt, Forge, NeoForge or OptiFine
-//! provider implements.
+//! The port for resolving mod loader versions and installation profiles.
 //!
 //! A launcher never runs a loader's own code to install it. It asks the
 //! loader's metadata service for a version profile — a version document that
@@ -27,6 +26,7 @@ use crate::FetchError;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LoaderKind {
     Fabric,
+    LegacyFabric,
     Quilt,
     Forge,
     NeoForge,
@@ -36,8 +36,9 @@ pub enum LoaderKind {
 impl LoaderKind {
     /// Every kind this build knows how to name, in the order a picker shows
     /// them.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Fabric,
+        Self::LegacyFabric,
         Self::Quilt,
         Self::Forge,
         Self::NeoForge,
@@ -48,6 +49,7 @@ impl LoaderKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Fabric => "fabric",
+            Self::LegacyFabric => "legacy-fabric",
             Self::Quilt => "quilt",
             Self::Forge => "forge",
             Self::NeoForge => "neoforge",

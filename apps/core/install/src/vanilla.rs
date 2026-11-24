@@ -14,10 +14,7 @@ use axlauncher_spi::Network;
 use axlauncher_storage::write_atomic;
 use serde::Deserialize;
 
-use crate::assets::AssetIndexDocument;
-use crate::prepare::{
-    Prepared, Progress, asset_index_path, outstanding, parse_index, prepare_reporting,
-};
+use crate::prepare::{Prepared, Progress, check_local_files, prepare_reporting};
 
 const CATALOG: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
@@ -60,26 +57,7 @@ pub fn check_files(game_root: &Path, id: &str, target: &Target) -> Result<(), St
     let version =
         version::load(&game_root.join("versions"), id).map_err(|error| error.to_string())?;
     let version = vanilla_client(version, id)?;
-    let index = local_index(game_root, &version)?;
-    let missing = outstanding(game_root, &version, &index, target);
-    if let Some(file) = missing.first() {
-        return Err(format!(
-            "{} required game file(s) are missing or incomplete. First: {}",
-            missing.len(),
-            file.path.display()
-        ));
-    }
-    Ok(())
-}
-
-fn local_index(game_root: &Path, version: &Version) -> Result<AssetIndexDocument, String> {
-    let Some(index) = &version.asset_index else {
-        return Ok(AssetIndexDocument::default());
-    };
-    let path = asset_index_path(game_root, index);
-    let bytes =
-        fs::read(&path).map_err(|error| format!("Cannot read {}: {error}", path.display()))?;
-    parse_index(index, &bytes).map_err(|error| error.to_string())
+    check_local_files(game_root, &version, target)
 }
 
 fn check_id(id: &str) -> Result<(), String> {
@@ -96,22 +74,31 @@ fn check_id(id: &str) -> Result<(), String> {
 }
 
 pub(crate) fn installation_lock(game_root: &Path) -> Result<File, String> {
+    let lock = open_install_lock(game_root)?;
+    lock.try_lock()
+        .map_err(|error| format!("Cannot lock shared game files: {error}"))?;
+    Ok(lock)
+}
+
+/// A shared guard keeps an installation stable while Minecraft starts.
+pub fn launch_lock(game_root: &Path) -> Result<File, String> {
+    let lock = open_install_lock(game_root)?;
+    lock.try_lock_shared()
+        .map_err(|error| format!("Cannot lock shared game files for launch: {error}"))?;
+    Ok(lock)
+}
+
+fn open_install_lock(game_root: &Path) -> Result<File, String> {
     fs::create_dir_all(game_root)
         .map_err(|error| format!("Cannot create {}: {error}", game_root.display()))?;
     let path = game_root.join(".install.lock");
-    let lock = File::options()
+    File::options()
+        .read(true)
         .write(true)
         .create(true)
         .truncate(false)
         .open(&path)
-        .map_err(|error| format!("Cannot open {}: {error}", path.display()))?;
-    lock.try_lock().map_err(|error| {
-        format!(
-            "Cannot lock shared game files at {}: {error}",
-            path.display()
-        )
-    })?;
-    Ok(lock)
+        .map_err(|error| format!("Cannot open {}: {error}", path.display()))
 }
 
 pub(crate) async fn ensure_version(

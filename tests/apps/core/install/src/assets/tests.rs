@@ -23,9 +23,33 @@ fn artifact(path: &str) -> Artifact {
     Artifact {
         path: path.into(),
         sha1: Some(ABC_SHA1.into()),
+        sha1_alternatives: Vec::new(),
         size: Some(ABC.len() as u64),
         url: Some(format!("https://example.invalid/{path}")),
     }
+}
+
+#[test]
+fn a_local_only_jar_is_required_for_launch_but_is_not_downloaded() {
+    let root = tempfile::tempdir().unwrap();
+    let library: Library = serde_json::from_value(serde_json::json!({
+        "name": "example:embedded:1",
+        "downloads": {"artifact": {"path": "example/embedded.jar", "url": "", "size": 3}}
+    }))
+    .unwrap();
+    let libraries = [library];
+    assert!(missing_libraries(root.path(), &libraries, &target()).is_empty());
+    assert_eq!(
+        missing_library_files(root.path(), &libraries, &target(), true).len(),
+        1
+    );
+    write_file(root.path(), "libraries/example/embedded.jar", b"a");
+    assert_eq!(
+        missing_library_files(root.path(), &libraries, &target(), true).len(),
+        1
+    );
+    write_file(root.path(), "libraries/example/embedded.jar", ABC);
+    assert!(missing_library_files(root.path(), &libraries, &target(), true).is_empty());
 }
 
 fn library(artifact: Artifact, rules: Option<Vec<Rule>>) -> Library {

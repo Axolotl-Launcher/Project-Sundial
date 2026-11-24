@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use axlauncher_core::launch::LaunchRequest;
+use axlauncher_core::launch::{GameLanguage, LaunchRequest};
 use axlauncher_core::state::profile::{DiscoveredProfile, Game, ProfileDiscovery};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
@@ -120,13 +120,23 @@ impl RootView {
         entry: &DiscoveredProfile,
         player_name: String,
     ) -> Option<LaunchRequest> {
-        let version = profile_version(entry.profile.game.as_ref()?)?;
+        let game = entry.profile.game.as_ref()?;
+        let version = profile_version(game)?;
+        let language = self
+            .settings
+            .as_ref()
+            .and_then(|settings| {
+                axlauncher_core::domain::normalize_game_language(&settings.default_game_language)
+            })
+            .filter(|language| !language.is_empty())
+            .unwrap_or_else(|| super::environment::LAUNCHER_LANGUAGE.to_owned());
         Some(LaunchRequest {
             game_root: DataDir::new(self.root.as_ref()?).meta(),
             instance_directory: entry.directory.clone(),
             version_id: version.to_owned(),
             java_preference: None,
             player_name,
+            game_language: Some(GameLanguage::new(&game.minecraft, &language)),
         })
     }
 

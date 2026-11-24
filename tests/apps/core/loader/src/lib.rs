@@ -285,3 +285,43 @@ fn the_fabric_provider_names_itself() {
 
     assert_eq!(api.kind(), LoaderKind::Fabric);
 }
+
+#[test]
+fn legacy_fabric_resolves_a_historical_profile_under_its_own_id() {
+    let versions_url = "https://meta.legacyfabric.net/v2/versions/loader/1.3.1";
+    let profile_url = "https://meta.legacyfabric.net/v2/versions/loader/1.3.1/0.13.0/profile/json";
+    let document = r#"{
+        "id":"fabric-loader-0.13.0-1.3.1",
+        "inheritsFrom":"1.3.1",
+        "libraries":[{
+            "name":"org.lwjgl.lwjgl:lwjgl-platform:2.9.4+legacyfabric.17",
+            "url":"https://maven.legacyfabric.net/",
+            "natives":{"windows":"natives-windows"}
+        }]
+    }"#;
+    let network = FakeNetwork::default()
+        .with(
+            versions_url,
+            r#"[{"loader":{"version":"0.13.0","stable":true}}]"#,
+        )
+        .with(profile_url, document);
+    let api = LoaderApi::legacy_fabric(network);
+
+    let profile = block_on(api.profile(LoaderRequest {
+        game_version: "1.3.1".into(),
+        loader_version: None,
+    }))
+    .expect("profile");
+
+    assert_eq!(api.kind(), LoaderKind::LegacyFabric);
+    assert_eq!(profile.version_id, "legacy-fabric-loader-0.13.0-1.3.1");
+    let document: serde_json::Value = serde_json::from_slice(&profile.document).expect("document");
+    let native = &document["libraries"][0];
+    assert!(native.get("url").is_none());
+    assert!(native["downloads"].get("artifact").is_none());
+    assert_eq!(
+        native["downloads"]["classifiers"]["natives-windows"]["url"],
+        "https://maven.legacyfabric.net/org/lwjgl/lwjgl/lwjgl-platform/2.9.4+legacyfabric.17/lwjgl-platform-2.9.4+legacyfabric.17-natives-windows.jar"
+    );
+    assert_eq!(api.network.asked(), vec![versions_url, profile_url]);
+}

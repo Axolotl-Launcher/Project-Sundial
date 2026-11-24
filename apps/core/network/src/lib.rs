@@ -59,6 +59,7 @@ impl ReqwestNetwork {
         let builder = || {
             reqwest::Client::builder()
                 .dns_resolver(resolver.clone())
+                .redirect(reqwest::redirect::Policy::custom(redirect))
                 .pool_idle_timeout(Duration::from_secs(15 * 60))
                 .connect_timeout(Duration::from_secs(15))
         };
@@ -73,6 +74,15 @@ impl ReqwestNetwork {
             file_http2: build(builder().http2_prior_knowledge())?,
         })
     }
+}
+
+fn redirect(attempt: reqwest::redirect::Attempt<'_>) -> reqwest::redirect::Action {
+    if attempt.url().scheme() != "https"
+        && attempt.previous().iter().any(|url| url.scheme() == "https")
+    {
+        return attempt.error("refusing to downgrade an HTTPS request");
+    }
+    reqwest::redirect::Policy::default().redirect(attempt)
 }
 
 impl Network for ReqwestNetwork {
@@ -132,12 +142,27 @@ pub fn verify(bytes: &[u8], expected_sha1: &str) -> bool {
 }
 
 /// Verifies a stream of bytes without retaining it in memory.
-pub fn verify_reader(mut source: impl Read, expected_sha1: &str) -> io::Result<bool> {
+pub fn verify_reader(source: impl Read, expected_sha1: &str) -> io::Result<bool> {
+    verify_reader_any(source, Some(expected_sha1), &[])
+}
+
+/// A stream matches if its digest equals any digest approved by the manifest.
+pub fn verify_reader_any(
+    mut source: impl Read,
+    primary: Option<&str>,
+    alternatives: &[String],
+) -> io::Result<bool> {
     let mut hash = sha1_smol::Sha1::new();
     let mut buffer = [0; 8192];
     loop {
         match source.read(&mut buffer) {
-            Ok(0) => return Ok(matches_sha1(hash, expected_sha1)),
+            Ok(0) => {
+                let actual = hex::encode(hash.digest().bytes());
+                return Ok(primary
+                    .into_iter()
+                    .chain(alternatives.iter().map(String::as_str))
+                    .any(|expected| actual.eq_ignore_ascii_case(expected)));
+            }
             Ok(count) => hash.update(&buffer[..count]),
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             Err(error) => return Err(error),
