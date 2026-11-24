@@ -195,12 +195,9 @@ pub(crate) async fn prepare_reporting(
     // The flat tree copies from the object store, so it is built after the
     // objects land. A version whose index asks for none does nothing here.
     if let Some(index_id) = version.asset_index.as_ref().map(|index| index.id.as_str()) {
-        let failures = if version.assets.as_deref() == Some("legacy") {
-            crate::assets::materialise_flat_at(game_root, &game_root.join("resources"), &index)
-        } else {
-            crate::assets::materialise_flat(game_root, index_id, &index)
-        };
-        prepared.failures.extend(failures);
+        prepared
+            .failures
+            .extend(crate::assets::materialise_flat(game_root, index_id, &index));
     }
     Ok(prepared)
 }
@@ -245,6 +242,42 @@ pub fn outstanding(
     files.extend(missing_libraries(game_root, &version.libraries, target));
     files.extend(missing_assets(game_root, index));
     files
+}
+
+/// Readiness requires the downloaded files and any flat asset copies.
+pub(crate) fn check_local_files(
+    game_root: &Path,
+    version: &Version,
+    target: &Target,
+) -> Result<(), String> {
+    let index = local_index(game_root, version.asset_index.as_ref())?;
+    let missing = outstanding(game_root, version, &index, target);
+    if let Some(file) = missing.first() {
+        return Err(format!(
+            "{} required game file(s) are missing or incomplete. First: {}",
+            missing.len(),
+            file.path.display()
+        ));
+    }
+    if let Some(asset_index) = &version.asset_index
+        && let Some(path) = crate::assets::missing_flat_asset(game_root, &asset_index.id, &index)
+    {
+        return Err(format!(
+            "A required game asset is missing or incomplete: {}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+fn local_index(game_root: &Path, index: Option<&AssetIndex>) -> Result<AssetIndexDocument, String> {
+    let Some(index) = index else {
+        return Ok(AssetIndexDocument::default());
+    };
+    let path = asset_index_path(game_root, index);
+    let bytes =
+        std::fs::read(&path).map_err(|error| format!("Cannot read {}: {error}", path.display()))?;
+    parse_index(index, &bytes).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

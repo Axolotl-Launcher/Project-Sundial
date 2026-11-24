@@ -89,3 +89,49 @@ fn a_manifest_with_the_wrong_hash_is_not_saved() {
     assert!(result.unwrap_err().contains("SHA-1"));
     assert!(!root.path().join("versions").exists());
 }
+
+#[test]
+fn offline_check_detects_a_missing_pre_1_6_resource_copy() {
+    use crate::test_tempfile as tempfile;
+
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path();
+    for (relative, content) in [
+        (
+            "versions/b1.7.3/b1.7.3.json",
+            r#"{"id":"b1.7.3","assetIndex":{"id":"pre-1.6","url":""},"downloads":{"client":{"size":3,"url":""}}}"#,
+        ),
+        ("versions/b1.7.3/b1.7.3.jar", "jar"),
+        (
+            "assets/indexes/pre-1.6.json",
+            r#"{"map_to_resources":true,"objects":{"sound/a.ogg":{"hash":"a9993e364706816aba3e25717850c26c9cd0d89d","size":3}}}"#,
+        ),
+        (
+            "assets/objects/a9/a9993e364706816aba3e25717850c26c9cd0d89d",
+            "abc",
+        ),
+    ] {
+        let path = root.join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
+
+    let target = Target::host();
+    assert!(
+        check_files(root, "b1.7.3", &target)
+            .unwrap_err()
+            .contains("a.ogg")
+    );
+    let repair = block_on(install(
+        &axlauncher_network::UnimplementedNetwork,
+        root,
+        "b1.7.3",
+        &target,
+        1,
+        |_| {},
+    ))
+    .unwrap();
+    assert!(repair.is_complete());
+    assert_eq!(repair.requested, 0);
+    assert!(check_files(root, "b1.7.3", &target).is_ok());
+}

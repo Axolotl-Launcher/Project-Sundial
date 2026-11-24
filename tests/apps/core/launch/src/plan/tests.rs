@@ -110,6 +110,50 @@ fn sample_arguments() -> Arguments {
     }
 }
 
+#[test]
+fn old_clients_receive_the_flat_asset_directory_selected_by_the_index() {
+    let root = TempDir::new();
+    let indexes = root.0.join("assets/indexes");
+    fs::create_dir_all(&indexes).unwrap();
+    fs::create_dir(root.0.join("resources")).unwrap();
+
+    for (version_id, index_id, index, path) in [
+        (
+            "b1.7.3",
+            "pre-1.6",
+            r#"{"map_to_resources":true}"#,
+            "resources",
+        ),
+        (
+            "1.6.4",
+            "legacy",
+            r#"{"virtual":true}"#,
+            "assets/virtual/legacy",
+        ),
+    ] {
+        fs::write(indexes.join(format!("{index_id}.json")), index).unwrap();
+        let (mut version, layout) = fixture(&root.0, version_id);
+        version.arguments = None;
+        version.minecraft_arguments = Some("--assetsDir ${game_assets}".into());
+        version.assets = Some(index_id.into());
+        version.asset_index.as_mut().unwrap().id = index_id.into();
+
+        let command = build(
+            Path::new("java"),
+            &version,
+            &layout,
+            &Session::offline("Player"),
+            &Target::host(),
+        )
+        .unwrap();
+        assert!(
+            command.args.windows(2).any(|pair| {
+                pair[0] == "--assetsDir" && Path::new(&pair[1]) == root.0.join(path)
+            })
+        );
+    }
+}
+
 fn layout(root: &Path) -> Layout {
     Layout {
         game_root: root.to_path_buf(),

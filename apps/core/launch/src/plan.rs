@@ -286,15 +286,8 @@ fn version_values(version: &Version, layout: &Layout, classpath: &str, target: &
         .or_else(|| version.assets.clone())
         .unwrap_or_else(|| version.id.clone());
     let assets_root = layout.game_root.join("assets");
-    let resources = layout.game_root.join("resources");
-    let flat = flat_assets(&layout.game_root, &assets_index);
-    let game_assets = if version.assets.as_deref() == Some("legacy")
-        && (resources.is_dir() || !flat.as_ref().is_some_and(|path| path.is_dir()))
-    {
-        resources
-    } else {
-        flat.unwrap_or_else(|| assets_root.clone())
-    };
+    let game_assets =
+        flat_assets(&layout.game_root, &assets_index).unwrap_or_else(|| assets_root.clone());
 
     Values::new()
         .with("classpath", classpath)
@@ -374,11 +367,8 @@ fn logging_argument(version: &Version, layout: &Layout) -> Option<String> {
 /// The flat asset tree the game reads by plain path, when the index asks for
 /// one.
 ///
-/// Two flags exist and they name different trees: `virtual` (1.7–1.8 and the
-/// HMCL-era `legacy` index) materialises under `assets/virtual/<id>`, while
-/// `map_to_resources` (1.5 and older) materialises under `resources/`. The
-/// flags live in the index document, which an install has already written, so
-/// this reads it rather than guessing from a version number.
+/// The index's `virtual` flag selects `assets/virtual/<id>`. The
+/// `map_to_resources` flag selects the shared `resources/` tree.
 fn flat_assets(game_root: &Path, index_id: &str) -> Option<PathBuf> {
     let path = game_root
         .join("assets")

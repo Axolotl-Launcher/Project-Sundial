@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use axlauncher_core::install::vanilla;
+use axlauncher_core::install::{loader, vanilla};
 use axlauncher_core::launch::{
     FlowError, LaunchRequest, ProcessLauncher, Target, flow, plan::Session,
 };
@@ -113,10 +113,12 @@ async fn run(
     sender: watch::Sender<bool>,
     resolved: oneshot::Sender<Arc<DesktopAccounts>>,
 ) -> Launch {
-    if vanilla
-        && let Err(error) =
-            vanilla::check_files(&request.game_root, &request.version_id, &Target::host())
-    {
+    let check_files = if vanilla {
+        vanilla::check_files
+    } else {
+        loader::check_files
+    };
+    if let Err(error) = check_files(&request.game_root, &request.version_id, &Target::host()) {
         return Launch::NeedsInstall(format!("Install game files to continue. {error}"));
     }
     let session = match player {

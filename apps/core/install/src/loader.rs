@@ -94,6 +94,17 @@ pub fn document_path(game_root: &Path, version_id: &str) -> PathBuf {
         .join(format!("{version_id}.json"))
 }
 
+/// Readiness uses the version profile written by the loader installation.
+pub fn check_files(
+    game_root: &Path,
+    version_id: &str,
+    target: &axlauncher_launch::Target,
+) -> Result<(), String> {
+    let version = axlauncher_launch::version::load(&game_root.join("versions"), version_id)
+        .map_err(|error| error.to_string())?;
+    crate::prepare::check_local_files(game_root, &version, target)
+}
+
 /// Writes `profile` into `game_root` and returns what it left there.
 ///
 /// The parent version document must already exist. The returned id names the

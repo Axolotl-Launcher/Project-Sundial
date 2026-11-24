@@ -14,10 +14,7 @@ use axlauncher_spi::Network;
 use axlauncher_storage::write_atomic;
 use serde::Deserialize;
 
-use crate::assets::AssetIndexDocument;
-use crate::prepare::{
-    Prepared, Progress, asset_index_path, outstanding, parse_index, prepare_reporting,
-};
+use crate::prepare::{Prepared, Progress, check_local_files, prepare_reporting};
 
 const CATALOG: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
@@ -60,26 +57,7 @@ pub fn check_files(game_root: &Path, id: &str, target: &Target) -> Result<(), St
     let version =
         version::load(&game_root.join("versions"), id).map_err(|error| error.to_string())?;
     let version = vanilla_client(version, id)?;
-    let index = local_index(game_root, &version)?;
-    let missing = outstanding(game_root, &version, &index, target);
-    if let Some(file) = missing.first() {
-        return Err(format!(
-            "{} required game file(s) are missing or incomplete. First: {}",
-            missing.len(),
-            file.path.display()
-        ));
-    }
-    Ok(())
-}
-
-fn local_index(game_root: &Path, version: &Version) -> Result<AssetIndexDocument, String> {
-    let Some(index) = &version.asset_index else {
-        return Ok(AssetIndexDocument::default());
-    };
-    let path = asset_index_path(game_root, index);
-    let bytes =
-        fs::read(&path).map_err(|error| format!("Cannot read {}: {error}", path.display()))?;
-    parse_index(index, &bytes).map_err(|error| error.to_string())
+    check_local_files(game_root, &version, target)
 }
 
 fn check_id(id: &str) -> Result<(), String> {

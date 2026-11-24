@@ -7,7 +7,7 @@
 //! filesystem and return what is absent or the wrong size, so they run without
 //! a network and are tested against a fixture directory.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -195,15 +195,19 @@ pub fn log_config(
 }
 
 /// The asset objects `index` names that are absent or the wrong size under
-/// `game_root`.
+/// `game_root`. Multiple names for the same object share a single download.
 pub fn missing_assets(game_root: &Path, index: &AssetIndexDocument) -> Vec<MissingFile> {
     let root = game_root.join(ASSETS_DIR).join(OBJECTS_DIR);
+    let mut hashes = HashSet::new();
     index
         .objects
         .values()
         .filter_map(|object| {
             let prefix = object.hash.get(..OBJECT_PREFIX_LEN)?;
             let hash = &object.hash;
+            if !hashes.insert(hash) {
+                return None;
+            }
             let path = root.join(prefix).join(hash);
             needs_download(&path, Some(object.size)).then(|| MissingFile {
                 url: format!("{ASSET_OBJECT_BASE}/{prefix}/{hash}"),
@@ -252,11 +256,7 @@ pub fn materialise_flat(
         })
 }
 
-pub(crate) fn materialise_flat_at(
-    game_root: &Path,
-    root: &Path,
-    index: &AssetIndexDocument,
-) -> Vec<String> {
+fn materialise_flat_at(game_root: &Path, root: &Path, index: &AssetIndexDocument) -> Vec<String> {
     let objects = game_root.join(ASSETS_DIR).join(OBJECTS_DIR);
     let mut failures = Vec::new();
 
@@ -277,6 +277,19 @@ pub(crate) fn materialise_flat_at(
         }
     }
     failures
+}
+
+/// The first missing or incomplete copy in the tree the game reads.
+pub(crate) fn missing_flat_asset(
+    game_root: &Path,
+    index_id: &str,
+    index: &AssetIndexDocument,
+) -> Option<PathBuf> {
+    let root = index.flat_root(game_root, index_id)?;
+    index.objects.iter().find_map(|(name, object)| {
+        let path = root.join(name.replace('/', std::path::MAIN_SEPARATOR_STR));
+        needs_download(&path, Some(object.size)).then_some(path)
+    })
 }
 
 /// Copies one object into the flat tree, creating its parent.
