@@ -161,6 +161,9 @@ impl RootView {
     }
 
     pub(crate) fn launch(&mut self, directory: &Path, cx: &mut Context<'_, Self>) {
+        if self.account_selection_pending() {
+            return;
+        }
         let Some(entry) = self.instances.find(directory) else {
             return;
         };
@@ -198,8 +201,12 @@ impl RootView {
         let Some(data_root) = self.root.clone() else {
             return;
         };
+        let player = match self.accounts.selected_online() {
+            Some((service, id)) => launches::Player::Online(service, id),
+            None => launches::Player::Offline(self.preview_session(cx)),
+        };
         self.set_launch(directory, &request.version_id, Launch::Starting, cx);
-        launches::start(request, vanilla, data_root, cx);
+        launches::start(request, player, vanilla, data_root, cx);
     }
 
     pub(crate) fn set_launch(

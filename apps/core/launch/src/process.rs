@@ -13,7 +13,9 @@
 //! it performs on send is the only thing the future needs.
 
 use std::future::Future;
+use std::io::{self, BufWriter, Write};
 use std::pin::Pin;
+use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
@@ -21,9 +23,12 @@ use axlauncher_spi::{LaunchCommand, LaunchError};
 
 use crate::platform;
 
+mod console;
+
 /// Starts `command` and waits for it on a worker thread.
 pub(crate) fn run(
     command: LaunchCommand,
+    token: Option<String>,
     started: impl FnOnce() + Send + 'static,
 ) -> impl Future<Output = Result<(), LaunchError>> {
     let slot = Arc::new(Slot::default());
@@ -31,7 +36,7 @@ pub(crate) fn run(
     std::thread::spawn({
         let slot = Arc::clone(&slot);
         move || {
-            let outcome = wait(&command, started);
+            let outcome = wait(&command, token.as_deref(), started);
             slot.complete(outcome);
         }
     });
@@ -39,22 +44,60 @@ pub(crate) fn run(
     Awaiting { slot }
 }
 
-fn wait(command: &LaunchCommand, started: impl FnOnce()) -> Result<(), LaunchError> {
+fn wait(
+    command: &LaunchCommand,
+    token: Option<&str>,
+    started: impl FnOnce(),
+) -> Result<(), LaunchError> {
+    let mut log = axlauncher_storage::open_instance_console_log(&command.working_directory)
+        .map_err(|error| {
+            LaunchError::NotFound(format!("cannot open the instance console log: {error}"))
+        })?;
     let mut child = build(command)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| LaunchError::NotFound(error.to_string()))?;
+    log.disable_cleanup(true);
     started();
-    let status = child
-        .wait()
-        .map_err(|error| LaunchError::NotFound(error.to_string()))?;
+    let status = capture(&mut child, log.as_file_mut(), token)?;
 
     if status.success() {
         Ok(())
     } else {
-        Err(LaunchError::Exited {
+        Err(LaunchError::ExitedWithLog {
             code: status.code(),
+            log: log.path().to_path_buf(),
         })
     }
+}
+
+fn capture(
+    child: &mut std::process::Child,
+    log: &mut std::fs::File,
+    token: Option<&str>,
+) -> Result<std::process::ExitStatus, LaunchError> {
+    let stdout = child.stdout.take().expect("piped stdout");
+    let stderr = child.stderr.take().expect("piped stderr");
+    let sink = Mutex::new(BufWriter::new(log));
+    let status = std::thread::scope(|scope| {
+        let output = scope.spawn(|| console::copy(stdout, &sink, token));
+        let errors = scope.spawn(|| console::copy(stderr, &sink, token));
+        let status = child.wait();
+        output.join().expect("console output worker")?;
+        errors.join().expect("console error worker")?;
+        status
+    })
+    .map_err(console_error)?;
+    sink.into_inner()
+        .expect("console log lock")
+        .flush()
+        .map_err(console_error)?;
+    Ok(status)
+}
+
+fn console_error(error: io::Error) -> LaunchError {
+    LaunchError::ConsoleOutput(error.to_string())
 }
 
 /// The child command a `LaunchCommand` describes.

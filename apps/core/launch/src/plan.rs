@@ -28,26 +28,157 @@ pub struct Layout {
 }
 
 /// Who the game will think is playing.
-///
-/// Offline values are the default for this build; a real account supplies the
-/// same fields.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Session {
-    pub player_name: String,
-    pub uuid: String,
-    pub access_token: String,
-    pub user_type: String,
+    player_name: String,
+    uuid: String,
+    access_token: String,
+    user_type: &'static str,
+    agent: Option<YggdrasilAgent>,
+    xuid: Option<String>,
+}
+
+const REDACTED_TOKEN: &str = "[redacted]";
+
+/// The JVM agent routes Minecraft's session services to a third-party server.
+#[derive(Clone)]
+pub struct YggdrasilAgent {
+    path: PathBuf,
+    root: String,
+    metadata: Option<String>,
+}
+
+impl YggdrasilAgent {
+    pub fn new(path: PathBuf, root: impl Into<String>) -> Self {
+        Self {
+            path,
+            root: root.into(),
+            metadata: None,
+        }
+    }
+
+    pub fn with_metadata(mut self, encoded: String) -> Self {
+        self.metadata = Some(encoded);
+        self
+    }
+
+    fn arguments(&self) -> impl Iterator<Item = String> {
+        let agent = format!("-javaagent:{}={}", self.path.display(), self.root);
+        let metadata = self
+            .metadata
+            .as_ref()
+            .map(|value| format!("-Dauthlibinjector.yggdrasil.prefetched={value}"));
+        [agent, "-Dauthlibinjector.side=client".to_owned()]
+            .into_iter()
+            .chain(metadata)
+    }
 }
 
 impl Session {
     /// A session with no account behind it. The token is the placeholder the
     /// game accepts for offline play.
     pub fn offline(player_name: impl Into<String>) -> Self {
+        Self::offline_profile(player_name, "00000000-0000-0000-0000-000000000000")
+    }
+
+    /// A saved offline identity with the profile UUID supplied by its owner.
+    pub fn offline_profile(player_name: impl Into<String>, uuid: impl Into<String>) -> Self {
         Self {
             player_name: player_name.into(),
-            uuid: "00000000-0000-0000-0000-000000000000".into(),
+            uuid: uuid.into(),
             access_token: "0".into(),
-            user_type: "legacy".into(),
+            user_type: "legacy",
+            agent: None,
+            xuid: None,
+        }
+    }
+
+    /// A Microsoft profile and its Minecraft access token.
+    pub fn microsoft(
+        player_name: impl Into<String>,
+        uuid: impl Into<String>,
+        access_token: String,
+    ) -> Self {
+        Self {
+            player_name: player_name.into(),
+            uuid: uuid.into(),
+            access_token,
+            user_type: "msa",
+            agent: None,
+            xuid: None,
+        }
+    }
+
+    /// An identity for diagnostics that do not require a live token.
+    pub fn microsoft_preview(player_name: impl Into<String>, uuid: impl Into<String>) -> Self {
+        Self::microsoft(player_name, uuid, REDACTED_TOKEN.to_owned())
+    }
+
+    /// A server-authenticated Minecraft profile using the third-party JVM agent.
+    pub fn yggdrasil(
+        player_name: impl Into<String>,
+        uuid: impl Into<String>,
+        access_token: String,
+        agent: YggdrasilAgent,
+    ) -> Self {
+        Self {
+            player_name: player_name.into(),
+            uuid: uuid.into(),
+            access_token,
+            user_type: "legacy",
+            agent: Some(agent),
+            xuid: None,
+        }
+    }
+
+    pub fn yggdrasil_preview(
+        player_name: impl Into<String>,
+        uuid: impl Into<String>,
+        agent: YggdrasilAgent,
+    ) -> Self {
+        Self::yggdrasil(player_name, uuid, REDACTED_TOKEN.to_owned(), agent)
+    }
+
+    pub(super) fn redacted(&self) -> Self {
+        let mut session = self.clone();
+        if self.has_online_token() {
+            session.access_token = REDACTED_TOKEN.to_owned();
+        }
+        session
+    }
+
+    fn has_online_token(&self) -> bool {
+        self.user_type == "msa" || self.agent.is_some()
+    }
+
+    pub(super) fn console_secret(&self) -> Option<&str> {
+        (self.has_online_token() && !self.access_token.is_empty())
+            .then_some(self.access_token.as_str())
+    }
+
+    /// Xbox account metadata for manifests that declare `auth_xuid`.
+    pub fn with_xuid(mut self, xuid: Option<String>) -> Self {
+        self.xuid = xuid;
+        self
+    }
+
+    fn legacy_session(&self) -> String {
+        if self.has_online_token() {
+            return format!("token:{}:{}", self.access_token, self.uuid);
+        }
+        "-".to_owned()
+    }
+
+    pub(super) fn redact_command(&self, command: &mut LaunchCommand) {
+        if !self.has_online_token() || self.access_token.is_empty() {
+            return;
+        }
+        for argument in command
+            .args
+            .iter_mut()
+            .filter(|argument| argument.contains(&self.access_token))
+        {
+            *argument = argument.replace(&self.access_token, REDACTED_TOKEN);
         }
     }
 }
@@ -94,13 +225,12 @@ pub fn build(
         &client_jar,
         target,
     );
-    let mut values = values(version, layout, session, &classpath, target);
-    values.omit("auth_xuid");
-    values.omit("clientid");
-    values.omit("user_properties");
+    let values = version_values(version, layout, &classpath, target);
+    let values = account_values(values, session);
     let arguments = version.arguments.clone().unwrap_or_default();
 
-    let mut args = arguments::resolved(&arguments.jvm, target, &values);
+    let mut args = jvm_arguments(&arguments, target, &values);
+    args.extend(session.agent.iter().flat_map(YggdrasilAgent::arguments));
     args.extend(logging_argument(version, layout));
     args.push(version.main_class.clone());
 
@@ -131,13 +261,24 @@ pub fn client_jar(game_root: &Path, version_id: &str) -> PathBuf {
         .join(format!("{version_id}.jar"))
 }
 
-fn values(
-    version: &Version,
-    layout: &Layout,
-    session: &Session,
-    classpath: &str,
+fn jvm_arguments(
+    arguments: &crate::version::Arguments,
     target: &Target,
-) -> Values {
+    values: &Values,
+) -> Vec<String> {
+    if !arguments.jvm.is_empty() {
+        return arguments::resolved(&arguments.jvm, target, values);
+    }
+    [
+        "-Djava.library.path=${natives_directory}",
+        "-cp",
+        "${classpath}",
+    ]
+    .map(|argument| arguments::substitute(argument, values))
+    .into()
+}
+
+fn version_values(version: &Version, layout: &Layout, classpath: &str, target: &Target) -> Values {
     let assets_index = version
         .asset_index
         .as_ref()
@@ -180,11 +321,23 @@ fn values(
         .with("assets_index_name", assets_index)
         .with("version_name", version.id.clone())
         .with("version_type", version.kind.clone())
+}
+
+fn account_values(mut values: Values, session: &Session) -> Values {
+    values.omit("clientid");
+    if let Some(xuid) = &session.xuid {
+        values = values.with("auth_xuid", xuid.clone());
+    } else {
+        values.omit("auth_xuid");
+    }
+    values
         .with("auth_player_name", session.player_name.clone())
         .with("auth_uuid", session.uuid.clone())
         .with("auth_access_token", session.access_token.clone())
-        .with("auth_session", session.access_token.clone())
-        .with("user_type", session.user_type.clone())
+        .with("access_token", session.access_token.clone())
+        .with("accessToken", session.access_token.clone())
+        .with("auth_session", session.legacy_session())
+        .with("user_type", session.user_type)
         .with("user_properties", "{}")
 }
 

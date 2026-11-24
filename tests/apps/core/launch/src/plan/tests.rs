@@ -95,6 +95,7 @@ fn sample_arguments() -> Arguments {
             Argument::Conditional {
                 rules: vec![crate::version::Rule {
                     action: "allow".into(),
+                    features: std::collections::BTreeMap::new(),
                     os: Some(crate::version::OsRule {
                         name: Some("osx".into()),
                         arch: None,

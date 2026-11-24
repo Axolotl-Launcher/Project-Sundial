@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use super::*;
+
+#[path = "account_tests.rs"]
+mod account_tests;
 use crate::SystemJava;
 use axlauncher_spi::LaunchCommand;
 use std::fs;
@@ -59,6 +62,13 @@ const VERSION_JSON: &str = r#"{
     "game": [
       "--username",
       "${auth_player_name}",
+      "--uuid",
+      "${auth_uuid}",
+      "--accessToken",
+      "${auth_access_token}",
+      "--legacy-session=${auth_session}",
+      "--userType",
+      "${user_type}",
       "--version",
       "${version_name}",
       "--gameDir",

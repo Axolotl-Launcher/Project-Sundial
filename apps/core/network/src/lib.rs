@@ -9,6 +9,7 @@ use axlauncher_spi::{
     ByteRange, DownloadBody, DownloadProtocol, DownloadResponse, FetchError, Network,
 };
 
+pub mod auth;
 mod dns;
 mod transfer;
 

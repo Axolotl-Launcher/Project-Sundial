@@ -90,6 +90,7 @@ fn applicable_arguments_are_substituted_and_ordered() {
             Argument::Conditional {
                 rules: vec![crate::version::Rule {
                     action: "allow".into(),
+                    features: std::collections::BTreeMap::new(),
                     os: Some(crate::version::OsRule {
                         name: Some("osx".into()),
                         arch: None,

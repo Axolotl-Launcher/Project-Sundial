@@ -25,6 +25,7 @@ fn artifact(path: &str) -> Artifact {
 fn allow(os: &str) -> Vec<Rule> {
     vec![Rule {
         action: "allow".into(),
+        features: std::collections::BTreeMap::new(),
         os: Some(OsRule {
             name: Some(os.into()),
             arch: None,

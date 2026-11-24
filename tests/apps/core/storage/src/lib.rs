@@ -26,6 +26,16 @@ impl Drop for TempDir {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn console_output_refuses_a_redirected_logs_directory() {
+    let instance = TempDir::new();
+    let other = TempDir::new();
+    std::os::unix::fs::symlink(&other.0, instance.0.join("logs")).unwrap();
+    assert!(open_instance_console_log(&instance.0).is_err());
+    assert_eq!(fs::read_dir(&other.0).unwrap().count(), 0);
+}
+
 #[test]
 fn write_atomic_replaces_the_target_and_leaves_no_temporary() {
     let directory = TempDir::new();

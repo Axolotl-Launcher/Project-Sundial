@@ -12,11 +12,16 @@ use axlauncher_spi::{Storage, StorageError};
 
 mod atomic_file;
 pub use atomic_file::AtomicFile;
+mod credentials;
+pub use credentials::SystemCredentials;
 
 /// Opens an existing file for sequential verification.
 pub fn open_for_read(path: &Path) -> io::Result<fs::File> {
     fs::File::open(path)
 }
+
+mod console_log;
+pub use console_log::open_instance_console_log;
 
 /// The launcher's on-disk root and the directories under it.
 ///
@@ -139,6 +144,29 @@ impl DataDir {
     /// The settings document.
     pub fn settings(&self) -> PathBuf {
         self.root.join("settings.json")
+    }
+
+    /// The document holding Minecraft account identities and the selection.
+    pub fn accounts(&self) -> PathBuf {
+        self.root.join("accounts.json")
+    }
+
+    /// The managed Java authentication agent for third-party accounts.
+    pub fn auth_agent(&self) -> PathBuf {
+        self.meta().join("authlib-injector-1.2.8.jar")
+    }
+
+    /// Locks account document updates across launcher processes until the file is dropped.
+    pub fn lock_accounts(&self) -> io::Result<fs::File> {
+        fs::create_dir_all(&self.root)?;
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(self.root.join("accounts.lock"))?;
+        file.lock()?;
+        Ok(file)
     }
 
     /// The document holding the chosen and discovered Java runtimes.

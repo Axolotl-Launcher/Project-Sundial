@@ -25,6 +25,7 @@ struct ActionState<'a> {
     install: Option<Option<&'a Installation>>,
     launch: Option<&'a Launch>,
     launchable: bool,
+    account_pending: bool,
     /// Whether this profile recorded its own version id. A shared install slot
     /// can be Complete from another profile, and this one still needs the
     /// button that would produce its id.
@@ -41,6 +42,7 @@ pub(crate) fn row(
     selected: bool,
     installations: Option<&HashMap<String, Installation>>,
     launch: Option<&(String, Launch)>,
+    account_pending: bool,
     muted: Hsla,
     cx: &mut Context<'_, RootView>,
 ) -> impl IntoElement + use<> {
@@ -72,6 +74,7 @@ pub(crate) fn row(
                     install,
                     launch,
                     launchable: version.is_some(),
+                    account_pending,
                     recorded: game.version_id.is_some(),
                 },
                 muted,
@@ -153,6 +156,7 @@ fn instance_actions(
         install,
         launch,
         launchable,
+        account_pending,
         recorded,
     } = state;
     let slot = install.flatten();
@@ -183,7 +187,7 @@ fn instance_actions(
         .h_flex()
         .gap_2()
         .children(install_button)
-        .children(launchable.then(|| launch_button(&directory, busy, cx)));
+        .children(launchable.then(|| launch_button(&directory, busy || account_pending, cx)));
     div()
         .v_flex()
         .gap_1()

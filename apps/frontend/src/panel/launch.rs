@@ -3,10 +3,11 @@
 
 //! Read-only version and launch diagnostics for the selected profile.
 
-use axlauncher_core::launch::{LaunchCommand, LaunchRequest, flow};
+use std::path::Path;
+
+use axlauncher_core::launch::{LaunchCommand, LaunchRequest, flow, plan::Session};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{Context, Task};
-use std::path::Path;
 
 use super::{RootView, profile_version};
 
@@ -39,7 +40,9 @@ impl RootView {
         let Some(data_root) = self.root.clone() else {
             return;
         };
-        let task = cx.background_spawn(async move { inspect(&request, preview, &data_root) });
+        let session = preview.then(|| self.preview_session(cx));
+        let task =
+            cx.background_spawn(async move { inspect(&request, session.as_ref(), &data_root) });
         self.inspection.output = None;
         self.inspection.task = Some(cx.spawn(async move |view, cx| {
             let output = task.await;
@@ -55,10 +58,14 @@ impl RootView {
     }
 }
 
-fn inspect(request: &LaunchRequest, preview: bool, data_root: &Path) -> Result<Output, String> {
+fn inspect(
+    request: &LaunchRequest,
+    session: Option<&Session>,
+    data_root: &Path,
+) -> Result<Output, String> {
     let java = crate::java::managed(data_root);
-    if preview {
-        return flow::preview(&java, request)
+    if let Some(session) = session {
+        return flow::preview_with_session(&java, request, session)
             .map(Output::Command)
             .map_err(|error| error.to_string());
     }

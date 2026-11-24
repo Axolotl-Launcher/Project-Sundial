@@ -26,6 +26,7 @@ const LAUNCHER_NAME: &str = "Axolotl Launcher";
 
 /// The launcher version the game is told about.
 const LAUNCHER_VERSION: &str = env!("CARGO_PKG_VERSION");
+const LEGACY_JAVA: u32 = 8;
 
 /// Everything a launch needs from its caller.
 #[derive(Debug, Clone)]
@@ -45,7 +46,7 @@ pub struct LaunchRequest {
 /// What a completed launch produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchOutcome {
-    /// The command the launcher was given.
+    /// The command the launcher was given, with account tokens redacted.
     pub command: LaunchCommand,
     /// How many native files were unpacked.
     pub natives: usize,
@@ -184,28 +185,56 @@ pub async fn launch(
     launcher: &impl Launcher,
     request: LaunchRequest,
 ) -> Result<LaunchOutcome, FlowError> {
+    let session = Session::offline(request.player_name.clone());
+    launch_with_session(java, launcher, request, &session).await
+}
+
+/// Starts Minecraft with a session already resolved by the caller.
+pub async fn launch_with_session(
+    java: &impl Java,
+    launcher: &impl Launcher,
+    request: LaunchRequest,
+    session: &Session,
+) -> Result<LaunchOutcome, FlowError> {
     let target = Target::host();
     let (version, _) = load_version(&request)?;
     let executable = java_executable(java, &version, &request)?;
     let natives = unpack_natives(&request, &version, &target)?;
-    let command = assemble(&executable, &version, &request, &target)?;
+    let mut command = assemble(&executable, &version, &request, session, &target)?;
 
     launcher
-        .launch(command.clone())
+        .launch_redacting(command.clone(), session.console_secret())
         .await
         .map_err(|source| FlowError::Launch {
             program: executable,
             source,
         })?;
 
+    session.redact_command(&mut command);
     Ok(LaunchOutcome { command, natives })
 }
 
 /// Builds the command without extracting natives or launching the game.
 pub fn preview(java: &impl Java, request: &LaunchRequest) -> Result<LaunchCommand, FlowError> {
+    let session = Session::offline(request.player_name.clone());
+    preview_with_session(java, request, &session)
+}
+
+/// Builds a diagnostic command with any Minecraft access token redacted.
+pub fn preview_with_session(
+    java: &impl Java,
+    request: &LaunchRequest,
+    session: &Session,
+) -> Result<LaunchCommand, FlowError> {
     let (version, _) = load_version(request)?;
     let executable = java_executable(java, &version, request)?;
-    assemble(&executable, &version, request, &Target::host())
+    assemble(
+        &executable,
+        &version,
+        request,
+        &session.redacted(),
+        &Target::host(),
+    )
 }
 
 /// Inspects the local version even when its matching Java runtime is unavailable.
@@ -242,9 +271,8 @@ fn load_version(request: &LaunchRequest) -> Result<(Version, Option<String>), Fl
 /// The Java executable the game runs on, if this system offers one.
 ///
 /// The version document states the major version its classes were built for. A
-/// document without that field asks for nothing in particular, which is what
-/// every manifest written before 1.17 does; those run on the launcher's default
-/// runtime.
+/// document with flat arguments and no Java requirement prefers Java 8 when it
+/// is installed. An explicit runtime choice still takes precedence.
 fn java_executable(
     java: &impl Java,
     version: &Version,
@@ -253,6 +281,12 @@ fn java_executable(
     let preferred = request.java_preference.as_deref();
 
     let Some(required) = version.java_version.as_ref().map(|java| java.major) else {
+        if preferred.is_none()
+            && version.minecraft_arguments.is_some()
+            && let Some(legacy) = java.executable_for(LEGACY_JAVA, JavaMode::Windowed)
+        {
+            return Ok(legacy);
+        }
         return java
             .executable(preferred, JavaMode::Windowed)
             .ok_or_else(|| FlowError::NoJava {
@@ -303,6 +337,7 @@ fn assemble(
     executable: &Path,
     version: &Version,
     request: &LaunchRequest,
+    session: &Session,
     target: &Target,
 ) -> Result<LaunchCommand, FlowError> {
     let layout = Layout {
@@ -312,9 +347,7 @@ fn assemble(
         launcher_name: LAUNCHER_NAME.to_owned(),
         launcher_version: LAUNCHER_VERSION.to_owned(),
     };
-    let session = Session::offline(request.player_name.clone());
-
-    plan::build(executable, version, &layout, &session, target)
+    plan::build(executable, version, &layout, session, target)
         .map_err(|source| FlowError::Plan { source })
 }
 

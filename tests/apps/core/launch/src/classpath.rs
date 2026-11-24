@@ -27,6 +27,7 @@ fn library(name: &str, path: &str, os: Option<&str>) -> Library {
         rules: os.map(|name| {
             vec![Rule {
                 action: "allow".into(),
+                features: std::collections::BTreeMap::new(),
                 os: Some(OsRule {
                     name: Some(name.into()),
                     arch: None,

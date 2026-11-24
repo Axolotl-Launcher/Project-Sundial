@@ -8,6 +8,7 @@
 //! Applications depend on `axlauncher_core` and never on a system directly.
 
 pub mod desktop;
+pub mod launch_accounts;
 
 pub use axlauncher_content as content;
 pub use axlauncher_domain as domain;

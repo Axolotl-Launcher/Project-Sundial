@@ -30,6 +30,8 @@ axlauncher_spi = { workspace = true }
 axlauncher_state = { workspace = true }
 axlauncher_storage = { workspace = true }
 axlauncher_telemetry = { workspace = true }
+base64 = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
 
 [lints]
 workspace = true

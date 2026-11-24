@@ -69,6 +69,10 @@ pub fn allows(rules: Option<&[Rule]>, target: &Target) -> bool {
 }
 
 fn matches(rule: &Rule, target: &Target) -> bool {
+    // No optional manifest features are enabled by the current launch flow.
+    if rule.features.values().any(|enabled| *enabled) {
+        return false;
+    }
     let Some(os) = &rule.os else {
         return true;
     };

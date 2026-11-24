@@ -42,7 +42,7 @@ impl RootView {
                             .child(
                                 Button::new("launch-preview")
                                     .label("Preview command")
-                                    .disabled(disabled)
+                                    .disabled(disabled || self.account_selection_pending())
                                     .on_click(
                                         cx.listener(|view, _, _, cx| view.inspect_launch(true, cx)),
                                     ),

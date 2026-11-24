@@ -15,7 +15,7 @@ axlauncher_core = { workspace = true }
 axlauncher_ui = { workspace = true }
 dirs = { workspace = true }
 futures = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

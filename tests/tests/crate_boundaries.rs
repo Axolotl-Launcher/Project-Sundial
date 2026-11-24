@@ -109,6 +109,7 @@ fn production_dependencies_respect_crate_boundaries() {
         {
             let allowed = match dependency.name.as_str() {
                 "reqwest" => package.name == "axlauncher_network",
+                "keyring" => package.name == "axlauncher_storage",
                 "gpui-kit" => package.name == "axlauncher_ui",
                 name => directories
                     .get(name)

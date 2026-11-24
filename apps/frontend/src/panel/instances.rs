@@ -203,25 +203,29 @@ impl RootView {
                         },
                     )
                     .child(self.creation_form(cx))
-                    .when(!profiles.instances.is_empty(), |column| {
-                        column.child(
-                            h_flex()
-                                .gap_3()
-                                .child(Label::new("Offline player name").text_sm())
-                                .child(
-                                    Input::new(&self.player_input)
-                                        .id("offline-player-name")
-                                        .aria_label("Offline player name")
-                                        .w_48(),
-                                ),
-                        )
-                    })
+                    .when(
+                        !profiles.instances.is_empty() && self.accounts.selected().is_none(),
+                        |column| {
+                            column.child(
+                                h_flex()
+                                    .gap_3()
+                                    .child(Label::new("Offline player name").text_sm())
+                                    .child(
+                                        Input::new(&self.player_input)
+                                            .id("offline-player-name")
+                                            .aria_label("Offline player name")
+                                            .w_48(),
+                                    ),
+                            )
+                        },
+                    )
                     .children(profiles.instances.iter().map(|entry| {
                         instance_row::row(
                             entry,
                             self.instances.selected.as_ref() == Some(&entry.directory),
                             installations,
                             self.launches.get(&entry.directory),
+                            self.account_selection_pending(),
                             muted,
                             cx,
                         )
