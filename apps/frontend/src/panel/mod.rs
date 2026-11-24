@@ -72,8 +72,7 @@ impl RootView {
         let new_name = cx.new(|cx| InputState::new(window, cx).placeholder("New profile name"));
         let new_minecraft =
             cx.new(|cx| InputState::new(window, cx).placeholder("Minecraft, e.g. 1.21.11"));
-        let new_loader =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Loader: fabric or quilt"));
+        let new_loader = cx.new(|cx| InputState::new(window, cx).placeholder("e.g. legacy-fabric"));
         let new_loader_version =
             cx.new(|cx| InputState::new(window, cx).placeholder("Loader version (optional)"));
         cx.subscribe(&player_input, Self::player_changed).detach();

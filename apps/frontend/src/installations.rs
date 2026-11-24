@@ -153,7 +153,13 @@ pub(crate) fn supported_loader(kind: &str) -> bool {
     is_vanilla(kind)
         || matches!(
             LoaderKind::parse(kind),
-            Some(LoaderKind::Fabric | LoaderKind::Quilt | LoaderKind::Forge | LoaderKind::NeoForge)
+            Some(
+                LoaderKind::Fabric
+                    | LoaderKind::LegacyFabric
+                    | LoaderKind::Quilt
+                    | LoaderKind::Forge
+                    | LoaderKind::NeoForge
+            )
         )
 }
 
@@ -287,36 +293,13 @@ async fn run_provider(
     concurrency: usize,
     progress: &watch::Sender<Progress>,
 ) -> Result<loader_install::LoaderInstalled, loader_install::LoaderInstallError> {
-    match kind {
-        LoaderKind::Fabric => {
-            let api = LoaderApi::fabric(network.clone());
-            install_with(
-                network,
-                java,
-                &api,
-                game_root,
-                request,
-                concurrency,
-                progress,
-            )
-            .await
-        }
-        LoaderKind::Quilt => {
-            let api = LoaderApi::quilt(network.clone());
-            install_with(
-                network,
-                java,
-                &api,
-                game_root,
-                request,
-                concurrency,
-                progress,
-            )
-            .await
-        }
+    let api = match kind {
+        LoaderKind::Fabric => LoaderApi::fabric(network.clone()),
+        LoaderKind::LegacyFabric => LoaderApi::legacy_fabric(network.clone()),
+        LoaderKind::Quilt => LoaderApi::quilt(network.clone()),
         LoaderKind::Forge => {
             let api = ForgeApi::new(network.clone());
-            install_with(
+            return install_with(
                 network,
                 java,
                 &api,
@@ -325,11 +308,11 @@ async fn run_provider(
                 concurrency,
                 progress,
             )
-            .await
+            .await;
         }
         LoaderKind::NeoForge => {
             let api = NeoForgeApi::new(network.clone());
-            install_with(
+            return install_with(
                 network,
                 java,
                 &api,
@@ -338,12 +321,24 @@ async fn run_provider(
                 concurrency,
                 progress,
             )
-            .await
+            .await;
         }
-        other => Err(loader_install::LoaderInstallError::Vanilla(format!(
-            "No provider for loader {other} is wired yet."
-        ))),
-    }
+        other => {
+            return Err(loader_install::LoaderInstallError::Vanilla(format!(
+                "No provider for loader {other} is wired yet."
+            )));
+        }
+    };
+    install_with(
+        network,
+        java,
+        &api,
+        game_root,
+        request,
+        concurrency,
+        progress,
+    )
+    .await
 }
 
 async fn install_with(

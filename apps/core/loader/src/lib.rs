@@ -31,6 +31,9 @@ pub use neoforge::NeoForgeApi;
 /// written for.
 const FABRIC_META: &str = "https://meta.fabricmc.net/v2";
 
+/// Legacy Fabric's separate catalog for older Minecraft releases.
+const LEGACY_FABRIC_META: &str = "https://meta.legacyfabric.net/v2";
+
 /// Quilt's metadata service, whose scheme matches Fabric's.
 const QUILT_META: &str = "https://meta.quiltmc.org/v3";
 
@@ -53,6 +56,15 @@ impl<N: Network> LoaderApi<N> {
             network,
             kind: LoaderKind::Fabric,
             base: FABRIC_META,
+        }
+    }
+
+    /// Legacy Fabric's Minecraft versions and launch profiles.
+    pub fn legacy_fabric(network: N) -> Self {
+        Self {
+            network,
+            kind: LoaderKind::LegacyFabric,
+            base: LEGACY_FABRIC_META,
         }
     }
 
@@ -194,9 +206,21 @@ impl<N: Network> ModLoader for LoaderApi<N> {
             });
         }
 
+        let (version_id, document) = if self.kind == LoaderKind::LegacyFabric {
+            // The upstream id uses the same prefix as regular Fabric.
+            (
+                format!("legacy-{}", head.id),
+                library::fill_native_classifiers(self.kind, bytes)?,
+            )
+        } else {
+            (
+                format!("{}-{}", request.game_version, chosen.version),
+                bytes,
+            )
+        };
         Ok(LoaderProfile {
-            version_id: format!("{}-{}", request.game_version, chosen.version),
-            document: bytes,
+            version_id,
+            document,
             files: Vec::new(),
         })
     }

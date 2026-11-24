@@ -155,7 +155,7 @@ impl RootView {
             .child(
                 Input::new(&self.new_loader)
                     .id("new-profile-loader")
-                    .aria_label("Loader kind: fabric, quilt, or empty")
+                    .aria_label("Optional loader. Fabric, legacy-fabric, Quilt, Forge, or NeoForge")
                     .w_32(),
             )
             .child(

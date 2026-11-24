@@ -7,6 +7,46 @@ use axlauncher_domain::maven;
 use axlauncher_spi::{LoaderError, LoaderKind};
 use serde_json::{Map, Value, json};
 
+pub(super) fn fill_native_classifiers(
+    kind: LoaderKind,
+    bytes: Vec<u8>,
+) -> Result<Vec<u8>, LoaderError> {
+    let mut document: Value =
+        serde_json::from_slice(&bytes).map_err(|error| LoaderError::Malformed {
+            loader: kind,
+            reason: format!("a profile that does not parse: {error}"),
+        })?;
+    let Some(libraries) = document.get_mut("libraries").and_then(Value::as_array_mut) else {
+        return Ok(bytes);
+    };
+    for library in libraries.iter_mut().filter_map(Value::as_object_mut) {
+        fill_library(kind, library)?;
+    }
+    serde_json::to_vec(&document).map_err(|error| LoaderError::Malformed {
+        loader: kind,
+        reason: format!("a profile that cannot be written: {error}"),
+    })
+}
+
+fn fill_library(kind: LoaderKind, library: &mut Map<String, Value>) -> Result<(), LoaderError> {
+    let (Some(name), Some(repository), Some(natives)) = (
+        library.get("name").and_then(Value::as_str),
+        library.get("url").and_then(Value::as_str),
+        library.get("natives").and_then(Value::as_object),
+    ) else {
+        return Ok(());
+    };
+    if library.contains_key("downloads") {
+        return Ok(());
+    }
+    let downloads = native_downloads(kind, name, repository, natives)?;
+    // Clearing the Maven root prevents a plain JAR download for a library
+    // that is published only with classifiers.
+    library.remove("url");
+    library.insert("downloads".into(), downloads);
+    Ok(())
+}
+
 pub(super) fn native_downloads(
     kind: LoaderKind,
     name: &str,
