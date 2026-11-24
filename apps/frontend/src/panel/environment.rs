@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use axlauncher_core::domain::normalize_game_language;
 use axlauncher_core::launch::{Java, JavaMode, SystemJava};
-use axlauncher_core::state::{SettingsOrigin, ThemeChoice, save_settings};
+use axlauncher_core::state::{SettingsOrigin, ThemeChoice, update_settings};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
@@ -304,25 +304,34 @@ impl RootView {
             cx.notify();
             return;
         };
-        let Some(settings) = self.settings.clone() else {
+        let Some(settings) = self.settings.as_ref() else {
             self.environment.error = Some("Settings could not be loaded.".to_string());
             cx.notify();
             return;
         };
 
         let raw_language = self.environment.game_language.read(cx).value();
-        let Some(language) = normalize_game_language(&raw_language) else {
+        let language_changed = raw_language.trim() != settings.default_game_language;
+        let language = normalize_game_language(&raw_language);
+        if language_changed && language.is_none() {
             self.environment.error = Some("Enter a Minecraft language code such as zh_cn, or leave it empty to follow the launcher.".into());
             self.environment.notice = None;
             cx.notify();
             return;
-        };
-        let mut data = settings;
-        data.theme = self.theme;
-        data.default_game_language = language.clone();
-        match save_settings(&root, &data) {
-            Ok(()) => {
-                self.environment.set_game_language(language, window, cx);
+        }
+        let theme = (settings.theme != self.theme).then_some(self.theme);
+        let language = language.filter(|_| language_changed);
+        let saved = update_settings(&root, |data| {
+            data.theme = theme.unwrap_or(data.theme);
+            data.default_game_language =
+                language.unwrap_or_else(|| std::mem::take(&mut data.default_game_language));
+        });
+        match saved {
+            Ok(data) => {
+                self.environment
+                    .set_game_language(data.default_game_language.clone(), window, cx);
+                self.theme = data.theme;
+                palette_for(self.theme).apply(cx);
                 self.settings = Some(data);
                 self.origin = Some(SettingsOrigin::Stored);
                 self.environment.notice = Some("Settings saved.".to_string());

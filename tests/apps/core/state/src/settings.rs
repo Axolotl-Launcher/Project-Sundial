@@ -4,6 +4,29 @@
 use super::*;
 use crate::test_support::TempRoot;
 
+#[test]
+fn concurrent_updates_keep_both_language_and_theme() {
+    let temp = TempRoot::new();
+    let root = temp.path();
+    load_settings(root).unwrap();
+    let start = std::sync::Barrier::new(2);
+    let language = |settings: &mut SettingsData| settings.default_game_language = "zh_cn".into();
+    let theme = |settings: &mut SettingsData| settings.theme = ThemeChoice::Light;
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            start.wait();
+            update_settings(root, theme).unwrap();
+        });
+        scope.spawn(|| {
+            start.wait();
+            update_settings(root, language).unwrap();
+        });
+    });
+    let saved = load_settings(root).unwrap().data;
+    assert_eq!(saved.theme, ThemeChoice::Light);
+    assert_eq!(saved.default_game_language, "zh_cn");
+}
+
 fn seed(root: &Path, contents: &str) -> PathBuf {
     let path = root.join(SETTINGS_FILE);
     fs::write(&path, contents).expect("seed");

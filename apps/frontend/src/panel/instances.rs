@@ -131,16 +131,18 @@ impl RootView {
         let language = self
             .settings
             .as_ref()
-            .map(|settings| settings.default_game_language.trim())
+            .and_then(|settings| {
+                axlauncher_core::domain::normalize_game_language(&settings.default_game_language)
+            })
             .filter(|language| !language.is_empty())
-            .unwrap_or(super::environment::LAUNCHER_LANGUAGE);
+            .unwrap_or_else(|| super::environment::LAUNCHER_LANGUAGE.to_owned());
         Some(LaunchRequest {
             game_root: DataDir::new(self.root.as_ref()?).meta(),
             instance_directory: entry.directory.clone(),
             version_id: version.to_owned(),
             java_preference: None,
             player_name,
-            game_language: Some(GameLanguage::new(&game.minecraft, language)),
+            game_language: Some(GameLanguage::new(&game.minecraft, &language)),
         })
     }
 

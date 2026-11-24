@@ -63,19 +63,39 @@ fn an_existing_world_keeps_its_language_and_unrelated_options() {
 }
 
 #[test]
-fn an_imported_options_file_without_saves_uses_the_preferred_language() {
+fn a_language_selected_without_saves_survives_repeated_launches() {
     let fixture = Fixture::new();
     base_version(&fixture, "2018-07-18T15:11:44+00:00");
     let java = FakeJava::found(fixture.java());
     let mut request = fixture.request();
     request.game_language = Some(GameLanguage::new("base", "en_us"));
+    finish(launch(
+        &java,
+        &CheckOptions("lang:en_us\n"),
+        request.clone(),
+    ))
+    .unwrap();
     write_file(
         &request.instance_directory.join("options.txt"),
         b"lang:zh_cn\nforceUnicodeFont:true\nfullscreen:false",
     );
 
-    let expected = "lang:en_us\nforceUnicodeFont:false\nfullscreen:false";
+    let expected = "lang:zh_cn\nforceUnicodeFont:true\nfullscreen:false";
+    finish(launch(&java, &CheckOptions(expected), request.clone())).unwrap();
     finish(launch(&java, &CheckOptions(expected), request)).unwrap();
+}
+
+#[test]
+fn a_malformed_language_preference_does_not_block_launch() {
+    let fixture = Fixture::new();
+    base_version(&fixture, "2016-08-10T12:30:10+00:00");
+    let java = FakeJava::found(fixture.java());
+    let mut request = fixture.request();
+    request.game_language = Some(GameLanguage::new("base", "invalid:code"));
+    let launcher = Recorder::default();
+
+    finish(launch(&java, &launcher, request)).unwrap();
+    assert_eq!(launcher.commands().len(), 1);
 }
 
 #[test]

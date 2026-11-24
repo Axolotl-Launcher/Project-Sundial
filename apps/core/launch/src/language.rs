@@ -23,10 +23,10 @@ pub struct GameLanguage {
 }
 
 impl GameLanguage {
-    pub fn new(minecraft: impl Into<String>, preferred: impl Into<String>) -> Self {
+    pub fn new(minecraft: impl Into<String>, preferred: &str) -> Self {
         Self {
             minecraft: minecraft.into(),
-            preferred: preferred.into(),
+            preferred: normalize_game_language(preferred).unwrap_or_default(),
         }
     }
 
@@ -43,18 +43,11 @@ impl GameLanguage {
         if date < FIRST_LANGUAGE_SELECTION {
             return Ok(());
         }
-        let preferred = normalize_game_language(&self.preferred).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "invalid Minecraft language code",
-            )
-        })?;
-        if preferred.is_empty() {
+        if self.preferred.is_empty() {
             return Ok(());
         }
         let input = read_options(path)?;
-        let has_saves = path.with_file_name("saves").try_exists()?;
-        let output = configure(&input, &preferred, date < LOWERCASE_REGIONS, has_saves);
+        let output = configure(&input, &self.preferred, date < LOWERCASE_REGIONS);
         if output == input {
             return Ok(());
         }
@@ -74,21 +67,14 @@ fn read_options(path: &Path) -> io::Result<String> {
     }
 }
 
-fn configure(input: &str, preferred: &str, uppercase_region: bool, has_saves: bool) -> String {
+fn configure(input: &str, preferred: &str, uppercase_region: bool) -> String {
     let contents = input.strip_prefix('\u{feff}').unwrap_or(input);
     let previous = option(contents, LANG);
-    let fresh = previous.is_none() || !has_saves;
-    let language = if fresh {
-        preferred.to_owned()
-    } else {
-        let Some(language) = previous.and_then(normalize_game_language) else {
-            return input.to_owned();
-        };
-        language
-    };
-    if language.is_empty() {
-        return input.to_owned();
-    }
+    let existing = previous
+        .and_then(normalize_game_language)
+        .filter(|code| !code.is_empty());
+    let fresh = existing.is_none();
+    let language = existing.unwrap_or_else(|| preferred.to_owned());
 
     let language = match language.split_once('_') {
         Some((code, region)) if uppercase_region => {

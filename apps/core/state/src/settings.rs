@@ -188,13 +188,14 @@ impl std::error::Error for SettingsError {
 /// document from another schema is read as defaults and left as it is: it
 /// belongs to another build, and rewriting it would destroy that build's data.
 pub fn load_settings(root: &Path) -> Result<LoadedSettings, SettingsError> {
+    let _guard = lock_settings(root)?;
     let path = root.join(SETTINGS_FILE);
 
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             let data = SettingsData::default();
-            save_settings(root, &data)?;
+            write_settings(&path, &data)?;
             return Ok(LoadedSettings {
                 data,
                 origin: SettingsOrigin::Created,
@@ -205,7 +206,7 @@ pub fn load_settings(root: &Path) -> Result<LoadedSettings, SettingsError> {
 
     let document = match serde_json::from_slice::<SettingsDocument>(&bytes) {
         Ok(document) => document,
-        Err(_) => return quarantine(root, path),
+        Err(_) => return quarantine(path),
     };
 
     if document.schema_version != SETTINGS_SCHEMA_VERSION {
@@ -223,7 +224,7 @@ pub fn load_settings(root: &Path) -> Result<LoadedSettings, SettingsError> {
     })
 }
 
-fn quarantine(root: &Path, path: PathBuf) -> Result<LoadedSettings, SettingsError> {
+fn quarantine(path: PathBuf) -> Result<LoadedSettings, SettingsError> {
     let invalid = path.with_file_name(format!("{SETTINGS_FILE}.invalid"));
     fs::rename(&path, &invalid).map_err(|source| SettingsError::Quarantine {
         path: path.clone(),
@@ -231,7 +232,7 @@ fn quarantine(root: &Path, path: PathBuf) -> Result<LoadedSettings, SettingsErro
     })?;
 
     let data = SettingsData::default();
-    save_settings(root, &data)?;
+    write_settings(&path, &data)?;
     Ok(LoadedSettings {
         data,
         origin: SettingsOrigin::Quarantined { path: invalid },
@@ -240,26 +241,69 @@ fn quarantine(root: &Path, path: PathBuf) -> Result<LoadedSettings, SettingsErro
 
 /// Writes `data`, refusing to replace a document this build does not own.
 pub fn save_settings(root: &Path, data: &SettingsData) -> Result<(), SettingsError> {
-    let path = root.join(SETTINGS_FILE);
+    update_settings(root, |current| current.clone_from(data)).map(|_| ())
+}
 
+/// A settings update sees the latest document while holding the writer lock.
+pub fn update_settings(
+    root: &Path,
+    update: impl FnOnce(&mut SettingsData),
+) -> Result<SettingsData, SettingsError> {
+    let _guard = lock_settings(root)?;
+    let path = root.join(SETTINGS_FILE);
     let existing = document::inspect(&path).map_err(|source| SettingsError::Read {
         path: path.clone(),
         source,
     })?;
-    match existing {
-        Existing::Missing | Existing::Schema(SETTINGS_SCHEMA_VERSION) => {}
+    let mut data = match existing {
+        Existing::Missing => SettingsData::default(),
+        Existing::Schema(SETTINGS_SCHEMA_VERSION) => {
+            let bytes = fs::read(&path).map_err(|source| SettingsError::Read {
+                path: path.clone(),
+                source,
+            })?;
+            serde_json::from_slice::<SettingsDocument>(&bytes)
+                .map_err(|_| SettingsError::RefusedUnreadable { path: path.clone() })?
+                .data
+        }
         Existing::Schema(found) => {
             return Err(SettingsError::RefusedSchema { path, found });
         }
         Existing::Unreadable => return Err(SettingsError::RefusedUnreadable { path }),
-    }
+    };
+    update(&mut data);
+    write_settings(&path, &data)?;
+    Ok(data)
+}
 
+fn write_settings(path: &Path, data: &SettingsData) -> Result<(), SettingsError> {
     let document = SettingsDocument {
         schema_version: SETTINGS_SCHEMA_VERSION,
         data: data.clone(),
     };
     let bytes = serde_json::to_vec_pretty(&document).expect("settings document serializes");
-    write_atomic(&path, &bytes).map_err(|source| SettingsError::Write { path, source })
+    write_atomic(path, &bytes).map_err(|source| SettingsError::Write {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn lock_settings(root: &Path) -> Result<fs::File, SettingsError> {
+    let path = root.join("settings.lock");
+    let failure = |source| SettingsError::Write {
+        path: path.clone(),
+        source,
+    };
+    fs::create_dir_all(root).map_err(failure)?;
+    let lock = fs::File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .map_err(failure)?;
+    lock.lock().map_err(failure)?;
+    Ok(lock)
 }
 
 #[cfg(test)]
