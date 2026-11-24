@@ -32,6 +32,7 @@ fn sample_library() -> crate::version::Library {
             artifact: Some(crate::version::Artifact {
                 path: "org/example/lib/1.0/lib-1.0.jar".into(),
                 sha1: None,
+                sha1_alternatives: Vec::new(),
                 size: None,
                 url: None,
             }),

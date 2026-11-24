@@ -17,6 +17,7 @@ fn artifact(path: &str) -> Artifact {
     Artifact {
         path: path.into(),
         sha1: None,
+        sha1_alternatives: Vec::new(),
         size: None,
         url: None,
     }

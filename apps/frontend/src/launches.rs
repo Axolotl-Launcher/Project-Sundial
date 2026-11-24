@@ -113,14 +113,6 @@ async fn run(
     sender: watch::Sender<bool>,
     resolved: oneshot::Sender<Arc<DesktopAccounts>>,
 ) -> Launch {
-    let check_files = if vanilla {
-        vanilla::check_files
-    } else {
-        loader::check_files
-    };
-    if let Err(error) = check_files(&request.game_root, &request.version_id, &Target::host()) {
-        return Launch::NeedsInstall(format!("Install game files to continue. {error}"));
-    }
     let session = match player {
         Player::Offline(session) => {
             drop(resolved);
@@ -135,7 +127,20 @@ async fn run(
             }
         }
     };
+    let lock = match vanilla::launch_lock(&request.game_root) {
+        Ok(lock) => std::sync::Mutex::new(Some(lock)),
+        Err(error) => return Launch::Failed(error),
+    };
+    let check_files = if vanilla {
+        vanilla::check_files
+    } else {
+        loader::check_files
+    };
+    if let Err(error) = check_files(&request.game_root, &request.version_id, &Target::host()) {
+        return Launch::NeedsInstall(format!("Install game files to continue. {error}"));
+    }
     let launcher = ProcessLauncher::reporting(move || {
+        drop(lock.lock().expect("launch guard").take());
         sender.send_replace(true);
     });
     match flow::launch_with_session(

@@ -95,6 +95,15 @@ pub fn missing_libraries(
     libraries: &[Library],
     target: &Target,
 ) -> Vec<MissingFile> {
+    missing_library_files(game_root, libraries, target, false)
+}
+
+pub(crate) fn missing_library_files(
+    game_root: &Path,
+    libraries: &[Library],
+    target: &Target,
+    include_local: bool,
+) -> Vec<MissingFile> {
     let root = game_root.join(LIBRARIES_DIR);
     let mut destinations = std::collections::HashSet::new();
     libraries
@@ -120,21 +129,40 @@ pub fn missing_libraries(
             // An artifact whose stated URL is empty is produced on this machine,
             // not downloaded: a loader's patched client jar is written there by
             // its processors. Planning a fetch for it would fail every install.
-            if artifact.url.as_deref() == Some("") {
+            if !include_local && artifact.url.as_deref() == Some("") {
                 return None;
             }
-            (needs_download(&path, artifact.size) && destinations.insert(path.clone())).then(|| {
+            (missing_artifact(&path, &artifact) && destinations.insert(path.clone())).then(|| {
                 MissingFile {
                     // An artifact without a URL stays in the plan, so the download
                     // reports it instead of the plan hiding it.
                     url: artifact.url.clone().unwrap_or_default(),
                     path,
                     sha1: artifact.sha1.clone(),
+                    sha1_alternatives: artifact.sha1_alternatives,
                     size: artifact.size,
                 }
             })
         })
         .collect()
+}
+
+fn missing_artifact(path: &Path, artifact: &Artifact) -> bool {
+    if needs_download(path, artifact.size) {
+        return true;
+    }
+    if artifact.sha1_alternatives.is_empty() {
+        return false;
+    }
+    !axlauncher_storage::open_for_read(path)
+        .and_then(|file| {
+            axlauncher_network::verify_reader_any(
+                file,
+                artifact.sha1.as_deref(),
+                &artifact.sha1_alternatives,
+            )
+        })
+        .unwrap_or(false)
 }
 
 /// The artifact's destination under `root`, or `None` when its stated path
@@ -172,6 +200,7 @@ pub fn client_jar(
         url: download.url.clone(),
         path,
         sha1: download.sha1.clone(),
+        sha1_alternatives: Vec::new(),
         size: download.size,
     })
 }
@@ -190,6 +219,7 @@ pub fn log_config(
         url: client.file.url.clone(),
         path,
         sha1: client.file.sha1.clone(),
+        sha1_alternatives: Vec::new(),
         size: client.file.size,
     })
 }
@@ -213,6 +243,7 @@ pub fn missing_assets(game_root: &Path, index: &AssetIndexDocument) -> Vec<Missi
                 url: format!("{ASSET_OBJECT_BASE}/{prefix}/{hash}"),
                 path,
                 sha1: Some(hash.clone()),
+                sha1_alternatives: Vec::new(),
                 size: Some(object.size),
             })
         })
@@ -224,7 +255,10 @@ pub fn missing_assets(game_root: &Path, index: &AssetIndexDocument) -> Vec<Missi
 /// A present file with no expected size counts as complete: there is nothing to
 /// compare against.
 fn needs_download(path: &Path, expected_size: Option<u64>) -> bool {
-    let existing = fs::metadata(path).map(|metadata| metadata.len()).ok();
+    let existing = fs::metadata(path)
+        .ok()
+        .filter(fs::Metadata::is_file)
+        .map(|metadata| metadata.len());
     match (existing, expected_size) {
         (None, _) => true,
         (Some(_), None) => false,

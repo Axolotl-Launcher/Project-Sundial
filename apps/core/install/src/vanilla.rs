@@ -74,22 +74,31 @@ fn check_id(id: &str) -> Result<(), String> {
 }
 
 pub(crate) fn installation_lock(game_root: &Path) -> Result<File, String> {
+    let lock = open_install_lock(game_root)?;
+    lock.try_lock()
+        .map_err(|error| format!("Cannot lock shared game files: {error}"))?;
+    Ok(lock)
+}
+
+/// A shared guard keeps an installation stable while Minecraft starts.
+pub fn launch_lock(game_root: &Path) -> Result<File, String> {
+    let lock = open_install_lock(game_root)?;
+    lock.try_lock_shared()
+        .map_err(|error| format!("Cannot lock shared game files for launch: {error}"))?;
+    Ok(lock)
+}
+
+fn open_install_lock(game_root: &Path) -> Result<File, String> {
     fs::create_dir_all(game_root)
         .map_err(|error| format!("Cannot create {}: {error}", game_root.display()))?;
     let path = game_root.join(".install.lock");
-    let lock = File::options()
+    File::options()
+        .read(true)
         .write(true)
         .create(true)
         .truncate(false)
         .open(&path)
-        .map_err(|error| format!("Cannot open {}: {error}", path.display()))?;
-    lock.try_lock().map_err(|error| {
-        format!(
-            "Cannot lock shared game files at {}: {error}",
-            path.display()
-        )
-    })?;
-    Ok(lock)
+        .map_err(|error| format!("Cannot open {}: {error}", path.display()))
 }
 
 pub(crate) async fn ensure_version(

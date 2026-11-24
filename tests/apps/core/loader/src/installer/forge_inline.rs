@@ -13,6 +13,10 @@ const UNIVERSAL_PATH: &str =
     "net/minecraftforge/minecraftforge/9.11.1.1345/minecraftforge-9.11.1.1345.jar";
 
 fn installer(coordinate: &str, parent: Option<&str>) -> Vec<u8> {
+    installer_from(coordinate, parent, "http://files.minecraftforge.net/maven/")
+}
+
+fn installer_from(coordinate: &str, parent: Option<&str>, repository: &str) -> Vec<u8> {
     let mut profile = json!({
         "install": {
             "minecraft": "1.6.4",
@@ -28,7 +32,7 @@ fn installer(coordinate: &str, parent: Option<&str>) -> Vec<u8> {
                 {"name": "net.minecraft:launchwrapper:1.8"},
                 {"name": "org.ow2.asm:asm-all:4.1"},
                 {"name": "jline:jline:2.13", "url": "http://files.minecraftforge.net/maven/"},
-                {"name": "net.minecraftforge:example:1", "url": "http://files.minecraftforge.net/maven/"},
+                {"name": "net.minecraftforge:example:1", "url": repository, "checksums": ["a9993e364706816aba3e25717850c26c9cd0d89d", "43ad1705f06e8b0d18583bd70a2f721ae9ec93a8", "invalid"]},
                 {"name": "org.lwjgl.lwjgl:lwjgl-platform:2.9.0", "natives": {"windows": "natives-windows-${arch}"}},
             ],
         },
@@ -92,6 +96,13 @@ fn an_inline_forge_profile_resolves_legacy_dependencies_and_natives() {
         url(4),
         "https://maven.minecraftforge.net/net/minecraftforge/example/1/example-1.jar"
     );
+    assert_eq!(
+        libraries[4]["downloads"]["artifact"]["sha1_alternatives"],
+        json!([
+            "a9993e364706816aba3e25717850c26c9cd0d89d",
+            "43ad1705f06e8b0d18583bd70a2f721ae9ec93a8"
+        ])
+    );
     let classifiers = &libraries[5]["downloads"]["classifiers"];
     assert_eq!(
         classifiers["natives-windows-64"]["path"],
@@ -99,6 +110,13 @@ fn an_inline_forge_profile_resolves_legacy_dependencies_and_natives() {
     );
     assert!(classifiers["natives-windows-32"]["url"].is_string());
     assert!(libraries[5]["downloads"].get("artifact").is_none());
+}
+
+#[test]
+fn legacy_forge_refuses_unmapped_plain_http_repositories() {
+    let bytes = installer_from(UNIVERSAL, None, "http://example.invalid/maven");
+    let error = parse(LoaderKind::Forge, &bytes, "1.6.4").unwrap_err();
+    assert!(error.to_string().contains("non-HTTPS"), "{error}");
 }
 
 #[test]

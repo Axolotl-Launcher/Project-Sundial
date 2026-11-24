@@ -16,7 +16,7 @@ use axlauncher_launch::version::{AssetIndex, Version};
 use axlauncher_network::verify;
 use axlauncher_spi::{FetchError, Network};
 
-use crate::assets::{AssetIndexDocument, missing_assets, missing_libraries};
+use crate::assets::{AssetIndexDocument, missing_assets};
 
 /// The phase and file counts a caller can display during installation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,6 +232,16 @@ pub fn outstanding(
     index: &AssetIndexDocument,
     target: &Target,
 ) -> Vec<MissingFile> {
+    missing_files(game_root, version, index, target, false)
+}
+
+fn missing_files(
+    game_root: &Path,
+    version: &Version,
+    index: &AssetIndexDocument,
+    target: &Target,
+    include_local: bool,
+) -> Vec<MissingFile> {
     let mut files: Vec<MissingFile> = [
         crate::assets::client_jar(game_root, version),
         crate::assets::log_config(game_root, version),
@@ -239,7 +249,12 @@ pub fn outstanding(
     .into_iter()
     .flatten()
     .collect();
-    files.extend(missing_libraries(game_root, &version.libraries, target));
+    files.extend(crate::assets::missing_library_files(
+        game_root,
+        &version.libraries,
+        target,
+        include_local,
+    ));
     files.extend(missing_assets(game_root, index));
     files
 }
@@ -251,7 +266,7 @@ pub(crate) fn check_local_files(
     target: &Target,
 ) -> Result<(), String> {
     let index = local_index(game_root, version.asset_index.as_ref())?;
-    let missing = outstanding(game_root, version, &index, target);
+    let missing = missing_files(game_root, version, &index, target, true);
     if let Some(file) = missing.first() {
         return Err(format!(
             "{} required game file(s) are missing or incomplete. First: {}",

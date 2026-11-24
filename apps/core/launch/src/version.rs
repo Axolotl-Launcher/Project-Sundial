@@ -304,6 +304,7 @@ impl Library {
             url: Some(format!("{}/{relative}", root.trim_end_matches('/'))),
             path: relative,
             sha1: None,
+            sha1_alternatives: Vec::new(),
             size: None,
         })
     }
@@ -367,6 +368,8 @@ pub struct Artifact {
     pub path: String,
     #[serde(default)]
     pub sha1: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sha1_alternatives: Vec<String>,
     #[serde(default)]
     pub size: Option<u64>,
     #[serde(default)]

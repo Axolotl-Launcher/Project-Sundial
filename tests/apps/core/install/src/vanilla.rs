@@ -91,6 +91,21 @@ fn a_manifest_with_the_wrong_hash_is_not_saved() {
 }
 
 #[test]
+fn simultaneous_launches_share_the_game_lock_and_exclude_installation() {
+    let root = crate::test_tempfile::tempdir().unwrap();
+    let first = launch_lock(root.path()).unwrap();
+    let second = launch_lock(root.path()).unwrap();
+    assert!(installation_lock(root.path()).is_err());
+    drop(first);
+    assert!(installation_lock(root.path()).is_err());
+    drop(second);
+    let install = installation_lock(root.path()).unwrap();
+    assert!(launch_lock(root.path()).is_err());
+    drop(install);
+    assert!(launch_lock(root.path()).is_ok());
+}
+
+#[test]
 fn offline_check_detects_a_missing_pre_1_6_resource_copy() {
     use crate::test_tempfile as tempfile;
 

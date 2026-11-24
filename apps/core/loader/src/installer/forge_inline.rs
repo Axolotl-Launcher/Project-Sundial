@@ -6,10 +6,8 @@
 use axlauncher_spi::{LoaderError, LoaderFile, LoaderKind, LoaderProfile};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
-use std::io::Cursor;
-use zip::ZipArchive;
 
-use super::{malformed, read_entry};
+use super::{InstallerArchive, malformed, read_entry};
 use crate::library;
 
 const FORGE: LoaderKind = LoaderKind::Forge;
@@ -33,7 +31,7 @@ struct UniversalJar {
 }
 
 pub(super) fn parse(
-    archive: &mut ZipArchive<Cursor<&[u8]>>,
+    archive: &mut InstallerArchive<'_>,
     document: &Value,
     game_version: &str,
 ) -> Result<LoaderProfile, LoaderError> {
@@ -102,10 +100,8 @@ fn normalise_libraries(
             *library = embedded
                 .take()
                 .ok_or_else(|| malformed(FORGE, "a repeated universal JAR library"))?;
-        } else if !fields.contains_key("downloads") {
-            let downloads = library_downloads(name, fields)?;
-            fields.remove("url");
-            fields.insert("downloads".into(), downloads);
+        } else {
+            prepare_library(name.to_owned(), fields)?;
         }
     }
     if let Some(embedded) = embedded {
@@ -114,12 +110,77 @@ fn normalise_libraries(
     Ok(())
 }
 
+fn prepare_library(name: String, fields: &mut Map<String, Value>) -> Result<(), LoaderError> {
+    let checksums = fields
+        .remove("checksums")
+        .and_then(|value| value.as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|hash| {
+            hash.as_str().is_some_and(|hash| {
+                hash.len() == 40 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut downloads = match fields.remove("downloads") {
+        Some(downloads) => downloads,
+        None => library_downloads(&name, fields)?,
+    };
+    let Some(downloads) = downloads.as_object_mut() else {
+        return Err(malformed(FORGE, "an invalid inline library download list"));
+    };
+    if let Some(artifact) = downloads.get_mut("artifact") {
+        prepare_artifact(artifact, &checksums)?;
+    }
+    if let Some(classifiers) = downloads
+        .get_mut("classifiers")
+        .and_then(Value::as_object_mut)
+    {
+        for artifact in classifiers.values_mut() {
+            prepare_artifact(artifact, &checksums)?;
+        }
+    }
+    fields.remove("url");
+    fields.insert("downloads".into(), json!(downloads));
+    Ok(())
+}
+
 fn library_downloads(name: &str, fields: &Map<String, Value>) -> Result<Value, LoaderError> {
     let repository = repository(name, fields.get("url").and_then(Value::as_str));
+    require_https(repository)?;
     let Some(natives) = fields.get("natives").and_then(Value::as_object) else {
         return Ok(json!({"artifact": library::artifact(FORGE, name, repository)?}));
     };
     library::native_downloads(FORGE, name, repository, natives)
+}
+
+fn prepare_artifact(artifact: &mut Value, checksums: &[Value]) -> Result<(), LoaderError> {
+    if let Some(url) = artifact
+        .get("url")
+        .and_then(Value::as_str)
+        .filter(|url| !url.is_empty())
+    {
+        require_https(url)?;
+        if artifact.get("sha1").and_then(Value::as_str).is_none() && !checksums.is_empty() {
+            artifact["sha1_alternatives"] = json!(checksums);
+        }
+    }
+    Ok(())
+}
+
+fn require_https(url: &str) -> Result<(), LoaderError> {
+    if url.strip_prefix("https://").is_some_and(|rest| {
+        !rest.is_empty()
+            && !rest.starts_with('/')
+            && !rest.contains('\\')
+            && !rest.chars().any(char::is_whitespace)
+    }) {
+        return Ok(());
+    }
+    Err(malformed(
+        FORGE,
+        "an inline library with a non-HTTPS download source",
+    ))
 }
 
 fn repository<'a>(name: &str, stated: Option<&'a str>) -> &'a str {

@@ -100,8 +100,9 @@ pub fn check_files(
     version_id: &str,
     target: &axlauncher_launch::Target,
 ) -> Result<(), String> {
-    let version = axlauncher_launch::version::load(&game_root.join("versions"), version_id)
-        .map_err(|error| error.to_string())?;
+    let version =
+        axlauncher_launch::version::load_resolved(&game_root.join("versions"), version_id)
+            .map_err(|error| error.to_string())?;
     crate::prepare::check_local_files(game_root, &version, target)
 }
 
@@ -353,27 +354,45 @@ impl<N: axlauncher_spi::Network, L: axlauncher_spi::ModLoader, J: axlauncher_spi
         .await
         .map_err(LoaderInstallError::Prepare)?;
 
-        // A step whose tool jar failed to download would fail as a missing
-        // class rather than the HTTP error that caused it, so the file failures
-        // are reported before any processor runs.
+        self.finish_install(&game_version, &version, &prepared)?;
+        Ok(LoaderInstalled {
+            version_id: placed.version_id,
+            prepared,
+        })
+    }
+
+    fn finish_install(
+        &self,
+        game_version: &str,
+        version: &Version,
+        prepared: &crate::prepare::Prepared,
+    ) -> Result<(), LoaderInstallError> {
+        // A missing tool JAR would mask the error that prevented its download.
         if let Some(failure) = prepared.failures.first() {
             return Err(LoaderInstallError::Incomplete {
                 failure: failure.clone(),
             });
         }
-
         run_processors(
             self.java,
             self.game_root,
-            &game_version,
-            &version,
+            game_version,
+            version,
             self.target,
         )?;
 
-        Ok(LoaderInstalled {
-            version_id: placed.version_id,
-            prepared,
-        })
+        let missing = crate::assets::missing_library_files(
+            self.game_root,
+            &version.libraries,
+            self.target,
+            true,
+        );
+        if let Some(file) = missing.first() {
+            return Err(LoaderInstallError::Incomplete {
+                failure: format!("{} is missing or incomplete", file.path.display()),
+            });
+        }
+        Ok(())
     }
 }
 
