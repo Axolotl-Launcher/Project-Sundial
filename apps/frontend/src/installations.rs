@@ -10,7 +10,8 @@ use axlauncher_core::install::{
     prepare::{Prepared, Progress},
     runtime, vanilla,
 };
-use axlauncher_core::launch::{SystemJava, Target};
+use axlauncher_core::launch::version::{self, Version};
+use axlauncher_core::launch::{Java, JavaMode, SystemJava, Target};
 use axlauncher_core::loader::{ForgeApi, LoaderApi, NeoForgeApi};
 use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::spi::{LoaderKind, LoaderRequest};
@@ -33,6 +34,7 @@ impl Installation {
             Self::Running(Progress::Version) => "Getting the version manifest".into(),
             Self::Running(Progress::Loader) => "Resolving the mod loader".into(),
             Self::Running(Progress::CheckingFiles) => "Checking local game files".into(),
+            Self::Running(Progress::Java) => "Getting the Java runtime".into(),
             Self::Running(Progress::Downloading { processed, total }) => {
                 format!("Processing downloads ({processed}/{total} files)")
             }
@@ -65,12 +67,19 @@ pub(crate) fn vanilla_version(game: &Game) -> Option<&str> {
     (id == game.minecraft).then_some(id)
 }
 
-pub(crate) fn start(root: PathBuf, id: String, concurrency: usize, cx: &mut Context<'_, RootView>) {
+pub(crate) fn start(
+    data_root: PathBuf,
+    root: PathBuf,
+    id: String,
+    concurrency: usize,
+    cx: &mut Context<'_, RootView>,
+) {
     let (progress, mut updates) = watch::channel(Progress::Version);
     let version = id.clone();
     let work_root = root.clone();
-    let task =
-        cx.background_spawn(async move { install(&work_root, &version, concurrency, progress) });
+    let task = cx.background_spawn(async move {
+        install(&data_root, &work_root, &version, concurrency, progress)
+    });
     cx.spawn(async move |view, cx| {
         display_progress(&mut updates, &view, cx, &root, &id).await;
         let result = task.await;
@@ -98,6 +107,7 @@ async fn display_progress(
 }
 
 fn install(
+    data_root: &Path,
     root: &Path,
     id: &str,
     concurrency: usize,
@@ -108,7 +118,9 @@ fn install(
         .enable_all()
         .build()
         .map_err(|error| error.to_string())
-        .and_then(|runtime| runtime.block_on(download(root, id, concurrency, &progress)));
+        .and_then(|runtime| {
+            runtime.block_on(download(data_root, root, id, concurrency, &progress))
+        });
 
     match result {
         Ok(prepared) if prepared.is_complete() => Installation::Complete,
@@ -118,13 +130,14 @@ fn install(
 }
 
 async fn download(
+    data_root: &Path,
     root: &Path,
     id: &str,
     concurrency: usize,
     progress: &watch::Sender<Progress>,
 ) -> Result<Prepared, String> {
     let network = ReqwestNetwork::desktop().map_err(|error| error.to_string())?;
-    vanilla::install(&network, root, id, &Target::host(), concurrency, |stage| {
+    let prepared = vanilla::install(&network, root, id, &Target::host(), concurrency, |stage| {
         if let Progress::Downloading { processed, total } = stage
             && processed != total
             && !processed.is_multiple_of((total / 100).max(1))
@@ -133,7 +146,74 @@ async fn download(
         }
         progress.send_replace(stage);
     })
+    .await?;
+    provide_java(&network, data_root, root, id, progress).await?;
+    Ok(prepared)
+}
+
+/// The Java major an installed version asks for when no runtime provides it.
+///
+/// A manifest before 1.17 states no `javaVersion`, and such a version runs on
+/// whatever Java the machine already has. A stated major with no matching
+/// runtime is the one case an install has to fetch for: launching the version
+/// otherwise fails before the game starts, with a message asking the user to
+/// configure `JAVA_HOME` by hand.
+fn missing_java(version: &Version, available: impl FnOnce(u32) -> bool) -> Option<u32> {
+    let required = version.java_version.as_ref()?.major;
+    (!available(required)).then_some(required)
+}
+
+/// Fetches the runtime the installed version names, unless one already answers
+/// for its major.
+///
+/// The game files are already on disk when this runs, so a runtime that cannot
+/// be installed fails the whole install: a profile without its runtime is not
+/// launchable, and the panel offers the install again.
+async fn provide_java(
+    network: &ReqwestNetwork,
+    data_root: &Path,
+    root: &Path,
+    id: &str,
+    progress: &watch::Sender<Progress>,
+) -> Result<(), String> {
+    let document = version::load(&root.join("versions"), id)
+        .map_err(|error| format!("Cannot read the installed Minecraft {id} manifest: {error}"))?;
+    let required = missing_java(&document, |major| {
+        crate::java::managed(data_root)
+            .executable_for(major, JavaMode::Windowed)
+            .is_some()
+    });
+    let Some(major) = required else {
+        return Ok(());
+    };
+
+    report_progress(progress, Progress::Java);
+    let installed = runtime::install(
+        network,
+        &axlauncher_core::storage::DataDir::new(data_root).java_versions(),
+        major,
+        |stage| report_progress(progress, java_stage(stage)),
+    )
     .await
+    .map_err(|error| {
+        format!(
+            "Minecraft {id} needs Java {major}, and its runtime could not be installed: {error}"
+        )
+    })?;
+    record_runtime(data_root, &installed);
+    Ok(())
+}
+
+/// A runtime's own stages, as the panel should name them.
+///
+/// The runtime fetch drives the same pipeline as a game install and reports the
+/// same phases, so its manifest and completion phases would otherwise appear as
+/// the game's. Its per-file counts stay: they describe the same downloads.
+fn java_stage(stage: Progress) -> Progress {
+    match stage {
+        Progress::Downloading { .. } => stage,
+        _ => Progress::Java,
+    }
 }
 
 fn download_failure(prepared: &Prepared) -> String {
@@ -404,3 +484,7 @@ fn record_runtime(data_root: &Path, installed: &runtime::InstalledRuntime) {
     }
     let _ = javas::save(data_root, &document);
 }
+
+#[cfg(test)]
+#[path = "../../../tests/apps/frontend/src/installations.rs"]
+mod tests;

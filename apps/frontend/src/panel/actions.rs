@@ -71,7 +71,7 @@ impl RootView {
                 concurrency,
                 cx,
             ),
-            None => installations::start(game_root, version, concurrency, cx),
+            None => installations::start(data_root, game_root, version, concurrency, cx),
         }
     }
 

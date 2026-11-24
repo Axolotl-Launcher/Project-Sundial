@@ -23,6 +23,7 @@ use crate::assets::{AssetIndexDocument, missing_assets, missing_libraries};
 pub enum Progress {
     Version,
     Loader,
+    Java,
     CheckingFiles,
     Downloading { processed: usize, total: usize },
     Finishing,
