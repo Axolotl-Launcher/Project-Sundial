@@ -21,6 +21,7 @@ pub use gpui_kit::component::{
     label::Label,
     pagination::Pagination,
     scroll::ScrollableElement,
+    select::{SearchableVec, Select, SelectDelegate, SelectEvent, SelectItem, SelectState},
     separator::Separator,
     switch::Switch,
     v_flex,
