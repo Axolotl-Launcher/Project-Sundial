@@ -28,6 +28,7 @@ fn a_missing_file_is_created_with_defaults() {
 fn a_saved_theme_roundtrips() {
     let temp = TempRoot::new();
     let data = SettingsData {
+        default_game_language: "zh_cn".into(),
         theme: ThemeChoice::Light,
         ..SettingsData::default()
     };

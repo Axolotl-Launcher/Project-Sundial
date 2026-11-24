@@ -56,6 +56,9 @@ pub enum SourcePreference {
 pub struct SettingsData {
     #[serde(default)]
     pub theme: ThemeChoice,
+    /// The initial Minecraft language, with an empty value following the launcher.
+    #[serde(default)]
+    pub default_game_language: String,
     /// How many files may be requested at once.
     #[serde(default = "default_download_concurrency")]
     pub max_concurrent_downloads: u32,
@@ -92,6 +95,7 @@ impl Default for SettingsData {
     fn default() -> Self {
         Self {
             theme: ThemeChoice::default(),
+            default_game_language: String::new(),
             max_concurrent_downloads: default_download_concurrency(),
             max_concurrent_writes: default_concurrency(),
             default_page: "home".into(),

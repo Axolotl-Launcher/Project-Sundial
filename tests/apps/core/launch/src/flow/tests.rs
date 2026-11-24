@@ -3,6 +3,9 @@
 
 use super::*;
 
+#[path = "language_tests.rs"]
+mod language_tests;
+
 #[path = "account_tests.rs"]
 mod account_tests;
 use crate::SystemJava;
@@ -168,6 +171,7 @@ impl Fixture {
             version_id: VERSION_ID.to_owned(),
             java_preference,
             player_name: PLAYER_NAME.to_owned(),
+            game_language: None,
         }
     }
 }
