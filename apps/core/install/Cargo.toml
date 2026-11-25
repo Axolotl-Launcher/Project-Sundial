@@ -22,7 +22,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 xz2 = { workspace = true }
-zip = { workspace = true }
+zip = { workspace = true, features = ["default"] }
 
 [dev-dependencies]
 sha1_smol = { workspace = true }

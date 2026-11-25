@@ -16,7 +16,7 @@ axlauncher_spi = { workspace = true }
 axlauncher_storage = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-zip = { workspace = true }
+zip = { workspace = true, features = ["default"] }
 
 [lints]
 workspace = true

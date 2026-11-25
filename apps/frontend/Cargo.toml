@@ -20,7 +20,7 @@ tokio = { workspace = true, features = ["macros"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-zip = { workspace = true, default-features = false, features = ["deflate"] }
+zip = { workspace = true, features = ["deflate"] }
 
 [lints]
 workspace = true
