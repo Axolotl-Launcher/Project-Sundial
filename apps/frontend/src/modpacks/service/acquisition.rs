@@ -9,7 +9,7 @@ use super::{PackState, install_runtime};
 use axlauncher_core::download_engine::{DEFAULT_CONCURRENCY, DownloadEngine, DownloadJob};
 use axlauncher_core::network::{ReqwestNetwork, verify_reader};
 use axlauncher_core::spi::Network;
-use axlauncher_core::state::profile::{Game, InstallStatus, Profile, StagedProfile};
+use axlauncher_core::state::profile::{Game, Profile, StagedProfile};
 use axlauncher_core::storage::{AtomicFile, DataDir, open_for_read};
 use axlauncher_modpack::{Download, InstallPlan};
 use futures::{StreamExt, stream};
@@ -106,11 +106,9 @@ impl StagedPack {
     }
 
     pub(super) fn publish(self, game: Game, version: String) -> Result<PathBuf, String> {
-        let mut profile = Profile::new(self.plan.name(), Some(game));
-        profile.set_installed_version(version);
-        profile.set_install_status(InstallStatus::Ready);
+        let profile = Profile::new(self.plan.name(), Some(game));
         self.staging
-            .publish(&profile)
+            .publish_installed(profile, &version)
             .map_err(|error| error.to_string())
     }
 }

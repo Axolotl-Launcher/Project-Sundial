@@ -4,10 +4,9 @@
 //! Service provider interfaces.
 //!
 //! A port is a trait a system implements and the rest of the program calls.
-//! Callers depend on this crate only; a concrete provider is chosen once at
-//! startup in `axlauncher_frontend`. That keeps a swap — a real HTTP client
-//! for a test double, a local store for a remote one — a wiring change rather
-//! than an edit to every call site.
+//! Consumers use the port; application wiring selects the concrete provider.
+//! Desktop workflows wire their providers in `axlauncher_core::desktop`, so
+//! swapping an implementation does not change the resource-owning systems.
 //!
 //! Traits here use return-position `impl Trait` rather than the `async_trait`
 //! macro: the workspace's MSRV supports it, and it avoids a box per call.

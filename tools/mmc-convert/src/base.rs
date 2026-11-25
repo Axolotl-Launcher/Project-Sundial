@@ -5,9 +5,9 @@ use std::path::Path;
 
 use axlauncher_core::install::{loader, prepare::Prepared, runtime, vanilla};
 use axlauncher_core::launch::{SystemJava, Target};
-use axlauncher_core::loader::{ForgeApi, LoaderApi, NeoForgeApi};
+use axlauncher_core::loader::provider;
 use axlauncher_core::network::ReqwestNetwork;
-use axlauncher_core::spi::{LoaderKind, LoaderRequest, ModLoader};
+use axlauncher_core::spi::{LoaderRequest, ModLoader};
 use axlauncher_core::storage::DataDir;
 use axlauncher_modpack::GameRequirements;
 
@@ -35,13 +35,8 @@ pub(super) async fn prepare(
         root,
         target,
     };
-    match kind {
-        LoaderKind::Forge => base.run(&ForgeApi::new(network.clone()), request).await,
-        LoaderKind::NeoForge => base.run(&NeoForgeApi::new(network.clone()), request).await,
-        LoaderKind::Fabric => base.run(&LoaderApi::fabric(network.clone()), request).await,
-        LoaderKind::Quilt => base.run(&LoaderApi::quilt(network.clone()), request).await,
-        _ => Err(format!("Unsupported mod loader {kind}").into()),
-    }
+    let provider = provider(network.clone(), kind)?;
+    base.run(&provider, request).await
 }
 
 pub(super) fn complete(result: Prepared) -> Result<()> {

@@ -132,7 +132,7 @@ fn report_duplicate_ids(instances: &[DiscoveredProfile], issues: &mut Vec<Discov
     let mut first_by_id = HashMap::new();
     for entry in instances {
         let first = first_by_id
-            .entry(&entry.profile.id)
+            .entry(entry.profile.id())
             .or_insert(&entry.directory);
         if *first != &entry.directory {
             issues.push(invalid(

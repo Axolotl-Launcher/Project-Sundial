@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-use crate::game_install::progress_message;
+use crate::installation_progress::{progress_message, should_report};
 use crate::modpacks::service::{GameState, PackState, ProgressUpdate};
 
 #[derive(Clone, Copy, Default)]
@@ -11,11 +11,15 @@ pub(crate) struct Progress {
 }
 
 impl Progress {
-    pub(super) fn update(&mut self, change: ProgressUpdate) {
+    pub(super) fn update(&mut self, change: ProgressUpdate) -> bool {
         match change {
             ProgressUpdate::Pack(pack) => self.pack = pack,
+            ProgressUpdate::Game(GameState::Preparing(stage)) if !should_report(stage) => {
+                return false;
+            }
             ProgressUpdate::Game(game) => self.game = game,
         }
+        true
     }
 
     pub(crate) fn message(self) -> String {

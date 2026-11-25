@@ -50,12 +50,7 @@ pub fn check_files(game_root: &Path, id: &str, target: &Target) -> Result<(), St
 }
 
 fn check_id(id: &str) -> Result<(), String> {
-    if id.is_empty()
-        || id.ends_with('.')
-        || !id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_' | b'+'))
-    {
+    if !axlauncher_domain::is_version_id(id) {
         return Err(format!("Invalid Minecraft version ID {id:?}."));
     }
 

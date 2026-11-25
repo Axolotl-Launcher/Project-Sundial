@@ -7,7 +7,6 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use axlauncher_core::download_engine::{DownloadOutcome, MissingFile, download_batch};
-use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
@@ -18,7 +17,7 @@ use axlauncher_ui::{
 use futures::{FutureExt, StreamExt};
 use tokio::sync::{mpsc, oneshot};
 
-use super::{InstallOptions, RootView};
+use super::{DownloadOptions, RootView};
 
 const RESULTS_PER_PAGE: usize = 10;
 
@@ -149,7 +148,7 @@ impl RootView {
             cx.notify();
             return;
         }
-        let options = InstallOptions::from_settings(self.settings.as_ref());
+        let options = DownloadOptions::from_settings(self.settings.as_ref());
         let (cancel, cancellation) = oneshot::channel();
         let (report, outcomes) = mpsc::unbounded_channel();
         batch.phase = Phase::Running;
@@ -393,7 +392,7 @@ fn output_line(path: &Path) -> usize {
 fn run_batch(
     data: &DataDir,
     links: Vec<Link>,
-    options: InstallOptions,
+    options: DownloadOptions,
     cancellation: oneshot::Receiver<()>,
     report: mpsc::UnboundedSender<DownloadOutcome>,
 ) -> Result<BatchReport, String> {
@@ -423,14 +422,14 @@ fn run_batch(
 
 async fn transfer_batch(
     files: &[MissingFile],
-    options: InstallOptions,
+    options: DownloadOptions,
     cancellation: oneshot::Receiver<()>,
     report: mpsc::UnboundedSender<DownloadOutcome>,
 ) -> Result<bool, String> {
-    let network =
-        ReqwestNetwork::desktop_with_mirrors(options.mirrors).map_err(|error| error.to_string())?;
+    let concurrency = options.concurrency();
+    let network = options.network()?;
     let downloads =
-        download_batch(&network, files, options.concurrency).take_until(cancellation.map(|_| ()));
+        download_batch(&network, files, concurrency).take_until(cancellation.map(|_| ()));
     let mut downloads = std::pin::pin!(downloads);
     let mut processed = 0;
     while let Some(outcome) = downloads.next().await {

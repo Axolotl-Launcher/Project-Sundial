@@ -288,20 +288,30 @@ fn the_fabric_provider_names_itself() {
 
 #[test]
 fn the_loader_catalog_routes_supported_kinds_and_identifies_an_unwired_kind() {
-    let network = FakeNetwork::default().with(FABRIC_VERSIONS_URL, FABRIC_LISTING);
-    let builds = block_on(versions(network, LoaderKind::Fabric, "1.21.11")).unwrap();
+    let network = FakeNetwork::default()
+        .with(FABRIC_VERSIONS_URL, FABRIC_LISTING)
+        .with(FABRIC_PROFILE_URL, FABRIC_PROFILE);
+    let fabric = provider(network, LoaderKind::Fabric).unwrap();
+    let builds = block_on(fabric.versions("1.21.11")).unwrap();
     assert_eq!(builds[0].version, "0.20.1");
-    let error = block_on(versions(
-        FakeNetwork::default(),
-        LoaderKind::OptiFine,
-        "1.21.11",
-    ))
-    .expect_err("unsupported kind");
-    assert!(matches!(
-        error,
-        LoaderError::Unsupported {
-            loader: LoaderKind::OptiFine
+    let profile = block_on(fabric.profile(request(Some("0.20.1")))).unwrap();
+    assert_eq!(profile.version_id, "1.21.11-0.20.1");
+
+    for kind in LoaderKind::ALL {
+        let provider = provider(FakeNetwork::default(), kind);
+        assert_eq!(
+            provider.is_ok(),
+            supported_kinds().any(|available| available == kind)
+        );
+        if let Ok(provider) = provider {
+            assert_eq!(provider.kind(), kind);
         }
+    }
+    assert!(matches!(
+        provider(FakeNetwork::default(), LoaderKind::OptiFine),
+        Err(LoaderError::Unsupported {
+            loader: LoaderKind::OptiFine
+        })
     ));
 }
 

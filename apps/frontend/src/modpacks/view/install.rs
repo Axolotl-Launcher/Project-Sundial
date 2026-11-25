@@ -8,8 +8,8 @@ use axlauncher_ui::{AppContext, AsyncWindowContext, Context, Task, WeakEntity, W
 use tokio::sync::watch;
 
 use super::{ImportEvent, ManualDownloads, ModpackImport, Progress, State};
-use crate::game_install::InstallOptions;
-use crate::modpacks::service::{self, Outcome};
+use crate::modpacks::service::{self, Outcome, ProgressUpdate};
+use axlauncher_core::desktop::sources::DownloadOptions;
 
 impl ModpackImport {
     pub(crate) fn install_progress(&self) -> Option<(&str, Progress)> {
@@ -28,7 +28,7 @@ impl ModpackImport {
     pub(crate) fn install(
         &mut self,
         root: PathBuf,
-        options: InstallOptions,
+        options: DownloadOptions,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
@@ -46,7 +46,7 @@ impl ModpackImport {
         self.state = State::Installing(preview, *updates.borrow());
         self.error = None;
         let task = cx.background_spawn(async move {
-            let report = |change| progress.send_modify(|state| state.update(change));
+            let report = |change| report_progress(&progress, change);
             match pending {
                 Some(install) => install.resume(&local, options, report),
                 None => service::install(root, &pack, &selected, policy, options, report),
@@ -123,4 +123,8 @@ impl ModpackImport {
             cx.notify();
         }
     }
+}
+
+fn report_progress(progress: &watch::Sender<Progress>, change: ProgressUpdate) {
+    progress.send_if_modified(|state| state.update(change));
 }

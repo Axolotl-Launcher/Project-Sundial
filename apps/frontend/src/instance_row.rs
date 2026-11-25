@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use axlauncher_core::desktop::installation::install_key;
 use axlauncher_core::state::profile::{DiscoveredProfile, Game};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
@@ -16,7 +17,6 @@ use axlauncher_ui::{
 use crate::RootView;
 use crate::installations::Installation;
 use crate::launches::Launch;
-use crate::panel::{install_key, profile_version};
 
 /// What one row's buttons need to know about its profile.
 struct ActionState<'a> {
@@ -46,11 +46,11 @@ pub(crate) fn row(
     muted: Hsla,
     cx: &mut Context<'_, RootView>,
 ) -> impl IntoElement + use<> {
-    let action = instance.profile.game.as_ref().and_then(|game| {
+    let action = instance.profile.game().and_then(|game| {
         // A loader profile has no launchable version until its install
         // produces one, so an absent version must not hide the install action
         // that would create it.
-        let version = profile_version(game);
+        let version = game.effective_version();
         let install =
             install_key(game).map(|key| installations.and_then(|states| states.get(&key)));
         let launch = match (version, launch) {
@@ -111,7 +111,7 @@ pub(crate) fn row(
 
 fn description(instance: &DiscoveredProfile, muted: Hsla) -> impl IntoElement + use<> {
     let profile = &instance.profile;
-    let details = profile.game.as_ref().map_or_else(
+    let details = profile.game().map_or_else(
         || "No Minecraft version".to_string(),
         |game| match &game.loader {
             Some(loader) => format!("{} · {}", game.minecraft, loader.kind),

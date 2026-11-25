@@ -5,8 +5,8 @@
 
 use std::path::{Path, PathBuf};
 
+use axlauncher_core::desktop::{java::JavaEnvironment, launching::LAUNCHER_LANGUAGE};
 use axlauncher_core::domain::normalize_game_language;
-use axlauncher_core::launch::{Java, JavaMode, SystemJava};
 use axlauncher_core::state::{SettingsOrigin, ThemeChoice, update_settings};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
@@ -20,12 +20,8 @@ use crate::{describe_origin, load_at, palette_for};
 
 use super::RootView;
 
-pub(super) const LAUNCHER_LANGUAGE: &str = "en_us";
-
 pub(super) struct EnvironmentState {
-    java_home: Option<PathBuf>,
-    default_java: Option<PathBuf>,
-    chosen: Vec<(u32, PathBuf)>,
+    java: JavaEnvironment,
     game_language: Entity<InputState>,
     error: Option<String>,
     notice: Option<String>,
@@ -45,16 +41,12 @@ impl EnvironmentState {
         });
         cx.subscribe(&game_language, RootView::game_language_changed)
             .detach();
-        let mut state = Self {
-            java_home: None,
-            default_java: None,
-            chosen: Vec::new(),
+        Self {
+            java: JavaEnvironment::load(root),
             game_language,
             error: None,
             notice: None,
-        };
-        state.refresh(root);
-        state
+        }
     }
 
     pub(super) fn set_game_language(
@@ -73,10 +65,7 @@ impl EnvironmentState {
     /// has one root, and a second one would drift from it as soon as the user
     /// applies a different directory.
     pub(super) fn refresh(&mut self, root: Option<&Path>) {
-        let java = SystemJava::from_environment();
-        self.java_home = java.java_home().map(PathBuf::from);
-        self.default_java = java.executable(None, JavaMode::Windowed);
-        self.chosen = root.map(crate::java::chosen).unwrap_or_default();
+        self.java = JavaEnvironment::load(root);
         self.error = None;
         self.notice = None;
     }
@@ -271,14 +260,14 @@ impl RootView {
     fn java_rows(&self, muted: Hsla) -> Vec<AnyElement> {
         let java_home = self
             .environment
-            .java_home
-            .as_ref()
+            .java
+            .java_home()
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "not set".to_string());
         let default_java = self
             .environment
-            .default_java
-            .as_ref()
+            .java
+            .default_java()
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "not found".to_string());
 
@@ -295,7 +284,7 @@ impl RootView {
         // A chosen runtime decides a launch, so the user must be able to see
         // it here: the rows above describe the environment, which a choice
         // overrides for its major.
-        rows.extend(chosen_rows(&self.environment.chosen, muted));
+        rows.extend(chosen_rows(self.environment.java.chosen(), muted));
         rows
     }
 

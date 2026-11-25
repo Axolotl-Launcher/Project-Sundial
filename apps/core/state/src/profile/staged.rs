@@ -5,7 +5,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::{Profile, ProfileWriteError, save, validate};
+use super::{Profile, ProfileWriteError, installation::set_ready, save, validate};
 
 /// A new instance that becomes discoverable only when it is published.
 pub struct StagedProfile {
@@ -29,22 +29,31 @@ impl StagedProfile {
         &self.directory
     }
 
-    /// Saves the completed profile and atomically moves its directory into discovery.
-    pub fn publish(self, profile: &Profile) -> Result<PathBuf, ProfileWriteError> {
-        validate(profile).map_err(|reason| ProfileWriteError::Invalid { reason })?;
+    /// A staged profile becomes visible with the version that was prepared for it.
+    pub fn publish_installed(
+        self,
+        mut profile: Profile,
+        version_id: &str,
+    ) -> Result<PathBuf, ProfileWriteError> {
+        if !set_ready(&mut profile, version_id) {
+            return Err(ProfileWriteError::Invalid {
+                reason: "an installed profile must name a game".into(),
+            });
+        }
+        validate(&profile).map_err(|reason| ProfileWriteError::Invalid { reason })?;
         let instances = self
             .staging
             .path()
             .parent()
             .expect("staged below the profile root");
-        let destination = instances.join(&profile.id);
+        let destination = instances.join(profile.id());
         if destination.exists() {
             return Err(ProfileWriteError::Write {
                 path: destination,
                 source: io::Error::from(io::ErrorKind::AlreadyExists),
             });
         }
-        save(&self.directory, profile)?;
+        save(&self.directory, &profile)?;
         fs::rename(&self.directory, &destination).map_err(|source| ProfileWriteError::Write {
             path: destination.clone(),
             source,

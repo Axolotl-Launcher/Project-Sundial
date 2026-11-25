@@ -1,23 +1,21 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Transient desktop installation state for the shared Minecraft files.
+//! The install service's progress and outcome as seen by the desktop.
 
 use std::path::{Path, PathBuf};
 
+use axlauncher_core::desktop::{
+    installation::{self, InstallTarget},
+    sources::DownloadOptions,
+};
 use axlauncher_core::install::prepare::Progress;
-use axlauncher_core::loader::SUPPORTED_KINDS;
-use axlauncher_core::spi::LoaderKind;
-use axlauncher_core::state::profile::Game;
+use axlauncher_core::storage::DataDir;
 use axlauncher_ui::{AppContext, AsyncApp, Context, WeakEntity};
 use tokio::sync::watch;
 
-mod loader;
-pub(crate) use loader::start_loader;
-
 use crate::RootView;
-pub(crate) use crate::game_install::InstallOptions;
-use crate::game_install::{download_failure, download_vanilla, progress_message};
+use crate::installation_progress::{progress_message, should_report};
 
 pub(crate) enum Installation {
     Running(Progress),
@@ -35,46 +33,30 @@ impl Installation {
     }
 }
 
-/// Whether a profile's loader names no loader, whatever its spelling.
-///
-/// A hand-edited or imported marker can spell the kind with other case or
-/// surrounding space. Every action must agree on which profiles that describes,
-/// or a profile is accepted in one place and refused in another.
-pub(crate) fn is_vanilla(kind: &str) -> bool {
-    kind.trim().eq_ignore_ascii_case("vanilla")
-}
-
-/// An original game version can be prepared without a loader installer.
-pub(crate) fn vanilla_version(game: &Game) -> Option<&str> {
-    if game
-        .loader
-        .as_ref()
-        .is_some_and(|loader| !is_vanilla(&loader.kind))
-    {
-        return None;
-    }
-    let id = game.version_id.as_deref().unwrap_or(&game.minecraft);
-    (id == game.minecraft).then_some(id)
-}
-
 pub(crate) fn start(
     data_root: PathBuf,
-    root: PathBuf,
-    id: String,
-    options: InstallOptions,
+    directory: PathBuf,
+    target: InstallTarget,
+    options: DownloadOptions,
     cx: &mut Context<'_, RootView>,
 ) {
+    let game_root = DataDir::new(&data_root).meta();
+    let key = target.key();
+    let is_loader = target.is_loader();
     let (progress, mut updates) = watch::channel(Progress::Version);
-    let version = id.clone();
-    let work_root = root.clone();
-    let task =
-        cx.background_spawn(
-            async move { install(&data_root, &work_root, &version, options, progress) },
-        );
+    let task_root = data_root.clone();
+    let task_directory = directory.clone();
+    let task = cx.background_spawn(async move {
+        installation::install(&task_root, &task_directory, target, options, |stage| {
+            report_progress(&progress, stage);
+        })
+    });
     cx.spawn(async move |view, cx| {
-        display_progress(&mut updates, &view, cx, &root, &id).await;
-        let result = task.await;
-        let _ = view.update(cx, |view, cx| view.set_installation(&root, &id, result, cx));
+        display_progress(&mut updates, &view, cx, &game_root, &key).await;
+        let outcome = task.await;
+        let _ = view.update(cx, |view, cx| {
+            view.finish_installation(&data_root, &directory, &key, is_loader, outcome, cx)
+        });
     })
     .detach();
 }
@@ -97,36 +79,12 @@ async fn display_progress(
     }
 }
 
-fn install(
-    data_root: &Path,
-    root: &Path,
-    id: &str,
-    options: InstallOptions,
-    progress: watch::Sender<Progress>,
-) -> Installation {
-    // Reqwest needs Tokio's I/O driver. The caller runs this on a GPUI worker.
-    let result = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| error.to_string())
-        .and_then(|runtime| {
-            runtime.block_on(download_vanilla(data_root, root, id, options, |stage| {
-                progress.send_replace(stage);
-            }))
-        });
-
-    match result {
-        Ok(prepared) if prepared.is_complete() => Installation::Complete,
-        Ok(prepared) => Installation::Failed(download_failure(&prepared)),
-        Err(error) => Installation::Failed(error),
+fn report_progress(progress: &watch::Sender<Progress>, stage: Progress) {
+    if should_report(stage) {
+        progress.send_replace(stage);
     }
 }
 
-/// Whether this build has a provider for a profile's loader.
-///
-/// A kind the UI can show but not install must not offer an install that would
-/// fail at the end of a download. The name is read through the SPI's own parser,
-/// so a spelling the port accepts is not refused here.
-pub(crate) fn supported_loader(kind: &str) -> bool {
-    is_vanilla(kind) || LoaderKind::parse(kind).is_some_and(|kind| SUPPORTED_KINDS.contains(&kind))
-}
+#[cfg(test)]
+#[path = "../../../tests/apps/frontend/src/installations.rs"]
+mod tests;

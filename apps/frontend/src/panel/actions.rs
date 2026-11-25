@@ -3,14 +3,19 @@
 
 //! Install and launch actions for profiles shown in the panel.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
+use axlauncher_core::desktop::{
+    installation::{InstallTarget, install_key},
+    launching::Player,
+    sources::DownloadOptions,
+};
 use axlauncher_core::install::prepare::Progress;
-use axlauncher_core::state::profile::{self, Game, InstallStatus};
+use axlauncher_core::state::profile::{self, Game};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::Context;
 
-use crate::installations::{self, InstallOptions, Installation, vanilla_version};
+use crate::installations::{self, Installation};
 use crate::launches::{self, Launch};
 
 use super::RootView;
@@ -30,7 +35,7 @@ impl RootView {
         };
         let game_root = DataDir::new(&data_root).meta();
         let version = game.minecraft.clone();
-        let Some(key) = super::install_key(game) else {
+        let Some(target) = InstallTarget::for_game(game) else {
             self.activity.error(format!(
                 "Loader {} is not available in this build yet.",
                 game.loader
@@ -40,10 +45,11 @@ impl RootView {
             cx.notify();
             return;
         };
+        let key = target.key();
         if self.install_in_progress(&game_root, &key, game) {
             return;
         }
-        let options = InstallOptions::from_settings(self.settings.as_ref());
+        let options = DownloadOptions::from_settings(self.settings.as_ref());
         self.activity
             .info(format!("Installing {version} in {}", game_root.display()));
         self.set_installation(
@@ -54,22 +60,7 @@ impl RootView {
         );
         self.monitor_downloads(cx);
 
-        let loader = game
-            .loader
-            .as_ref()
-            .filter(|loader| !installations::is_vanilla(&loader.kind));
-        match loader {
-            Some(_) => installations::start_loader(
-                data_root,
-                game_root,
-                directory.to_path_buf(),
-                game.clone(),
-                key,
-                options,
-                cx,
-            ),
-            None => installations::start(data_root, game_root, version, options, cx),
-        }
+        installations::start(data_root, directory.to_path_buf(), target, options, cx);
     }
 
     /// Whether this profile already has an install the button must not repeat.
@@ -85,48 +76,31 @@ impl RootView {
         }
     }
 
-    /// A loader install ends here: the profile records the version id it
-    /// produced, so a later launch needs no provider round trip.
-    pub(crate) fn finish_loader_install(
+    pub(crate) fn finish_installation(
         &mut self,
         data_root: &Path,
         directory: &Path,
         key: &str,
-        outcome: Result<String, String>,
+        recorded_profile: bool,
+        outcome: Result<Option<String>, String>,
         cx: &mut Context<'_, Self>,
     ) {
-        let game_root = DataDir::new(data_root).meta();
-        // The install only counts as complete once the profile records it:
-        // Complete hides the Install button, so a profile write failure must
-        // surface as a failure the user can retry.
-        let persisted = outcome.and_then(|version_id| {
-            persist_install(directory, &version_id)?;
-            Ok(version_id)
-        });
-        let outcome = match persisted {
-            Ok(version_id) => Ok(version_id),
-            Err(error) => {
-                let _ = mark_failed(directory);
-                Err(error)
-            }
-        };
         let installation = match outcome {
-            Ok(version_id) => {
+            Ok(Some(version)) => {
                 self.activity
-                    .success(format!("{} installed as {version_id}", directory.display()));
+                    .success(format!("{} installed as {version}", directory.display()));
                 Installation::Complete
             }
-            Err(error) => {
-                self.activity.error(error.clone());
-                Installation::Failed(error)
-            }
+            Ok(None) => Installation::Complete,
+            Err(error) => Installation::Failed(error),
         };
-        self.set_installation(&game_root, key, installation, cx);
-        self.instances.replace(
-            profile::discover(&DataDir::new(data_root).instances()),
-            true,
-        );
-        cx.notify();
+        let data = DataDir::new(data_root);
+        if recorded_profile && self.root.as_deref() == Some(data_root) {
+            self.instances
+                .replace(profile::discover(&data.instances()), true);
+            self.inspection = super::launch::Inspection::default();
+        }
+        self.set_installation(&data.meta(), key, installation, cx);
     }
 
     fn installation(&self, root: &Path, version: &str) -> Option<&Installation> {
@@ -164,26 +138,19 @@ impl RootView {
         let Some(entry) = self.instances.find(directory) else {
             return;
         };
-        let Some(request) = self.launch_request(entry, self.player_name(cx)) else {
+        let Some(job) = self.launch_job(entry, self.player_name(cx)) else {
             return;
         };
-        let vanilla = entry
-            .profile
-            .game
-            .as_ref()
-            .and_then(vanilla_version)
-            .is_some();
         // The install is tracked under the key the row uses, not under the
         // version id a launch asks for: for a loader profile those differ, and
         // launching while its install rewrites the game files must be blocked.
         let installing = entry
             .profile
-            .game
-            .as_ref()
-            .and_then(super::install_key)
+            .game()
+            .and_then(install_key)
             .is_some_and(|key| {
                 matches!(
-                    self.installation(&request.game_root, &key),
+                    self.installation(job.game_root(), &key),
                     Some(Installation::Running(_))
                 )
             });
@@ -195,20 +162,17 @@ impl RootView {
         {
             return;
         }
-        let Some(data_root) = self.root.clone() else {
-            return;
-        };
         let player = match self.accounts.selected_online() {
-            Some((service, id)) => launches::Player::Online {
+            Some((service, id)) => Player::Online {
                 service,
                 id,
                 fallen_proxy: self.fallen_proxy(),
             },
-            None => launches::Player::Offline(self.preview_session(cx)),
+            None => Player::Offline(self.preview_session(cx)),
         };
-        self.set_launch(directory, &request.version_id, Launch::Starting, cx);
-        let mirrors = InstallOptions::from_settings(self.settings.as_ref()).mirrors;
-        launches::start(request, player, vanilla, data_root, mirrors, cx);
+        self.set_launch(directory, job.version_id(), Launch::Starting, cx);
+        let options = DownloadOptions::from_settings(self.settings.as_ref());
+        launches::start(job, player, options, cx);
     }
 
     pub(crate) fn set_launch(
@@ -235,8 +199,8 @@ impl RootView {
         let Some(key) = self
             .instances
             .find(directory)
-            .and_then(|entry| entry.profile.game.as_ref())
-            .and_then(super::install_key)
+            .and_then(|entry| entry.profile.game())
+            .and_then(install_key)
         else {
             return;
         };
@@ -249,9 +213,7 @@ impl RootView {
 }
 
 impl RootView {
-    /// A new profile gets its own UUID and a directory named after its display
-    /// name, made unique under `instances`: two profiles may share a name
-    /// without sharing an identity.
+    /// A profile from the desktop form, selected once its marker is on disk.
     pub(crate) fn create_profile(&mut self, cx: &mut Context<'_, Self>) {
         let Some(data_root) = self.root.clone() else {
             return;
@@ -261,10 +223,8 @@ impl RootView {
         };
 
         let instances = DataDir::new(&data_root).instances();
-        let directory = unique_directory(&instances, &name);
-        let profile = profile::Profile::new(name.clone(), Some(game));
-        match profile::save(&directory, &profile) {
-            Ok(()) => {
+        match profile::create(&instances, &name, game) {
+            Ok(directory) => {
                 self.activity
                     .success(format!("Created {name} at {}", directory.display()));
                 self.instances.replace(profile::discover(&instances), true);
@@ -274,61 +234,4 @@ impl RootView {
         }
         cx.notify();
     }
-}
-
-/// Records a successful install on the profile, so a launch needs no provider.
-fn persist_install(directory: &Path, version_id: &str) -> Result<(), String> {
-    let Some(mut profile) = profile::read(directory).map_err(|error| error.to_string())? else {
-        return Err(format!(
-            "{} no longer holds a profile document.",
-            directory.display()
-        ));
-    };
-    profile.set_installed_version(version_id);
-    profile.set_install_status(InstallStatus::Ready);
-    profile::save(directory, &profile).map_err(|error| error.to_string())
-}
-
-/// Records a failed install so the profile can say so.
-fn mark_failed(directory: &Path) -> Result<(), String> {
-    let Some(mut profile) = profile::read(directory).map_err(|error| error.to_string())? else {
-        return Ok(());
-    };
-    profile.set_install_status(InstallStatus::Failed);
-    profile::save(directory, &profile).map_err(|error| error.to_string())
-}
-
-/// A directory name derived from a display name.
-fn slug(name: &str) -> String {
-    let mut slug: String = name
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    while slug.contains("--") {
-        slug = slug.replace("--", "-");
-    }
-    let slug = slug.trim_matches('-');
-    if slug.is_empty() {
-        "instance".to_string()
-    } else {
-        slug.to_string()
-    }
-}
-
-/// A free directory under `instances` for `name`.
-fn unique_directory(instances: &Path, name: &str) -> PathBuf {
-    let base = slug(name);
-    let mut candidate = instances.join(&base);
-    let mut attempt = 2;
-    while candidate.exists() {
-        candidate = instances.join(format!("{base}-{attempt}"));
-        attempt += 1;
-    }
-    candidate
 }

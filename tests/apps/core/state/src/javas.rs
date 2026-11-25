@@ -34,6 +34,20 @@ fn a_choice_replaces_the_previous_one_for_its_major() {
 }
 
 #[test]
+fn a_managed_runtime_cannot_replace_an_existing_choice() {
+    let root = TempRoot::new();
+    let user = chosen(21, "/user/jdk/bin/java");
+    let managed = chosen(17, "/managed/jdk17/bin/java");
+    choose_if_unset(root.path(), user.clone()).expect("record choice");
+    choose_if_unset(root.path(), chosen(21, "/managed/jdk21/bin/java")).expect("keep choice");
+    choose_if_unset(root.path(), managed.clone()).expect("record missing major");
+
+    let loaded = load(root.path()).expect("read choices").javas;
+    assert_eq!(loaded.chosen_for(21), Some(&user));
+    assert_eq!(loaded.chosen_for(17), Some(&managed));
+}
+
+#[test]
 fn choices_and_discovery_round_trip_independently() {
     let root = TempRoot::new();
     let mut javas = Javas::new();

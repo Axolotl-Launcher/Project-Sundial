@@ -25,14 +25,11 @@ use crate::{Loaded, Startup, load_at, palette_for};
 pub(crate) mod accounts;
 mod actions;
 mod activity;
-mod create_instance;
 mod download_debug;
 mod environment;
 mod instances;
 mod launch;
 mod profile_creation;
-
-pub(crate) use instances::{install_key, profile_version};
 
 const DEFAULT_PLAYER: &str = "Player";
 
@@ -47,7 +44,6 @@ pub(crate) struct RootView {
     accounts: accounts::AccountsPanel,
     profile_creation: profile_creation::ProfileCreation,
     instances: instances::InstancesState,
-    create_instance: create_instance::CreateInstance,
     modpack: Entity<ModpackImport>,
     download_debug: download_debug::DownloadDebug,
     inspection: launch::Inspection,
@@ -78,7 +74,6 @@ impl RootView {
             .as_ref()
             .map(|settings| settings.theme)
             .unwrap_or_default();
-        let create_instance = create_instance::CreateInstance::new(window, cx);
         let modpack = cx.new(ModpackImport::new);
         modpack.update(cx, |view, cx| view.set_enabled(loaded.root.is_some(), cx));
         cx.subscribe_in(&modpack, window, Self::modpack_event)
@@ -105,7 +100,6 @@ impl RootView {
             accounts,
             profile_creation,
             instances: instances::InstancesState::new(loaded.profiles),
-            create_instance,
             modpack,
             download_debug,
             inspection: launch::Inspection::default(),
@@ -216,7 +210,9 @@ impl RootView {
         let Some(root) = self.root.clone() else {
             return;
         };
-        let options = crate::installations::InstallOptions::from_settings(self.settings.as_ref());
+        let options = axlauncher_core::desktop::sources::DownloadOptions::from_settings(
+            self.settings.as_ref(),
+        );
         view.update(cx, |view, cx| view.install(root, options, window, cx));
     }
 
@@ -253,10 +249,7 @@ impl RootView {
     }
 
     fn fallen_proxy(&self) -> Option<axlauncher_core::spi::ServiceHost> {
-        self.settings
-            .as_ref()
-            .filter(|settings| settings.use_fallen_proxy)?;
-        Some(crate::source_hosts::fallen_proxy_host())
+        axlauncher_core::desktop::sources::fallen_proxy(self.settings.as_ref())
     }
 
     fn render_header(&mut self, cx: &mut Context<'_, Self>) -> AnyElement {

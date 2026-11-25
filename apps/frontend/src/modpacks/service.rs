@@ -13,7 +13,10 @@ use axlauncher_core::state::profile::Game;
 use axlauncher_core::storage::DataDir;
 use axlauncher_modpack::{ModpackPlugin, OptionId, Pack, PlanOptions};
 
-use crate::game_install::{self, InstallOptions};
+use axlauncher_core::desktop::{
+    installation::{self, InstallTarget},
+    sources::DownloadOptions,
+};
 
 mod acquisition;
 pub(super) use acquisition::ManualFile;
@@ -81,7 +84,7 @@ pub(super) fn install(
     pack: &Pack,
     selected: &BTreeSet<OptionId>,
     policy: PlanOptions,
-    options: InstallOptions,
+    options: DownloadOptions,
     report: impl Fn(ProgressUpdate) + Sync,
 ) -> Result<Outcome, String> {
     report(ProgressUpdate::Pack(PackState::Planning));
@@ -109,7 +112,7 @@ impl PendingInstall {
     pub(in crate::modpacks) fn resume(
         mut self: Box<Self>,
         local: &BTreeMap<String, PathBuf>,
-        options: InstallOptions,
+        options: DownloadOptions,
         report: impl Fn(ProgressUpdate) + Sync,
     ) -> Result<Outcome, String> {
         let (pack_result, game_error) = self.prepare(local, options, &report);
@@ -139,14 +142,15 @@ impl PendingInstall {
     fn prepare(
         &mut self,
         local: &BTreeMap<String, PathBuf>,
-        options: InstallOptions,
+        options: DownloadOptions,
         report: &(impl Fn(ProgressUpdate) + Sync),
     ) -> (Result<(), String>, Option<String>) {
         let report_pack = |state| report(ProgressUpdate::Pack(state));
         if self.version.is_some() {
             report(ProgressUpdate::Game(GameState::Ready));
             return (
-                self.pack.prepare(local, options.concurrency, &report_pack),
+                self.pack
+                    .prepare(local, options.concurrency(), &report_pack),
                 None,
             );
         }
@@ -164,10 +168,10 @@ impl PendingInstall {
 fn prepare_together(
     install: &mut PendingInstall,
     local: &BTreeMap<String, PathBuf>,
-    options: InstallOptions,
+    options: DownloadOptions,
     report: &(impl Fn(ProgressUpdate) + Sync),
 ) -> (Result<(), String>, Result<String, String>) {
-    let concurrency = options.concurrency;
+    let concurrency = options.concurrency();
     let (data, game) = (&install.data, &install.game);
     thread::scope(|scope| {
         // Java processors may block while running. The game worker stays
@@ -199,7 +203,7 @@ fn install_runtime() -> Result<tokio::runtime::Runtime, String> {
 fn prepare_game(
     data: &DataDir,
     game: &Game,
-    options: InstallOptions,
+    options: DownloadOptions,
     report: &impl Fn(ProgressUpdate),
 ) -> Result<String, String> {
     let result = download_game(data, game, options, |stage| {
@@ -217,22 +221,9 @@ fn prepare_game(
 fn download_game(
     data: &DataDir,
     game: &Game,
-    options: InstallOptions,
+    options: DownloadOptions,
     report: impl Fn(GameProgress),
 ) -> Result<String, String> {
-    report(GameProgress::Version);
-    if game.loader.is_some() {
-        return game_install::install_loader(data.root(), &data.meta(), game, options, report);
-    }
-    let prepared = install_runtime()?.block_on(game_install::download_vanilla(
-        data.root(),
-        &data.meta(),
-        &game.minecraft,
-        options,
-        report,
-    ))?;
-    if prepared.is_complete() {
-        return Ok(game.minecraft.clone());
-    }
-    Err(game_install::download_failure(&prepared))
+    let target = InstallTarget::for_game(game).ok_or("No supported installer for this game.")?;
+    installation::prepare(data, target, options, report)
 }

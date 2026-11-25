@@ -17,11 +17,13 @@ use serde::{Deserialize, Deserializer, Serialize};
 mod create;
 mod discovery;
 mod game;
+mod installation;
 mod resources;
 mod staged;
-pub use create::{CreateError, create_blank};
+pub use create::create;
 pub use discovery::{DiscoveredProfile, DiscoveryError, ProfileDiscovery, discover};
 pub use game::{Game, Loader};
+pub use installation::{InstallUpdateError, mark_failed, mark_installed};
 pub use resources::{Resource, ResourceKind, scan_resources};
 pub use staged::StagedProfile;
 
@@ -33,9 +35,9 @@ const SCHEMA_VERSION: u32 = 1;
 #[non_exhaustive]
 pub struct Profile {
     pub schema_version: u32,
-    pub id: String,
+    id: String,
     pub instance: ProfileInfo,
-    pub game: Option<Game>,
+    game: Option<Game>,
     #[serde(default)]
     pub install: Install,
     #[serde(default)]
@@ -212,7 +214,7 @@ fn visible_name(name: &str) -> bool {
 fn validate_game(game: &Game) -> Result<(), String> {
     let invalid = std::iter::once(game.minecraft.as_str())
         .chain(game.version_id.as_deref())
-        .find(|id| !relative_path(id) || id.contains('/'));
+        .find(|id| !axlauncher_domain::is_version_id(id));
     invalid.map_or(Ok(()), |id| Err(format!("invalid game version id {id:?}")))
 }
 
@@ -293,21 +295,12 @@ impl Profile {
         }
     }
 
-    /// Replaces the game selection.
-    pub fn set_game(&mut self, game: Game) {
-        self.game = Some(game);
+    pub fn id(&self) -> &str {
+        &self.id
     }
 
-    /// Records the version id an install produced, so a launch needs no
-    /// provider round trip.
-    pub fn set_installed_version(&mut self, version_id: impl Into<String>) {
-        if let Some(game) = self.game.as_mut() {
-            game.version_id = Some(version_id.into());
-        }
-    }
-
-    pub fn set_install_status(&mut self, status: InstallStatus) {
-        self.install.status = status;
+    pub fn game(&self) -> Option<&Game> {
+        self.game.as_ref()
     }
 }
 

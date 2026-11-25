@@ -138,12 +138,11 @@ fn publish(staging: StagedProfile, version: &Version) -> (PathBuf, PathBuf) {
         &serde_json::to_vec(version).unwrap(),
     )
     .unwrap();
-    let mut profile = Profile::new(
+    let profile = Profile::new(
         "Converted",
         Some(Game::new("1.20.1").with_isolated_runtime()),
     );
-    profile.set_installed_version(version.id.clone());
-    let directory = staging.publish(&profile).unwrap();
+    let directory = staging.publish_installed(profile, &version.id).unwrap();
     let root = instance_runtime(&directory);
     loader::check_files(&root, &version.id, &Target::host()).unwrap();
     (directory, root)

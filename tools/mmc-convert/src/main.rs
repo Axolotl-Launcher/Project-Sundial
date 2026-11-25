@@ -15,7 +15,7 @@ use std::process::ExitCode;
 use axlauncher_core::install::{loader, prepare};
 use axlauncher_core::launch::{Target, version};
 use axlauncher_core::network::ReqwestNetwork;
-use axlauncher_core::state::profile::{Game, InstallStatus, Profile, StagedProfile};
+use axlauncher_core::state::profile::{Game, Profile, StagedProfile};
 use axlauncher_core::storage::{AtomicFile, DataDir, instance_runtime, write_atomic};
 use axlauncher_modpack::MultiMcExport;
 
@@ -69,7 +69,7 @@ async fn convert(input: &Path, data: &DataDir) -> Result<PathBuf> {
     if let Some((kind, build)) = requirements.loader() {
         game = game.with_loader(kind.as_str(), Some(build.into()));
     }
-    let mut profile = Profile::new(export.name(), Some(game));
+    let profile = Profile::new(export.name(), Some(game));
     set_converted_id(&mut effective)?;
     patches::apply(patch_set, &mut export, &game_root, &mut effective)?;
     let checked = prepare::prepare(&network, &game_root, &effective, &target, 0).await?;
@@ -79,9 +79,7 @@ async fn convert(input: &Path, data: &DataDir) -> Result<PathBuf> {
         &serde_json::to_vec_pretty(&effective)?,
     )?;
     loader::check_files(&game_root, &effective.id, &target)?;
-    profile.set_installed_version(effective.id);
-    profile.set_install_status(InstallStatus::Ready);
-    Ok(staging.publish(&profile)?)
+    Ok(staging.publish_installed(profile, &effective.id)?)
 }
 
 fn set_converted_id(version: &mut version::Version) -> Result<()> {

@@ -21,6 +21,22 @@ pub struct Loader {
 }
 
 impl Game {
+    pub const VANILLA_KIND: &str = "vanilla";
+
+    /// Vanilla may be implicit or explicitly named in the profile.
+    pub fn is_vanilla(&self) -> bool {
+        self.loader
+            .as_ref()
+            .is_none_or(|loader| loader.kind.trim().eq_ignore_ascii_case(Self::VANILLA_KIND))
+    }
+
+    /// A loader needs a recorded version ID before it can launch.
+    pub fn effective_version(&self) -> Option<&str> {
+        self.version_id
+            .as_deref()
+            .or_else(|| self.is_vanilla().then_some(self.minecraft.as_str()))
+    }
+
     /// A game with no loader: the vanilla version the profile names.
     pub fn new(minecraft: impl Into<String>) -> Self {
         Self {
