@@ -41,6 +41,7 @@ impl InstallOptions {
             mirrors: MirrorSettings {
                 metadata: mirror_preference(settings.minecraft_metadata_source),
                 files: mirror_preference(settings.minecraft_file_source),
+                maven_central: mirror_preference(settings.maven_central_source),
             },
         }
     }

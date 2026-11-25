@@ -21,10 +21,17 @@ fn preferences_are_saved_independently_and_reloaded_for_new_downloads() {
     SourceField::Files
         .save(root.path(), SourcePreference::OfficialOnly)
         .unwrap();
+    SourceField::MavenCentral
+        .save(root.path(), SourcePreference::MirrorPreferred)
+        .unwrap();
 
     let saved = load_settings(root.path()).unwrap().data;
     let options = InstallOptions::from_settings(Some(&saved));
     assert_eq!(options.mirrors.metadata, MirrorPreference::MirrorPreferred);
     assert_eq!(options.mirrors.files, MirrorPreference::OfficialOnly);
+    assert_eq!(
+        options.mirrors.maven_central,
+        MirrorPreference::MirrorPreferred
+    );
     assert_eq!(options.concurrency, 24);
 }

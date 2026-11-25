@@ -15,18 +15,13 @@ use axlauncher_ui::{
 use super::RootView;
 
 #[derive(Clone, Copy)]
-struct SourceOption(SourcePreference);
+struct SourceOption(SourcePreference, &'static str);
 
 impl SelectItem for SourceOption {
     type Value = SourcePreference;
 
     fn title(&self) -> SharedString {
-        match self.0 {
-            SourcePreference::Auto => "Automatic",
-            SourcePreference::MirrorPreferred => "Prefer BMCLAPI",
-            SourcePreference::OfficialOnly => "Official only",
-        }
-        .into()
+        self.1.into()
     }
 
     fn value(&self) -> &SourcePreference {
@@ -34,18 +29,13 @@ impl SelectItem for SourceOption {
     }
 }
 
-const OPTIONS: [SourceOption; 3] = [
-    SourceOption(SourcePreference::Auto),
-    SourceOption(SourcePreference::MirrorPreferred),
-    SourceOption(SourcePreference::OfficialOnly),
-];
-
 type SourceSelect = Entity<SelectState<Vec<SourceOption>>>;
 
 #[derive(Clone, Copy)]
 enum SourceField {
     Metadata,
     Files,
+    MavenCentral,
 }
 
 impl SourceField {
@@ -53,6 +43,7 @@ impl SourceField {
         settings.map_or(SourcePreference::default(), |settings| match self {
             Self::Metadata => settings.minecraft_metadata_source,
             Self::Files => settings.minecraft_file_source,
+            Self::MavenCentral => settings.maven_central_source,
         })
     }
 
@@ -64,6 +55,7 @@ impl SourceField {
         update_settings(root, |settings| match self {
             Self::Metadata => settings.minecraft_metadata_source = preference,
             Self::Files => settings.minecraft_file_source = preference,
+            Self::MavenCentral => settings.maven_central_source = preference,
         })
     }
 
@@ -74,9 +66,17 @@ impl SourceField {
         cx: &mut Context<'_, RootView>,
     ) -> SourceSelect {
         let value = self.read(settings);
-        let index = OPTIONS.iter().position(|option| option.0 == value);
-        let select =
-            cx.new(|cx| SelectState::new(OPTIONS.to_vec(), index.map(IndexPath::new), window, cx));
+        let mirror_label = match self {
+            Self::Metadata | Self::Files => "Prefer BMCLAPI",
+            Self::MavenCentral => "Prefer Aliyun Maven",
+        };
+        let options = vec![
+            SourceOption(SourcePreference::Auto, "Automatic"),
+            SourceOption(SourcePreference::MirrorPreferred, mirror_label),
+            SourceOption(SourcePreference::OfficialOnly, "Official only"),
+        ];
+        let index = options.iter().position(|option| option.0 == value);
+        let select = cx.new(|cx| SelectState::new(options, index.map(IndexPath::new), window, cx));
         cx.subscribe_in(
             &select,
             window,
@@ -95,6 +95,7 @@ impl SourceField {
 pub(super) struct DownloadSources {
     metadata: SourceSelect,
     files: SourceSelect,
+    maven_central: SourceSelect,
     pub(super) error: Option<String>,
 }
 
@@ -107,6 +108,7 @@ impl DownloadSources {
         Self {
             metadata: SourceField::Metadata.select(settings, window, cx),
             files: SourceField::Files.select(settings, window, cx),
+            maven_central: SourceField::MavenCentral.select(settings, window, cx),
             error: None,
         }
     }
@@ -120,6 +122,7 @@ impl DownloadSources {
         for (field, select) in [
             (SourceField::Metadata, &self.metadata),
             (SourceField::Files, &self.files),
+            (SourceField::MavenCentral, &self.maven_central),
         ] {
             sync_select(select, field.read(settings), window, cx);
         }
@@ -193,6 +196,12 @@ impl RootView {
                         "Minecraft file source",
                         "download-file-source",
                         &sources.files,
+                        disabled,
+                    ))
+                    .child(source_select(
+                        "Maven Central source",
+                        "maven-central-source",
+                        &sources.maven_central,
                         disabled,
                     )),
             )

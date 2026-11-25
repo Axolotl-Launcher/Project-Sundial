@@ -4,6 +4,66 @@
 use super::*;
 
 #[test]
+fn aliyun_maps_both_maven_central_origins_and_uses_its_own_preference() {
+    let path = "org/example/library/1.0/name%20with%20spaces.jar";
+    for host in ["repo.maven.apache.org", "repo1.maven.org"] {
+        let original = format!("https://{host}/maven2/{path}");
+        let expected = format!("https://maven.aliyun.com/repository/public/{path}");
+        assert_eq!(
+            Mirrors::default().alternate(&original, FetchKind::File),
+            Some(DownloadMirror {
+                url: expected.clone(),
+                preferred: false
+            }),
+        );
+        let mirrors = Mirrors::new(MirrorSettings {
+            metadata: MirrorPreference::OfficialOnly,
+            files: MirrorPreference::OfficialOnly,
+            maven_central: MirrorPreference::MirrorPreferred,
+        });
+        let preferred = Some(DownloadMirror {
+            url: expected,
+            preferred: true,
+        });
+        assert_eq!(mirrors.alternate(&original, FetchKind::Metadata), preferred);
+        assert_eq!(mirrors.alternate(&original, FetchKind::File), preferred);
+    }
+}
+
+#[test]
+fn aliyun_can_be_disabled_while_bmclapi_is_preferred() {
+    let mirrors = Mirrors::new(MirrorSettings {
+        metadata: MirrorPreference::MirrorPreferred,
+        files: MirrorPreference::MirrorPreferred,
+        maven_central: MirrorPreference::OfficialOnly,
+    });
+    let central = "https://repo.maven.apache.org/maven2/org/example/library.jar";
+    let minecraft = "https://libraries.minecraft.net/org/example/library.jar";
+    assert_eq!(mirrors.alternate(central, FetchKind::File), None);
+    assert_eq!(mirrors.alternate(central, FetchKind::Metadata), None);
+    assert!(
+        mirrors
+            .alternate(minecraft, FetchKind::File)
+            .unwrap()
+            .preferred
+    );
+}
+
+#[test]
+fn aliyun_only_rewrites_public_maven_central_artifact_paths() {
+    let mirrors = Mirrors::default();
+    for url in [
+        "https://repo.maven.apache.org/maven2/",
+        "https://repo.maven.apache.org/maven20/org/example.jar",
+        "https://repo1.maven.org/maven2/org/example.jar?token=private",
+        "https://repo1.maven.org.evil.example/maven2/org/example.jar",
+        "http://repo1.maven.org/maven2/org/example.jar",
+    ] {
+        assert_eq!(mirrors.alternate(url, FetchKind::File), None, "{url}");
+    }
+}
+
+#[test]
 fn bmclapi_maps_game_assets_and_java_runtime() {
     assert_bmclapi_routes(&[
         (
@@ -98,6 +158,7 @@ fn mcim_preserves_api_queries_and_escaped_file_paths() {
     let mirrors = Mirrors::new(MirrorSettings {
         metadata: MirrorPreference::MirrorPreferred,
         files: MirrorPreference::MirrorPreferred,
+        ..MirrorSettings::default()
     });
     for (original, expected) in routes {
         let route = mirrors
@@ -133,6 +194,7 @@ fn metadata_and_files_use_independent_preferences() {
     let mirrors = Mirrors::new(MirrorSettings {
         metadata: MirrorPreference::MirrorPreferred,
         files: MirrorPreference::OfficialOnly,
+        ..MirrorSettings::default()
     });
     let url = "https://maven.minecraftforge.net/net/minecraftforge/forge/example.jar";
     assert!(

@@ -41,7 +41,7 @@ pub enum ThemeChoice {
 /// Where a download source prefers to fetch from.
 ///
 /// `Auto` uses official sources when reachable, `OfficialOnly` disables
-/// mirrors, and `MirrorPreferred` tries BMCLAPI first where it is available.
+/// mirrors, and `MirrorPreferred` tries a supported game or library mirror first.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SourcePreference {
@@ -76,6 +76,9 @@ pub struct SettingsData {
     /// Where the game's files come from.
     #[serde(default)]
     pub minecraft_file_source: SourcePreference,
+    /// Where artifacts and metadata from Maven Central come from.
+    #[serde(default)]
+    pub maven_central_source: SourcePreference,
     /// Fields a newer build wrote; saving keeps them for that build.
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, serde_json::Value>,
@@ -101,6 +104,7 @@ impl Default for SettingsData {
             telemetry: false,
             minecraft_metadata_source: SourcePreference::default(),
             minecraft_file_source: SourcePreference::default(),
+            maven_central_source: SourcePreference::default(),
             extra: BTreeMap::new(),
         }
     }
