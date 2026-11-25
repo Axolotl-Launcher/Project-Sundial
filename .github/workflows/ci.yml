@@ -55,19 +55,54 @@ jobs:
       - name: Run desktop workspace tests
         run: cargo nextest run --workspace --profile ci --locked --no-tests=fail
 
+  # Architecture: deep modules, narrow interfaces. rust-analyzer's SCIP index is
+  # the input, so this job pays for a first index on a cold cache; the tool
+  # caches it under target/ afterwards.
+  architecture:
+    name: Architecture
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out workspace
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Prepare desktop Rust
+        uses: ./.github/actions/setup-desktop-rust
+        with:
+          save-cache: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      # Then pinned toolchain has no rust-analyzer by default; the tool needs it
+      # to build the index.
+      - name: Add rust-analyzer
+        run: rustup component add rust-analyzer
+
+      - name: Install deslop-please
+        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: deslop-please@0.1.4
+
+      # .deslop-please.allow is the baseline of accepted debt; anything new,
+      # or any removed entry that now reports, fails here.
+      - name: Check the architecture
+        run: deslop-please --allow .deslop-please.allow
+
   ci-result:
     name: CI result
     if: ${{ !cancelled() }}
-    needs: [repository, rust]
+    needs: [repository, rust, architecture]
     runs-on: ubuntu-24.04
     steps:
-      - name: Require repository and desktop checks to pass
+      - name: Require every check to pass
         shell: bash
         env:
           REPOSITORY_RESULT: ${{ needs.repository.result }}
           RUST_RESULT: ${{ needs.rust.result }}
+          ARCHITECTURE_RESULT: ${{ needs.architecture.result }}
         run: |
-          printf '| Checks | Result |\n| --- | --- |\n| Repository | %s |\n| Desktop Rust | %s |\n' \
-            "$REPOSITORY_RESULT" "$RUST_RESULT" >> "$GITHUB_STEP_SUMMARY"
+          printf '| Checks | Result |\n| --- | --- |\n| Repository | %s |\n| Desktop Rust | %s |\n| Architecture | %s |\n' \
+            "$REPOSITORY_RESULT" "$RUST_RESULT" "$ARCHITECTURE_RESULT" >> "$GITHUB_STEP_SUMMARY"
           test "$REPOSITORY_RESULT" = success
           test "$RUST_RESULT" = success
+          test "$ARCHITECTURE_RESULT" = success

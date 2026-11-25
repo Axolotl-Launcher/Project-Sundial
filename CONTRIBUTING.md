@@ -94,13 +94,35 @@ typos
 tombi format --check
 tombi lint
 reuse lint
+deslop-please --allow .deslop-please.allow
 ```
 
 `pnpm check` runs the host-filtered Turbo checks, formatters, script checks,
 and hooks. The Cargo commands above check the full workspace. CI runs the
 [repository checks](.github/workflows/repo-check.yml) on Ubuntu, then runs
-Clippy and Nextest on Ubuntu, Windows, and macOS. The
-[`CI result` job](.github/workflows/ci.yml) reports both stages.
+Clippy and Nextest on Ubuntu, Windows, and macOS, and the
+[architecture check](.github/workflows/ci.yml) on Ubuntu. The
+[`CI result` job](.github/workflows/ci.yml) reports every stage.
+
+## Architecture check
+
+[deslop-please](https://github.com/deterministic-machines/deslop-please) enforces
+the "deep modules, narrow interfaces" rule from *A Philosophy of Software
+Design*. Install it with `cargo install deslop-please`, and make sure
+`rust-analyzer` is on `PATH` (`rustup component add rust-analyzer`); the tool
+builds its index from `rust-analyzer scip`.
+
+```bash
+pnpm architecture                      # the check CI runs
+deslop-please                          # every finding, including accepted debt
+deslop-please --update-allow .deslop-please.allow   # only when adding debt deliberately
+```
+
+`.deslop-please.allow` is the baseline: it lists the 23 findings that existed
+when the check was introduced. A new finding fails CI. Fix the cause rather than
+adding a line; when a listed finding is fixed, delete its line. The four
+reported kinds are a module cycle, a tangle, a field read by another module, and
+a shallow module (its public surface is most of what it holds).
 
 ## Dependency policy
 
