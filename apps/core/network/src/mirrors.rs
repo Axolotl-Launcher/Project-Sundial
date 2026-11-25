@@ -6,13 +6,10 @@ use std::num::NonZeroUsize;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use axlauncher_spi::{DownloadMirror, FetchKind};
+use axlauncher_spi::{DownloadMirror, FetchKind, ServiceHost};
 use tokio::sync::Semaphore;
 use url::Url;
 
-const BMCLAPI: &str = "bmclapi2.bangbang93.com";
-const MCIM: &str = "mod.mcimirror.top";
-const ALIYUN: &str = "maven.aliyun.com";
 const BMCLAPI_CONNECTIONS: usize = 16;
 const MCIM_CONNECTIONS: usize = 4;
 const ALIYUN_CONNECTIONS: usize = 16;
@@ -31,17 +28,51 @@ pub enum MirrorPreference {
     MirrorPreferred,
 }
 
-/// Source preferences for game metadata, game files, and Maven Central.
-#[derive(Debug, Default, Clone, Copy)]
+/// Endpoints supplied by the application for the supported public mirrors.
+#[derive(Debug, Default, Clone)]
+pub struct MirrorHosts {
+    pub bmclapi: Option<ServiceHost>,
+    pub mcim: Option<ServiceHost>,
+    pub aliyun: Option<ServiceHost>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mirror {
+    Bmclapi,
+    Mcim,
+    Aliyun,
+}
+
+impl Mirror {
+    fn host(self, hosts: &MirrorHosts) -> Option<&str> {
+        match self {
+            Self::Bmclapi => &hosts.bmclapi,
+            Self::Mcim => &hosts.mcim,
+            Self::Aliyun => &hosts.aliyun,
+        }
+        .as_ref()
+        .map(ServiceHost::as_str)
+    }
+
+    fn for_host(host: &str, hosts: &MirrorHosts) -> Option<Self> {
+        [Self::Bmclapi, Self::Mcim, Self::Aliyun]
+            .into_iter()
+            .find(|mirror| mirror.host(hosts) == Some(host))
+    }
+}
+
+/// Source preferences and configured endpoints for downloads.
+#[derive(Debug, Default, Clone)]
 pub struct MirrorSettings {
     pub metadata: MirrorPreference,
     pub files: MirrorPreference,
     pub maven_central: MirrorPreference,
+    pub hosts: MirrorHosts,
 }
 
 #[derive(Debug, Default)]
 pub(super) struct Mirrors {
-    pub(super) settings: MirrorSettings,
+    settings: MirrorSettings,
     unavailable: Mutex<HashMap<String, Instant>>,
 }
 
@@ -56,16 +87,23 @@ impl Mirrors {
     pub(super) fn alternate(&self, original: &str, kind: FetchKind) -> Option<DownloadMirror> {
         let original = Url::parse(original).ok()?;
         let upstream = original.host_str()?;
-        let (host, path) = mirror_path(&original, upstream)?;
-        let preference = match (host, kind) {
-            (ALIYUN, _) => self.settings.maven_central,
-            (_, FetchKind::Metadata) => self.settings.metadata,
-            (_, FetchKind::File) => self.settings.files,
+        let (mirror, path) = mirror_path(&original, upstream)?;
+        let host = mirror.host(&self.settings.hosts)?;
+        let preference = match (mirror, kind) {
+            (Mirror::Aliyun, _) => self.settings.maven_central,
+            (_, FetchKind::Metadata | FetchKind::UnverifiedMetadata) => self.settings.metadata,
+            (_, FetchKind::File | FetchKind::UnverifiedFile) => self.settings.files,
         };
-        if preference == MirrorPreference::OfficialOnly {
+        if preference == MirrorPreference::OfficialOnly
+            || (preference == MirrorPreference::Auto
+                && matches!(
+                    kind,
+                    FetchKind::UnverifiedMetadata | FetchKind::UnverifiedFile
+                ))
+        {
             return None;
         }
-        let preferred = host != MCIM && self.prefer_mirror(host, upstream, preference);
+        let preferred = mirror != Mirror::Mcim && self.prefer_mirror(host, upstream, preference);
         let mut url = Url::parse(&format!("https://{host}{path}")).ok()?;
         url.set_query(original.query());
         Some(DownloadMirror {
@@ -89,8 +127,11 @@ impl Mirrors {
     pub(super) fn connect_failed(&self, url: &str) {
         let Ok(url) = Url::parse(url) else { return };
         let Some(host) = url.host_str() else { return };
-        if matches!(host, BMCLAPI | ALIYUN)
-            || mirror_path(&url, host).is_some_and(|(mirror, _)| mirror != MCIM)
+        let mirror = Mirror::for_host(host, &self.settings.hosts)
+            .or_else(|| mirror_path(&url, host).map(|(mirror, _)| mirror));
+        if let Some(mirror) = mirror
+            && mirror != Mirror::Mcim
+            && mirror.host(&self.settings.hosts).is_some()
         {
             self.unavailable
                 .lock()
@@ -98,27 +139,27 @@ impl Mirrors {
                 .insert(host.to_owned(), Instant::now() + CONNECT_COOLDOWN);
         }
     }
-}
 
-pub(super) fn download_connection_limit(host: &str) -> NonZeroUsize {
-    match host {
-        BMCLAPI => NonZeroUsize::new(BMCLAPI_CONNECTIONS).unwrap(),
-        MCIM => NonZeroUsize::new(MCIM_CONNECTIONS).unwrap(),
-        ALIYUN => NonZeroUsize::new(ALIYUN_CONNECTIONS).unwrap(),
-        _ => NonZeroUsize::MAX,
+    pub(super) fn download_connection_limit(&self, host: &str) -> NonZeroUsize {
+        match Mirror::for_host(host, &self.settings.hosts) {
+            Some(Mirror::Bmclapi) => NonZeroUsize::new(BMCLAPI_CONNECTIONS).unwrap(),
+            Some(Mirror::Mcim) => NonZeroUsize::new(MCIM_CONNECTIONS).unwrap(),
+            Some(Mirror::Aliyun) => NonZeroUsize::new(ALIYUN_CONNECTIONS).unwrap(),
+            None => NonZeroUsize::MAX,
+        }
+    }
+
+    pub(super) fn buffered_quota(&self, host: &str) -> Option<&'static Semaphore> {
+        match Mirror::for_host(host, &self.settings.hosts) {
+            Some(Mirror::Bmclapi) => Some(&BMCLAPI_BUFFERED),
+            Some(Mirror::Mcim) => Some(&MCIM_BUFFERED),
+            Some(Mirror::Aliyun) => Some(&ALIYUN_BUFFERED),
+            None => None,
+        }
     }
 }
 
-pub(super) fn buffered_quota(host: &str) -> Option<&'static Semaphore> {
-    match host {
-        BMCLAPI => Some(&BMCLAPI_BUFFERED),
-        MCIM => Some(&MCIM_BUFFERED),
-        ALIYUN => Some(&ALIYUN_BUFFERED),
-        _ => None,
-    }
-}
-
-fn mirror_path(url: &Url, host: &str) -> Option<(&'static str, String)> {
+fn mirror_path(url: &Url, host: &str) -> Option<(Mirror, String)> {
     if !matches!(url.scheme(), "http" | "https")
         || url.port().is_some()
         || !url.username().is_empty()
@@ -130,7 +171,7 @@ fn mirror_path(url: &Url, host: &str) -> Option<(&'static str, String)> {
     if url.query().is_none()
         && let Some(path) = bmclapi_path(host, path)
     {
-        return Some((BMCLAPI, path));
+        return Some((Mirror::Bmclapi, path));
     }
     if url.scheme() != "https" {
         return None;
@@ -139,7 +180,7 @@ fn mirror_path(url: &Url, host: &str) -> Option<(&'static str, String)> {
         let artifact = path
             .strip_prefix("/maven2/")
             .filter(|path| !path.is_empty())?;
-        return Some((ALIYUN, format!("/repository/public/{artifact}")));
+        return Some((Mirror::Aliyun, format!("/repository/public/{artifact}")));
     }
     let path = match host {
         "api.modrinth.com" if path.starts_with("/v2/") => format!("/modrinth{path}"),
@@ -148,7 +189,7 @@ fn mirror_path(url: &Url, host: &str) -> Option<(&'static str, String)> {
         "edge.forgecdn.net" if path.starts_with("/files/") && url.query().is_none() => path.into(),
         _ => return None,
     };
-    Some((MCIM, path))
+    Some((Mirror::Mcim, path))
 }
 
 fn bmclapi_path(host: &str, path: &str) -> Option<String> {

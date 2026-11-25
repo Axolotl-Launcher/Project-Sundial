@@ -134,8 +134,7 @@ impl RootView {
             .service
             .as_ref()
             .expect("saved account service");
-        launch_accounts::preview(account, service.data_dir())
-            .with_fallen_proxy(self.use_fallen_proxy())
+        launch_accounts::preview(account, service.data_dir()).with_fallen_proxy(self.fallen_proxy())
     }
 
     pub(super) fn refresh_accounts(&mut self, cx: &mut Context<'_, Self>) {

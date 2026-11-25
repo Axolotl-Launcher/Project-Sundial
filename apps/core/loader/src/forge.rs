@@ -77,7 +77,7 @@ impl<N: Network> ModLoader for ForgeApi<N> {
 
     async fn versions(&self, game_version: &str) -> Result<Vec<LoaderVersion>, LoaderError> {
         self.network
-            .fetch_with(PROMOTIONS, FetchKind::Metadata, |response| {
+            .fetch_with(PROMOTIONS, FetchKind::UnverifiedMetadata, |response| {
                 parse_promotions(game_version, response)
             })
             .await

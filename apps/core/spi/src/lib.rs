@@ -25,7 +25,7 @@ mod loader;
 pub use loader::{
     LoaderError, LoaderFile, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader,
 };
-pub use sources::{DownloadMirror, FetchKind};
+pub use sources::{DownloadMirror, FetchKind, ServiceHost};
 pub use transfer::{ByteRange, DownloadBody, DownloadProtocol, DownloadResponse, ResponseRange};
 
 /// Fetches bytes over the network.
@@ -44,8 +44,8 @@ pub trait Network {
         async move { accept(self.fetch(url).await) }
     }
 
-    /// Supplies a mirror for a file transfer, leaving source attempts to the scheduler.
-    fn download_mirror(&self, _url: &str) -> Option<DownloadMirror> {
+    /// Supplies a mirror for a file transfer with the given integrity guarantee.
+    fn download_mirror(&self, _url: &str, _has_digest: bool) -> Option<DownloadMirror> {
         None
     }
 

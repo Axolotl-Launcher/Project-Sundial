@@ -202,7 +202,7 @@ impl RootView {
             Some((service, id)) => launches::Player::Online {
                 service,
                 id,
-                fallen_proxy: self.use_fallen_proxy(),
+                fallen_proxy: self.fallen_proxy(),
             },
             None => launches::Player::Offline(self.preview_session(cx)),
         };

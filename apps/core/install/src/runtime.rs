@@ -446,7 +446,7 @@ async fn runtime_entry(
     major: u32,
 ) -> Result<Entry, RuntimeError> {
     network
-        .fetch_with(RUNTIME_INDEX, FetchKind::Metadata, |response| {
+        .fetch_with(RUNTIME_INDEX, FetchKind::UnverifiedMetadata, |response| {
             let bytes = response.map_err(|source| fetch_error(RUNTIME_INDEX, source))?;
             let mut index: Index =
                 serde_json::from_slice(&bytes).map_err(|error| RuntimeError::Malformed {

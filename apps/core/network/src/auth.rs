@@ -5,9 +5,8 @@
 
 use std::time::Duration;
 
-use axlauncher_spi::auth::{
-    AuthNetwork, Body, FALLEN_PROXY_DOMAIN, Request, Response, TransportError,
-};
+use axlauncher_spi::ServiceHost;
+use axlauncher_spi::auth::{AuthNetwork, Body, Request, Response, TransportError};
 use reqwest::header::{ACCEPT, CONTENT_TYPE, USER_AGENT};
 use url::Url;
 
@@ -21,7 +20,7 @@ const MAX_BODY_BYTES: usize = 256 * 1024;
 #[derive(Clone)]
 pub struct AuthHttp {
     client: reqwest::Client,
-    fallen_proxy: bool,
+    fallen_proxy: Option<ServiceHost>,
 }
 
 impl AuthHttp {
@@ -36,14 +35,14 @@ impl AuthHttp {
             .build()
             .map(|client| Self {
                 client,
-                fallen_proxy: false,
+                fallen_proxy: None,
             })
             .map_err(|_| TransportError::Unavailable)
     }
 
     /// Enables forwarding for the launcher's Minecraft services requests.
-    pub fn with_fallen_proxy(mut self, enabled: bool) -> Self {
-        self.fallen_proxy = enabled;
+    pub fn with_fallen_proxy(mut self, host: Option<ServiceHost>) -> Self {
+        self.fallen_proxy = host;
         self
     }
 
@@ -80,8 +79,8 @@ impl AuthHttp {
 
 impl AuthNetwork for AuthHttp {
     async fn send(&self, request: Request<'_>) -> Result<Response, TransportError> {
-        if self.fallen_proxy
-            && let Some(url) = fallen_service_url(&request)
+        if let Some(host) = &self.fallen_proxy
+            && let Some(url) = fallen_service_url(&request, host)
         {
             return self.send_to(url.as_str(), request).await;
         }
@@ -89,7 +88,7 @@ impl AuthNetwork for AuthHttp {
     }
 }
 
-fn fallen_service_url(request: &Request<'_>) -> Option<Url> {
+fn fallen_service_url(request: &Request<'_>, host: &ServiceHost) -> Option<Url> {
     if !request.is_minecraft_service() {
         return None;
     }
@@ -108,7 +107,7 @@ fn fallen_service_url(request: &Request<'_>) -> Option<Url> {
     {
         return None;
     }
-    url.set_host(Some(&format!("services.{FALLEN_PROXY_DOMAIN}")))
+    url.set_host(Some(&format!("services.{}", host.as_str())))
         .ok()?;
     Some(url)
 }

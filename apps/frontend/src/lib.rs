@@ -20,6 +20,7 @@ mod instance_row;
 mod java;
 mod launches;
 mod panel;
+mod source_hosts;
 
 use panel::RootView;
 

@@ -139,7 +139,8 @@ impl Network for MirroredNetwork {
         .to_vec())
     }
 
-    fn download_mirror(&self, _url: &str) -> Option<DownloadMirror> {
+    fn download_mirror(&self, _url: &str, has_digest: bool) -> Option<DownloadMirror> {
+        assert!(has_digest);
         Some(DownloadMirror {
             url: "https://mirror.invalid/file".into(),
             preferred: self.preferred,

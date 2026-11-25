@@ -12,6 +12,7 @@ use axlauncher_core::launch::{
 };
 use axlauncher_core::network::auth::AuthHttp;
 use axlauncher_core::network::{MirrorSettings, ReqwestNetwork};
+use axlauncher_core::spi::ServiceHost;
 use axlauncher_core::{launch_accounts, state::accounts::AccountId};
 use axlauncher_ui::{AppContext, AsyncApp, Context, WeakEntity};
 use tokio::sync::{oneshot, watch};
@@ -24,7 +25,7 @@ pub(crate) enum Player {
     Online {
         service: Arc<DesktopAccounts>,
         id: AccountId,
-        fallen_proxy: bool,
+        fallen_proxy: Option<ServiceHost>,
     },
 }
 
@@ -173,11 +174,11 @@ async fn online_session(
     service: &DesktopAccounts,
     id: AccountId,
     mirrors: MirrorSettings,
-    fallen_proxy: bool,
+    fallen_proxy: Option<ServiceHost>,
 ) -> Result<Session, String> {
     let network = AuthHttp::desktop()
         .map_err(|_| "Could not initialize online sign-in.".to_owned())?
-        .with_fallen_proxy(fallen_proxy);
+        .with_fallen_proxy(fallen_proxy.clone());
     launch_accounts::prepare(service, id, &network, || {
         ReqwestNetwork::desktop_with_mirrors(mirrors)
             .map_err(|_| "Could not initialize the authentication agent download.".to_owned())

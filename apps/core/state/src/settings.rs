@@ -40,8 +40,9 @@ pub enum ThemeChoice {
 
 /// Where a download source prefers to fetch from.
 ///
-/// `Auto` uses official sources when reachable, `OfficialOnly` disables
-/// mirrors, and `MirrorPreferred` tries a supported game or library mirror first.
+/// `Auto` keeps unverified installation inputs on official sources.
+/// `OfficialOnly` disables mirrors, and `MirrorPreferred` trusts a configured
+/// mirror for the selected category.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SourcePreference {

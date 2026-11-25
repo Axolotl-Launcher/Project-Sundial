@@ -19,7 +19,7 @@ mod mirrors;
 mod transfer;
 
 pub use dns::{DohConfig, DohUpstream};
-pub use mirrors::{MirrorPreference, MirrorSettings};
+pub use mirrors::{MirrorHosts, MirrorPreference, MirrorSettings};
 
 /// A network provider that has not been given a transport yet.
 ///
@@ -116,9 +116,9 @@ impl ReqwestNetwork {
     }
 
     async fn fetch_exact(&self, url: &str) -> Result<Vec<u8>, FetchError> {
-        let _permit = match self.mirrors.as_ref().and_then(|_| {
+        let _permit = match self.mirrors.as_ref().and_then(|mirrors| {
             let parsed = Url::parse(url).ok()?;
-            mirrors::buffered_quota(parsed.host_str()?)
+            mirrors.buffered_quota(parsed.host_str()?)
         }) {
             Some(quota) => Some(quota.acquire().await.expect("mirror quota is never closed")),
             None => None,
@@ -170,12 +170,19 @@ impl Network for ReqwestNetwork {
         .await
     }
 
-    fn download_mirror(&self, url: &str) -> Option<DownloadMirror> {
-        self.alternate(url, FetchKind::File)
+    fn download_mirror(&self, url: &str, has_digest: bool) -> Option<DownloadMirror> {
+        let kind = if has_digest {
+            FetchKind::File
+        } else {
+            FetchKind::UnverifiedFile
+        };
+        self.alternate(url, kind)
     }
 
     fn download_connection_limit(&self, host: &str) -> NonZeroUsize {
-        mirrors::download_connection_limit(host)
+        self.mirrors.as_ref().map_or(NonZeroUsize::MAX, |mirrors| {
+            mirrors.download_connection_limit(host)
+        })
     }
 
     async fn open_download(

@@ -160,7 +160,8 @@ impl DownloadEngine {
         network: &impl Network,
         job: DownloadJob<'_>,
     ) -> Result<(), TransferError> {
-        let mut sources = ordered_sources(network, job.sources);
+        let has_digest = job.sha1.is_some() || !job.sha1_alternatives.is_empty();
+        let mut sources = ordered_sources(network, job.sources, has_digest);
         let mut last = TransferError::Invalid("no download source supplied".into());
         let mut rounds = RETRY_DELAYS.into_iter().enumerate();
         while let Some((round, delay)) = rounds.next().filter(|_| !sources.is_empty()) {
@@ -234,14 +235,18 @@ impl DownloadEngine {
     }
 }
 
-fn ordered_sources<'a>(network: &impl Network, originals: &[&'a str]) -> Vec<Cow<'a, str>> {
+fn ordered_sources<'a>(
+    network: &impl Network,
+    originals: &[&'a str],
+    has_digest: bool,
+) -> Vec<Cow<'a, str>> {
     let mut sources = Vec::with_capacity(originals.len());
     let mut fallback = Vec::new();
     for &original in originals {
         if sources.contains(&Cow::Borrowed(original)) {
             continue;
         }
-        match network.download_mirror(original) {
+        match network.download_mirror(original, has_digest) {
             Some(mirror) if mirror.preferred => push_source(&mut sources, Cow::Owned(mirror.url)),
             Some(mirror) => fallback.push(Cow::Owned(mirror.url)),
             None => (),

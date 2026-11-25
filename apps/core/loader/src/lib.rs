@@ -209,7 +209,7 @@ impl<N: Network> ModLoader for LoaderApi<N> {
     async fn versions(&self, game_version: &str) -> Result<Vec<LoaderVersion>, LoaderError> {
         let url = self.versions_url(game_version);
         self.network
-            .fetch_with(&url, FetchKind::Metadata, |response| {
+            .fetch_with(&url, FetchKind::UnverifiedMetadata, |response| {
                 self.parse_versions(game_version, response)
             })
             .await
@@ -219,7 +219,7 @@ impl<N: Network> ModLoader for LoaderApi<N> {
         let listing = self.versions_url(&request.game_version);
         let chosen = self
             .network
-            .fetch_with(&listing, FetchKind::Metadata, |response| {
+            .fetch_with(&listing, FetchKind::UnverifiedMetadata, |response| {
                 self.choose_version(&request, response)
             })
             .await?;
@@ -227,7 +227,7 @@ impl<N: Network> ModLoader for LoaderApi<N> {
         let url = self.profile_url(&request.game_version, &chosen);
         let (head, bytes) = self
             .network
-            .fetch_with(&url, FetchKind::Metadata, |response| {
+            .fetch_with(&url, FetchKind::UnverifiedMetadata, |response| {
                 self.parse_profile(&request.game_version, response)
             })
             .await?;

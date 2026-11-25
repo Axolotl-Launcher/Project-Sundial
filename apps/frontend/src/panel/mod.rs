@@ -201,10 +201,11 @@ impl RootView {
             )
     }
 
-    fn use_fallen_proxy(&self) -> bool {
+    fn fallen_proxy(&self) -> Option<axlauncher_core::spi::ServiceHost> {
         self.settings
             .as_ref()
-            .is_some_and(|settings| settings.use_fallen_proxy)
+            .filter(|settings| settings.use_fallen_proxy)?;
+        crate::source_hosts::source_hosts().fallen_proxy.clone()
     }
 
     fn render_header(&mut self, cx: &mut Context<'_, Self>) -> AnyElement {

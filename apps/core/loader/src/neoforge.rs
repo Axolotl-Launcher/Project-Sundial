@@ -94,7 +94,7 @@ impl<N: Network> NeoForgeApi<N> {
         };
         let url = format!("{maven}/maven-metadata.xml");
         self.network
-            .fetch_with(&url, FetchKind::Metadata, |response| {
+            .fetch_with(&url, FetchKind::UnverifiedMetadata, |response| {
                 parse_offers(game_version, &prefix, requested, response)
             })
             .await

@@ -5,9 +5,6 @@
 
 use std::future::Future;
 
-/// Base domain for the opt-in Minecraft service forwarding proxy.
-pub const FALLEN_PROXY_DOMAIN: &str = "msp.fallenbreath.me";
-
 /// Sends requests whose status and response body the caller must interpret.
 pub trait AuthNetwork {
     fn send(&self, request: Request<'_>) -> impl Future<Output = Result<Response, TransportError>>;

@@ -114,7 +114,7 @@ pub(crate) async fn ensure_version(
     }
 
     let entry = network
-        .fetch_with(CATALOG, FetchKind::Metadata, |response| {
+        .fetch_with(CATALOG, FetchKind::UnverifiedMetadata, |response| {
             let bytes = response
                 .map_err(|error| format!("Cannot fetch the Mojang version list: {error}"))?;
             let catalog: Catalog = serde_json::from_slice(&bytes)

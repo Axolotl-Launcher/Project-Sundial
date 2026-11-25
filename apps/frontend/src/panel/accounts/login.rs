@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use axlauncher_core::network::auth::{AuthHttp, BrowserCallback, CallbackError};
+use axlauncher_core::spi::ServiceHost;
 use axlauncher_core::state::accounts::microsoft::{
     BrowserLogin, CALLBACK_PATH, CALLBACK_PORT, DeviceLogin, VerifiedAccount,
 };
@@ -58,7 +59,7 @@ impl RootView {
         });
         self.accounts.error = None;
         let worker = Arc::clone(&service);
-        let fallen_proxy = self.use_fallen_proxy();
+        let fallen_proxy = self.fallen_proxy();
         let task = cx.background_spawn(async move {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -143,7 +144,7 @@ async fn run(
     service: &DesktopAccounts,
     method: Method,
     expected: Option<AccountId>,
-    fallen_proxy: bool,
+    fallen_proxy: Option<ServiceHost>,
     sender: &mpsc::UnboundedSender<Stage>,
     commit: &SignInCommit,
 ) -> LoginResult {

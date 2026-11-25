@@ -55,7 +55,7 @@ pub(crate) async fn fetch(
     game_version: &str,
 ) -> Result<LoaderProfile, LoaderError> {
     network
-        .fetch_with(url, FetchKind::File, |response| {
+        .fetch_with(url, FetchKind::UnverifiedFile, |response| {
             let bytes = response.map_err(|source| LoaderError::Unavailable {
                 loader: kind,
                 source,

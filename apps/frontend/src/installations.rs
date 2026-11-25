@@ -21,8 +21,8 @@ use axlauncher_ui::{AppContext, AsyncApp, Context, WeakEntity};
 use tokio::sync::watch;
 
 use crate::RootView;
+use crate::source_hosts::source_hosts;
 
-#[derive(Clone, Copy)]
 pub(crate) struct InstallOptions {
     pub(crate) concurrency: usize,
     pub(crate) mirrors: MirrorSettings,
@@ -30,10 +30,14 @@ pub(crate) struct InstallOptions {
 
 impl InstallOptions {
     pub(crate) fn from_settings(settings: Option<&SettingsData>) -> Self {
+        let hosts = source_hosts().mirrors.clone();
         let Some(settings) = settings else {
             return Self {
                 concurrency: 0,
-                mirrors: MirrorSettings::default(),
+                mirrors: MirrorSettings {
+                    hosts,
+                    ..MirrorSettings::default()
+                },
             };
         };
         Self {
@@ -42,6 +46,7 @@ impl InstallOptions {
                 metadata: mirror_preference(settings.minecraft_metadata_source),
                 files: mirror_preference(settings.minecraft_file_source),
                 maven_central: mirror_preference(settings.maven_central_source),
+                hosts,
             },
         }
     }

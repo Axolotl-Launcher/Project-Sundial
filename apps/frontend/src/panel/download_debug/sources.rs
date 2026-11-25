@@ -14,6 +14,7 @@ use axlauncher_ui::{
 
 use super::RootView;
 use crate::panel::launch::Inspection;
+use crate::source_hosts::source_hosts;
 
 #[derive(Clone, Copy)]
 struct SourceOption(SourcePreference, &'static str);
@@ -67,13 +68,9 @@ impl SourceField {
         cx: &mut Context<'_, RootView>,
     ) -> SourceSelect {
         let value = self.read(settings);
-        let mirror_label = match self {
-            Self::Metadata | Self::Files => "Prefer BMCLAPI",
-            Self::MavenCentral => "Prefer Aliyun Maven",
-        };
         let options = vec![
             SourceOption(SourcePreference::Auto, "Automatic"),
-            SourceOption(SourcePreference::MirrorPreferred, mirror_label),
+            SourceOption(SourcePreference::MirrorPreferred, "Trust configured mirror"),
             SourceOption(SourcePreference::OfficialOnly, "Official only"),
         ];
         let index = options.iter().position(|option| option.0 == value);
@@ -207,6 +204,9 @@ impl RootView {
     pub(super) fn render_download_sources(&self, cx: &mut Context<'_, Self>) -> AnyElement {
         let sources = &self.download_debug.sources;
         let disabled = self.settings_readonly();
+        let hosts = &source_hosts().mirrors;
+        let game_configured = hosts.bmclapi.is_some() || hosts.mcim.is_some();
+        let maven_configured = hosts.aliyun.is_some();
         v_flex()
             .gap_1()
             .child(
@@ -217,21 +217,35 @@ impl RootView {
                         "Minecraft metadata source",
                         "download-metadata-source",
                         &sources.metadata,
-                        disabled,
+                        disabled || !game_configured,
                     ))
                     .child(source_select(
                         "Minecraft file source",
                         "download-file-source",
                         &sources.files,
-                        disabled,
+                        disabled || !game_configured,
                     ))
                     .child(source_select(
                         "Maven Central source",
                         "maven-central-source",
                         &sources.maven_central,
-                        disabled,
+                        disabled || !maven_configured,
                     )),
             )
+            .when(!game_configured, |column| {
+                column.child(source_note(
+                    "game-mirrors-unconfigured",
+                    "Set AXLAUNCHER_BMCLAPI_HOST or AXLAUNCHER_MCIM_HOST before starting the launcher to use game mirrors.",
+                    cx,
+                ))
+            })
+            .when(!maven_configured, |column| {
+                column.child(source_note(
+                    "maven-mirror-unconfigured",
+                    "Set AXLAUNCHER_ALIYUN_MAVEN_HOST before starting the launcher to use the Maven Central mirror.",
+                    cx,
+                ))
+            })
             .child(self.render_fallen_proxy(cx, disabled))
             .when_some(sources.error.clone(), |column, error| {
                 column.child(
@@ -245,25 +259,33 @@ impl RootView {
     }
 
     fn render_fallen_proxy(&self, cx: &mut Context<'_, Self>, disabled: bool) -> impl IntoElement {
+        let configured = source_hosts().fallen_proxy.is_some();
+        let description = if configured {
+            "Forwards Minecraft sign-in and in-game session requests through a third-party service."
+        } else {
+            "Set AXLAUNCHER_FALLEN_PROXY_DOMAIN before starting the launcher to enable this proxy."
+        };
         v_flex()
             .gap_1()
             .pt_2()
             .child(
                 Switch::new("fallen-proxy")
                     .label("Use Fallen-Proxy for Minecraft authentication")
-                    .checked(self.use_fallen_proxy())
-                    .disabled(disabled)
+                    .checked(self.fallen_proxy().is_some())
+                    .disabled(disabled || !configured)
                     .on_change(cx.listener(|view, enabled, window, cx| {
                         view.save_fallen_proxy(*enabled, window, cx);
                     })),
             )
-            .child(
-                Label::new("Forwards Minecraft sign-in and in-game session requests through a third-party service.")
-                    .id("fallen-proxy-description")
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground),
-            )
+            .child(source_note("fallen-proxy-description", description, cx))
     }
+}
+
+fn source_note(id: &'static str, text: &'static str, cx: &Context<'_, RootView>) -> Label {
+    Label::new(text)
+        .id(id)
+        .text_xs()
+        .text_color(cx.theme().muted_foreground)
 }
 
 fn source_select(

@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use super::*;
+use axlauncher_spi::ServiceHost;
 
 #[test]
 fn fallen_proxy_jvm_arguments_apply_only_to_opted_in_microsoft_sessions() {
     let fixture = Fixture::new();
+    let proxy = ServiceHost::parse("proxy.example.invalid").unwrap();
     let java = FakeJava::found(fixture.java());
     let microsoft = Session::microsoft_preview("OnlinePlayer", "profile-uuid");
     let offline = Session::offline("OfflinePlayer");
@@ -19,22 +21,22 @@ fn fallen_proxy_jvm_arguments_apply_only_to_opted_in_microsoft_sessions() {
     );
     for session in [
         microsoft.clone(),
-        offline.with_fallen_proxy(true),
-        third_party.with_fallen_proxy(true),
+        offline.with_fallen_proxy(Some(proxy.clone())),
+        third_party.with_fallen_proxy(Some(proxy.clone())),
     ] {
         let command = preview_with_session(&java, &fixture.request(), &session).unwrap();
         assert!(
             !command
                 .args
                 .iter()
-                .any(|arg| arg.contains("msp.fallenbreath.me"))
+                .any(|arg| arg.starts_with("-Dminecraft.api."))
         );
     }
 
     let command = preview_with_session(
         &java,
         &fixture.request(),
-        &microsoft.with_fallen_proxy(true),
+        &microsoft.with_fallen_proxy(Some(proxy)),
     )
     .unwrap();
     let main = command
@@ -51,12 +53,12 @@ fn fallen_proxy_jvm_arguments_apply_only_to_opted_in_microsoft_sessions() {
         proxy_arguments,
         [
             "-Dminecraft.api.env=custom",
-            "-Dminecraft.api.auth.host=https://auth.msp.fallenbreath.me",
-            "-Dminecraft.api.account.host=https://account.msp.fallenbreath.me",
-            "-Dminecraft.api.session.host=https://session.msp.fallenbreath.me",
-            "-Dminecraft.api.services.host=https://services.msp.fallenbreath.me",
-            "-Dminecraft.api.profiles.host=https://profiles.msp.fallenbreath.me",
-            "-Dminecraft.api.discovery.host=https://discovery.msp.fallenbreath.me/minecraft/client",
+            "-Dminecraft.api.auth.host=https://auth.proxy.example.invalid",
+            "-Dminecraft.api.account.host=https://account.proxy.example.invalid",
+            "-Dminecraft.api.session.host=https://session.proxy.example.invalid",
+            "-Dminecraft.api.services.host=https://services.proxy.example.invalid",
+            "-Dminecraft.api.profiles.host=https://profiles.proxy.example.invalid",
+            "-Dminecraft.api.discovery.host=https://discovery.proxy.example.invalid/minecraft/client",
         ]
     );
 }
