@@ -79,6 +79,9 @@ pub struct SettingsData {
     /// Where artifacts and metadata from Maven Central come from.
     #[serde(default)]
     pub maven_central_source: SourcePreference,
+    /// Whether to forward Microsoft-account Minecraft services through Fallen-Proxy.
+    #[serde(default)]
+    pub use_fallen_proxy: bool,
     /// Fields a newer build wrote; saving keeps them for that build.
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, serde_json::Value>,
@@ -105,6 +108,7 @@ impl Default for SettingsData {
             minecraft_metadata_source: SourcePreference::default(),
             minecraft_file_source: SourcePreference::default(),
             maven_central_source: SourcePreference::default(),
+            use_fallen_proxy: false,
             extra: BTreeMap::new(),
         }
     }

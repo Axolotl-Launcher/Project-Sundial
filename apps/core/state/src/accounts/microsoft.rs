@@ -138,7 +138,9 @@ async fn verified(
     license_url
         .query_pairs_mut()
         .append_pair("requestId", &Uuid::new_v4().to_string());
-    let license = Request::new(license_url.as_str(), USER_AGENT).with_bearer(&session.access);
+    let license = Request::new(license_url.as_str(), USER_AGENT)
+        .with_bearer(&session.access)
+        .with_minecraft_service();
     let rights: Entitlements = get_json(network, license, "Minecraft license service").await?;
     if !rights
         .items
@@ -147,7 +149,9 @@ async fn verified(
     {
         return Err(MicrosoftError::NoLicense);
     }
-    let request = Request::new(PROFILE, USER_AGENT).with_bearer(&session.access);
+    let request = Request::new(PROFILE, USER_AGENT)
+        .with_bearer(&session.access)
+        .with_minecraft_service();
     let profile: Profile = get_json(network, request, "Minecraft profile service")
         .await
         .map_err(|error| {
@@ -196,7 +200,8 @@ async fn exchange(
             "platform": "PC_LAUNCHER",
             "xtoken": format!("XBL3.0 x={};{}", claim.uhs, xsts.token),
         }),
-    );
+    )
+    .with_minecraft_service();
     let token: GameToken = get_json(network, request, "Minecraft sign-in").await?;
     let lifetime = token.expires_in.unwrap_or(oauth.expires_in);
     if token.access_token.is_empty() || lifetime == 0 {

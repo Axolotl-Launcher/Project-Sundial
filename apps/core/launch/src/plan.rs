@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use axlauncher_spi::LaunchCommand;
+use axlauncher_spi::{LaunchCommand, auth::FALLEN_PROXY_DOMAIN};
 
 use crate::arguments::{self, Values};
 use crate::classpath;
@@ -36,6 +36,7 @@ pub struct Session {
     user_type: &'static str,
     agent: Option<YggdrasilAgent>,
     xuid: Option<String>,
+    fallen_proxy: bool,
 }
 
 const REDACTED_TOKEN: &str = "[redacted]";
@@ -90,6 +91,7 @@ impl Session {
             user_type: "legacy",
             agent: None,
             xuid: None,
+            fallen_proxy: false,
         }
     }
 
@@ -106,6 +108,7 @@ impl Session {
             user_type: "msa",
             agent: None,
             xuid: None,
+            fallen_proxy: false,
         }
     }
 
@@ -128,6 +131,7 @@ impl Session {
             user_type: "legacy",
             agent: Some(agent),
             xuid: None,
+            fallen_proxy: false,
         }
     }
 
@@ -159,6 +163,12 @@ impl Session {
     /// Xbox account metadata for manifests that declare `auth_xuid`.
     pub fn with_xuid(mut self, xuid: Option<String>) -> Self {
         self.xuid = xuid;
+        self
+    }
+
+    /// Routes the game's official Minecraft services through Fallen-Proxy for this session.
+    pub fn with_fallen_proxy(mut self, enabled: bool) -> Self {
+        self.fallen_proxy = enabled && self.user_type == "msa";
         self
     }
 
@@ -231,6 +241,9 @@ pub fn build(
 
     let mut args = jvm_arguments(&arguments, target, &values);
     args.extend(session.agent.iter().flat_map(YggdrasilAgent::arguments));
+    if session.fallen_proxy {
+        append_fallen_proxy_arguments(&mut args);
+    }
     args.extend(logging_argument(version, layout));
     args.push(version.main_class.clone());
 
@@ -251,6 +264,19 @@ pub fn build(
         working_directory: layout.game_directory.clone(),
         environment: Vec::new(),
     })
+}
+
+fn append_fallen_proxy_arguments(args: &mut Vec<String>) {
+    // Minecraft 1.16 through 26.2 uses individual hosts. From 26.3 Authlib
+    // reads only the discovery URL, so snapshots and loaders can receive both.
+    for service in ["auth", "account", "session", "services", "profiles"] {
+        args.push(format!(
+            "-Dminecraft.api.{service}.host=https://{service}.{FALLEN_PROXY_DOMAIN}"
+        ));
+    }
+    args.push(format!(
+        "-Dminecraft.api.discovery.host=https://discovery.{FALLEN_PROXY_DOMAIN}/minecraft/client"
+    ));
 }
 
 /// The client jar the game runs from.

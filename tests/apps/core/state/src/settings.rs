@@ -64,6 +64,20 @@ fn a_saved_theme_roundtrips() {
 }
 
 #[test]
+fn fallen_proxy_defaults_to_off_and_can_be_enabled_in_existing_settings() {
+    let temp = TempRoot::new();
+    seed(
+        temp.path(),
+        r#"{"schema_version":1,"data":{"theme":"light"}}"#,
+    );
+    assert!(!load_settings(temp.path()).unwrap().data.use_fallen_proxy);
+    update_settings(temp.path(), |settings| settings.use_fallen_proxy = true).unwrap();
+    let loaded = load_settings(temp.path()).unwrap();
+    assert!(loaded.data.use_fallen_proxy);
+    assert_eq!(loaded.data.theme, ThemeChoice::Light);
+}
+
+#[test]
 fn an_unreadable_document_is_quarantined_and_defaults_apply() {
     let temp = TempRoot::new();
     seed(temp.path(), "{ not a document }");

@@ -8,11 +8,12 @@ use axlauncher_core::state::{
 };
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, AnyElement, Context, Entity, IndexPath, IntoElement, Label, Select, SelectEvent,
-    SelectItem, SelectState, SharedString, Window, h_flex, v_flex,
+    ActiveTheme, AnyElement, Context, Disableable, Entity, IndexPath, IntoElement, Label, Select,
+    SelectEvent, SelectItem, SelectState, SharedString, Switch, Window, h_flex, v_flex,
 };
 
 use super::RootView;
+use crate::panel::launch::Inspection;
 
 #[derive(Clone, Copy)]
 struct SourceOption(SourcePreference, &'static str);
@@ -163,13 +164,39 @@ impl RootView {
             return;
         }
 
-        let error = match field.save(root, value) {
+        let saved = field.save(root, value);
+        self.finish_source_save(saved, window, cx);
+    }
+
+    fn save_fallen_proxy(
+        &mut self,
+        enabled: bool,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(root) = self.root.as_deref().filter(|_| !self.settings_readonly()) else {
+            return;
+        };
+        let saved = update_settings(root, |settings| settings.use_fallen_proxy = enabled);
+        if saved.is_ok() {
+            self.inspection = Inspection::default();
+        }
+        self.finish_source_save(saved, window, cx);
+    }
+
+    fn finish_source_save(
+        &mut self,
+        saved: Result<SettingsData, SettingsError>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let error = match saved {
             Ok(settings) => {
                 self.settings = Some(settings);
                 self.origin = Some(SettingsOrigin::Stored);
                 None
             }
-            Err(error) => Some(format!("Could not save the download source. {error}")),
+            Err(error) => Some(format!("Could not save the source preference. {error}")),
         };
         self.download_debug
             .reload_sources(self.settings.as_ref(), window, cx);
@@ -177,7 +204,7 @@ impl RootView {
         cx.notify();
     }
 
-    pub(super) fn render_download_sources(&self, cx: &Context<'_, Self>) -> AnyElement {
+    pub(super) fn render_download_sources(&self, cx: &mut Context<'_, Self>) -> AnyElement {
         let sources = &self.download_debug.sources;
         let disabled = self.settings_readonly();
         v_flex()
@@ -205,6 +232,7 @@ impl RootView {
                         disabled,
                     )),
             )
+            .child(self.render_fallen_proxy(cx, disabled))
             .when_some(sources.error.clone(), |column, error| {
                 column.child(
                     Label::new(error)
@@ -214,6 +242,27 @@ impl RootView {
                 )
             })
             .into_any_element()
+    }
+
+    fn render_fallen_proxy(&self, cx: &mut Context<'_, Self>, disabled: bool) -> impl IntoElement {
+        v_flex()
+            .gap_1()
+            .pt_2()
+            .child(
+                Switch::new("fallen-proxy")
+                    .label("Use Fallen-Proxy for Minecraft authentication")
+                    .checked(self.use_fallen_proxy())
+                    .disabled(disabled)
+                    .on_change(cx.listener(|view, enabled, window, cx| {
+                        view.save_fallen_proxy(*enabled, window, cx);
+                    })),
+            )
+            .child(
+                Label::new("Forwards Minecraft sign-in and in-game session requests through a third-party service.")
+                    .id("fallen-proxy-description")
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground),
+            )
     }
 }
 

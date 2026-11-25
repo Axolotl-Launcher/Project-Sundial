@@ -201,6 +201,12 @@ impl RootView {
             )
     }
 
+    fn use_fallen_proxy(&self) -> bool {
+        self.settings
+            .as_ref()
+            .is_some_and(|settings| settings.use_fallen_proxy)
+    }
+
     fn render_header(&mut self, cx: &mut Context<'_, Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let disabled = self.root.is_none();

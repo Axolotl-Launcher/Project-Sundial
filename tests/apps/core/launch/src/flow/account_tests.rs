@@ -4,6 +4,63 @@
 use super::*;
 
 #[test]
+fn fallen_proxy_jvm_arguments_apply_only_to_opted_in_microsoft_sessions() {
+    let fixture = Fixture::new();
+    let java = FakeJava::found(fixture.java());
+    let microsoft = Session::microsoft_preview("OnlinePlayer", "profile-uuid");
+    let offline = Session::offline("OfflinePlayer");
+    let third_party = Session::yggdrasil_preview(
+        "ExternalPlayer",
+        "profile-uuid",
+        plan::YggdrasilAgent::new(
+            fixture.game_root().join("agent.jar"),
+            "https://example.test",
+        ),
+    );
+    for session in [
+        microsoft.clone(),
+        offline.with_fallen_proxy(true),
+        third_party.with_fallen_proxy(true),
+    ] {
+        let command = preview_with_session(&java, &fixture.request(), &session).unwrap();
+        assert!(
+            !command
+                .args
+                .iter()
+                .any(|arg| arg.contains("msp.fallenbreath.me"))
+        );
+    }
+
+    let command = preview_with_session(
+        &java,
+        &fixture.request(),
+        &microsoft.with_fallen_proxy(true),
+    )
+    .unwrap();
+    let main = command
+        .args
+        .iter()
+        .position(|arg| arg == MAIN_CLASS)
+        .unwrap();
+    let proxy_arguments = command.args[..main]
+        .iter()
+        .filter(|arg| arg.starts_with("-Dminecraft.api."))
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        proxy_arguments,
+        [
+            "-Dminecraft.api.auth.host=https://auth.msp.fallenbreath.me",
+            "-Dminecraft.api.account.host=https://account.msp.fallenbreath.me",
+            "-Dminecraft.api.session.host=https://session.msp.fallenbreath.me",
+            "-Dminecraft.api.services.host=https://services.msp.fallenbreath.me",
+            "-Dminecraft.api.profiles.host=https://profiles.msp.fallenbreath.me",
+            "-Dminecraft.api.discovery.host=https://discovery.msp.fallenbreath.me/minecraft/client",
+        ]
+    );
+}
+
+#[test]
 fn microsoft_token_reaches_only_the_launcher() {
     let fixture = Fixture::new();
     let java = FakeJava::found(fixture.java());

@@ -21,7 +21,11 @@ use crate::panel::accounts::DesktopAccounts;
 
 pub(crate) enum Player {
     Offline(Session),
-    Online(Arc<DesktopAccounts>, AccountId),
+    Online {
+        service: Arc<DesktopAccounts>,
+        id: AccountId,
+        fallen_proxy: bool,
+    },
 }
 
 pub(crate) enum Launch {
@@ -120,8 +124,12 @@ async fn run(
             drop(resolved);
             session
         }
-        Player::Online(service, id) => {
-            let result = online_session(&service, id, mirrors).await;
+        Player::Online {
+            service,
+            id,
+            fallen_proxy,
+        } => {
+            let result = online_session(&service, id, mirrors, fallen_proxy).await;
             let _ = resolved.send(service);
             match result {
                 Ok(session) => session,
@@ -165,12 +173,15 @@ async fn online_session(
     service: &DesktopAccounts,
     id: AccountId,
     mirrors: MirrorSettings,
+    fallen_proxy: bool,
 ) -> Result<Session, String> {
-    let network =
-        AuthHttp::desktop().map_err(|_| "Could not initialize online sign-in.".to_owned())?;
+    let network = AuthHttp::desktop()
+        .map_err(|_| "Could not initialize online sign-in.".to_owned())?
+        .with_fallen_proxy(fallen_proxy);
     launch_accounts::prepare(service, id, &network, || {
         ReqwestNetwork::desktop_with_mirrors(mirrors)
             .map_err(|_| "Could not initialize the authentication agent download.".to_owned())
     })
     .await
+    .map(|session| session.with_fallen_proxy(fallen_proxy))
 }

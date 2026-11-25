@@ -199,7 +199,11 @@ impl RootView {
             return;
         };
         let player = match self.accounts.selected_online() {
-            Some((service, id)) => launches::Player::Online(service, id),
+            Some((service, id)) => launches::Player::Online {
+                service,
+                id,
+                fallen_proxy: self.use_fallen_proxy(),
+            },
             None => launches::Player::Offline(self.preview_session(cx)),
         };
         self.set_launch(directory, &request.version_id, Launch::Starting, cx);
