@@ -17,6 +17,7 @@ pub(super) async fn open(
     url: &str,
     version: Option<Version>,
     range: Option<ByteRange>,
+    connect_failed: impl FnOnce(),
 ) -> Result<DownloadResponse<impl DownloadBody>, FetchError> {
     let mut request = client.get(url).header(ACCEPT_ENCODING, "identity");
     if let Some(version) = version {
@@ -31,7 +32,12 @@ pub(super) async fn open(
     let mut response = tokio::time::timeout(RESPONSE_TIMEOUT, request.send())
         .await
         .map_err(|_| FetchError::Retryable("download response timed out".into()))?
-        .map_err(request_error)?;
+        .map_err(|error| {
+            if error.is_connect() {
+                connect_failed();
+            }
+            request_error(error)
+        })?;
     let received = response.version();
     let compatible = match version {
         Some(Version::HTTP_11) => matches!(received, Version::HTTP_10 | Version::HTTP_11),

@@ -63,6 +63,24 @@ cargo build --locked --config 'source.crates-io.replace-with="mirror"' \
 Keep the committed `Cargo.lock` and leave local mirror settings out of the
 repository.
 
+### Launcher download mirrors
+
+Set the corresponding environment variable before starting the desktop launcher.
+Use a bare HTTPS hostname, without a scheme, port, or path. An unset or invalid
+value leaves that integration unavailable.
+
+| Environment variable | Host to configure |
+| --- | --- |
+| `AXLAUNCHER_BMCLAPI_HOST` | [BMCLAPI](https://bmclapidoc.bangbang93.com/) |
+| `AXLAUNCHER_MCIM_HOST` | [Minecraft Mirror](https://www.mcimirror.top/guide/start/getting-started) |
+| `AXLAUNCHER_ALIYUN_MAVEN_HOST` | [Aliyun Maven Central mirror](https://developer.aliyun.com/mvn/guide) |
+| `AXLAUNCHER_FALLEN_PROXY_DOMAIN` | The base domain shared by the service subdomains in the [Fallen-Proxy guide](https://blog.fallenbreath.me/zh-CN/2025/minecraft-service-proxy) |
+
+In **Development → Download debug**, **Automatic** uses upstream for
+installation data without an independent digest. **Trust configured mirror**
+also permits those inputs from the configured mirror for that category.
+MCIM still follows the upstream source. Fallen-Proxy has a separate opt-in.
+
 ## Workspace layout
 
 | Path | Responsibility |

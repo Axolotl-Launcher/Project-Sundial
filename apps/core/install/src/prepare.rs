@@ -14,7 +14,7 @@ use axlauncher_download_engine::{DownloadOutcome, MissingFile, download_all_repo
 use axlauncher_launch::Target;
 use axlauncher_launch::version::{AssetIndex, Version};
 use axlauncher_network::verify;
-use axlauncher_spi::{FetchError, Network};
+use axlauncher_spi::{FetchError, FetchKind, Network};
 
 use crate::assets::{AssetIndexDocument, missing_assets};
 
@@ -121,18 +121,20 @@ pub async fn ensure_asset_index(
     };
 
     let path = asset_index_path(game_root, &index);
-    let bytes = match std::fs::read(&path) {
+    match std::fs::read(&path) {
         Ok(bytes) => return parse_index(&index, &bytes),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => network
-            .fetch(&index.url)
-            .await
-            .map_err(|source| PrepareError::AssetIndex {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(error) => return Err(index_error(&index, error)),
+    }
+    let (document, bytes) = network
+        .fetch_with(&index.url, FetchKind::Metadata, |response| {
+            let bytes = response.map_err(|source| PrepareError::AssetIndex {
                 id: index.id.clone(),
                 source,
-            })?,
-        Err(error) => return Err(index_error(&index, error)),
-    };
-    let document = parse_index(&index, &bytes)?;
+            })?;
+            Ok((parse_index(&index, &bytes)?, bytes))
+        })
+        .await?;
     axlauncher_storage::write_atomic(&path, &bytes).map_err(|error| index_error(&index, error))?;
     Ok(document)
 }

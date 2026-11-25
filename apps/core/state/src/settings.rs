@@ -40,9 +40,9 @@ pub enum ThemeChoice {
 
 /// Where a download source prefers to fetch from.
 ///
-/// `Auto` tries the official source and falls back to a mirror; the other two
-/// pin one side. The reference spells them the same way, so a user's habit
-/// carries over unchanged.
+/// `Auto` keeps unverified installation inputs on official sources.
+/// `OfficialOnly` disables mirrors, and `MirrorPreferred` trusts a configured
+/// mirror for the selected category.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SourcePreference {
@@ -77,6 +77,12 @@ pub struct SettingsData {
     /// Where the game's files come from.
     #[serde(default)]
     pub minecraft_file_source: SourcePreference,
+    /// Where artifacts and metadata from Maven Central come from.
+    #[serde(default)]
+    pub maven_central_source: SourcePreference,
+    /// Whether to forward Microsoft-account Minecraft services through Fallen-Proxy.
+    #[serde(default)]
+    pub use_fallen_proxy: bool,
     /// Fields a newer build wrote; saving keeps them for that build.
     #[serde(flatten, default)]
     pub extra: BTreeMap<String, serde_json::Value>,
@@ -102,6 +108,8 @@ impl Default for SettingsData {
             telemetry: false,
             minecraft_metadata_source: SourcePreference::default(),
             minecraft_file_source: SourcePreference::default(),
+            maven_central_source: SourcePreference::default(),
+            use_fallen_proxy: false,
             extra: BTreeMap::new(),
         }
     }

@@ -10,7 +10,7 @@ use axlauncher_core::state::profile::{self, Game, InstallStatus};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::Context;
 
-use crate::installations::{self, Installation, vanilla_version};
+use crate::installations::{self, InstallOptions, Installation, vanilla_version};
 use crate::launches::{self, Launch};
 
 use super::RootView;
@@ -43,10 +43,7 @@ impl RootView {
         if self.install_in_progress(&game_root, &key, game) {
             return;
         }
-        let concurrency = self
-            .settings
-            .as_ref()
-            .map_or(0, |settings| settings.max_concurrent_downloads as usize);
+        let options = InstallOptions::from_settings(self.settings.as_ref());
         self.activity
             .info(format!("Installing {version} in {}", game_root.display()));
         self.set_installation(
@@ -68,10 +65,10 @@ impl RootView {
                 directory.to_path_buf(),
                 game.clone(),
                 key,
-                concurrency,
+                options,
                 cx,
             ),
-            None => installations::start(game_root, version, concurrency, cx),
+            None => installations::start(game_root, version, options, cx),
         }
     }
 
@@ -202,11 +199,16 @@ impl RootView {
             return;
         };
         let player = match self.accounts.selected_online() {
-            Some((service, id)) => launches::Player::Online(service, id),
+            Some((service, id)) => launches::Player::Online {
+                service,
+                id,
+                fallen_proxy: self.fallen_proxy(),
+            },
             None => launches::Player::Offline(self.preview_session(cx)),
         };
         self.set_launch(directory, &request.version_id, Launch::Starting, cx);
-        launches::start(request, player, vanilla, data_root, cx);
+        let mirrors = InstallOptions::from_settings(self.settings.as_ref()).mirrors;
+        launches::start(request, player, vanilla, data_root, mirrors, cx);
     }
 
     pub(crate) fn set_launch(
@@ -254,29 +256,9 @@ impl RootView {
         let Some(data_root) = self.root.clone() else {
             return;
         };
-        let name = self.new_name.read(cx).value().trim().to_string();
-        let minecraft = self.new_minecraft.read(cx).value().trim().to_string();
-        let kind = self.new_loader.read(cx).value().trim().to_ascii_lowercase();
-        let version = self.new_loader_version.read(cx).value().trim().to_string();
-
-        if name.is_empty() || minecraft.is_empty() {
-            self.activity
-                .error("A profile needs a name and a Minecraft version.");
-            cx.notify();
+        let Some((name, game)) = self.profile_creation.profile(cx) else {
             return;
-        }
-        let mut game = Game::new(minecraft);
-        let loader = match loader_choice(&kind, &version) {
-            Ok(loader) => loader,
-            Err(error) => {
-                self.activity.error(error);
-                cx.notify();
-                return;
-            }
         };
-        if let Some((kind, version)) = loader {
-            game = game.with_loader(kind, version);
-        }
 
         let instances = DataDir::new(&data_root).instances();
         let directory = unique_directory(&instances, &name);
@@ -314,21 +296,6 @@ fn mark_failed(directory: &Path) -> Result<(), String> {
     };
     profile.set_install_status(InstallStatus::Failed);
     profile::save(directory, &profile).map_err(|error| error.to_string())
-}
-
-/// The loader a creation form asks for, or nothing for a vanilla profile.
-///
-/// The kind is stored in the spelling the SPI knows, so a marker this build
-/// writes is read the same way by every action that reads it.
-fn loader_choice(kind: &str, version: &str) -> Result<Option<(String, Option<String>)>, String> {
-    if kind.is_empty() || installations::is_vanilla(kind) {
-        return Ok(None);
-    }
-    let Some(parsed) = axlauncher_core::spi::LoaderKind::parse(kind) else {
-        return Err(format!("Loader {kind} is not available in this build yet."));
-    };
-    let version = (!version.is_empty()).then(|| version.to_string());
-    Ok(Some((parsed.as_str().to_string(), version)))
 }
 
 /// A directory name derived from a display name.

@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use axlauncher_spi::FetchError;
+use axlauncher_spi::{DownloadMirror, FetchError};
 use futures::executor::block_on;
 
 use crate::test_tempfile as tempfile;
@@ -76,6 +76,76 @@ fn download_all_rejects_a_sha1_mismatch() {
     assert!(outcomes[0].result.is_err());
     assert!(!file.path.exists());
     assert!(!temporary_path(&file.path).exists());
+}
+
+#[test]
+fn a_corrupt_preferred_mirror_falls_back_before_promoting_the_file() {
+    let root = tempfile::tempdir().unwrap();
+    let file = missing_file(root.path(), "mirrored.bin", ABC_SHA1, ABC.len() as u64);
+    let network = MirroredNetwork {
+        preferred: true,
+        calls: std::cell::RefCell::default(),
+    };
+    let outcomes = block_on(download_all(&network, std::slice::from_ref(&file), 1));
+    assert!(outcomes[0].result.is_ok());
+    assert_eq!(fs::read(&file.path).unwrap(), ABC);
+    assert_eq!(
+        network.calls.into_inner(),
+        ["https://mirror.invalid/file", file.url.as_str()]
+    );
+}
+
+#[test]
+fn the_engine_tries_explicit_sources_before_a_fallback_mirror_and_deduplicates_it() {
+    let root = tempfile::tempdir().unwrap();
+    let file = missing_file(root.path(), "mirrored.bin", WORD_SHA1, WORD.len() as u64);
+    let backup = "https://backup.invalid/file";
+    let network = MirroredNetwork {
+        preferred: false,
+        calls: std::cell::RefCell::default(),
+    };
+    let result = block_on(DownloadEngine::default().download(
+        &network,
+        DownloadJob {
+            sources: &[&file.url, backup, &file.url],
+            destination: &file.path,
+            size: file.size,
+            sha1: file.sha1.as_deref(),
+            sha1_alternatives: &[],
+            batch: true,
+        },
+    ));
+    assert!(result.is_ok());
+    assert_eq!(fs::read(&file.path).unwrap(), WORD);
+    assert_eq!(
+        network.calls.into_inner(),
+        [file.url.as_str(), backup, "https://mirror.invalid/file"]
+    );
+}
+
+struct MirroredNetwork {
+    preferred: bool,
+    calls: std::cell::RefCell<Vec<String>>,
+}
+
+impl Network for MirroredNetwork {
+    async fn fetch(&self, url: &str) -> Result<Vec<u8>, FetchError> {
+        self.calls.borrow_mut().push(url.into());
+        Ok(if url == "https://mirror.invalid/file" {
+            WORD
+        } else {
+            ABC
+        }
+        .to_vec())
+    }
+
+    fn download_mirror(&self, _url: &str, has_digest: bool) -> Option<DownloadMirror> {
+        assert!(has_digest);
+        Some(DownloadMirror {
+            url: "https://mirror.invalid/file".into(),
+            preferred: self.preferred,
+        })
+    }
 }
 
 #[test]

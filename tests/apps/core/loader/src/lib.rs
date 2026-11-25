@@ -287,6 +287,25 @@ fn the_fabric_provider_names_itself() {
 }
 
 #[test]
+fn the_loader_catalog_routes_supported_kinds_and_identifies_an_unwired_kind() {
+    let network = FakeNetwork::default().with(FABRIC_VERSIONS_URL, FABRIC_LISTING);
+    let builds = block_on(versions(network, LoaderKind::Fabric, "1.21.11")).unwrap();
+    assert_eq!(builds[0].version, "0.20.1");
+    let error = block_on(versions(
+        FakeNetwork::default(),
+        LoaderKind::OptiFine,
+        "1.21.11",
+    ))
+    .expect_err("unsupported kind");
+    assert!(matches!(
+        error,
+        LoaderError::Unsupported {
+            loader: LoaderKind::OptiFine
+        }
+    ));
+}
+
+#[test]
 fn legacy_fabric_resolves_a_historical_profile_under_its_own_id() {
     let versions_url = "https://meta.legacyfabric.net/v2/versions/loader/1.3.1";
     let profile_url = "https://meta.legacyfabric.net/v2/versions/loader/1.3.1/0.13.0/profile/json";

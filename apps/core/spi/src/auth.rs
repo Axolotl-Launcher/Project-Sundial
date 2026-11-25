@@ -17,6 +17,7 @@ pub struct Request<'a> {
     pub user_agent: &'a str,
     pub bearer: Option<&'a str>,
     pub body: Option<Body>,
+    minecraft_service: bool,
 }
 
 impl<'a> Request<'a> {
@@ -26,6 +27,7 @@ impl<'a> Request<'a> {
             user_agent,
             bearer: None,
             body: None,
+            minecraft_service: false,
         }
     }
 
@@ -37,6 +39,16 @@ impl<'a> Request<'a> {
     pub fn with_body(mut self, body: Body) -> Self {
         self.body = Some(body);
         self
+    }
+
+    /// Marks an official Minecraft services request as eligible for forwarding.
+    pub fn with_minecraft_service(mut self) -> Self {
+        self.minecraft_service = true;
+        self
+    }
+
+    pub fn is_minecraft_service(&self) -> bool {
+        self.minecraft_service
     }
 }
 

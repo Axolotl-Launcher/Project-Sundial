@@ -13,7 +13,7 @@
 //! Swapping the component system later means rewriting this crate alone.
 
 pub use gpui_kit::component::{
-    ActiveTheme, Disableable, Sizable, Size, StyledExt,
+    ActiveTheme, Disableable, IndexPath, Sizable, Size, StyledExt,
     button::{Button, ButtonVariants},
     group_box::{GroupBox, GroupBoxVariants},
     h_flex,
@@ -21,6 +21,7 @@ pub use gpui_kit::component::{
     label::Label,
     pagination::Pagination,
     scroll::ScrollableElement,
+    select::{SearchableVec, Select, SelectDelegate, SelectEvent, SelectItem, SelectState},
     separator::Separator,
     switch::Switch,
     v_flex,
