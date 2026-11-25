@@ -12,9 +12,12 @@ use axlauncher_core::state::profile::Game;
 use axlauncher_ui::{AppContext, AsyncApp, Context, WeakEntity};
 use tokio::sync::watch;
 
+mod loader;
+pub(crate) use loader::start_loader;
+
 use crate::RootView;
 pub(crate) use crate::game_install::InstallOptions;
-use crate::game_install::{download_failure, download_vanilla, install_loader, progress_message};
+use crate::game_install::{download_failure, download_vanilla, progress_message};
 
 pub(crate) enum Installation {
     Running(Progress),
@@ -55,6 +58,7 @@ pub(crate) fn vanilla_version(game: &Game) -> Option<&str> {
 }
 
 pub(crate) fn start(
+    data_root: PathBuf,
     root: PathBuf,
     id: String,
     options: InstallOptions,
@@ -63,7 +67,10 @@ pub(crate) fn start(
     let (progress, mut updates) = watch::channel(Progress::Version);
     let version = id.clone();
     let work_root = root.clone();
-    let task = cx.background_spawn(async move { install(&work_root, &version, options, progress) });
+    let task =
+        cx.background_spawn(
+            async move { install(&data_root, &work_root, &version, options, progress) },
+        );
     cx.spawn(async move |view, cx| {
         display_progress(&mut updates, &view, cx, &root, &id).await;
         let result = task.await;
@@ -91,6 +98,7 @@ async fn display_progress(
 }
 
 fn install(
+    data_root: &Path,
     root: &Path,
     id: &str,
     options: InstallOptions,
@@ -102,7 +110,7 @@ fn install(
         .build()
         .map_err(|error| error.to_string())
         .and_then(|runtime| {
-            runtime.block_on(download_vanilla(root, id, options, |stage| {
+            runtime.block_on(download_vanilla(data_root, root, id, options, |stage| {
                 progress.send_replace(stage);
             }))
         });
@@ -121,38 +129,4 @@ fn install(
 /// so a spelling the port accepts is not refused here.
 pub(crate) fn supported_loader(kind: &str) -> bool {
     is_vanilla(kind) || LoaderKind::parse(kind).is_some_and(|kind| SUPPORTED_KINDS.contains(&kind))
-}
-
-/// Starts installing a loader profile.
-///
-/// Progress is reported under `key`, the identity the row looks the install up
-/// by, because a loader profile has no version id until this install produces
-/// one. The id is returned on completion, and the caller records it on the
-/// profile.
-pub(crate) fn start_loader(
-    data_root: PathBuf,
-    game_root: PathBuf,
-    directory: PathBuf,
-    game: Game,
-    key: String,
-    options: InstallOptions,
-    cx: &mut Context<'_, RootView>,
-) {
-    let (progress, mut updates) = watch::channel(Progress::Version);
-    let display_key = key.clone();
-    let display_root = game_root.clone();
-    let work_data = data_root.clone();
-    let task = cx.background_spawn(async move {
-        install_loader(&work_data, &game_root, &game, options, |stage| {
-            progress.send_replace(stage);
-        })
-    });
-    cx.spawn(async move |view, cx| {
-        display_progress(&mut updates, &view, cx, &display_root, &display_key).await;
-        let outcome = task.await;
-        let _ = view.update(cx, |view, cx| {
-            view.finish_loader_install(&data_root, &directory, &key, outcome, cx)
-        });
-    })
-    .detach();
 }

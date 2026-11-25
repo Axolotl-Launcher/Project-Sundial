@@ -10,7 +10,8 @@ use axlauncher_core::install::{
     prepare::{Prepared, Progress},
     runtime, vanilla,
 };
-use axlauncher_core::launch::{SystemJava, Target};
+use axlauncher_core::launch::version::{self, Version};
+use axlauncher_core::launch::{Java, JavaMode, SystemJava, Target};
 use axlauncher_core::loader::{ForgeApi, LoaderApi, NeoForgeApi};
 use axlauncher_core::network::{MirrorPreference, MirrorSettings, ReqwestNetwork};
 use axlauncher_core::spi::{LoaderKind, LoaderRequest};
@@ -18,7 +19,7 @@ use axlauncher_core::state::javas::{self, ChosenJava};
 use axlauncher_core::state::profile::Game;
 use axlauncher_core::state::{SettingsData, SourcePreference};
 
-use crate::source_hosts::source_hosts;
+use crate::source_hosts::mirror_hosts;
 
 pub(crate) struct InstallOptions {
     pub(crate) concurrency: usize,
@@ -27,7 +28,7 @@ pub(crate) struct InstallOptions {
 
 impl InstallOptions {
     pub(crate) fn from_settings(settings: Option<&SettingsData>) -> Self {
-        let hosts = source_hosts().mirrors.clone();
+        let hosts = mirror_hosts();
         let Some(settings) = settings else {
             return Self {
                 concurrency: 0,
@@ -58,6 +59,7 @@ fn mirror_preference(preference: SourcePreference) -> MirrorPreference {
 }
 
 pub(crate) async fn download_vanilla(
+    data_root: &Path,
     root: &Path,
     id: &str,
     options: InstallOptions,
@@ -65,7 +67,7 @@ pub(crate) async fn download_vanilla(
 ) -> Result<Prepared, String> {
     let network =
         ReqwestNetwork::desktop_with_mirrors(options.mirrors).map_err(|error| error.to_string())?;
-    vanilla::install(
+    let prepared = vanilla::install(
         &network,
         root,
         id,
@@ -73,7 +75,74 @@ pub(crate) async fn download_vanilla(
         options.concurrency,
         |stage| report_progress(&report, stage),
     )
+    .await?;
+    provide_java(&network, data_root, root, id, &report).await?;
+    Ok(prepared)
+}
+
+/// The Java major an installed version asks for when no runtime provides it.
+///
+/// A manifest before 1.17 states no `javaVersion`, and such a version runs on
+/// whatever Java the machine already has. A stated major with no matching
+/// runtime is the one case an install has to fetch for: launching the version
+/// otherwise fails before the game starts, with a message asking the user to
+/// configure `JAVA_HOME` by hand.
+fn missing_java(version: &Version, available: impl FnOnce(u32) -> bool) -> Option<u32> {
+    let required = version.java_version.as_ref()?.major;
+    (!available(required)).then_some(required)
+}
+
+/// Fetches the runtime the installed version names, unless one already answers
+/// for its major.
+///
+/// The game files are already on disk when this runs, so a runtime that cannot
+/// be installed fails the whole install: a profile without its runtime is not
+/// launchable, and the panel offers the install again.
+async fn provide_java(
+    network: &ReqwestNetwork,
+    data_root: &Path,
+    root: &Path,
+    id: &str,
+    report: &impl Fn(Progress),
+) -> Result<(), String> {
+    let document = version::load(&root.join("versions"), id)
+        .map_err(|error| format!("Cannot read the installed Minecraft {id} manifest: {error}"))?;
+    let required = missing_java(&document, |major| {
+        crate::java::managed(data_root)
+            .executable_for(major, JavaMode::Windowed)
+            .is_some()
+    });
+    let Some(major) = required else {
+        return Ok(());
+    };
+
+    report(Progress::Java);
+    let installed = runtime::install(
+        network,
+        &axlauncher_core::storage::DataDir::new(data_root).java_versions(),
+        major,
+        |stage| report_progress(report, java_stage(stage)),
+    )
     .await
+    .map_err(|error| {
+        format!(
+            "Minecraft {id} needs Java {major}, and its runtime could not be installed: {error}"
+        )
+    })?;
+    record_runtime(data_root, &installed);
+    Ok(())
+}
+
+/// A runtime's own stages, as the panel should name them.
+///
+/// The runtime fetch drives the same pipeline as a game install and reports the
+/// same phases, so its manifest and completion phases would otherwise appear as
+/// the game's. Its per-file counts stay: they describe the same downloads.
+fn java_stage(stage: Progress) -> Progress {
+    match stage {
+        Progress::Downloading { .. } => stage,
+        _ => Progress::Java,
+    }
 }
 
 pub(crate) fn download_failure(prepared: &Prepared) -> String {
@@ -89,6 +158,7 @@ pub(crate) fn progress_message(stage: Progress) -> String {
         Progress::Version => "Getting the version manifest".into(),
         Progress::Loader => "Resolving the mod loader".into(),
         Progress::CheckingFiles => "Checking local game files".into(),
+        Progress::Java => "Getting the Java runtime".into(),
         Progress::Downloading { processed, total } => {
             format!("Processing downloads ({processed}/{total} files)")
         }
@@ -272,3 +342,7 @@ fn record_runtime(data_root: &Path, installed: &runtime::InstalledRuntime) {
     }
     let _ = javas::save(data_root, &document);
 }
+
+#[cfg(test)]
+#[path = "../../../tests/apps/frontend/src/game_install.rs"]
+mod tests;

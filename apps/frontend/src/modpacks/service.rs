@@ -225,6 +225,7 @@ fn download_game(
         return game_install::install_loader(data.root(), &data.meta(), game, options, report);
     }
     let prepared = install_runtime()?.block_on(game_install::download_vanilla(
+        data.root(),
         &data.meta(),
         &game.minecraft,
         options,

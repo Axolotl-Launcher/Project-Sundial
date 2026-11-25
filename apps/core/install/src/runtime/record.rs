@@ -66,3 +66,7 @@ pub(super) fn matches(directory: &Path, recorded: &Record) -> bool {
 pub(super) fn marker_path(directory: &Path) -> std::path::PathBuf {
     directory.join(MARKER)
 }
+
+#[cfg(test)]
+#[path = "../../../../../tests/apps/core/install/src/runtime/record.rs"]
+mod tests;

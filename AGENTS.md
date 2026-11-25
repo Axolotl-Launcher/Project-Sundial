@@ -93,8 +93,8 @@ habit carried over from another project.
   `.deslop-please.allow`, including access from modules that no longer use a
   leaked field. The baseline is reserved for debt that existed when the check
   was introduced.
-- Write scripts in strippable TypeScript. Keep machine paths, credentials, logs
-  and mirror endpoints out of the repository. For registry access see the
+- Write scripts in strippable TypeScript. Keep machine paths, credentials, and
+  logs out of the repository. For registry access see the
   [mirror instructions](CONTRIBUTING.md#cargo-registry-mirrors) and preserve
   the resolved lockfile.
 

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use axlauncher_storage::AtomicFile;
 use uuid::Uuid;
 
-use super::{FILE_NAME, SCHEMA_VERSION, visible_name};
+use super::{FILE_NAME, Game, SCHEMA_VERSION, visible_name};
 
 /// Why a blank instance could not be saved.
 #[derive(Debug)]
@@ -44,28 +44,35 @@ impl std::error::Error for CreateError {
 
 /// A new managed profile directory with no downloaded files or content.
 ///
-/// With a game version, the launcher can install vanilla Minecraft from the
-/// instance row. Omitting it leaves the game unconfigured.
+/// A game names the Minecraft version and, when it has one, the loader the
+/// profile starts with. Omitting it leaves the game unconfigured.
 pub fn create_blank(
     instances: &Path,
     name: &str,
-    version: Option<&str>,
+    game: Option<Game>,
 ) -> Result<PathBuf, CreateError> {
     let name = name.trim();
     if !visible_name(name) {
         return Err(CreateError::InvalidName);
     }
-    let version = version.map(str::trim).filter(|version| !version.is_empty());
-    if version.is_some_and(|version| !valid_version(version)) {
-        return Err(CreateError::InvalidVersion);
-    }
+    let game = match game {
+        Some(mut game) => {
+            let minecraft = game.minecraft.trim();
+            if minecraft.is_empty() || !valid_version(minecraft) {
+                return Err(CreateError::InvalidVersion);
+            }
+            game.minecraft = minecraft.to_owned();
+            Some(game)
+        }
+        None => None,
+    };
     let id = Uuid::new_v4().to_string();
     let directory = instances.join(&id);
     let profile = serde_json::json!({
         "schema_version": SCHEMA_VERSION,
         "id": id,
         "instance": { "name": name },
-        "game": version.map(|version| serde_json::json!({ "minecraft": version })),
+        "game": game,
     });
     let path = directory.join(FILE_NAME);
     let bytes =
