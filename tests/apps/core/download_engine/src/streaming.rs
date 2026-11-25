@@ -255,6 +255,53 @@ fn an_ignored_range_restarts_as_a_whole_file() {
     assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
 }
 
+struct IncorrectLengthNetwork(u64);
+
+impl Network for IncorrectLengthNetwork {
+    async fn fetch(&self, _url: &str) -> Result<Vec<u8>, FetchError> {
+        panic!("file downloads use the streaming port")
+    }
+
+    async fn open_download(
+        &self,
+        _url: &str,
+        _protocol: DownloadProtocol,
+        range: Option<ByteRange>,
+    ) -> Result<DownloadResponse<impl DownloadBody>, FetchError> {
+        assert!(range.is_none());
+        Ok(DownloadResponse {
+            length: Some(self.0),
+            range: None,
+            body: Some(Bytes::from_static(b"pack")),
+        })
+    }
+}
+
+#[test]
+fn a_whole_download_uses_the_expected_size_even_when_the_response_length_is_wrong() {
+    let root = test_tempfile::tempdir().unwrap();
+    let destination = root.path().join("file");
+    let engine = DownloadEngine::default();
+    let mut job = DownloadJob {
+        sources: &[DATA_SOURCE],
+        destination: &destination,
+        sha1: None,
+        sha1_alternatives: &[],
+        size: Some(4),
+        batch: true,
+    };
+
+    for header in [2, 6] {
+        block_on(engine.download(&IncorrectLengthNetwork(header), job)).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), b"pack");
+    }
+
+    job.size = Some(6);
+    let error = block_on(engine.download(&IncorrectLengthNetwork(6), job)).unwrap_err();
+    assert!(error.contains("size mismatch"));
+    assert_eq!(fs::read(destination).unwrap(), b"pack");
+}
+
 #[test]
 fn multipart_downloads_accept_all_protocols_without_a_digest() {
     for protocol in [
