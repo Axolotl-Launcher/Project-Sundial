@@ -197,8 +197,7 @@ impl<Net: Network> Transfer<'_, Net> {
         if let Some(share) = self.share {
             share.set_remaining(None);
         }
-        let length = connection.response.length;
-        self.copy(&mut connection.response.body, stage, 0, length, false)
+        self.copy(&mut connection.response.body, stage, 0, None, false)
             .await
             .result
     }

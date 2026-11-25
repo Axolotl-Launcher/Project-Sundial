@@ -4,6 +4,7 @@
 use super::*;
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::{self, Read};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -121,6 +122,44 @@ fn the_engine_tries_explicit_sources_before_a_fallback_mirror_and_deduplicates_i
         network.calls.into_inner(),
         [file.url.as_str(), backup, "https://mirror.invalid/file"]
     );
+}
+
+#[test]
+fn additional_verification_rejects_cached_and_downloaded_bytes_before_promotion() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("file.jar");
+    fs::write(&path, ABC).unwrap();
+    let original = "https://example.invalid/file";
+    let backup = "https://mirror.invalid/file";
+    let network = MirroredNetwork {
+        preferred: false,
+        calls: std::cell::RefCell::default(),
+    };
+    let job = DownloadJob {
+        sources: &[original, backup],
+        destination: &path,
+        size: Some(3),
+        sha1: Some(ABC_SHA1),
+        sha1_alternatives: &[WORD_SHA1.into()],
+        batch: true,
+    };
+    let engine = DownloadEngine::default();
+    let check = |file: &mut fs::File| {
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        if bytes == WORD {
+            return Ok(());
+        }
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "additional digest mismatch",
+        ))
+    };
+    block_on(engine.download_verified(&network, job, check)).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), WORD);
+    assert_eq!(*network.calls.borrow(), [original, backup]);
+    block_on(engine.download_verified(&network, job, check)).unwrap();
+    assert_eq!(*network.calls.borrow(), [original, backup]);
 }
 
 struct MirroredNetwork {

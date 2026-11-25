@@ -15,10 +15,12 @@ use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{Bounds, Palette, WindowBounds, WindowOptions, kit, px, size};
 
+mod game_install;
 mod installations;
 mod instance_row;
 mod java;
 mod launches;
+mod modpacks;
 mod panel;
 mod source_hosts;
 

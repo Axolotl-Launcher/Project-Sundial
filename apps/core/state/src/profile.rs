@@ -16,10 +16,14 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 mod create;
 mod discovery;
+mod game;
 mod resources;
+mod staged;
 pub use create::{CreateError, create_blank};
 pub use discovery::{DiscoveredProfile, DiscoveryError, ProfileDiscovery, discover};
+pub use game::{Game, Loader};
 pub use resources::{Resource, ResourceKind, scan_resources};
+pub use staged::StagedProfile;
 
 pub const FILE_NAME: &str = ".axlprofile";
 const SCHEMA_VERSION: u32 = 1;
@@ -48,21 +52,6 @@ pub struct ProfileInfo {
     pub icon: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[non_exhaustive]
-pub struct Game {
-    pub minecraft: String,
-    pub loader: Option<Loader>,
-    pub version_id: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[non_exhaustive]
-pub struct Loader {
-    pub kind: String,
-    pub version: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -277,26 +266,6 @@ pub(crate) fn is_link(metadata: &fs::Metadata) -> bool {
     #[cfg(not(windows))]
     {
         metadata.file_type().is_symlink()
-    }
-}
-
-impl Game {
-    /// A game with no loader: the vanilla version the profile names.
-    pub fn new(minecraft: impl Into<String>) -> Self {
-        Self {
-            minecraft: minecraft.into(),
-            loader: None,
-            version_id: None,
-        }
-    }
-
-    /// Attaches a loader to the game.
-    pub fn with_loader(mut self, kind: impl Into<String>, version: Option<String>) -> Self {
-        self.loader = Some(Loader {
-            kind: kind.into(),
-            version,
-        });
-        self
     }
 }
 
