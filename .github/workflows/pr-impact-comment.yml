@@ -1,0 +1,68 @@
+# SPDX-FileCopyrightText: 2026 Axolotl Team
+# SPDX-License-Identifier: GPL-3.0-only
+
+name: PR impact comment
+
+# The analysis job never has write access: it runs pull-request code. This
+# follow-up job runs only trusted default-branch code, downloads the report,
+# validates it, and publishes one comment.
+on:
+  workflow_run:
+    workflows: ["PR impact analysis"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  comment:
+    name: Publish impact comment
+    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+
+      - name: Download the report
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pr-impact
+          path: ${{ runner.temp }}/impact
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Skip a superseded run
+        id: current
+        env:
+          IMPACT_ARTIFACT_DIR: ${{ runner.temp }}/impact
+          COMMENT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/check-impact-current.ts
+
+      - name: Find the pull request
+        if: steps.current.outputs.current == 'true'
+        env:
+          ANALYSIS_RUN_ID: ${{ github.event.workflow_run.id }}
+          IMPACT_ARTIFACT_DIR: ${{ runner.temp }}/impact
+          COMMENT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/find-impact-pull-request.ts
+
+      - name: Publish the comment
+        if: steps.current.outputs.current == 'true'
+        env:
+          COMMENT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          IMPACT_ARTIFACT_DIR: ${{ runner.temp }}/impact
+          ANALYSIS_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: node scripts/post-impact-comment.ts

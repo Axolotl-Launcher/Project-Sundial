@@ -1,0 +1,69 @@
+# SPDX-FileCopyrightText: 2026 Axolotl Team
+# SPDX-License-Identifier: GPL-3.0-only
+
+name: PR impact analysis
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-impact-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze impact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+
+      - name: Install GitNexus in an isolated home
+        run: |
+          mkdir -p "$RUNNER_TEMP/gitnexus"
+          npm install --prefix "$RUNNER_TEMP/gitnexus" --no-save gitnexus@1.6.12
+          echo "GITNEXUS_MCP_COMMAND=$RUNNER_TEMP/gitnexus/node_modules/.bin/gitnexus" >> "$GITHUB_ENV"
+          echo 'GITNEXUS_MCP_ARGS=["mcp"]' >> "$GITHUB_ENV"
+          echo "GITNEXUS_HOME=$RUNNER_TEMP/gitnexus-home" >> "$GITHUB_ENV"
+
+      - name: Build the code graph
+        env:
+          GITNEXUS_MCP_COMMAND: ${{ runner.temp }}/gitnexus/node_modules/.bin/gitnexus
+          GITNEXUS_HOME: ${{ runner.temp }}/gitnexus-home
+          GITNEXUS_STORAGE_PATH: ${{ runner.temp }}/gitnexus-index
+        run: |
+          "$GITNEXUS_MCP_COMMAND" analyze --index-only --default-branch main
+
+      - name: Analyze the pull request
+        env:
+          GITNEXUS_HOME: ${{ runner.temp }}/gitnexus-home
+          GITNEXUS_STORAGE_PATH: ${{ runner.temp }}/gitnexus-index
+          GITNEXUS_MCP_COMMAND: ${{ runner.temp }}/gitnexus/node_modules/.bin/gitnexus
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          IMPACT_OUTPUT: ${{ runner.temp }}/impact
+        run: node scripts/impact-pr.ts
+
+      - name: Upload the impact report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pr-impact
+          path: ${{ runner.temp }}/impact
+          if-no-files-found: error
+          retention-days: 7
