@@ -89,6 +89,8 @@ void test("report counts come from the complete summary", () => {
   assert.equal(report.changedSymbols, CHANGED_COUNT);
   assert.equal(report.affectedProcesses, PROCESS_COUNT);
   assert.equal(report.changedFiles, FILE_COUNT);
+  assert.equal(report.callerLookupLimit, MAX_IMPACT_TARGETS);
+  assert.equal(report.callerLookupsOmitted, 0);
   assert.equal(report.risk, "high");
   assert.equal(report.truncated, true);
   assert.deepEqual(report.processes[0]?.changedSteps, ["f"]);
@@ -198,4 +200,23 @@ void test("properties do not crowd out functions in caller lookups", () => {
   assert.deepEqual(impactTargets(detected), [
     { name: "prepare", path: "a.rs" },
   ]);
+});
+
+void test("caller coverage is disclosed when eligible symbols exceed the lookup cap", () => {
+  const report = buildReport(
+    context,
+    {
+      summary: { risk_level: "medium" },
+      changed_symbols: Array.from(
+        { length: MAX_IMPACT_TARGETS + EXTRA_SYMBOLS },
+        (_, index) => ({
+          name: `symbol${String(index)}`,
+          type: "Function",
+          filePath: "a.rs",
+        }),
+      ),
+    },
+    [],
+  );
+  assert.equal(report.callerLookupsOmitted, EXTRA_SYMBOLS);
 });

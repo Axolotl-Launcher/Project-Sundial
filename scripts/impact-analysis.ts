@@ -38,7 +38,6 @@ export interface DetectChangesInput {
 export interface ImpactInput {
   readonly target?: { readonly name?: string };
   readonly risk?: string;
-  readonly epistemic?: string;
   readonly error?: string;
   readonly partial?: boolean;
   readonly summary?: {
@@ -97,20 +96,23 @@ function symbolsFrom(input: DetectChangesInput): ChangedSymbol[] {
 function processesFrom(input: DetectChangesInput): AffectedProcess[] {
   return (input.affected_processes ?? [])
     .slice(0, MAX_AFFECTED_PROCESSES)
-    .map((process) => ({
-      name: process.name ?? "?",
-      stepCount: process.step_count ?? 0,
-      changedSteps: (process.changed_steps ?? [])
+    .map((process) => {
+      const steps = (process.changed_steps ?? [])
         .map((step) => step.symbol)
-        .filter((symbol): symbol is string => symbol !== undefined),
-    }));
+        .filter((symbol): symbol is string => symbol !== undefined);
+      return {
+        name: process.name ?? "?",
+        stepCount: process.step_count ?? 0,
+        changedSteps: steps,
+      };
+    });
 }
 
-/// The change result's risk includes process count. A per-symbol lookup that
-/// fails is advisory: it can raise the risk but must not downgrade the full
-/// change analysis to "unknown". A successful `unknown` lookup is also not a
-/// verdict for the whole change: it applies to that symbol and is reported in
-/// the upstream table instead.
+/// The change-level risk comes from the detector's `summary.risk_level`, raised
+/// by any successful per-symbol lookup. A failed lookup is advisory: it must
+/// not downgrade the full change analysis to "unknown". A successful `unknown`
+/// lookup is also not a verdict for the whole change: it applies to that symbol
+/// and is reported in the upstream table instead.
 export function impactRisk(
   detected: DetectChangesInput,
   impacts: readonly ImpactInput[],
@@ -170,6 +172,10 @@ export function buildReport(
     (detected.summary?.affected_count ?? 0) > MAX_AFFECTED_PROCESSES ||
     (detected.changed_symbols?.length ?? 0) > MAX_CHANGED_SYMBOLS ||
     (detected.affected_processes?.length ?? 0) > MAX_AFFECTED_PROCESSES;
+  const callerLookupsOmitted = Math.max(
+    0,
+    eligibleTargetCount(detected) - impactTargets(detected).length,
+  );
   const failedImpacts = impacts.filter(
     (impact) => impact.error !== undefined || impact.partial === true,
   ).length;
@@ -197,6 +203,8 @@ export function buildReport(
     changedFiles: detected.summary?.changed_files ?? 0,
     changedSymbols: detected.summary?.changed_count ?? symbols.length,
     affectedProcesses: detected.summary?.affected_count ?? processes.length,
+    callerLookupLimit: MAX_IMPACT_TARGETS,
+    callerLookupsOmitted,
     truncated,
     partial,
     note: noteParts.filter((part): part is string => part !== null).join("\n\n") || null,
@@ -209,6 +217,21 @@ export function buildReport(
 export interface ImpactTarget {
   readonly name: string;
   readonly path: string | undefined;
+}
+
+/// Distinct eligible symbols, before the upstream lookup cap.
+function eligibleTargetCount(detected: DetectChangesInput): number {
+  const seen = new Set<string>();
+  for (const symbol of detected.changed_symbols ?? []) {
+    if (
+      typeof symbol.name === "string" &&
+      symbol.name.length > 0 &&
+      IMPACT_KINDS.has(symbol.type ?? "")
+    ) {
+      seen.add(`${symbol.name}\0${symbol.filePath ?? ""}`);
+    }
+  }
+  return seen.size;
 }
 
 /// Targets worth asking GitNexus to trace upstream: the changed symbols,

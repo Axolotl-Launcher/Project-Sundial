@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Axolotl Team
 # SPDX-License-Identifier: GPL-3.0-only
 
-name: PR impact analysis
+name: PR impact
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review]
 
 permissions:
@@ -19,20 +19,42 @@ jobs:
     name: Analyze impact
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    outputs:
+      markdown: ${{ steps.report.outputs.markdown }}
     steps:
-      - name: Check out pull request
+      - name: Check out the trusted base branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Check whether the trusted scripts are available
+        id: scripts
+        run: |
+          if [ -f scripts/impact-pr.ts ] && [ -f scripts/post-impact-comment.ts ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::The base branch does not contain the impact scripts yet. Merge the workflow, then re-run this check."
+          fi
+
+      - name: Check out pull request as data
+        if: steps.scripts.outputs.available == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          path: .pr
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Node.js
+        if: steps.scripts.outputs.available == 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: package.json
 
       - name: Install GitNexus in an isolated home
+        if: steps.scripts.outputs.available == 'true'
         run: |
           mkdir -p "$RUNNER_TEMP/gitnexus"
           npm install --prefix "$RUNNER_TEMP/gitnexus" --no-save gitnexus@1.6.12
@@ -41,14 +63,18 @@ jobs:
           echo "GITNEXUS_HOME=$RUNNER_TEMP/gitnexus-home" >> "$GITHUB_ENV"
 
       - name: Build the code graph
+        if: steps.scripts.outputs.available == 'true'
         env:
           GITNEXUS_MCP_COMMAND: ${{ runner.temp }}/gitnexus/node_modules/.bin/gitnexus
           GITNEXUS_HOME: ${{ runner.temp }}/gitnexus-home
           GITNEXUS_STORAGE_PATH: ${{ runner.temp }}/gitnexus-index
         run: |
+          cd .pr
           "$GITNEXUS_MCP_COMMAND" analyze --index-only --default-branch main
 
       - name: Analyze the pull request
+        if: steps.scripts.outputs.available == 'true'
+        id: report
         env:
           GITNEXUS_HOME: ${{ runner.temp }}/gitnexus-home
           GITNEXUS_STORAGE_PATH: ${{ runner.temp }}/gitnexus-index
@@ -58,12 +84,55 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           IMPACT_OUTPUT: ${{ runner.temp }}/impact
-        run: node scripts/impact-pr.ts
+          IMPACT_WORKTREE: ${{ github.workspace }}/.pr
+        run: |
+          node scripts/impact-pr.ts
+          {
+            echo 'markdown<<PR_IMPACT_EOF'
+            cat "$IMPACT_OUTPUT/impact.md"
+            echo 'PR_IMPACT_EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Upload the impact report
+        if: steps.scripts.outputs.available == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pr-impact
           path: ${{ runner.temp }}/impact
           if-no-files-found: error
           retention-days: 7
+
+  comment:
+    name: Publish impact comment
+    needs: analyze
+    if: needs.analyze.outputs.markdown != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check out the trusted base branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          IMPACT_MARKDOWN: ${{ needs.analyze.outputs.markdown }}
+        run: node scripts/post-impact-comment.ts
+
+      - name: Verify the comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          count=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+            --paginate --jq '.[] | select(.body | startswith("<!-- pr-impact-report -->")) | .id' \
+            | wc -l)
+          test "$count" -eq 1

@@ -26,6 +26,8 @@ const report: ImpactReport = {
   changedFiles: 3,
   changedSymbols: 2,
   affectedProcesses: 1,
+  callerLookupLimit: 10,
+  callerLookupsOmitted: 0,
   truncated: false,
   partial: false,
   note: null,
@@ -68,6 +70,50 @@ void test("upstream caller counts are visible", () => {
   const comment = renderComment(report);
   assert.match(comment, /### Upstream callers/);
   assert.match(comment, /\| prepare \| Low \| 1 \| 1 \|/);
+});
+
+void test("caller coverage limits are visible", () => {
+  const comment = renderComment({
+    ...report,
+    callerLookupsOmitted: 3,
+  });
+  assert.match(comment, /3 further eligible symbols were not queried/);
+});
+
+void test("long process step lists are capped with a remainder", () => {
+  const comment = renderComment({
+    ...report,
+    processes: [
+      {
+        name: "launch_request",
+        changedSteps: Array.from({ length: 10 }, (_, index) => `step${String(index)}`),
+        stepCount: 10,
+      },
+    ],
+  });
+  assert.match(comment, /step7/);
+  assert.doesNotMatch(comment, /step8/);
+  assert.match(comment, /\+2 more/);
+});
+
+void test("diagrams disclose hidden symbols and processes", () => {
+  const large: ImpactReport = {
+    ...report,
+    symbols: Array.from({ length: 14 }, (_, index) => ({
+      name: `symbol${String(index)}`,
+      type: "Function",
+      path: "a.rs",
+    })),
+    processes: Array.from({ length: 14 }, (_, index) => ({
+      name: `process${String(index)}`,
+      changedSteps: [],
+      stepCount: 1,
+    })),
+  };
+  assert.match(renderMermaid(large), /more symbols/);
+  assert.match(renderMermaid(large), /more processes/);
+  assert.match(renderDrawio(large), /more symbols/);
+  assert.match(renderSvg(large), /more symbols/);
 });
 
 void test("unknown risk is not presented as safe", () => {

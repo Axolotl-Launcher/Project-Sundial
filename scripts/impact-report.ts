@@ -11,6 +11,7 @@
 export const REPORT_MARKER = "<!-- pr-impact-report -->";
 
 const MAX_DIAGRAM_SYMBOLS = 12;
+const MAX_RENDERED_STEPS = 8;
 const SHA_PREFIX_LENGTH = 12;
 
 export type RiskLevel =
@@ -51,6 +52,8 @@ export interface ImpactReport {
   readonly changedFiles: number;
   readonly changedSymbols: number;
   readonly affectedProcesses: number;
+  readonly callerLookupLimit: number;
+  readonly callerLookupsOmitted: number;
   readonly truncated: boolean;
   readonly partial: boolean;
   readonly note: string | null;
@@ -167,10 +170,16 @@ function appendProcesses(lines: string[], report: ImpactReport): void {
   if (report.processes.length > 0) {
     lines.push("### Affected processes", "");
     for (const process of report.processes) {
-      const steps =
-        process.changedSteps.length === 0
+      const shown = process.changedSteps.slice(0, MAX_RENDERED_STEPS);
+      const omittedSteps = process.changedSteps.length - shown.length;
+      const omitted =
+        omittedSteps === 0
           ? ""
-          : ` — ${cell(process.changedSteps.join(", "))}`;
+          : ` +${String(omittedSteps)} more`;
+      const steps =
+        shown.length === 0
+          ? ""
+          : ` — ${cell(shown.join(", "))}${omitted}`;
       lines.push(
         `- ${cell(process.name)} (${plural(process.stepCount, "step", "steps")})${steps}`,
       );
@@ -193,6 +202,13 @@ function appendUpstream(lines: string[], report: ImpactReport): void {
       );
     }
     lines.push("");
+  }
+  if (report.callerLookupsOmitted > 0) {
+    lines.push(
+      `> [!NOTE]`,
+      `> Upstream callers were traced for ${String(report.callerLookupLimit)} symbols; ${String(report.callerLookupsOmitted)} further eligible symbol${report.callerLookupsOmitted === 1 ? "" : "s"} were not queried.`,
+      "",
+    );
   }
 }
 
@@ -230,15 +246,19 @@ export function renderMermaid(report: ImpactReport): string {
     const label = `${symbol.name} (${symbol.type})`;
     lines.push(`      S${String(lines.length)}["${escapeMermaid(label)}"]`);
   }
-  if (report.changedSymbols > symbols.length) {
+  if (report.symbols.length > symbols.length) {
     lines.push(
-      `      More["+${String(report.changedSymbols - symbols.length)} more symbols"]`,
+      `      SMore["+${String(report.symbols.length - symbols.length)} more symbols"]`,
     );
   }
   if (report.processes.length > 0) {
     lines.push(`    Processes["${String(report.affectedProcesses)} affected processes"]`);
     for (const process of report.processes.slice(0, MAX_DIAGRAM_SYMBOLS)) {
       lines.push(`      P${String(lines.length)}["${escapeMermaid(process.name)}"]`);
+    }
+    const omitted = report.processes.length - MAX_DIAGRAM_SYMBOLS;
+    if (omitted > 0) {
+      lines.push(`      PMore["${String(omitted)} more processes"]`);
     }
   }
   return `${lines.join("\n")}\n`;

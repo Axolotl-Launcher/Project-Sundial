@@ -76,24 +76,42 @@ function shortText(text: string, limit: number): string {
   return `${text.slice(0, limit - 1)}…`;
 }
 
-function nodesFor(report: ImpactReport): Node[] {
+function nodesFor(report: ImpactReport, limit: number | undefined): Node[] {
   const nodes: Node[] = [];
+  const symbols = limit === undefined ? report.symbols : report.symbols.slice(0, limit);
+  const processes = limit === undefined ? report.processes : report.processes.slice(0, limit);
   if (report.symbols.length > 0) {
     nodes.push({ id: "changes", label: "Changed symbols", depth: 1 });
-    for (const [index, symbol] of report.symbols.slice(0, MAX_DIAGRAM_NODES).entries()) {
+    for (const [index, symbol] of symbols.entries()) {
       nodes.push({
         id: `symbol-${String(index)}`,
         label: `${shortText(symbol.name, MAX_SYMBOL_LABEL)} · ${symbol.type}`,
         depth: 2,
       });
     }
+    const omitted = report.symbols.length - symbols.length;
+    if (omitted > 0) {
+      nodes.push({
+        id: "symbol-more",
+        label: `+${String(omitted)} more symbols`,
+        depth: 2,
+      });
+    }
   }
   if (report.processes.length > 0) {
     nodes.push({ id: "processes", label: "Affected processes", depth: 1 });
-    for (const [index, process] of report.processes.slice(0, MAX_DIAGRAM_NODES).entries()) {
+    for (const [index, process] of processes.entries()) {
       nodes.push({
         id: `process-${String(index)}`,
         label: shortText(process.name, MAX_PROCESS_LABEL),
+        depth: 2,
+      });
+    }
+    const omitted = report.processes.length - processes.length;
+    if (omitted > 0) {
+      nodes.push({
+        id: "process-more",
+        label: `+${String(omitted)} more processes`,
         depth: 2,
       });
     }
@@ -104,7 +122,7 @@ function nodesFor(report: ImpactReport): Node[] {
 /// Vertically stacked mind-map cells. draw.io accepts fixed geometry, which
 /// keeps the layout deterministic and avoids pulling a layout library into CI.
 function cells(report: ImpactReport, idPrefix: string): string {
-  const nodes = nodesFor(report);
+  const nodes = nodesFor(report, MAX_DIAGRAM_NODES);
   const root: Node = {
     id: "root",
     label: `PR #${String(report.pullRequest)} · ${riskLabel(report.risk)}`,
@@ -120,12 +138,15 @@ function cells(report: ImpactReport, idPrefix: string): string {
   let childIndex = 0;
   let branchY = ROOT_Y;
   for (const branch of branches) {
+    const branchLimit =
+      branch.id === "changes"
+        ? Math.min(report.symbols.length, MAX_DIAGRAM_NODES) +
+          (report.symbols.length > MAX_DIAGRAM_NODES ? 1 : 0)
+        : Math.min(report.processes.length, MAX_DIAGRAM_NODES) +
+          (report.processes.length > MAX_DIAGRAM_NODES ? 1 : 0);
     const branchChildren = children.slice(
       childIndex,
-      childIndex +
-        (branch.id === "changes"
-          ? Math.min(MAX_DIAGRAM_NODES, report.symbols.length)
-          : Math.min(MAX_DIAGRAM_NODES, report.processes.length)),
+      childIndex + branchLimit,
     );
     childIndex += branchChildren.length;
     const branchHeight = Math.max(NODE_HEIGHT, branchChildren.length * (NODE_HEIGHT + ROW_GAP) - ROW_GAP);
@@ -163,7 +184,9 @@ export function renderDrawio(report: ImpactReport): string {
     MIN_PAGE_HEIGHT,
     PAGE_PADDING +
       (Math.min(report.symbols.length, MAX_DIAGRAM_NODES) +
-        Math.min(report.processes.length, MAX_DIAGRAM_NODES)) *
+        Math.min(report.processes.length, MAX_DIAGRAM_NODES) +
+        (report.symbols.length > MAX_DIAGRAM_NODES ? 1 : 0) +
+        (report.processes.length > MAX_DIAGRAM_NODES ? 1 : 0)) *
         (NODE_HEIGHT + ROW_GAP),
   );
   return [
@@ -199,14 +222,14 @@ export function renderSvg(report: ImpactReport): string {
   };
   if (report.symbols.length > 0) {
     addRow("Changed symbols", PREVIEW_BRANCH_X, PREVIEW_BRANCH_WIDTH, "#fff2cc");
-    for (const symbol of report.symbols.slice(0, MAX_DIAGRAM_NODES)) {
-      addRow(`${symbol.name} · ${symbol.type}`, PREVIEW_NODE_X, PREVIEW_NODE_WIDTH, "#f5f5f5");
+    for (const symbol of nodesFor(report, MAX_DIAGRAM_NODES).filter((node) => node.id.startsWith("symbol"))) {
+      addRow(symbol.label, PREVIEW_NODE_X, PREVIEW_NODE_WIDTH, "#f5f5f5");
     }
   }
   if (report.processes.length > 0) {
     addRow("Affected processes", PREVIEW_BRANCH_X, PREVIEW_BRANCH_WIDTH, "#fff2cc");
-    for (const process of report.processes.slice(0, MAX_DIAGRAM_NODES)) {
-      addRow(process.name, PREVIEW_NODE_X, PREVIEW_NODE_WIDTH, "#f5f5f5");
+    for (const process of nodesFor(report, MAX_DIAGRAM_NODES).filter((node) => node.id.startsWith("process"))) {
+      addRow(process.label, PREVIEW_NODE_X, PREVIEW_NODE_WIDTH, "#f5f5f5");
     }
   }
   const height = Math.max(MIN_PREVIEW_HEIGHT, y + PREVIEW_BOTTOM_PADDING);

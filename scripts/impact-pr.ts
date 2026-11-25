@@ -61,11 +61,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function asDetectChanges(value: unknown): DetectChangesInput {
-  return isRecord(value) ? value : {};
+  if (!isRecord(value)) {
+    throw new Error("detect_changes returned a non-object result");
+  }
+  return value;
 }
 
 function asImpact(value: unknown): ImpactInput {
-  return isRecord(value) ? value : {};
+  if (!isRecord(value)) {
+    throw new Error("impact returned a non-object result");
+  }
+  return value;
 }
 
 function printSummary(report: ReturnType<typeof buildReport>): void {
@@ -98,7 +104,8 @@ async function detectChanges(
     await client.callTool("detect_changes", {
       scope: "compare",
       base_ref: mergeBaseSha,
-      repo: ".",
+      repo: required("IMPACT_WORKTREE"),
+      worktree: required("IMPACT_WORKTREE"),
     }),
   );
 }
@@ -117,7 +124,7 @@ async function collectImpacts(
               target: target.name,
               ...(target.path === undefined ? {} : { file_path: target.path }),
               direction: "upstream",
-              repo: ".",
+              repo: required("IMPACT_WORKTREE"),
               summaryOnly: true,
             }),
           ),
@@ -125,6 +132,10 @@ async function collectImpacts(
         },
       );
     } catch (error) {
+      impacts.push({
+        target: { name: target.name },
+        error: error instanceof Error ? error.message : String(error),
+      });
       console.warn(
         `Impact failed for ${target.name}: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -138,7 +149,7 @@ async function analyze(): Promise<number> {
   const pullRequest = Number(required("PR_NUMBER"));
   const headSha = required("HEAD_SHA");
   const baseSha = required("BASE_SHA");
-  const worktree = process.cwd();
+  const worktree = resolve(required("IMPACT_WORKTREE"));
   const mergeBaseSha = mergeBase(baseSha, headSha);
   const invocation = mcpCommand();
   const client = new GitNexusClient(
