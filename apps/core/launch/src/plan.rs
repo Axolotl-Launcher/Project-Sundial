@@ -267,6 +267,9 @@ pub fn build(
 }
 
 fn append_fallen_proxy_arguments(args: &mut Vec<String>) {
+    // A named Authlib environment wins over host properties. An unrecognized
+    // name selects the properties even if the version sets `prod` or `staging`.
+    args.push("-Dminecraft.api.env=custom".to_owned());
     // Minecraft 1.16 through 26.2 uses individual hosts. From 26.3 Authlib
     // reads only the discovery URL, so snapshots and loaders can receive both.
     for service in ["auth", "account", "session", "services", "profiles"] {

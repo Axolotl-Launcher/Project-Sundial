@@ -50,6 +50,7 @@ fn fallen_proxy_jvm_arguments_apply_only_to_opted_in_microsoft_sessions() {
     assert_eq!(
         proxy_arguments,
         [
+            "-Dminecraft.api.env=custom",
             "-Dminecraft.api.auth.host=https://auth.msp.fallenbreath.me",
             "-Dminecraft.api.account.host=https://account.msp.fallenbreath.me",
             "-Dminecraft.api.session.host=https://session.msp.fallenbreath.me",
