@@ -196,7 +196,7 @@ impl RootView {
         self.settings
             .as_ref()
             .filter(|settings| settings.use_fallen_proxy)?;
-        crate::source_hosts::source_hosts().fallen_proxy.clone()
+        Some(crate::source_hosts::fallen_proxy_host())
     }
 
     fn render_header(&mut self, cx: &mut Context<'_, Self>) -> AnyElement {

@@ -21,7 +21,7 @@ use axlauncher_ui::{AppContext, AsyncApp, Context, WeakEntity};
 use tokio::sync::watch;
 
 use crate::RootView;
-use crate::source_hosts::source_hosts;
+use crate::source_hosts::mirror_hosts;
 
 pub(crate) struct InstallOptions {
     pub(crate) concurrency: usize,
@@ -30,7 +30,7 @@ pub(crate) struct InstallOptions {
 
 impl InstallOptions {
     pub(crate) fn from_settings(settings: Option<&SettingsData>) -> Self {
-        let hosts = source_hosts().mirrors.clone();
+        let hosts = mirror_hosts();
         let Some(settings) = settings else {
             return Self {
                 concurrency: 0,
