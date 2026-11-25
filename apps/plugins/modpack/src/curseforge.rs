@@ -140,7 +140,7 @@ impl Minecraft {
         }
         let loader = first
             .or_else(|| self.mod_loaders.first())
-            .map(|loader| loader.version(&self.version))
+            .map(Loader::version)
             .transpose()?;
         Ok(GameRequirements {
             minecraft: self.version,
@@ -150,7 +150,7 @@ impl Minecraft {
 }
 
 impl Loader {
-    fn version(&self, minecraft: &str) -> Result<(LoaderKind, String), PackError> {
+    fn version(&self) -> Result<(LoaderKind, String), PackError> {
         let (kind, version) = self.id.split_once('-').ok_or_else(|| {
             PackError::Unsupported(format!("unknown CurseForge mod loader {:?}", self.id))
         })?;
@@ -167,10 +167,6 @@ impl Loader {
             .ok_or_else(|| {
                 PackError::Unsupported(format!("unknown CurseForge mod loader {kind:?}"))
             })?;
-        let version = match (kind, minecraft) {
-            (LoaderKind::NeoForge, "1.20.1") => version.strip_prefix("1.20.1-").unwrap_or(version),
-            _ => version,
-        };
         paths::validate_version(version)?;
         Ok((kind, version.to_owned()))
     }

@@ -21,3 +21,14 @@ fn a_pre_release_is_older_than_its_release() {
 fn equal_versions_are_equal() {
     assert_eq!(compare("20.2.93", "20.2.93"), Ordering::Equal);
 }
+
+#[test]
+fn mixed_components_sort_transitively() {
+    assert_eq!(compare("2", "10"), Ordering::Less);
+    assert_eq!(compare("10", "1a"), Ordering::Less);
+    assert_eq!(compare("2", "1a"), Ordering::Less);
+    assert_eq!(
+        compare("1.999999999999999999999", "1.1000000000000000000000"),
+        Ordering::Less
+    );
+}

@@ -21,6 +21,17 @@ path = "pnpm-lock.yaml"
 SPDX-FileCopyrightText = "2026 Axolotl Team"
 SPDX-License-Identifier = "GPL-3.0-only"
 
+[[annotations]]
+path = [
+  "apps/core/mc_version/**",
+  "apps/core/spi/src/mc_version.rs",
+  "tests/apps/core/mc_version/**",
+  "tests/apps/core/spi/src/mc_version.rs",
+  "tests/apps/frontend/src/modpacks/service.rs",
+]
+SPDX-FileCopyrightText = "2026 Axolotl Team"
+SPDX-License-Identifier = "GPL-3.0-only"
+
 # JSON cannot carry comments. turbo.jsonc is listed separately below because it
 # is JSONC and does accept `//`.
 [[annotations]]

@@ -18,6 +18,7 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 | File downloads | `download_engine` schedules connections and ranges, manages shared bandwidth and buffers, tries alternate sources and verifies files before promotion. | Pass file requests and an injected `Network` to `download_engine::download_all` or `download_engine::download_all_reporting`. Use `DownloadEngine` for explicit policy and source ordering. |
 | Installation files and asset indexes | `install` checks for missing libraries and assets, handles Minecraft metadata, and prepares the pinned third-party authentication agent. | Use `prepare::prepare` for game files and `auth_agent::prepare` for the Java agent. Both use `download_engine`. The SPI `Installer` accepts an `InstallPlan`. Its current `StepInstaller` implementation is a stub. |
 | Mod loader metadata services | `loader` lists versions and resolves version profiles through an injected `Network`. | `loader::provider` selects the `ModLoader` implementation for both catalog and install. `install` places the resulting profile and handles installation processors. |
+| Minecraft version naming | `mc_version` classifies Mojang catalog entries and matches the Maven versions published for each Forge or NeoForge game line. It has no I/O. | Call `core::mc_version::classify_java` for catalog classification. The loader uses `MavenTarget` for both listing and installation. Standalone tools may explicitly wrap `BuiltinJavaVersionParser` with the SPI fallback; the launcher installs no fallback parser. |
 | Game version documents, classpath, JARs and natives | `launch` reads version files and JARs, evaluates launch rules and extracts natives. | Use `flow::launch` for prepared installations. Installation planning reuses `version::Version`, the library model and `rules::Target` to decide what to download. |
 | Installation processors | `install` plans and runs the Java processors declared in a version profile. | Use `install::processors` for installation steps. Use `Launcher` to start a game. |
 | Java discovery and game processes | `launch` provides `SystemJava` and `ProcessLauncher`. | Resolve the runtime through `Java::executable`. Pass the prepared `LaunchCommand` to `Launcher::launch`. |
@@ -67,6 +68,7 @@ lookup for the destination.
 | `axlauncher_content` | [content](../../apps/core/content/src/lib.rs) | The installable content catalogue. `StaticProvider` implements `ContentProvider::list` and returns `ContentSummary` records. |
 | `axlauncher_resources` | [resources](../../apps/core/resources/src/lib.rs) | User-managed resource records, currently `Favorite`. Downloadable game assets belong to install. |
 | `axlauncher_loader` | [loader](../../apps/core/loader/src/lib.rs) | `ModLoader` providers that list versions and resolve profiles, currently Fabric, Quilt, Forge and NeoForge. |
+| `axlauncher_mc_version` | [mc_version](../../apps/core/mc_version/src/lib.rs) | Pure version classification, build matching and ordering. It does not read foreign launcher data or decide how to install or launch a version. |
 | `axlauncher_mod_metadata` | [mod_metadata](../../apps/core/mod_metadata/src/lib.rs) | Mod and loader metadata, currently the `Loader` enum. Game launch rules belong to launch. |
 | `axlauncher_scheduler` | [scheduler](../../apps/core/scheduler/src/lib.rs) | Background work scheduling policy, currently priority `Band`. The originating system owns the work itself. |
 | `axlauncher_observability` | [observability](../../apps/core/observability/src/lib.rs) | Command metrics and diagnostic records, currently `CommandMetric`. Telemetry owns event output. |
@@ -101,8 +103,9 @@ lookup for the destination.
    uses storage for staged file writes and network for digest verification. Install
    uses the download engine for planned files, storage for installation paths
    and atomic writes, network for metadata digest verification and launch for
-   the shared version model and rules. Keep calls across these edges within the
-   listed purposes.
+   the shared version model and rules. The loader calls `mc_version` for
+   Maven build resolution. Keep calls across these edges within the listed
+   purposes.
 4. When ownership changes, update this guide and the
    [dependency policy test](../../tests/tests/crate_boundaries.rs) together.
    The test inspects production and build dependency declarations, including

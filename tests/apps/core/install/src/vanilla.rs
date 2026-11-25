@@ -77,15 +77,15 @@ fn the_catalog_keeps_official_order_and_historical_categories() {
     let listed: Vec<_> = catalog
         .versions()
         .iter()
-        .map(|version| (version.id(), version.kind()))
+        .map(|version| (version.id(), version.manifest_type()))
         .collect();
     assert_eq!(
         listed,
         [
-            ("26.4-snapshot-10", MinecraftVersionKind::Snapshot),
-            ("26.3", MinecraftVersionKind::Release),
-            ("b1.7.3", MinecraftVersionKind::OldBeta),
-            ("rd-132211", MinecraftVersionKind::OldAlpha),
+            ("26.4-snapshot-10", "snapshot"),
+            ("26.3", "release"),
+            ("b1.7.3", "old_beta"),
+            ("rd-132211", "old_alpha"),
         ]
     );
 }

@@ -16,6 +16,7 @@ pub use axlauncher_download_engine as download_engine;
 pub use axlauncher_install as install;
 pub use axlauncher_launch as launch;
 pub use axlauncher_loader as loader;
+pub use axlauncher_mc_version as mc_version;
 pub use axlauncher_mod_metadata as mod_metadata;
 pub use axlauncher_network as network;
 pub use axlauncher_observability as observability;

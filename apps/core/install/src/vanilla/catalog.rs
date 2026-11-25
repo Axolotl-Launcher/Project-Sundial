@@ -25,21 +25,9 @@ struct Latest {
 pub struct MinecraftVersion {
     id: String,
     #[serde(rename = "type")]
-    kind: MinecraftVersionKind,
+    manifest_type: String,
     pub(super) url: String,
     pub(super) sha1: String,
-}
-
-/// The version category Mojang assigns to an entry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MinecraftVersionKind {
-    Release,
-    Snapshot,
-    OldBeta,
-    OldAlpha,
-    #[serde(other)]
-    Other,
 }
 
 impl MinecraftCatalog {
@@ -57,8 +45,8 @@ impl MinecraftVersion {
         &self.id
     }
 
-    pub fn kind(&self) -> MinecraftVersionKind {
-        self.kind
+    pub fn manifest_type(&self) -> &str {
+        &self.manifest_type
     }
 }
 
