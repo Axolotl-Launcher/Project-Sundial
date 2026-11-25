@@ -22,10 +22,37 @@ use serde::Deserialize;
 mod forge;
 mod installer;
 mod library;
+mod maven_metadata;
 mod neoforge;
 mod versions;
 pub use forge::ForgeApi;
 pub use neoforge::NeoForgeApi;
+
+/// The loader kinds that have a version catalog and installation provider.
+pub const SUPPORTED_KINDS: [LoaderKind; 5] = [
+    LoaderKind::Fabric,
+    LoaderKind::LegacyFabric,
+    LoaderKind::Quilt,
+    LoaderKind::Forge,
+    LoaderKind::NeoForge,
+];
+
+/// Fetches a loader's published versions for a single Minecraft version.
+pub async fn versions(
+    network: impl Network,
+    kind: LoaderKind,
+    game_version: &str,
+) -> Result<Vec<LoaderVersion>, LoaderError> {
+    let provider = match kind {
+        LoaderKind::Fabric => LoaderApi::fabric(network),
+        LoaderKind::LegacyFabric => LoaderApi::legacy_fabric(network),
+        LoaderKind::Quilt => LoaderApi::quilt(network),
+        LoaderKind::Forge => return ForgeApi::new(network).versions(game_version).await,
+        LoaderKind::NeoForge => return NeoForgeApi::new(network).versions(game_version).await,
+        loader => return Err(LoaderError::Unsupported { loader }),
+    };
+    provider.versions(game_version).await
+}
 
 /// Fabric's metadata service, whose scheme the `/versions/...` paths below are
 /// written for.

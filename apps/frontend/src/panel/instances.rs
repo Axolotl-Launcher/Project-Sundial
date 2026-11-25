@@ -10,8 +10,8 @@ use axlauncher_core::state::profile::{DiscoveredProfile, Game, ProfileDiscovery}
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, AnyElement, Button, ButtonVariants, Context, ElementId, GroupBox, Input,
-    IntoElement, Label, h_flex, v_flex,
+    ActiveTheme, AnyElement, Context, ElementId, GroupBox, Input, IntoElement, Label, h_flex,
+    v_flex,
 };
 
 use crate::installations::vanilla_version;
@@ -146,43 +146,6 @@ impl RootView {
         })
     }
 
-    fn creation_form(&self, cx: &mut Context<'_, Self>) -> AnyElement {
-        h_flex()
-            .gap_2()
-            .items_end()
-            .child(
-                Input::new(&self.new_name)
-                    .id("new-profile-name")
-                    .aria_label("New profile name")
-                    .w_40(),
-            )
-            .child(
-                Input::new(&self.new_minecraft)
-                    .id("new-profile-minecraft")
-                    .aria_label("Minecraft version")
-                    .w_32(),
-            )
-            .child(
-                Input::new(&self.new_loader)
-                    .id("new-profile-loader")
-                    .aria_label("Optional loader. Fabric, legacy-fabric, Quilt, Forge, or NeoForge")
-                    .w_32(),
-            )
-            .child(
-                Input::new(&self.new_loader_version)
-                    .id("new-profile-loader-version")
-                    .aria_label("Loader version, empty for the recommended one")
-                    .w_32(),
-            )
-            .child(
-                Button::new("new-profile-create")
-                    .label("Create")
-                    .primary()
-                    .on_click(cx.listener(|view, _, _, cx| view.create_profile(cx))),
-            )
-            .into_any_element()
-    }
-
     pub(super) fn render_instances(&self, cx: &mut Context<'_, Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let danger = cx.theme().danger;
@@ -212,7 +175,7 @@ impl RootView {
                                 .child(Label::new("No profiles found.").text_sm().text_color(muted))
                         },
                     )
-                    .child(self.creation_form(cx))
+                    .child(self.render_profile_creation(cx))
                     .when(
                         !profiles.instances.is_empty() && self.accounts.selected().is_none(),
                         |column| {
