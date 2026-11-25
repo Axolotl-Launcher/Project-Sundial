@@ -5,7 +5,11 @@
 
 import { readFileSync, statSync } from "node:fs";
 
-const MAX_ARTIFACT_BYTES = 5 * 1024 * 1024;
+const BYTES_PER_KIB = 1024;
+const KIB_PER_MIB = 1024;
+const BYTES_PER_MIB = BYTES_PER_KIB * KIB_PER_MIB;
+const MAX_ARTIFACT_MIB = 5;
+const MAX_ARTIFACT_BYTES = MAX_ARTIFACT_MIB * BYTES_PER_MIB;
 
 export function readArtifact(path: string): unknown {
   const size = statSync(path).size;

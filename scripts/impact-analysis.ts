@@ -58,6 +58,17 @@ export interface AnalysisContext {
 
 const MAX_CHANGED_SYMBOLS = 30;
 const MAX_AFFECTED_PROCESSES = 20;
+const MAX_IMPACT_TARGETS = 10;
+const IMPACT_KINDS = new Set([
+  "Function",
+  "Method",
+  "Class",
+  "Interface",
+  "Struct",
+  "Enum",
+  "Trait",
+  "Const",
+]);
 
 const RISK_LEVELS: readonly RiskLevel[] = [
   "none",
@@ -207,9 +218,7 @@ export interface ImpactTarget {
 /// The path disambiguates common names such as `new` or `build`.
 export function impactTargets(detected: DetectChangesInput): readonly ImpactTarget[] {
   const preferred = (detected.changed_symbols ?? []).filter((symbol) =>
-    ["Function", "Method", "Class", "Interface", "Struct", "Enum", "Trait", "Const"].includes(
-      symbol.type ?? "",
-    ),
+    IMPACT_KINDS.has(symbol.type ?? ""),
   );
   const seen = new Set<string>();
   const targets: ImpactTarget[] = [];
@@ -223,7 +232,7 @@ export function impactTargets(detected: DetectChangesInput): readonly ImpactTarg
     }
     seen.add(key);
     targets.push({ name: symbol.name, path: symbol.filePath });
-    if (targets.length === 10) {
+    if (targets.length === MAX_IMPACT_TARGETS) {
       break;
     }
   }

@@ -9,6 +9,8 @@ import { join, resolve } from "node:path";
 
 import { assertInteger, assertString, isRecord, readArtifact } from "./impact-artifact.ts";
 
+const SHA_PREFIX_LENGTH = 12;
+
 interface PullRequest {
   readonly head_sha?: string;
 }
@@ -51,7 +53,7 @@ function main(): number {
   }
   if (!current) {
     console.log(
-      `Skipping superseded analysis for ${headSha.slice(0, 12)}; pull request is at ${currentPullRequest.head_sha?.slice(0, 12) ?? "?"}`,
+      `Skipping superseded analysis for ${headSha.slice(0, SHA_PREFIX_LENGTH)}; pull request is at ${currentPullRequest.head_sha?.slice(0, SHA_PREFIX_LENGTH) ?? "?"}`,
     );
   }
   return 0;

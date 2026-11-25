@@ -15,8 +15,44 @@ import {
 const WIDTH = 960;
 const NODE_HEIGHT = 34;
 const ROOT_WIDTH = 260;
+const ROOT_X = 24;
 const COLUMN_GAP = 60;
 const ROW_GAP = 10;
+const HALF = 2;
+const BRANCH_DEPTH = 1;
+const CHILD_DEPTH = 2;
+const MAX_DIAGRAM_NODES = 12;
+const MAX_SYMBOL_LABEL = 40;
+const MAX_PROCESS_LABEL = 48;
+const ROOT_Y = 24;
+const ROOT_HEIGHT = 56;
+const BRANCH_GAP = 30;
+const EMPTY_LABEL_Y = 104;
+const EMPTY_LABEL_HEIGHT = 24;
+const MIN_PAGE_HEIGHT = 360;
+const PAGE_PADDING = 140;
+const PREVIEW_Y = 110;
+const PREVIEW_ROW_HEIGHT = 40;
+const PREVIEW_NODE_HEIGHT = 30;
+const PREVIEW_LABEL_OFFSET = 8;
+const MIN_PREVIEW_HEIGHT = 220;
+const PREVIEW_BOTTOM_PADDING = 20;
+const LABEL_LIMIT = 52;
+const BRANCH_X = ROOT_Y + ROOT_WIDTH + COLUMN_GAP;
+const BRANCH_WIDTH = 220;
+const CHILD_X = BRANCH_X + BRANCH_WIDTH + COLUMN_GAP;
+const CHILD_WIDTH = 300;
+const PREVIEW_ROOT_X = 20;
+const PREVIEW_ROOT_Y = 20;
+const PREVIEW_ROOT_WIDTH = 240;
+const PREVIEW_ROOT_HEIGHT = 52;
+const PREVIEW_ROOT_RADIUS = 26;
+const PREVIEW_ROOT_TEXT_X = 140;
+const PREVIEW_ROOT_TEXT_Y = 51;
+const PREVIEW_BRANCH_X = 300;
+const PREVIEW_BRANCH_WIDTH = 220;
+const PREVIEW_NODE_X = 560;
+const PREVIEW_NODE_WIDTH = 360;
 
 interface Node {
   readonly id: string;
@@ -44,20 +80,20 @@ function nodesFor(report: ImpactReport): Node[] {
   const nodes: Node[] = [];
   if (report.symbols.length > 0) {
     nodes.push({ id: "changes", label: "Changed symbols", depth: 1 });
-    for (const [index, symbol] of report.symbols.slice(0, 12).entries()) {
+    for (const [index, symbol] of report.symbols.slice(0, MAX_DIAGRAM_NODES).entries()) {
       nodes.push({
         id: `symbol-${String(index)}`,
-        label: `${shortText(symbol.name, 40)} · ${symbol.type}`,
+        label: `${shortText(symbol.name, MAX_SYMBOL_LABEL)} · ${symbol.type}`,
         depth: 2,
       });
     }
   }
   if (report.processes.length > 0) {
     nodes.push({ id: "processes", label: "Affected processes", depth: 1 });
-    for (const [index, process] of report.processes.slice(0, 12).entries()) {
+    for (const [index, process] of report.processes.slice(0, MAX_DIAGRAM_NODES).entries()) {
       nodes.push({
         id: `process-${String(index)}`,
-        label: shortText(process.name, 48),
+        label: shortText(process.name, MAX_PROCESS_LABEL),
         depth: 2,
       });
     }
@@ -74,24 +110,27 @@ function cells(report: ImpactReport, idPrefix: string): string {
     label: `PR #${String(report.pullRequest)} · ${riskLabel(report.risk)}`,
     depth: 0,
   };
-  const branches = nodes.filter((node) => node.depth === 1);
-  const children = nodes.filter((node) => node.depth === 2);
+  const branches = nodes.filter((node) => node.depth === BRANCH_DEPTH);
+  const children = nodes.filter((node) => node.depth === CHILD_DEPTH);
   const output: string[] = [
-    `<mxCell id="${idPrefix}-root" value="${escapeXml(root.label)}" style="ellipse;whiteSpace=wrap;html=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="24" y="24" width="${String(ROOT_WIDTH)}" height="56" as="geometry"/></mxCell>`,
+    `<mxCell id="${idPrefix}-root" value="${escapeXml(root.label)}" style="ellipse;whiteSpace=wrap;html=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="${String(ROOT_X)}" y="${String(ROOT_Y)}" width="${String(ROOT_WIDTH)}" height="${String(ROOT_HEIGHT)}" as="geometry"/></mxCell>`,
   ];
 
-  let y = 24;
+  let y = ROOT_Y;
   let childIndex = 0;
-  let branchY = 24;
+  let branchY = ROOT_Y;
   for (const branch of branches) {
     const branchChildren = children.slice(
       childIndex,
-      childIndex + (branch.id === "changes" ? Math.min(12, report.symbols.length) : Math.min(12, report.processes.length)),
+      childIndex +
+        (branch.id === "changes"
+          ? Math.min(MAX_DIAGRAM_NODES, report.symbols.length)
+          : Math.min(MAX_DIAGRAM_NODES, report.processes.length)),
     );
     childIndex += branchChildren.length;
     const branchHeight = Math.max(NODE_HEIGHT, branchChildren.length * (NODE_HEIGHT + ROW_GAP) - ROW_GAP);
     output.push(
-      `<mxCell id="${idPrefix}-${branch.id}" value="${escapeXml(branch.label)}" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="${String(24 + ROOT_WIDTH + COLUMN_GAP)}" y="${String(branchY)}" width="220" height="${String(NODE_HEIGHT)}" as="geometry"/></mxCell>`,
+      `<mxCell id="${idPrefix}-${branch.id}" value="${escapeXml(branch.label)}" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="${String(BRANCH_X)}" y="${String(branchY)}" width="${String(BRANCH_WIDTH)}" height="${String(NODE_HEIGHT)}" as="geometry"/></mxCell>`,
     );
     output.push(
       `<mxCell id="${idPrefix}-edge-${branch.id}" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=none;" edge="1" parent="1" source="${idPrefix}-root" target="${idPrefix}-${branch.id}"><mxGeometry relative="1" as="geometry"/></mxCell>`,
@@ -99,7 +138,7 @@ function cells(report: ImpactReport, idPrefix: string): string {
     let childY = branchY;
     for (const child of branchChildren) {
       output.push(
-        `<mxCell id="${idPrefix}-${child.id}" value="${escapeXml(child.label)}" style="rounded=0;whiteSpace=wrap;html=0;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1"><mxGeometry x="${String(24 + ROOT_WIDTH + COLUMN_GAP + 220 + COLUMN_GAP)}" y="${String(childY)}" width="300" height="${String(NODE_HEIGHT)}" as="geometry"/></mxCell>`,
+        `<mxCell id="${idPrefix}-${child.id}" value="${escapeXml(child.label)}" style="rounded=0;whiteSpace=wrap;html=0;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1"><mxGeometry x="${String(CHILD_X)}" y="${String(childY)}" width="${String(CHILD_WIDTH)}" height="${String(NODE_HEIGHT)}" as="geometry"/></mxCell>`,
       );
       output.push(
         `<mxCell id="${idPrefix}-edge-${child.id}" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=none;" edge="1" parent="1" source="${idPrefix}-${branch.id}" target="${idPrefix}-${child.id}"><mxGeometry relative="1" as="geometry"/></mxCell>`,
@@ -107,12 +146,12 @@ function cells(report: ImpactReport, idPrefix: string): string {
       childY += NODE_HEIGHT + ROW_GAP;
     }
     y = Math.max(y, branchY + branchHeight);
-    branchY = y + 30;
+    branchY = y + BRANCH_GAP;
   }
 
   if (branches.length === 0) {
     output.push(
-      `<mxCell id="${idPrefix}-empty" value="${escapeXml(`PR #${String(report.pullRequest)}`)}" style="text;html=0;align=left;verticalAlign=middle;fontSize=12;" vertex="1" parent="1"><mxGeometry x="24" y="104" width="520" height="24" as="geometry"/></mxCell>`,
+    `<mxCell id="${idPrefix}-empty" value="${escapeXml(`PR #${String(report.pullRequest)}`)}" style="text;html=0;align=left;verticalAlign=middle;fontSize=12;" vertex="1" parent="1"><mxGeometry x="${String(ROOT_X)}" y="${String(EMPTY_LABEL_Y)}" width="${String(ROOT_WIDTH * HALF)}" height="${String(EMPTY_LABEL_HEIGHT)}" as="geometry"/></mxCell>`,
     );
   }
   return output.join("");
@@ -121,9 +160,10 @@ function cells(report: ImpactReport, idPrefix: string): string {
 /// A draw.io XML document for the impact report.
 export function renderDrawio(report: ImpactReport): string {
   const height = Math.max(
-    360,
-    140 +
-      (Math.min(report.symbols.length, 12) + Math.min(report.processes.length, 12)) *
+    MIN_PAGE_HEIGHT,
+    PAGE_PADDING +
+      (Math.min(report.symbols.length, MAX_DIAGRAM_NODES) +
+        Math.min(report.processes.length, MAX_DIAGRAM_NODES)) *
         (NODE_HEIGHT + ROW_GAP),
   );
   return [
@@ -146,33 +186,33 @@ export function renderSvg(report: ImpactReport): string {
   const rows: string[] = [];
   const rootLabel = `PR #${String(report.pullRequest)} · ${riskLabel(report.risk)}`;
   rows.push(
-    `<rect x="20" y="20" width="240" height="52" rx="26" fill="#dae8fc" stroke="#6c8ebf"/>`,
-    `<text x="140" y="51" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="600">${escapeXml(rootLabel)}</text>`,
+    `<rect x="${String(PREVIEW_ROOT_X)}" y="${String(PREVIEW_ROOT_Y)}" width="${String(PREVIEW_ROOT_WIDTH)}" height="${String(PREVIEW_ROOT_HEIGHT)}" rx="${String(PREVIEW_ROOT_RADIUS)}" fill="#dae8fc" stroke="#6c8ebf"/>`,
+    `<text x="${String(PREVIEW_ROOT_TEXT_X)}" y="${String(PREVIEW_ROOT_TEXT_Y)}" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="600">${escapeXml(rootLabel)}</text>`,
   );
-  let y = 110;
+  let y = PREVIEW_Y;
   const addRow = (label: string, x: number, width: number, fill: string): void => {
     rows.push(
-      `<rect x="${String(x)}" y="${String(y)}" width="${String(width)}" height="30" rx="4" fill="${fill}" stroke="#888888"/>`,
-      `<text x="${String(x + 8)}" y="${String(y + 20)}" font-family="sans-serif" font-size="12">${escapeXml(shortText(label, 52))}</text>`,
+      `<rect x="${String(x)}" y="${String(y)}" width="${String(width)}" height="${String(PREVIEW_NODE_HEIGHT)}" rx="4" fill="${fill}" stroke="#888888"/>`,
+      `<text x="${String(x + PREVIEW_LABEL_OFFSET)}" y="${String(y + PREVIEW_LABEL_OFFSET + PREVIEW_NODE_HEIGHT / HALF)}" font-family="sans-serif" font-size="12">${escapeXml(shortText(label, LABEL_LIMIT))}</text>`,
     );
-    y += 40;
+    y += PREVIEW_ROW_HEIGHT;
   };
   if (report.symbols.length > 0) {
-    addRow("Changed symbols", 300, 220, "#fff2cc");
-    for (const symbol of report.symbols.slice(0, 12)) {
-      addRow(`${symbol.name} · ${symbol.type}`, 560, 360, "#f5f5f5");
+    addRow("Changed symbols", PREVIEW_BRANCH_X, PREVIEW_BRANCH_WIDTH, "#fff2cc");
+    for (const symbol of report.symbols.slice(0, MAX_DIAGRAM_NODES)) {
+      addRow(`${symbol.name} · ${symbol.type}`, PREVIEW_NODE_X, PREVIEW_NODE_WIDTH, "#f5f5f5");
     }
   }
   if (report.processes.length > 0) {
-    addRow("Affected processes", 300, 220, "#fff2cc");
-    for (const process of report.processes.slice(0, 12)) {
-      addRow(process.name, 560, 360, "#f5f5f5");
+    addRow("Affected processes", PREVIEW_BRANCH_X, PREVIEW_BRANCH_WIDTH, "#fff2cc");
+    for (const process of report.processes.slice(0, MAX_DIAGRAM_NODES)) {
+      addRow(process.name, PREVIEW_NODE_X, PREVIEW_NODE_WIDTH, "#f5f5f5");
     }
   }
-  const height = Math.max(220, y + 20);
+  const height = Math.max(MIN_PREVIEW_HEIGHT, y + PREVIEW_BOTTOM_PADDING);
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="${String(height)}" viewBox="0 0 960 ${String(height)}">`,
-    `<rect width="960" height="${String(height)}" fill="#ffffff"/>`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${String(WIDTH)}" height="${String(height)}" viewBox="0 0 ${String(WIDTH)} ${String(height)}">`,
+    `<rect width="${String(WIDTH)}" height="${String(height)}" fill="#ffffff"/>`,
     ...rows,
     "</svg>",
   ].join("");

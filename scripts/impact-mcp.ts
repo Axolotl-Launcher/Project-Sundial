@@ -37,7 +37,12 @@ export interface ToolResult {
 
 const INITIALIZE_TIMEOUT_MS = 120_000;
 const TOOL_TIMEOUT_MS = 180_000;
-const MAX_BUFFER_SIZE = 32 * 1024 * 1024;
+const BYTES_PER_KIB = 1024;
+const KIB_PER_MIB = 1024;
+const BYTES_PER_MIB = BYTES_PER_KIB * KIB_PER_MIB;
+const MAX_BUFFER_MIB = 32;
+const MAX_BUFFER_SIZE = MAX_BUFFER_MIB * BYTES_PER_MIB;
+const STDERR_LIMIT = 20_000;
 export const NEXT_STEP_SEPARATOR = "\n\n---\n**Next:**";
 
 /// GitNexus appends a human-oriented "Next" hint after the JSON payload. It
@@ -45,7 +50,7 @@ export const NEXT_STEP_SEPARATOR = "\n\n---\n**Next:**";
 /// JSON string has no preceding blank line and separator, so it is safe.
 export function stripNextStepHint(text: string): string {
   const hint = text.lastIndexOf(NEXT_STEP_SEPARATOR);
-  return (hint === -1 ? text : text.slice(0, hint)).trim();
+  return (hint < 0 ? text : text.slice(0, hint)).trim();
 }
 
 export class GitNexusClient {
@@ -73,15 +78,21 @@ export class GitNexusClient {
     });
     this.process.stdout.setEncoding("utf8");
     this.process.stderr.setEncoding("utf8");
-    this.process.stdout.on("data", (chunk: string) => this.onData(chunk));
+    this.process.stdout.on("data", (chunk: string) => {
+      this.onData(chunk);
+    });
     this.process.stderr.on("data", (chunk: string) => {
       this.stderr += chunk;
-      if (this.stderr.length > 20_000) {
-        this.stderr = this.stderr.slice(-20_000);
+      if (this.stderr.length > STDERR_LIMIT) {
+        this.stderr = this.stderr.slice(-STDERR_LIMIT);
       }
     });
-    this.process.stdin.on("error", (error) => this.fail(error));
-    this.process.on("error", (error) => this.fail(error));
+    this.process.stdin.on("error", (error) => {
+      this.fail(error);
+    });
+    this.process.on("error", (error) => {
+      this.fail(error);
+    });
     this.process.on("exit", (code, signal) => {
       this.fail(
         new Error(
@@ -97,9 +108,9 @@ export class GitNexusClient {
       this.fail(new Error("GitNexus MCP response exceeded the buffer limit"));
       return;
     }
-    while (true) {
+    for (;;) {
       const newline = this.buffer.indexOf("\n");
-      if (newline === -1) {
+      if (newline < 0) {
         return;
       }
       const line = this.buffer.slice(0, newline).replace(/\r$/, "");

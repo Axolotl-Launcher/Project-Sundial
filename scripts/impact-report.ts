@@ -10,6 +10,9 @@
 
 export const REPORT_MARKER = "<!-- pr-impact-report -->";
 
+const MAX_DIAGRAM_SYMBOLS = 12;
+const SHA_PREFIX_LENGTH = 12;
+
 export type RiskLevel =
   | "none"
   | "low"
@@ -121,18 +124,7 @@ export function summaryLine(report: ImpactReport): string {
   ].join(", ");
 }
 
-/// The complete pull-request comment, including the marker used to update it.
-export function renderComment(report: ImpactReport): string {
-  const lines = [
-    REPORT_MARKER,
-    "## Impact analysis",
-    "",
-    `**Risk:** ${riskLabel(report.risk)}`,
-    "",
-    summaryLine(report),
-    "",
-  ];
-
+function appendWarnings(lines: string[], report: ImpactReport): void {
   if (report.partial) {
     lines.push(
       "> [!WARNING]",
@@ -157,7 +149,9 @@ export function renderComment(report: ImpactReport): string {
   if (report.note !== null) {
     lines.push(cell(report.note), "");
   }
+}
 
+function appendSymbols(lines: string[], report: ImpactReport): void {
   if (report.symbols.length > 0) {
     lines.push("### Changed symbols", "", "| Symbol | Kind | File |", "| --- | --- | --- |");
     for (const symbol of report.symbols) {
@@ -167,7 +161,9 @@ export function renderComment(report: ImpactReport): string {
     }
     lines.push("");
   }
+}
 
+function appendProcesses(lines: string[], report: ImpactReport): void {
   if (report.processes.length > 0) {
     lines.push("### Affected processes", "");
     for (const process of report.processes) {
@@ -181,7 +177,9 @@ export function renderComment(report: ImpactReport): string {
     }
     lines.push("");
   }
+}
 
+function appendUpstream(lines: string[], report: ImpactReport): void {
   if (report.upstream.length > 0) {
     lines.push(
       "### Upstream callers",
@@ -196,9 +194,25 @@ export function renderComment(report: ImpactReport): string {
     }
     lines.push("");
   }
+}
 
+/// The complete pull-request comment, including the marker used to update it.
+export function renderComment(report: ImpactReport): string {
+  const lines = [
+    REPORT_MARKER,
+    "## Impact analysis",
+    "",
+    `**Risk:** ${riskLabel(report.risk)}`,
+    "",
+    summaryLine(report),
+    "",
+  ];
+  appendWarnings(lines, report);
+  appendSymbols(lines, report);
+  appendProcesses(lines, report);
+  appendUpstream(lines, report);
   lines.push(
-    `Analyzed \`${report.baseSha.slice(0, 12)}\`..\`${report.headSha.slice(0, 12)}\` with ${report.analyzer}.`,
+    `Analyzed \`${report.baseSha.slice(0, SHA_PREFIX_LENGTH)}\`..\`${report.headSha.slice(0, SHA_PREFIX_LENGTH)}\` with ${report.analyzer}.`,
     "",
   );
   return lines.join("\n");
@@ -209,9 +223,9 @@ export function renderMermaid(report: ImpactReport): string {
   const lines = [
     "mindmap",
     `  root(("PR #${String(report.pullRequest)} · ${riskLabel(report.risk)}"))`,
-    `    Changes["${report.changedFiles} files / ${report.changedSymbols} symbols"]`,
+    `    Changes["${String(report.changedFiles)} files / ${String(report.changedSymbols)} symbols"]`,
   ];
-  const symbols = report.symbols.slice(0, 12);
+  const symbols = report.symbols.slice(0, MAX_DIAGRAM_SYMBOLS);
   for (const symbol of symbols) {
     const label = `${symbol.name} (${symbol.type})`;
     lines.push(`      S${String(lines.length)}["${escapeMermaid(label)}"]`);
@@ -222,8 +236,8 @@ export function renderMermaid(report: ImpactReport): string {
     );
   }
   if (report.processes.length > 0) {
-    lines.push(`    Processes["${report.affectedProcesses} affected processes"]`);
-    for (const process of report.processes.slice(0, 12)) {
+    lines.push(`    Processes["${String(report.affectedProcesses)} affected processes"]`);
+    for (const process of report.processes.slice(0, MAX_DIAGRAM_SYMBOLS)) {
       lines.push(`      P${String(lines.length)}["${escapeMermaid(process.name)}"]`);
     }
   }

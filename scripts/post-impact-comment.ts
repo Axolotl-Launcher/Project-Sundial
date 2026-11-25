@@ -9,7 +9,7 @@
 // idempotent: later runs update the existing comment.
 
 import { execFileSync } from "node:child_process";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import {
   assertBoolean,
@@ -36,15 +36,15 @@ function required(name: string): string {
   return value;
 }
 
-function loadReport(path: string): ImpactReport {
-  const parsed = readArtifact(path);
-  if (!isRecord(parsed)) {
-    throw new Error("impact.json is not an object");
-  }
-  const risk = assertString(parsed["risk"], "risk");
+function riskField(value: unknown, field: string): ImpactReport["risk"] {
+  const risk = assertString(value, field);
   if (!RISK_LEVELS.has(risk)) {
-    throw new Error(`impact.json has an unknown risk "${risk}"`);
+    throw new Error(`impact.json has an unknown ${field} "${risk}"`);
   }
+  return risk as ImpactReport["risk"];
+}
+
+function reportHeader(parsed: Record<string, unknown>): Omit<ImpactReport, "symbols" | "processes" | "upstream"> {
   return {
     repository: assertString(parsed["repository"], "repository"),
     pullRequest: assertInteger(parsed["pullRequest"], "pullRequest"),
@@ -52,7 +52,7 @@ function loadReport(path: string): ImpactReport {
     baseSha: assertString(parsed["baseSha"], "baseSha"),
     analyzedAt: assertString(parsed["analyzedAt"], "analyzedAt"),
     analyzer: assertString(parsed["analyzer"], "analyzer"),
-    risk: risk as ImpactReport["risk"],
+    risk: riskField(parsed["risk"], "risk"),
     changedFiles: assertNumber(parsed["changedFiles"], "changedFiles"),
     changedSymbols: assertNumber(parsed["changedSymbols"], "changedSymbols"),
     affectedProcesses: assertNumber(
@@ -62,6 +62,16 @@ function loadReport(path: string): ImpactReport {
     truncated: assertBoolean(parsed["truncated"], "truncated"),
     partial: assertBoolean(parsed["partial"], "partial"),
     note: parsed["note"] === null ? null : assertString(parsed["note"], "note"),
+  };
+}
+
+function loadReport(path: string): ImpactReport {
+  const parsed = readArtifact(path);
+  if (!isRecord(parsed)) {
+    throw new Error("impact.json is not an object");
+  }
+  return {
+    ...reportHeader(parsed),
     symbols: arrayField(parsed["symbols"]).map((symbol) => {
       if (!isRecord(symbol)) {
         throw new Error("impact.json has a malformed symbol");
@@ -89,13 +99,9 @@ function loadReport(path: string): ImpactReport {
       if (!isRecord(caller)) {
         throw new Error("impact.json has a malformed upstream caller");
       }
-      const callerRisk = assertString(caller["risk"], "upstream[].risk");
-      if (!RISK_LEVELS.has(callerRisk)) {
-        throw new Error(`impact.json has an unknown upstream risk "${callerRisk}"`);
-      }
       return {
         name: assertString(caller["name"], "upstream[].name"),
-        risk: callerRisk as ImpactReport["risk"],
+        risk: riskField(caller["risk"], "upstream[].risk"),
         direct: assertNumber(caller["direct"], "upstream[].direct"),
         affectedProcesses: assertNumber(
           caller["affectedProcesses"],

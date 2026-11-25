@@ -14,6 +14,8 @@ import { join, resolve } from "node:path";
 
 import { assertInteger, assertString, isRecord, readArtifact } from "./impact-artifact.ts";
 
+const SHA_PREFIX_LENGTH = 12;
+
 interface Run {
   readonly event?: string;
 }
@@ -105,7 +107,7 @@ function main(): number {
     join(directory, "pull-request.json"),
     `${JSON.stringify({ number: pullRequest } satisfies PullRequestReference)}\n`,
   );
-  console.log(`Impact comment targets pull request #${String(pullRequest)} at ${headSha.slice(0, 12)}`);
+  console.log(`Impact comment targets pull request #${String(pullRequest)} at ${headSha.slice(0, SHA_PREFIX_LENGTH)}`);
   return 0;
 }
 

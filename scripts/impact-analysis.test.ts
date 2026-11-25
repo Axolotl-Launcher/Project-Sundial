@@ -11,11 +11,19 @@ import {
   normalizeRisk,
 } from "./impact-analysis.ts";
 
+const SHA_LENGTH = 40;
+const CHANGED_COUNT = 120;
+const PROCESS_COUNT = 9;
+const FILE_COUNT = 7;
+const TWO_SYMBOLS = 2;
+const MAX_IMPACT_TARGETS = 10;
+const EXTRA_SYMBOLS = 5;
+
 const context = {
   repository: "Axolotl-Launcher/Project-Sundial",
   pullRequest: 7,
-  headSha: "a".repeat(40),
-  baseSha: "b".repeat(40),
+  headSha: "a".repeat(SHA_LENGTH),
+  baseSha: "b".repeat(SHA_LENGTH),
   analyzedAt: "2026-11-25T00:00:00.000Z",
   analyzer: "gitnexus@1.6.12",
 } as const;
@@ -64,7 +72,12 @@ void test("report counts come from the complete summary", () => {
   const report = buildReport(
     context,
     {
-      summary: { changed_count: 120, affected_count: 9, changed_files: 7, risk_level: "high" },
+      summary: {
+        changed_count: CHANGED_COUNT,
+        affected_count: PROCESS_COUNT,
+        changed_files: FILE_COUNT,
+        risk_level: "high",
+      },
       changed_symbols: [{ name: "f", type: "Function", filePath: "a.rs" }],
       affected_processes: [
         { name: "p", step_count: 4, changed_steps: [{ symbol: "f" }, {}] },
@@ -73,9 +86,9 @@ void test("report counts come from the complete summary", () => {
     },
     [],
   );
-  assert.equal(report.changedSymbols, 120);
-  assert.equal(report.affectedProcesses, 9);
-  assert.equal(report.changedFiles, 7);
+  assert.equal(report.changedSymbols, CHANGED_COUNT);
+  assert.equal(report.affectedProcesses, PROCESS_COUNT);
+  assert.equal(report.changedFiles, FILE_COUNT);
   assert.equal(report.risk, "high");
   assert.equal(report.truncated, true);
   assert.deepEqual(report.processes[0]?.changedSteps, ["f"]);
@@ -94,7 +107,7 @@ void test("a missing summary falls back to the listed symbols", () => {
     },
     [],
   );
-  assert.equal(report.changedSymbols, 2);
+  assert.equal(report.changedSymbols, TWO_SYMBOLS);
   assert.equal(report.affectedProcesses, 0);
   assert.equal(report.risk, "unknown");
 });
@@ -134,13 +147,16 @@ void test("a failed caller lookup is disclosed but does not hide the change resu
 
 void test("impact targets are bounded and deduplicated by source order", () => {
   const detected = {
-    changed_symbols: Array.from({ length: 15 }, (_, index) => ({
-      name: `symbol${String(index)}`,
-      type: "Function",
-      filePath: "a.rs",
-    })),
+    changed_symbols: Array.from(
+      { length: MAX_IMPACT_TARGETS + EXTRA_SYMBOLS },
+      (_, index) => ({
+        name: `symbol${String(index)}`,
+        type: "Function",
+        filePath: "a.rs",
+      }),
+    ),
   };
-  assert.equal(impactTargets(detected).length, 10);
+  assert.equal(impactTargets(detected).length, MAX_IMPACT_TARGETS);
   assert.deepEqual(
     impactTargets(detected).map((target) => target.name),
     [

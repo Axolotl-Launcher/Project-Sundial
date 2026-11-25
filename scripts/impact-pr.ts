@@ -22,6 +22,7 @@ import { renderMermaid, renderComment } from "./impact-report.ts";
 import { renderDrawio, renderSvg } from "./impact-mindmap.ts";
 
 const ANALYZER = "gitnexus@1.6.12";
+const JSON_INDENT = 2;
 
 function git(args: readonly string[]): string {
   return execFileSync("git", args, { encoding: "utf8", windowsHide: true }).trim();
@@ -48,7 +49,7 @@ function outputDirectory(): string {
 function writeOutputs(report: ReturnType<typeof buildReport>): void {
   const directory = outputDirectory();
   mkdirSync(directory, { recursive: true });
-  writeFileSync(join(directory, "impact.json"), `${JSON.stringify(report, null, 2)}\n`);
+  writeFileSync(join(directory, "impact.json"), `${JSON.stringify(report, null, JSON_INDENT)}\n`);
   writeFileSync(join(directory, "impact.md"), `${renderComment(report)}\n`);
   writeFileSync(join(directory, "impact.mmd"), renderMermaid(report));
   writeFileSync(join(directory, "impact.drawio"), renderDrawio(report));
@@ -60,11 +61,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function asDetectChanges(value: unknown): DetectChangesInput {
-  return isRecord(value) ? (value as DetectChangesInput) : {};
+  return isRecord(value) ? value : {};
 }
 
 function asImpact(value: unknown): ImpactInput {
-  return isRecord(value) ? (value as ImpactInput) : {};
+  return isRecord(value) ? value : {};
 }
 
 function printSummary(report: ReturnType<typeof buildReport>): void {
@@ -89,6 +90,49 @@ function mcpCommand(): { command: string; args: readonly string[] } {
   return { command, args: parsed };
 }
 
+async function detectChanges(
+  client: GitNexusClient,
+  mergeBaseSha: string,
+): Promise<DetectChangesInput> {
+  return asDetectChanges(
+    await client.callTool("detect_changes", {
+      scope: "compare",
+      base_ref: mergeBaseSha,
+      repo: ".",
+    }),
+  );
+}
+
+async function collectImpacts(
+  client: GitNexusClient,
+  detect: DetectChangesInput,
+): Promise<ImpactInput[]> {
+  const impacts: ImpactInput[] = [];
+  for (const target of impactTargets(detect)) {
+    try {
+      impacts.push(
+        {
+          ...asImpact(
+            await client.callTool("impact", {
+              target: target.name,
+              ...(target.path === undefined ? {} : { file_path: target.path }),
+              direction: "upstream",
+              repo: ".",
+              summaryOnly: true,
+            }),
+          ),
+          target: { name: target.name },
+        },
+      );
+    } catch (error) {
+      console.warn(
+        `Impact failed for ${target.name}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  return impacts;
+}
+
 async function analyze(): Promise<number> {
   const repository = required("GITHUB_REPOSITORY");
   const pullRequest = Number(required("PR_NUMBER"));
@@ -109,36 +153,8 @@ async function analyze(): Promise<number> {
 
   try {
     await client.initialize();
-    const detect = asDetectChanges(
-      await client.callTool("detect_changes", {
-        scope: "compare",
-        base_ref: mergeBaseSha,
-        repo: ".",
-      }),
-    );
-    const impacts: ImpactInput[] = [];
-    for (const target of impactTargets(detect)) {
-      try {
-        impacts.push(
-          {
-            ...asImpact(
-              await client.callTool("impact", {
-                target: target.name,
-                ...(target.path === undefined ? {} : { file_path: target.path }),
-                direction: "upstream",
-                repo: ".",
-                summaryOnly: true,
-              }),
-            ),
-            target: { name: target.name },
-          },
-        );
-      } catch (error) {
-        console.warn(
-          `Impact failed for ${target}: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-    }
+    const detect = await detectChanges(client, mergeBaseSha);
+    const impacts = await collectImpacts(client, detect);
     const report = buildReport(
       {
         repository,
