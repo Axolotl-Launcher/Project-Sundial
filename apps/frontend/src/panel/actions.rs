@@ -10,7 +10,7 @@ use axlauncher_core::state::profile::{self, Game, InstallStatus};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::Context;
 
-use crate::installations::{self, Installation, vanilla_version};
+use crate::installations::{self, InstallOptions, Installation, vanilla_version};
 use crate::launches::{self, Launch};
 
 use super::RootView;
@@ -43,10 +43,7 @@ impl RootView {
         if self.install_in_progress(&game_root, &key, game) {
             return;
         }
-        let concurrency = self
-            .settings
-            .as_ref()
-            .map_or(0, |settings| settings.max_concurrent_downloads as usize);
+        let options = InstallOptions::from_settings(self.settings.as_ref());
         self.activity
             .info(format!("Installing {version} in {}", game_root.display()));
         self.set_installation(
@@ -68,10 +65,10 @@ impl RootView {
                 directory.to_path_buf(),
                 game.clone(),
                 key,
-                concurrency,
+                options,
                 cx,
             ),
-            None => installations::start(game_root, version, concurrency, cx),
+            None => installations::start(game_root, version, options, cx),
         }
     }
 
@@ -206,7 +203,8 @@ impl RootView {
             None => launches::Player::Offline(self.preview_session(cx)),
         };
         self.set_launch(directory, &request.version_id, Launch::Starting, cx);
-        launches::start(request, player, vanilla, data_root, cx);
+        let mirrors = InstallOptions::from_settings(self.settings.as_ref()).mirrors;
+        launches::start(request, player, vanilla, data_root, mirrors, cx);
     }
 
     pub(crate) fn set_launch(

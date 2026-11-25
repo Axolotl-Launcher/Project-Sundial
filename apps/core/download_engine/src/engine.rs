@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::collections::HashSet;
+use std::borrow::Cow;
 use std::fs::File;
 use std::io;
 use std::num::{NonZeroU64, NonZeroUsize};
@@ -160,13 +160,7 @@ impl DownloadEngine {
         network: &impl Network,
         job: DownloadJob<'_>,
     ) -> Result<(), TransferError> {
-        let mut seen = HashSet::new();
-        let mut sources: Vec<_> = job
-            .sources
-            .iter()
-            .copied()
-            .filter(|source| seen.insert(*source))
-            .collect();
+        let mut sources = ordered_sources(network, job.sources);
         let mut last = TransferError::Invalid("no download source supplied".into());
         let mut rounds = RETRY_DELAYS.into_iter().enumerate();
         while let Some((round, delay)) = rounds.next().filter(|_| !sources.is_empty()) {
@@ -187,12 +181,12 @@ impl DownloadEngine {
         &self,
         network: &impl Network,
         job: DownloadJob<'_>,
-        sources: &mut Vec<&str>,
+        sources: &mut Vec<Cow<'_, str>>,
         final_round: bool,
     ) -> Result<Option<TransferError>, TransferError> {
         let mut last = TransferError::Invalid("no download source supplied".into());
         for source in std::mem::take(sources) {
-            let error = match self.attempt(network, job, source, final_round).await {
+            let error = match self.attempt(network, job, &source, final_round).await {
                 Ok(()) => return Ok(None),
                 Err(error @ TransferError::Disk(_)) => return Err(error),
                 Err(error) => error,
@@ -215,7 +209,11 @@ impl DownloadEngine {
             .filter(|url| matches!(url.scheme(), "http" | "https"))
             .and_then(|url| url.host_str().map(str::to_owned))
             .ok_or_else(|| FetchError::Fatal(format!("invalid download URL: {source}")))?;
-        let host = self.hosts.for_key(host, self.policy.connections_per_host);
+        let limit = self
+            .policy
+            .connections_per_host
+            .min(network.download_connection_limit(&host));
+        let host = self.hosts.for_key(host, limit);
         let share = (self.policy.protocol == DownloadProtocol::Http1).then(|| {
             self.http1_connections
                 .register(job.size, self.policy.connections_per_file.get())
@@ -233,6 +231,32 @@ impl DownloadEngine {
         verify(&mut staging, job).await?;
         staging.commit(job.destination)?;
         Ok(())
+    }
+}
+
+fn ordered_sources<'a>(network: &impl Network, originals: &[&'a str]) -> Vec<Cow<'a, str>> {
+    let mut sources = Vec::with_capacity(originals.len());
+    let mut fallback = Vec::new();
+    for &original in originals {
+        if sources.contains(&Cow::Borrowed(original)) {
+            continue;
+        }
+        match network.download_mirror(original) {
+            Some(mirror) if mirror.preferred => push_source(&mut sources, Cow::Owned(mirror.url)),
+            Some(mirror) => fallback.push(Cow::Owned(mirror.url)),
+            None => (),
+        }
+        sources.push(Cow::Borrowed(original));
+    }
+    for mirror in fallback {
+        push_source(&mut sources, mirror);
+    }
+    sources
+}
+
+fn push_source<'a>(sources: &mut Vec<Cow<'a, str>>, source: Cow<'a, str>) {
+    if !sources.contains(&source) {
+        sources.push(source);
     }
 }
 

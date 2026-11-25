@@ -84,6 +84,19 @@ fn a_game_version_without_builds_is_no_versions() {
 }
 
 #[test]
+fn the_legacy_game_queries_its_own_artifact_directly() {
+    let network = FakeNetwork {
+        responses: BTreeMap::from([(
+            format!("{LEGACY_MAVEN}/maven-metadata.xml"),
+            Ok(b"<metadata><versioning><versions><version>1.20.1-47.1.106</version></versions></versioning></metadata>".to_vec()),
+        )]),
+    };
+    let api = NeoForgeApi::new(network);
+    let versions = block_on(api.versions(LEGACY_GAME_VERSION)).unwrap();
+    assert_eq!(versions[0].version, "1.20.1-47.1.106");
+}
+
+#[test]
 fn the_metadata_document_yields_its_versions() {
     assert_eq!(
         versions_in(METADATA),

@@ -9,7 +9,8 @@
 //! `1.21.11`.
 
 use axlauncher_spi::{
-    LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader, Network,
+    FetchError, FetchKind, LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion,
+    ModLoader, Network,
 };
 
 use crate::installer;
@@ -53,41 +54,17 @@ impl<N: Network> ModLoader for NeoForgeApi<N> {
     }
 
     async fn versions(&self, game_version: &str) -> Result<Vec<LoaderVersion>, LoaderError> {
-        let prefix = format!("{}.", game_prefix(game_version));
-        let mut versions = self.versions_under(MAVEN, game_version, &prefix).await?;
-        if versions.is_empty() && game_version == LEGACY_GAME_VERSION {
-            // These builds were published before the artifact was renamed; they
-            // name the game version as a prefix instead.
-            let prefix = format!("{game_version}-");
-            versions = self
-                .versions_under(LEGACY_MAVEN, game_version, &prefix)
-                .await?;
-        }
-        if versions.is_empty() {
-            return Err(LoaderError::NoVersions {
-                loader: self.kind(),
-                game_version: game_version.to_owned(),
-            });
-        }
-        versions.sort_by(|left, right| compare(&right.version, &left.version));
-        Ok(versions)
+        self.offers(game_version, None).await
     }
 
     async fn profile(&self, request: LoaderRequest) -> Result<LoaderProfile, LoaderError> {
-        let offers = self.versions(&request.game_version).await?;
-        let chosen = match &request.loader_version {
-            Some(requested) => offers
-                .iter()
-                .find(|offer| &offer.version == requested)
-                .ok_or_else(|| LoaderError::UnknownVersion {
-                    loader: self.kind(),
-                    version: requested.clone(),
-                })?,
-            None => offers
-                .iter()
-                .find(|offer| offer.stable == Some(true))
-                .unwrap_or(&offers[0]),
-        };
+        let offers = self
+            .offers(&request.game_version, request.loader_version.as_deref())
+            .await?;
+        let chosen = offers
+            .iter()
+            .find(|offer| offer.stable == Some(true))
+            .unwrap_or(&offers[0]);
 
         // A version that names the game version is one of the 1.20.1 builds,
         // which live under the older artifact.
@@ -99,52 +76,74 @@ impl<N: Network> ModLoader for NeoForgeApi<N> {
         } else {
             Self::installer_url(&chosen.version)
         };
-        let bytes = self
-            .network
-            .fetch(&url)
-            .await
-            .map_err(|source| LoaderError::Unavailable {
-                loader: self.kind(),
-                source,
-            })?;
-        installer::parse(self.kind(), &bytes, &request.game_version)
+        installer::fetch(&self.network, self.kind(), &url, &request.game_version).await
     }
 }
 
 impl<N: Network> NeoForgeApi<N> {
-    /// The versions one artifact's metadata lists under `prefix`.
-    async fn versions_under(
+    /// Reads the repository that publishes builds for the requested game line.
+    async fn offers(
         &self,
-        maven: &str,
         game_version: &str,
-        prefix: &str,
+        requested: Option<&str>,
     ) -> Result<Vec<LoaderVersion>, LoaderError> {
+        let (maven, prefix) = if game_version == LEGACY_GAME_VERSION {
+            (LEGACY_MAVEN, format!("{game_version}-"))
+        } else {
+            (MAVEN, format!("{}.", game_prefix(game_version)))
+        };
         let url = format!("{maven}/maven-metadata.xml");
-        let bytes = self
-            .network
-            .fetch(&url)
-            .await
-            .map_err(|source| LoaderError::Unavailable {
-                loader: self.kind(),
-                source,
-            })?;
-        let metadata = String::from_utf8_lossy(&bytes);
-
-        // The modern artifact spells a game version as a dotted line (`21.0.x`
-        // for 1.21); the 1.20.1 artifact prefixes the game version itself
-        // (`1.20.1-47.x`). `prefix` is the artifact's spelling, so the modern
-        // filter only applies when it is the dotted one.
-        let modern = prefix.ends_with('.');
-        Ok(versions_in(&metadata)
-            .into_iter()
-            .filter(|version| version.starts_with(prefix))
-            .filter(|version| !modern || matches_game(version, game_version, prefix))
-            .map(|version| {
-                let stable = Some(!is_prerelease(&version));
-                LoaderVersion { version, stable }
+        self.network
+            .fetch_with(&url, FetchKind::Metadata, |response| {
+                parse_offers(game_version, &prefix, requested, response)
             })
-            .collect())
+            .await
     }
+}
+
+fn parse_offers(
+    game_version: &str,
+    prefix: &str,
+    requested: Option<&str>,
+    response: Result<Vec<u8>, FetchError>,
+) -> Result<Vec<LoaderVersion>, LoaderError> {
+    let loader = LoaderKind::NeoForge;
+    let bytes = response.map_err(|source| LoaderError::Unavailable { loader, source })?;
+    let metadata = String::from_utf8_lossy(&bytes);
+    if !metadata.contains("<metadata") {
+        return Err(LoaderError::Malformed {
+            loader,
+            reason: "expected Maven metadata".into(),
+        });
+    }
+    let modern = prefix.ends_with('.');
+    let mut versions: Vec<_> = versions_in(&metadata)
+        .into_iter()
+        .filter(|version| version.starts_with(prefix))
+        .filter(|version| !modern || matches_game(version, game_version, prefix))
+        .map(|version| LoaderVersion {
+            stable: Some(!is_prerelease(&version)),
+            version,
+        })
+        .collect();
+    if versions.is_empty() {
+        return Err(LoaderError::NoVersions {
+            loader,
+            game_version: game_version.into(),
+        });
+    }
+    if let Some(requested) = requested {
+        return versions
+            .into_iter()
+            .find(|offer| offer.version == requested)
+            .map(|offer| vec![offer])
+            .ok_or_else(|| LoaderError::UnknownVersion {
+                loader,
+                version: requested.into(),
+            });
+    }
+    versions.sort_by(|left, right| compare(&right.version, &left.version));
+    Ok(versions)
 }
 
 /// The prefix a NeoForge version carries for a game version.

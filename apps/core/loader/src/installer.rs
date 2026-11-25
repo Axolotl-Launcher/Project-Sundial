@@ -26,7 +26,7 @@ use std::io::{Cursor, Read};
 use std::path::Path;
 
 use axlauncher_domain::maven;
-use axlauncher_spi::{LoaderError, LoaderFile, LoaderKind, LoaderProfile};
+use axlauncher_spi::{FetchKind, LoaderError, LoaderFile, LoaderKind, LoaderProfile, Network};
 use serde_json::{Map, Value};
 
 mod forge_inline;
@@ -47,6 +47,23 @@ const EMBEDDED_GROUP: &str = "axlauncher.embedded";
 const CLIENT: &str = "client";
 const MAX_INSTALLER_CONTENTS: u64 = 256 * 1024 * 1024;
 const MAX_INSTALLER_ENTRY: u64 = 64 * 1024 * 1024;
+
+pub(crate) async fn fetch(
+    network: &impl Network,
+    kind: LoaderKind,
+    url: &str,
+    game_version: &str,
+) -> Result<LoaderProfile, LoaderError> {
+    network
+        .fetch_with(url, FetchKind::File, |response| {
+            let bytes = response.map_err(|source| LoaderError::Unavailable {
+                loader: kind,
+                source,
+            })?;
+            parse(kind, &bytes, game_version)
+        })
+        .await
+}
 
 /// Reads `bytes` as an installer and returns the profile it describes.
 pub(crate) fn parse(

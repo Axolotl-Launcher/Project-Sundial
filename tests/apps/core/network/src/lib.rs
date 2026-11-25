@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use super::*;
+use std::cell::RefCell;
 
 /// SHA-1 of the empty input, as `sha1sum` reports it.
 const EMPTY_SHA1: &str = "da39a3ee5e6b4b0d3255bfef95601890afd80709";
@@ -48,4 +49,40 @@ fn a_server_error_is_retryable_and_does_not_keep_its_page() {
         status_error(reqwest::StatusCode::INTERNAL_SERVER_ERROR, Vec::new()),
         FetchError::Retryable("HTTP 500 Internal Server Error".into())
     );
+}
+
+#[tokio::test]
+async fn buffered_fallback_checks_content_and_keeps_the_upstream_error_on_total_failure() {
+    let calls = RefCell::new(Vec::new());
+    let mirror = |preferred| {
+        Some(DownloadMirror {
+            url: "mirror".into(),
+            preferred,
+        })
+    };
+    let result = fetch_alternate("upstream", mirror(true), async |source| {
+        calls.borrow_mut().push(source.to_owned());
+        (source == "upstream")
+            .then_some(b"valid")
+            .ok_or("bad digest")
+    })
+    .await;
+    assert_eq!(result, Ok(b"valid"));
+    assert_eq!(calls.take(), ["mirror", "upstream"]);
+
+    let result = fetch_alternate("upstream", mirror(false), async |source| {
+        calls.borrow_mut().push(source.to_owned());
+        Err::<(), _>(source.to_owned())
+    })
+    .await;
+    assert_eq!(result, Err("upstream".into()));
+    assert_eq!(calls.take(), ["upstream", "mirror"]);
+
+    let result = fetch_alternate("upstream", mirror(false), async |source| {
+        calls.borrow_mut().push(source.to_owned());
+        Ok::<_, ()>(())
+    })
+    .await;
+    assert_eq!(result, Ok(()));
+    assert_eq!(calls.into_inner(), ["upstream"]);
 }

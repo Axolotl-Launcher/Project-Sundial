@@ -40,9 +40,8 @@ pub enum ThemeChoice {
 
 /// Where a download source prefers to fetch from.
 ///
-/// `Auto` tries the official source and falls back to a mirror; the other two
-/// pin one side. The reference spells them the same way, so a user's habit
-/// carries over unchanged.
+/// `Auto` uses official sources when reachable, `OfficialOnly` disables
+/// mirrors, and `MirrorPreferred` tries BMCLAPI first where it is available.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SourcePreference {

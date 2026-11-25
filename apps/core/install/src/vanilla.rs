@@ -10,7 +10,7 @@ use std::path::Path;
 use axlauncher_launch::Target;
 use axlauncher_launch::version::{self, Version, VersionError};
 use axlauncher_network::verify;
-use axlauncher_spi::Network;
+use axlauncher_spi::{FetchKind, Network};
 use axlauncher_storage::write_atomic;
 use serde::Deserialize;
 
@@ -113,29 +113,33 @@ pub(crate) async fn ensure_version(
         Err(error) => return Err(error.to_string()),
     }
 
-    let catalog_bytes = network
-        .fetch(CATALOG)
-        .await
-        .map_err(|error| format!("Cannot fetch the Mojang version list: {error}"))?;
-    let catalog: Catalog = serde_json::from_slice(&catalog_bytes)
-        .map_err(|error| format!("Cannot read the Mojang version list: {error}"))?;
-    let entry = catalog
-        .versions
-        .into_iter()
-        .find(|entry| entry.id == id)
-        .ok_or_else(|| format!("Minecraft {id} is not in the Mojang version list."))?;
-    let bytes = network
-        .fetch(&entry.url)
-        .await
-        .map_err(|error| format!("Cannot fetch the Minecraft {id} manifest: {error}"))?;
-    if !verify(&bytes, &entry.sha1) {
-        return Err(format!(
-            "The Minecraft {id} manifest failed its SHA-1 check."
-        ));
-    }
-    let version: Version = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("Cannot read the Minecraft {id} manifest: {error}"))?;
-    let version = vanilla_client(version, id)?;
+    let entry = network
+        .fetch_with(CATALOG, FetchKind::Metadata, |response| {
+            let bytes = response
+                .map_err(|error| format!("Cannot fetch the Mojang version list: {error}"))?;
+            let catalog: Catalog = serde_json::from_slice(&bytes)
+                .map_err(|error| format!("Cannot read the Mojang version list: {error}"))?;
+            catalog
+                .versions
+                .into_iter()
+                .find(|entry| entry.id == id)
+                .ok_or_else(|| format!("Minecraft {id} is not in the Mojang version list."))
+        })
+        .await?;
+    let (version, bytes) = network
+        .fetch_with(&entry.url, FetchKind::Metadata, |response| {
+            let bytes = response
+                .map_err(|error| format!("Cannot fetch the Minecraft {id} manifest: {error}"))?;
+            if !verify(&bytes, &entry.sha1) {
+                return Err(format!(
+                    "The Minecraft {id} manifest failed its SHA-1 check."
+                ));
+            }
+            let version = serde_json::from_slice(&bytes)
+                .map_err(|error| format!("Cannot read the Minecraft {id} manifest: {error}"))?;
+            Ok((vanilla_client(version, id)?, bytes))
+        })
+        .await?;
     let path = crate::loader::document_path(game_root, id);
     write_atomic(&path, &bytes)
         .map_err(|error| format!("Cannot write {}: {error}", path.display()))?;

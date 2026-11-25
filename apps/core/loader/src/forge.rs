@@ -10,8 +10,8 @@
 use std::collections::BTreeMap;
 
 use axlauncher_spi::{
-    FetchError, LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader,
-    Network,
+    FetchError, FetchKind, LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion,
+    ModLoader, Network,
 };
 use serde::Deserialize;
 
@@ -76,48 +76,11 @@ impl<N: Network> ModLoader for ForgeApi<N> {
     }
 
     async fn versions(&self, game_version: &str) -> Result<Vec<LoaderVersion>, LoaderError> {
-        let bytes =
-            self.network
-                .fetch(PROMOTIONS)
-                .await
-                .map_err(|source| LoaderError::Unavailable {
-                    loader: self.kind(),
-                    source,
-                })?;
-        let promotions: Promotions =
-            serde_json::from_slice(&bytes).map_err(|error| LoaderError::Malformed {
-                loader: self.kind(),
-                reason: format!("a promotions list that does not parse: {error}"),
-            })?;
-
-        let prefix = format!("{game_version}-");
-        let mut found: BTreeMap<String, Option<bool>> = BTreeMap::new();
-        let entries: Vec<(String, Option<bool>)> = promotions
-            .promos
-            .into_iter()
-            .filter_map(|(key, version)| promotion(&key, &prefix).map(|stable| (version, stable)))
-            .collect();
-        for (version, stable) in entries {
-            let best = match (found.get(&version), stable) {
-                (_, Some(true)) => Some(true),
-                (Some(existing), _) => *existing,
-                (None, _) => stable,
-            };
-            found.insert(version, best);
-        }
-
-        let mut versions: Vec<LoaderVersion> = found
-            .into_iter()
-            .map(|(version, stable)| LoaderVersion { version, stable })
-            .collect();
-        if versions.is_empty() {
-            return Err(LoaderError::NoVersions {
-                loader: self.kind(),
-                game_version: game_version.to_owned(),
-            });
-        }
-        versions.sort_by(|left, right| compare(&right.version, &left.version));
-        Ok(versions)
+        self.network
+            .fetch_with(PROMOTIONS, FetchKind::Metadata, |response| {
+                parse_promotions(game_version, response)
+            })
+            .await
     }
 
     async fn profile(&self, request: LoaderRequest) -> Result<LoaderProfile, LoaderError> {
@@ -141,6 +104,45 @@ impl<N: Network> ModLoader for ForgeApi<N> {
     }
 }
 
+fn parse_promotions(
+    game_version: &str,
+    response: Result<Vec<u8>, FetchError>,
+) -> Result<Vec<LoaderVersion>, LoaderError> {
+    let loader = LoaderKind::Forge;
+    let bytes = response.map_err(|source| LoaderError::Unavailable { loader, source })?;
+    let promotions: Promotions =
+        serde_json::from_slice(&bytes).map_err(|error| LoaderError::Malformed {
+            loader,
+            reason: format!("a promotions list that does not parse: {error}"),
+        })?;
+    let prefix = format!("{game_version}-");
+    let mut found: BTreeMap<String, Option<bool>> = BTreeMap::new();
+    let entries = promotions
+        .promos
+        .into_iter()
+        .filter_map(|(key, version)| promotion(&key, &prefix).map(|stable| (version, stable)));
+    for (version, stable) in entries {
+        let best = match (found.get(&version), stable) {
+            (_, Some(true)) => Some(true),
+            (Some(existing), _) => *existing,
+            (None, _) => stable,
+        };
+        found.insert(version, best);
+    }
+    let mut versions: Vec<_> = found
+        .into_iter()
+        .map(|(version, stable)| LoaderVersion { version, stable })
+        .collect();
+    if versions.is_empty() {
+        return Err(LoaderError::NoVersions {
+            loader,
+            game_version: game_version.into(),
+        });
+    }
+    versions.sort_by(|left, right| compare(&right.version, &left.version));
+    Ok(versions)
+}
+
 impl<N: Network> ForgeApi<N> {
     /// Downloads and parses the installer for one loader version.
     async fn install(
@@ -149,28 +151,18 @@ impl<N: Network> ForgeApi<N> {
         loader_version: &str,
     ) -> Result<LoaderProfile, LoaderError> {
         let url = Self::installer_url(game_version, loader_version);
-        let bytes = match self.network.fetch(&url).await {
-            Ok(bytes) => bytes,
+        match installer::fetch(&self.network, self.kind(), &url, game_version).await {
             // Before 1.9 the Maven directory repeats the game version, so the
             // unsuffixed path is a 404 for an installer that does exist.
-            Err(FetchError::Rejected { .. }) => {
+            Err(LoaderError::Unavailable {
+                source: FetchError::Rejected { .. },
+                ..
+            }) => {
                 let legacy = Self::legacy_installer_url(game_version, loader_version);
-                self.network
-                    .fetch(&legacy)
-                    .await
-                    .map_err(|source| LoaderError::Unavailable {
-                        loader: self.kind(),
-                        source,
-                    })?
+                installer::fetch(&self.network, self.kind(), &legacy, game_version).await
             }
-            Err(source) => {
-                return Err(LoaderError::Unavailable {
-                    loader: self.kind(),
-                    source,
-                });
-            }
-        };
-        installer::parse(self.kind(), &bytes, game_version)
+            result => result,
+        }
     }
 }
 

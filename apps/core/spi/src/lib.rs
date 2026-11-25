@@ -14,6 +14,7 @@
 
 pub mod auth;
 pub mod desktop;
+mod sources;
 mod transfer;
 
 pub use axlauncher_domain::Id;
@@ -24,6 +25,7 @@ mod loader;
 pub use loader::{
     LoaderError, LoaderFile, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader,
 };
+pub use sources::{DownloadMirror, FetchKind};
 pub use transfer::{ByteRange, DownloadBody, DownloadProtocol, DownloadResponse, ResponseRange};
 
 /// Fetches bytes over the network.
@@ -31,6 +33,26 @@ pub trait Network {
     /// Resolves a URL's body. The error is the provider's own type, boxed so
     /// callers need not name it.
     fn fetch(&self, url: &str) -> impl Future<Output = Result<Vec<u8>, FetchError>>;
+
+    /// Fetches a resource and lets the caller accept or reject each candidate response.
+    fn fetch_with<T, E>(
+        &self,
+        url: &str,
+        _kind: FetchKind,
+        accept: impl Fn(Result<Vec<u8>, FetchError>) -> Result<T, E>,
+    ) -> impl Future<Output = Result<T, E>> {
+        async move { accept(self.fetch(url).await) }
+    }
+
+    /// Supplies a mirror for a file transfer, leaving source attempts to the scheduler.
+    fn download_mirror(&self, _url: &str) -> Option<DownloadMirror> {
+        None
+    }
+
+    /// Caps active file requests to a host, including requests using byte ranges.
+    fn download_connection_limit(&self, _host: &str) -> std::num::NonZeroUsize {
+        std::num::NonZeroUsize::MAX
+    }
 
     /// Opens a file transfer. Providers that only fetch bodies may return a full response.
     fn open_download(
