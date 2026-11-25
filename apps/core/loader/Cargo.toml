@@ -13,8 +13,10 @@ license.workspace = true
 [dependencies]
 axlauncher_domain = { workspace = true }
 axlauncher_spi = { workspace = true }
+quick-xml = { workspace = true, features = ["serialize"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
 zip = { workspace = true }
 
 [lints]

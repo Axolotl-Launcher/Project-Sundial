@@ -5,8 +5,10 @@
 
 use std::time::Duration;
 
+use axlauncher_spi::ServiceHost;
 use axlauncher_spi::auth::{AuthNetwork, Body, Request, Response, TransportError};
 use reqwest::header::{ACCEPT, CONTENT_TYPE, USER_AGENT};
+use url::Url;
 
 mod callback;
 pub use callback::{BrowserCallback, CallbackError};
@@ -16,7 +18,10 @@ const MAX_BODY_BYTES: usize = 256 * 1024;
 
 /// Sends authentication requests over HTTPS without redirecting credentials.
 #[derive(Clone)]
-pub struct AuthHttp(reqwest::Client);
+pub struct AuthHttp {
+    client: reqwest::Client,
+    fallen_proxy: Option<ServiceHost>,
+}
 
 impl AuthHttp {
     pub fn desktop() -> Result<Self, TransportError> {
@@ -28,25 +33,32 @@ impl AuthHttp {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(TIMEOUT)
             .build()
-            .map(Self)
+            .map(|client| Self {
+                client,
+                fallen_proxy: None,
+            })
             .map_err(|_| TransportError::Unavailable)
     }
-}
 
-impl AuthNetwork for AuthHttp {
-    async fn send(&self, request: Request<'_>) -> Result<Response, TransportError> {
+    /// Enables forwarding for the launcher's Minecraft services requests.
+    pub fn with_fallen_proxy(mut self, host: Option<ServiceHost>) -> Self {
+        self.fallen_proxy = host;
+        self
+    }
+
+    async fn send_to(&self, url: &str, request: Request<'_>) -> Result<Response, TransportError> {
         let builder = match request.body {
             Some(Body::Form(body)) => self
-                .0
-                .post(request.url)
+                .client
+                .post(url)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .body(body),
             Some(Body::Json(body)) => self
-                .0
-                .post(request.url)
+                .client
+                .post(url)
                 .header(CONTENT_TYPE, "application/json")
                 .body(body),
-            None => self.0.get(request.url),
+            None => self.client.get(url),
         };
         let builder = builder
             .header(ACCEPT, "application/json")
@@ -65,6 +77,41 @@ impl AuthNetwork for AuthHttp {
     }
 }
 
+impl AuthNetwork for AuthHttp {
+    async fn send(&self, request: Request<'_>) -> Result<Response, TransportError> {
+        if let Some(host) = &self.fallen_proxy
+            && let Some(url) = fallen_service_url(&request, host)
+        {
+            return self.send_to(url.as_str(), request).await;
+        }
+        self.send_to(request.url, request).await
+    }
+}
+
+fn fallen_service_url(request: &Request<'_>, host: &ServiceHost) -> Option<Url> {
+    if !request.is_minecraft_service() {
+        return None;
+    }
+    let mut url = Url::parse(request.url).ok()?;
+    let supported = matches!(
+        (url.path(), &request.body),
+        ("/launcher/login", Some(Body::Json(_)))
+            | ("/entitlements/license" | "/minecraft/profile", None)
+    );
+    if !supported
+        || url.scheme() != "https"
+        || url.host_str() != Some("api.minecraftservices.com")
+        || url.port().is_some()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return None;
+    }
+    url.set_host(Some(&format!("services.{}", host.as_str())))
+        .ok()?;
+    Some(url)
+}
+
 async fn read_response(mut response: reqwest::Response) -> Result<Response, TransportError> {
     let status = response.status().as_u16();
     let mut body = Vec::new();
@@ -80,3 +127,7 @@ async fn read_response(mut response: reqwest::Response) -> Result<Response, Tran
     }
     Ok(Response { status, body })
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/apps/core/network/src/auth.rs"]
+mod tests;

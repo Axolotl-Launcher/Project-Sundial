@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use axlauncher_core::network::auth::{AuthHttp, BrowserCallback, CallbackError};
+use axlauncher_core::spi::ServiceHost;
 use axlauncher_core::state::accounts::microsoft::{
     BrowserLogin, CALLBACK_PATH, CALLBACK_PORT, DeviceLogin, VerifiedAccount,
 };
@@ -58,12 +59,20 @@ impl RootView {
         });
         self.accounts.error = None;
         let worker = Arc::clone(&service);
+        let fallen_proxy = self.fallen_proxy();
         let task = cx.background_spawn(async move {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .map_err(|_| "Could not start Microsoft sign-in.".to_owned())?;
-            runtime.block_on(run(&worker, method, expected, &sender, &commit))
+            runtime.block_on(run(
+                &worker,
+                method,
+                expected,
+                fallen_proxy,
+                &sender,
+                &commit,
+            ))
         });
         cx.spawn(async move |view, cx| {
             show_attempt(view, cx, service, events, task).await;
@@ -135,11 +144,13 @@ async fn run(
     service: &DesktopAccounts,
     method: Method,
     expected: Option<AccountId>,
+    fallen_proxy: Option<ServiceHost>,
     sender: &mpsc::UnboundedSender<Stage>,
     commit: &SignInCommit,
 ) -> LoginResult {
-    let network =
-        AuthHttp::desktop().map_err(|_| "Could not initialize Microsoft sign-in.".to_owned())?;
+    let network = AuthHttp::desktop()
+        .map_err(|_| "Could not initialize Microsoft sign-in.".to_owned())?
+        .with_fallen_proxy(fallen_proxy);
     let verified = tokio::select! {
         biased;
         _ = commit.cancelled() => return Ok(None),

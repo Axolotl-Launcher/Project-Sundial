@@ -142,12 +142,7 @@ impl RootView {
         let success = cx.theme().success;
 
         let paths = self.environment_paths(muted);
-        let read_only = self.settings.is_none()
-            || self.root.is_none()
-            || matches!(
-                self.origin,
-                Some(SettingsOrigin::ReadOnlyOtherSchema { .. })
-            );
+        let read_only = self.settings_readonly();
         let language = self.environment.game_language.read(cx).value();
         let save_disabled = read_only
             || self.settings.as_ref().is_some_and(|settings| {
@@ -369,6 +364,8 @@ impl RootView {
                 palette_for(self.theme).apply(cx);
                 self.settings = Some(data);
                 self.origin = Some(SettingsOrigin::Stored);
+                self.download_debug
+                    .reload_sources(self.settings.as_ref(), window, cx);
                 self.environment.notice = Some("Settings saved.".to_string());
                 self.environment.error = None;
                 self.activity.success("Saved settings");

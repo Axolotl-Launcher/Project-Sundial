@@ -15,7 +15,12 @@ fn a_probe_saves_the_http1_response_under_the_data_root() {
     let server = std::thread::spawn(move || serve_http1(listener));
     let (_sender, cancellation) = oneshot::channel();
 
-    let status = run_probe(url, destination.clone(), cancellation);
+    let status = run_probe(
+        url,
+        destination.clone(),
+        MirrorSettings::default(),
+        cancellation,
+    );
 
     assert!(matches!(status, ProbeStatus::Complete(path) if path == destination));
     assert_eq!(std::fs::read(&destination).unwrap(), b"ok");
@@ -46,6 +51,7 @@ fn cancelling_a_probe_keeps_the_previous_completed_file() {
     let status = run_probe(
         "http://127.0.0.1:1/file".into(),
         destination.clone(),
+        MirrorSettings::default(),
         cancellation,
     );
 

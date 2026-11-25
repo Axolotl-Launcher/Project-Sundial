@@ -1,0 +1,155 @@
+# SPDX-FileCopyrightText: 2026 Deterministic Machines, Inc.
+# SPDX-FileCopyrightText: 2026 Axolotl Team
+# SPDX-License-Identifier: MIT
+
+# Track each leaked field and its readers without truncating the baseline key.
+
+diff --git a/src/allow.rs b/src/allow.rs
+index 1d9a076..d0474d5 100644
+--- a/src/allow.rs
++++ b/src/allow.rs
+@@ -87 +87 @@ impl AllowList {
+-            .filter(|(lint, key)| !diagnostics.iter().any(|d| covers(*lint, key, d)))
++            .filter(|(lint, key)| !diagnostics.iter().any(|d| still_present(*lint, key, d)))
+@@ -91,0 +92,7 @@ impl AllowList {
++fn still_present(lint: Lint, key: &str, diagnostic: &Diagnostic) -> bool {
++    if lint == Lint::FieldLeak && diagnostic.lint == lint {
++        return key.split(" @ ").next() == diagnostic.key.split(" @ ").next();
++    }
++    covers(lint, key, diagnostic)
++}
++
+@@ -102,3 +109,23 @@ fn covers(lint: Lint, key: &str, diagnostic: &Diagnostic) -> bool {
+-    let allowed = members(key);
+-    matches!(lint, Lint::Tangle | Lint::ModuleCycle)
+-        && members(&diagnostic.key)
++    match lint {
++        Lint::Tangle | Lint::ModuleCycle => {
++            let allowed = members(key);
++            members(&diagnostic.key)
++                .iter()
++                .all(|member| allowed.contains(member))
++        }
++        Lint::FieldLeak => covers_field_leak(key, &diagnostic.key),
++        _ => false,
++    }
++}
++
++/// An allowed field leak can shrink, but every remaining reader must be listed.
++fn covers_field_leak(allowed: &str, current: &str) -> bool {
++    let Some((allowed_field, allowed_readers)) = allowed.split_once(" @ ") else {
++        return false;
++    };
++    let Some((current_field, current_readers)) = current.split_once(" @ ") else {
++        return false;
++    };
++    let allowed_readers = members(allowed_readers);
++    allowed_field == current_field
++        && members(current_readers)
+@@ -106 +133 @@ fn covers(lint: Lint, key: &str, diagnostic: &Diagnostic) -> bool {
+-            .all(|member| allowed.contains(member))
++            .all(|reader| allowed_readers.contains(reader))
+@@ -169,0 +197,16 @@ mod tests {
++    #[test]
++    fn an_allowed_field_leak_cannot_spread_to_new_readers() {
++        let allow = AllowList::parse("field-leak a::T::x @ a::b,a::c\n").unwrap();
++        let leak = |key| Diagnostic {
++            lint: Lint::FieldLeak,
++            ..tangle(key)
++        };
++        assert!(allow.is_allowed(&leak("a::T::x @ a::b,a::c")));
++        assert!(allow.is_allowed(&leak("a::T::x @ a::c")));
++        assert!(!allow.is_allowed(&leak("a::T::x @ a::b,a::c,a::d")));
++        assert!(!allow.is_allowed(&leak("a::T::x @ a::b,a::d")));
++        assert!(!allow.is_allowed(&leak("a::T::y @ a::b")));
++        assert_eq!(allow.fixed_count(&[leak("a::T::x @ a::b,a::c,a::d")]), 0);
++        assert_eq!(allow.fixed_count(&[leak("a::T::y @ a::b")]), 1);
++    }
++
+diff --git a/src/lint/leaks.rs b/src/lint/leaks.rs
+index ac625d7..ab8cbcd 100644
+--- a/src/lint/leaks.rs
++++ b/src/lint/leaks.rs
+@@ -168,0 +169,6 @@ fn diagnostic(
++    let mut readers = places
++        .keys()
++        .map(|&module| tree.display(module))
++        .collect::<Vec<_>>();
++    readers.sort_unstable();
++    readers.dedup();
+@@ -193 +199,5 @@ fn diagnostic(
+-        key: format!("{}::{field_name}", tree.display(owner.home)),
++        key: format!(
++            "{}::{field_name} @ {}",
++            tree.display(owner.home),
++            readers.join(",")
++        ),
+@@ -252 +262 @@ mod tests {
+-        assert_eq!(keys(&sample), ["p::queue::RunQueue::items"]);
++        assert_eq!(keys(&sample), ["p::queue::RunQueue::items @ p::sched"]);
+@@ -283 +293,4 @@ mod tests {
+-            ["p::queue::RunQueue::head", "p::queue::RunQueue::items"]
++            [
++                "p::queue::RunQueue::head @ p::queue,p::sched",
++                "p::queue::RunQueue::items @ p::sched",
++            ]
+@@ -287 +300 @@ mod tests {
+-        assert_eq!(keys(&sample), ["p::queue::RunQueue::items"]);
++        assert_eq!(keys(&sample), ["p::queue::RunQueue::items @ p::sched"]);
+@@ -306 +319 @@ mod tests {
+-        assert_eq!(keys(&sample), ["p::queue::RunQueue::items"]);
++        assert_eq!(keys(&sample), ["p::queue::RunQueue::items @ p::sched"]);
+@@ -311 +324,4 @@ mod tests {
+-            ["p::queue::RunQueue::head", "p::queue::RunQueue::items"]
++            [
++                "p::queue::RunQueue::head @ p::sched",
++                "p::queue::RunQueue::items @ p::sched",
++            ]
+@@ -319 +335 @@ mod tests {
+-        assert_eq!(keys(&sample), ["p::queue::RunQueue::items"]);
++        assert_eq!(keys(&sample), ["p::queue::RunQueue::items @ p::sched"]);
+@@ -336 +352,4 @@ mod tests {
+-            ["p::queue::RunQueue::head", "p::queue::RunQueue::items"]
++            [
++                "p::queue::RunQueue::head @ p::sched",
++                "p::queue::RunQueue::items @ p::sched",
++            ]
+diff --git a/tests/end_to_end.rs b/tests/end_to_end.rs
+index 0bb8480..f1f3de1 100644
+--- a/tests/end_to_end.rs
++++ b/tests/end_to_end.rs
+@@ -166,2 +166,2 @@ fn a_leaked_field_leaks_however_it_is_reached_and_not_once_the_type_does_the_wor
+-        "field-leak runqueue::queue::ring::RunQueue::head",
+-        "field-leak runqueue::queue::ring::RunQueue::items",
++        "field-leak runqueue::queue::ring::RunQueue::head @ runqueue::sched::policy",
++        "field-leak runqueue::queue::ring::RunQueue::items @ runqueue::sched::policy",
+@@ -169,7 +169 @@ fn a_leaked_field_leaks_however_it_is_reached_and_not_once_the_type_does_the_wor
+-    for variant in [
+-        "getters",
+-        "let_getters",
+-        "all_pub",
+-        "pasted",
+-        "tuple_getter",
+-    ] {
++    for variant in ["getters", "let_getters", "tuple_getter"] {
+@@ -181,0 +176,14 @@ fn a_leaked_field_leaks_however_it_is_reached_and_not_once_the_type_does_the_wor
++    assert_eq!(
++        variant_keys("field_leak", Some("all_pub")),
++        [
++            leaked[0],
++            "field-leak runqueue::queue::ring::RunQueue::items @ runqueue::sched::policy,runqueue::sched::report",
++        ]
++    );
++    assert_eq!(
++        variant_keys("field_leak", Some("pasted")),
++        [
++            "field-leak runqueue::queue::ring::RunQueue::head @ runqueue::queue::ring",
++            "field-leak runqueue::queue::ring::RunQueue::items @ runqueue::queue::ring",
++        ]
++    );
+@@ -491 +499 @@ fn across_crates_a_field_leaks_and_test_code_is_left_out() {
+-    assert_eq!(keys(&workspace), ["field-leak lib::Vault::leaked"]);
++    assert_eq!(keys(&workspace), ["field-leak lib::Vault::leaked @ app"]);
+@@ -550 +558 @@ fn a_binary_that_includes_another_binarys_root_changes_nothing_however_the_two_s
+-    let leaked = ["field-leak wt::cli::Args::verbose"];
++    let leaked = ["field-leak wt::cli::Args::verbose @ wt"];

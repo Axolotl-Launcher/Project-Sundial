@@ -3,14 +3,14 @@
 
 //! Install and launch actions for profiles shown in the panel.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use axlauncher_core::install::prepare::Progress;
 use axlauncher_core::state::profile::{self, Game, InstallStatus};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::Context;
 
-use crate::installations::{self, Installation, vanilla_version};
+use crate::installations::{self, InstallOptions, Installation, vanilla_version};
 use crate::launches::{self, Launch};
 
 use super::RootView;
@@ -43,10 +43,7 @@ impl RootView {
         if self.install_in_progress(&game_root, &key, game) {
             return;
         }
-        let concurrency = self
-            .settings
-            .as_ref()
-            .map_or(0, |settings| settings.max_concurrent_downloads as usize);
+        let options = InstallOptions::from_settings(self.settings.as_ref());
         self.activity
             .info(format!("Installing {version} in {}", game_root.display()));
         self.set_installation(
@@ -68,10 +65,10 @@ impl RootView {
                 directory.to_path_buf(),
                 game.clone(),
                 key,
-                concurrency,
+                options,
                 cx,
             ),
-            None => installations::start(data_root, game_root, version, concurrency, cx),
+            None => installations::start(data_root, game_root, version, options, cx),
         }
     }
 
@@ -202,11 +199,16 @@ impl RootView {
             return;
         };
         let player = match self.accounts.selected_online() {
-            Some((service, id)) => launches::Player::Online(service, id),
+            Some((service, id)) => launches::Player::Online {
+                service,
+                id,
+                fallen_proxy: self.fallen_proxy(),
+            },
             None => launches::Player::Offline(self.preview_session(cx)),
         };
         self.set_launch(directory, &request.version_id, Launch::Starting, cx);
-        launches::start(request, player, vanilla, data_root, cx);
+        let mirrors = InstallOptions::from_settings(self.settings.as_ref()).mirrors;
+        launches::start(request, player, vanilla, data_root, mirrors, cx);
     }
 
     pub(crate) fn set_launch(
@@ -246,6 +248,34 @@ impl RootView {
     }
 }
 
+impl RootView {
+    /// A new profile gets its own UUID and a directory named after its display
+    /// name, made unique under `instances`: two profiles may share a name
+    /// without sharing an identity.
+    pub(crate) fn create_profile(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(data_root) = self.root.clone() else {
+            return;
+        };
+        let Some((name, game)) = self.profile_creation.profile(cx) else {
+            return;
+        };
+
+        let instances = DataDir::new(&data_root).instances();
+        let directory = unique_directory(&instances, &name);
+        let profile = profile::Profile::new(name.clone(), Some(game));
+        match profile::save(&directory, &profile) {
+            Ok(()) => {
+                self.activity
+                    .success(format!("Created {name} at {}", directory.display()));
+                self.instances.replace(profile::discover(&instances), true);
+                self.instances.select(&directory);
+            }
+            Err(error) => self.activity.error(error.to_string()),
+        }
+        cx.notify();
+    }
+}
+
 /// Records a successful install on the profile, so a launch needs no provider.
 fn persist_install(directory: &Path, version_id: &str) -> Result<(), String> {
     let Some(mut profile) = profile::read(directory).map_err(|error| error.to_string())? else {
@@ -266,4 +296,39 @@ fn mark_failed(directory: &Path) -> Result<(), String> {
     };
     profile.set_install_status(InstallStatus::Failed);
     profile::save(directory, &profile).map_err(|error| error.to_string())
+}
+
+/// A directory name derived from a display name.
+fn slug(name: &str) -> String {
+    let mut slug: String = name
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    while slug.contains("--") {
+        slug = slug.replace("--", "-");
+    }
+    let slug = slug.trim_matches('-');
+    if slug.is_empty() {
+        "instance".to_string()
+    } else {
+        slug.to_string()
+    }
+}
+
+/// A free directory under `instances` for `name`.
+fn unique_directory(instances: &Path, name: &str) -> PathBuf {
+    let base = slug(name);
+    let mut candidate = instances.join(&base);
+    let mut attempt = 2;
+    while candidate.exists() {
+        candidate = instances.join(format!("{base}-{attempt}"));
+        attempt += 1;
+    }
+    candidate
 }

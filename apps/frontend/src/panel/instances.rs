@@ -49,6 +49,12 @@ impl InstancesState {
         self.find(self.selected.as_deref()?)
     }
 
+    pub(super) fn select(&mut self, directory: &Path) {
+        if self.find(directory).is_some() {
+            self.selected = Some(directory.to_path_buf());
+        }
+    }
+
     pub(super) fn find(&self, directory: &Path) -> Option<&DiscoveredProfile> {
         self.discovered
             .instances
@@ -169,6 +175,7 @@ impl RootView {
                                 .child(Label::new("No profiles found.").text_sm().text_color(muted))
                         },
                     )
+                    .child(self.render_profile_creation(cx))
                     .when(
                         !profiles.instances.is_empty() && self.accounts.selected().is_none(),
                         |column| {

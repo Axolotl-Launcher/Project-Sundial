@@ -63,6 +63,16 @@ cargo build --locked --config 'source.crates-io.replace-with="mirror"' \
 Keep the committed `Cargo.lock` and leave local mirror settings out of the
 repository.
 
+### Launcher download mirrors
+
+The desktop launcher has built-in endpoints for BMCLAPI, Minecraft Mirror
+(MCIM), Aliyun Maven, and Fallen-Proxy.
+
+In **Development → Download debug**, **Automatic** uses upstream for
+installation data without an independent digest. **Trust built-in mirror**
+also permits those inputs from the mirror for that category.
+MCIM still follows the upstream source. Fallen-Proxy has a separate opt-in.
+
 ## Workspace layout
 
 | Path | Responsibility |
@@ -94,13 +104,42 @@ typos
 tombi format --check
 tombi lint
 reuse lint
+pnpm architecture
 ```
 
 `pnpm check` runs the host-filtered Turbo checks, formatters, script checks,
 and hooks. The Cargo commands above check the full workspace. CI runs the
 [repository checks](.github/workflows/repo-check.yml) on Ubuntu, then runs
-Clippy and Nextest on Ubuntu, Windows, and macOS. The
-[`CI result` job](.github/workflows/ci.yml) reports both stages.
+Clippy and Nextest on Ubuntu, Windows, and macOS, and the
+[architecture check](.github/workflows/ci.yml) on Ubuntu. The
+[`CI result` job](.github/workflows/ci.yml) reports every stage.
+
+## Architecture check
+
+[deslop-please](https://github.com/deterministic-machines/deslop-please) enforces
+the "deep modules, narrow interfaces" rule from *A Philosophy of Software
+Design*. Install `rust-analyzer` with `rustup component add rust-analyzer`. The
+architecture script applies the repository's field-leak patch to the pinned
+`deslop-please` 0.1.4 source, then builds it with `cargo install --locked`. CI and
+`pnpm architecture` use the same script and patch.
+
+The CI gate covers the Linux host target with default features. The local check
+uses the current Cargo target and default features. Run it on Linux to reproduce
+the CI scope.
+
+```bash
+pnpm architecture             # Check against the baseline
+node scripts/architecture.ts  # Show every finding, including existing debt
+```
+
+`.deslop-please.allow` records the findings that existed when the check was
+introduced. For field leaks it records the field and the modules that access
+it. A finding outside the baseline fails CI, including a new module accessing
+an already listed field. Fix the cause and remove any resolved entries or
+module names from the baseline.
+
+The tool checks for module cycles, tangles, field leaks, shallow modules,
+directories with too many Rust files or subdirectories, and long Rust files.
 
 ## Dependency policy
 

@@ -27,6 +27,7 @@ mod download_debug;
 mod environment;
 mod instances;
 mod launch;
+mod profile_creation;
 
 pub(crate) use instances::{install_key, profile_version};
 
@@ -41,6 +42,7 @@ pub(crate) struct RootView {
     root_input: Entity<InputState>,
     player_input: Entity<InputState>,
     accounts: accounts::AccountsPanel,
+    profile_creation: profile_creation::ProfileCreation,
     instances: instances::InstancesState,
     create_instance: create_instance::CreateInstance,
     download_debug: download_debug::DownloadDebug,
@@ -65,6 +67,7 @@ impl RootView {
                 .default_value(root_text)
         });
         let player_input = cx.new(|cx| InputState::new(window, cx).placeholder(DEFAULT_PLAYER));
+        let profile_creation = profile_creation::ProfileCreation::new(window, cx);
         cx.subscribe(&player_input, Self::player_changed).detach();
         let theme = loaded
             .settings
@@ -72,7 +75,8 @@ impl RootView {
             .map(|settings| settings.theme)
             .unwrap_or_default();
         let create_instance = create_instance::CreateInstance::new(window, cx);
-        let download_debug = download_debug::DownloadDebug::new(window, cx);
+        let download_debug =
+            download_debug::DownloadDebug::new(loaded.settings.as_ref(), window, cx);
         let accounts = accounts::AccountsPanel::new(loaded.root.as_deref(), window, cx);
         let game_language = loaded
             .settings
@@ -89,6 +93,7 @@ impl RootView {
             root_input,
             player_input,
             accounts,
+            profile_creation,
             instances: instances::InstancesState::new(loaded.profiles),
             create_instance,
             download_debug,
@@ -101,6 +106,7 @@ impl RootView {
 
         view.record_data_root();
         view.refresh_accounts(cx);
+        view.load_minecraft_versions(window, cx);
         view
     }
 
@@ -142,6 +148,8 @@ impl RootView {
         self.refresh_accounts(cx);
         self.settings = loaded.settings;
         self.origin = loaded.origin;
+        self.download_debug
+            .reload_sources(self.settings.as_ref(), window, cx);
         self.notice = loaded.notice;
         self.theme = self
             .settings
@@ -174,6 +182,22 @@ impl RootView {
             Some(root) => self.activity.info(format!("Data root: {}", root.display())),
             None => self.activity.error("Data root unknown"),
         }
+    }
+
+    fn settings_readonly(&self) -> bool {
+        self.settings.is_none()
+            || self.root.is_none()
+            || matches!(
+                self.origin,
+                Some(SettingsOrigin::ReadOnlyOtherSchema { .. })
+            )
+    }
+
+    fn fallen_proxy(&self) -> Option<axlauncher_core::spi::ServiceHost> {
+        self.settings
+            .as_ref()
+            .filter(|settings| settings.use_fallen_proxy)?;
+        Some(crate::source_hosts::fallen_proxy_host())
     }
 
     fn render_header(&mut self, cx: &mut Context<'_, Self>) -> AnyElement {

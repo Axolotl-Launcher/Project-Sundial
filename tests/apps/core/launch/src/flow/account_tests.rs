@@ -2,6 +2,66 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use super::*;
+use axlauncher_spi::ServiceHost;
+
+#[test]
+fn fallen_proxy_jvm_arguments_apply_only_to_opted_in_microsoft_sessions() {
+    let fixture = Fixture::new();
+    let proxy = ServiceHost::parse("proxy.example.invalid").unwrap();
+    let java = FakeJava::found(fixture.java());
+    let microsoft = Session::microsoft_preview("OnlinePlayer", "profile-uuid");
+    let offline = Session::offline("OfflinePlayer");
+    let third_party = Session::yggdrasil_preview(
+        "ExternalPlayer",
+        "profile-uuid",
+        plan::YggdrasilAgent::new(
+            fixture.game_root().join("agent.jar"),
+            "https://example.test",
+        ),
+    );
+    for session in [
+        microsoft.clone(),
+        offline.with_fallen_proxy(Some(proxy.clone())),
+        third_party.with_fallen_proxy(Some(proxy.clone())),
+    ] {
+        let command = preview_with_session(&java, &fixture.request(), &session).unwrap();
+        assert!(
+            !command
+                .args
+                .iter()
+                .any(|arg| arg.starts_with("-Dminecraft.api."))
+        );
+    }
+
+    let command = preview_with_session(
+        &java,
+        &fixture.request(),
+        &microsoft.with_fallen_proxy(Some(proxy)),
+    )
+    .unwrap();
+    let main = command
+        .args
+        .iter()
+        .position(|arg| arg == MAIN_CLASS)
+        .unwrap();
+    let proxy_arguments = command.args[..main]
+        .iter()
+        .filter(|arg| arg.starts_with("-Dminecraft.api."))
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        proxy_arguments,
+        [
+            "-Dminecraft.api.env=custom",
+            "-Dminecraft.api.auth.host=https://auth.proxy.example.invalid",
+            "-Dminecraft.api.account.host=https://account.proxy.example.invalid",
+            "-Dminecraft.api.session.host=https://session.proxy.example.invalid",
+            "-Dminecraft.api.services.host=https://services.proxy.example.invalid",
+            "-Dminecraft.api.profiles.host=https://profiles.proxy.example.invalid",
+            "-Dminecraft.api.discovery.host=https://discovery.proxy.example.invalid/minecraft/client",
+        ]
+    );
+}
 
 #[test]
 fn microsoft_token_reaches_only_the_launcher() {
