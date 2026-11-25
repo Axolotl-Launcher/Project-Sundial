@@ -14,8 +14,8 @@
 //! is a new type implementing [`ModLoader`], not a branch inside this one.
 
 use axlauncher_spi::{
-    FetchError, LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader,
-    Network,
+    FetchError, FetchKind, LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion,
+    ModLoader, Network,
 };
 use serde::Deserialize;
 
@@ -114,6 +114,96 @@ impl<N: Network> LoaderApi<N> {
             self.base
         )
     }
+
+    fn parse_versions(
+        &self,
+        game_version: &str,
+        response: Result<Vec<u8>, FetchError>,
+    ) -> Result<Vec<LoaderVersion>, LoaderError> {
+        let no_versions = || LoaderError::NoVersions {
+            loader: self.kind,
+            game_version: game_version.into(),
+        };
+        let bytes = match response {
+            Ok(bytes) => bytes,
+            // Fabric sends a 400 with an empty list for unsupported versions.
+            Err(FetchError::Rejected { body, .. }) if is_empty_listing(&body) => {
+                return Err(no_versions());
+            }
+            Err(source) => {
+                return Err(LoaderError::Unavailable {
+                    loader: self.kind,
+                    source,
+                });
+            }
+        };
+        let entries: Vec<Entry> =
+            serde_json::from_slice(&bytes).map_err(|error| LoaderError::Malformed {
+                loader: self.kind,
+                reason: format!("a listing that does not parse: {error}"),
+            })?;
+        if entries.is_empty() {
+            return Err(no_versions());
+        }
+        Ok(entries
+            .into_iter()
+            .map(|entry| LoaderVersion {
+                version: entry.loader.version,
+                stable: entry.loader.stable,
+            })
+            .collect())
+    }
+
+    fn choose_version(
+        &self,
+        request: &LoaderRequest,
+        response: Result<Vec<u8>, FetchError>,
+    ) -> Result<String, LoaderError> {
+        let offers = self.parse_versions(&request.game_version, response)?;
+        let Some(requested) = &request.loader_version else {
+            return Ok(recommended(&offers).version.clone());
+        };
+        offers
+            .into_iter()
+            .find(|offer| &offer.version == requested)
+            .map(|offer| offer.version)
+            .ok_or_else(|| LoaderError::UnknownVersion {
+                loader: self.kind,
+                version: requested.clone(),
+            })
+    }
+
+    fn parse_profile(
+        &self,
+        game_version: &str,
+        response: Result<Vec<u8>, FetchError>,
+    ) -> Result<(ProfileHead, Vec<u8>), LoaderError> {
+        let bytes = response.map_err(|source| LoaderError::Unavailable {
+            loader: self.kind,
+            source,
+        })?;
+        let head: ProfileHead =
+            serde_json::from_slice(&bytes).map_err(|error| LoaderError::Malformed {
+                loader: self.kind,
+                reason: format!("a profile that does not parse: {error}"),
+            })?;
+        if head.id.trim().is_empty() {
+            return Err(LoaderError::Malformed {
+                loader: self.kind,
+                reason: "a profile without an id".into(),
+            });
+        }
+        if head.inherits_from.as_deref() != Some(game_version) {
+            return Err(LoaderError::Malformed {
+                loader: self.kind,
+                reason: format!(
+                    "a profile for {} that does not extend it",
+                    head.inherits_from.as_deref().unwrap_or("nothing")
+                ),
+            });
+        }
+        Ok((head, bytes))
+    }
 }
 
 /// One listing entry, as both services write it.
@@ -145,93 +235,29 @@ impl<N: Network> ModLoader for LoaderApi<N> {
 
     async fn versions(&self, game_version: &str) -> Result<Vec<LoaderVersion>, LoaderError> {
         let url = self.versions_url(game_version);
-        let bytes = match self.network.fetch(&url).await {
-            Ok(bytes) => bytes,
-            // Fabric answers a game version it has no builds for with a 400
-            // whose body is an empty list. Without reading the body that is
-            // indistinguishable from a broken request, which is the difference
-            // between "this loader does not support 1.5.2" and "try again".
-            Err(FetchError::Rejected { body, .. }) if is_empty_listing(&body) => {
-                return Err(LoaderError::NoVersions {
-                    loader: self.kind,
-                    game_version: game_version.to_owned(),
-                });
-            }
-            Err(source) => {
-                return Err(LoaderError::Unavailable {
-                    loader: self.kind,
-                    source,
-                });
-            }
-        };
-
-        let entries: Vec<Entry> =
-            serde_json::from_slice(&bytes).map_err(|error| LoaderError::Malformed {
-                loader: self.kind,
-                reason: format!("a listing that does not parse: {error}"),
-            })?;
-
-        let versions: Vec<LoaderVersion> = entries
-            .into_iter()
-            .map(|entry| LoaderVersion {
-                version: entry.loader.version,
-                stable: entry.loader.stable,
+        self.network
+            .fetch_with(&url, FetchKind::UnverifiedMetadata, |response| {
+                self.parse_versions(game_version, response)
             })
-            .collect();
-
-        if versions.is_empty() {
-            return Err(LoaderError::NoVersions {
-                loader: self.kind,
-                game_version: game_version.to_owned(),
-            });
-        }
-        Ok(versions)
+            .await
     }
 
     async fn profile(&self, request: LoaderRequest) -> Result<LoaderProfile, LoaderError> {
-        let offers = self.versions(&request.game_version).await?;
-        let chosen = match &request.loader_version {
-            Some(requested) => offers
-                .iter()
-                .find(|offer| &offer.version == requested)
-                .ok_or_else(|| LoaderError::UnknownVersion {
-                    loader: self.kind,
-                    version: requested.clone(),
-                })?,
-            None => recommended(&offers),
-        };
-
-        let url = self.profile_url(&request.game_version, &chosen.version);
-        let bytes = self
+        let listing = self.versions_url(&request.game_version);
+        let chosen = self
             .network
-            .fetch(&url)
-            .await
-            .map_err(|source| LoaderError::Unavailable {
-                loader: self.kind,
-                source,
-            })?;
+            .fetch_with(&listing, FetchKind::UnverifiedMetadata, |response| {
+                self.choose_version(&request, response)
+            })
+            .await?;
 
-        let head: ProfileHead =
-            serde_json::from_slice(&bytes).map_err(|error| LoaderError::Malformed {
-                loader: self.kind,
-                reason: format!("a profile that does not parse: {error}"),
-            })?;
-
-        if head.id.trim().is_empty() {
-            return Err(LoaderError::Malformed {
-                loader: self.kind,
-                reason: "a profile without an id".into(),
-            });
-        }
-        if head.inherits_from.as_deref() != Some(request.game_version.as_str()) {
-            return Err(LoaderError::Malformed {
-                loader: self.kind,
-                reason: format!(
-                    "a profile for {} that does not extend it",
-                    head.inherits_from.as_deref().unwrap_or("nothing")
-                ),
-            });
-        }
+        let url = self.profile_url(&request.game_version, &chosen);
+        let (head, bytes) = self
+            .network
+            .fetch_with(&url, FetchKind::UnverifiedMetadata, |response| {
+                self.parse_profile(&request.game_version, response)
+            })
+            .await?;
 
         let (version_id, document) = if self.kind == LoaderKind::LegacyFabric {
             // The upstream id uses the same prefix as regular Fabric.
@@ -240,10 +266,7 @@ impl<N: Network> ModLoader for LoaderApi<N> {
                 library::fill_native_classifiers(self.kind, bytes)?,
             )
         } else {
-            (
-                format!("{}-{}", request.game_version, chosen.version),
-                bytes,
-            )
+            (format!("{}-{chosen}", request.game_version), bytes)
         };
         Ok(LoaderProfile {
             version_id,

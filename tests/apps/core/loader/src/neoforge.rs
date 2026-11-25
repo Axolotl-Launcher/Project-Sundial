@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use super::*;
-use axlauncher_spi::{FetchError, Network};
+use axlauncher_spi::{FetchError, FetchKind, Network};
 
 const METADATA: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <metadata>
@@ -38,6 +38,37 @@ impl Network for FakeNetwork {
             .cloned()
             .unwrap_or_else(|| Err(FetchError::Fatal(format!("unexpected URL: {url}"))))
     }
+}
+
+struct StaleMirror;
+
+impl Network for StaleMirror {
+    async fn fetch(&self, url: &str) -> Result<Vec<u8>, FetchError> {
+        Err(FetchError::Fatal(format!("unclassified request for {url}")))
+    }
+
+    async fn fetch_with<T, E>(
+        &self,
+        url: &str,
+        kind: FetchKind,
+        accept: impl Fn(Result<Vec<u8>, FetchError>) -> Result<T, E>,
+    ) -> Result<T, E> {
+        assert_eq!(url, format!("{MAVEN}/maven-metadata.xml"));
+        assert_eq!(kind, FetchKind::UnverifiedMetadata);
+        let stale = b"<metadata><versioning><versions><version>20.2.3-beta</version></versions></versioning></metadata>";
+        match accept(Ok(stale.to_vec())) {
+            Ok(value) => Ok(value),
+            Err(_) => accept(Ok(METADATA.as_bytes().to_vec())),
+        }
+    }
+}
+
+#[test]
+fn a_requested_build_missing_from_the_mirror_is_looked_up_at_the_official_source() {
+    let api = NeoForgeApi::new(StaleMirror);
+    let offers = block_on(api.offers("1.20.2", Some("20.2.93"))).unwrap();
+    assert_eq!(offers.len(), 1);
+    assert_eq!(offers[0].version, "20.2.93");
 }
 
 fn block_on<F: std::future::Future>(future: F) -> F::Output {

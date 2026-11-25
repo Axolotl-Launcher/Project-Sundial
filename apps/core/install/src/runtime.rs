@@ -17,7 +17,7 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use axlauncher_network::verify;
-use axlauncher_spi::{FetchError, Network};
+use axlauncher_spi::{FetchError, FetchKind, Network};
 use axlauncher_storage::write_atomic;
 use futures::stream::{self, StreamExt};
 use serde::Deserialize;
@@ -203,12 +203,7 @@ pub async fn install(
     let platform = platform().ok_or(RuntimeError::UnsupportedPlatform)?;
     report(Progress::Version);
 
-    let index: Index = fetch_json(network, RUNTIME_INDEX).await?;
-    let entry = index
-        .get(platform)
-        .and_then(|components| components.get(component))
-        .and_then(|entries| entries.first())
-        .ok_or(RuntimeError::Unsupported { major })?;
+    let entry = runtime_entry(network, platform, component, major).await?;
 
     let directory = runtimes.join(component);
     let java = executable_in(&directory, platform);
@@ -273,12 +268,13 @@ async fn runtime_manifest(
     network: &impl Network,
     reference: &ManifestRef,
 ) -> Result<RuntimeManifest, RuntimeError> {
-    let bytes = fetch(network, &reference.url).await?;
-    if !verify(&bytes, &reference.sha1) {
-        return Err(RuntimeError::Verify {
-            path: reference.url.clone(),
-        });
-    }
+    let bytes = verified(
+        network,
+        &reference.url,
+        &reference.sha1,
+        FetchKind::Metadata,
+    )
+    .await?;
     serde_json::from_slice(&bytes).map_err(|error| RuntimeError::Malformed {
         reason: error.to_string(),
     })
@@ -358,17 +354,14 @@ async fn object_bytes(
 ) -> Result<Option<Vec<u8>>, RuntimeError> {
     let Some(lzma) = &downloads.lzma else {
         return match &downloads.raw {
-            Some(raw) => Ok(Some(verified(network, raw).await?)),
+            Some(raw) => Ok(Some(
+                verified(network, &raw.url, &raw.sha1, FetchKind::File).await?,
+            )),
             None => Ok(None),
         };
     };
 
-    let compressed = fetch(network, &lzma.url).await?;
-    if !verify(&compressed, &lzma.sha1) {
-        return Err(RuntimeError::Verify {
-            path: lzma.url.clone(),
-        });
-    }
+    let compressed = verified(network, &lzma.url, &lzma.sha1, FetchKind::File).await?;
     // Mojang stores the object behind `lzma` as an LZMA-alone stream, not an
     // XZ container; an XZ decoder rejects the first bytes of every one.
     let stream = xz2::stream::Stream::new_lzma_decoder(u64::MAX).map_err(|error| {
@@ -394,14 +387,21 @@ async fn object_bytes(
 }
 
 /// One object, fetched and checked against its hash.
-async fn verified(network: &impl Network, object: &Object) -> Result<Vec<u8>, RuntimeError> {
-    let bytes = fetch(network, &object.url).await?;
-    if !verify(&bytes, &object.sha1) {
-        return Err(RuntimeError::Verify {
-            path: object.url.clone(),
-        });
-    }
-    Ok(bytes)
+async fn verified(
+    network: &impl Network,
+    url: &str,
+    sha1: &str,
+    kind: FetchKind,
+) -> Result<Vec<u8>, RuntimeError> {
+    network
+        .fetch_with(url, kind, |response| {
+            let bytes = response.map_err(|source| fetch_error(url, source))?;
+            if !verify(&bytes, sha1) {
+                return Err(RuntimeError::Verify { path: url.into() });
+            }
+            Ok(bytes)
+        })
+        .await
 }
 
 fn make_executable(path: &Path) -> Result<(), RuntimeError> {
@@ -439,24 +439,33 @@ pub(super) fn safe_join(root: &Path, name: &str) -> Option<PathBuf> {
     Some(root.join(relative))
 }
 
-async fn fetch_json<T: for<'de> Deserialize<'de>>(
+async fn runtime_entry(
     network: &impl Network,
-    url: &str,
-) -> Result<T, RuntimeError> {
-    let bytes = fetch(network, url).await?;
-    serde_json::from_slice(&bytes).map_err(|error| RuntimeError::Malformed {
-        reason: error.to_string(),
-    })
+    platform: &str,
+    component: &str,
+    major: u32,
+) -> Result<Entry, RuntimeError> {
+    network
+        .fetch_with(RUNTIME_INDEX, FetchKind::UnverifiedMetadata, |response| {
+            let bytes = response.map_err(|source| fetch_error(RUNTIME_INDEX, source))?;
+            let mut index: Index =
+                serde_json::from_slice(&bytes).map_err(|error| RuntimeError::Malformed {
+                    reason: error.to_string(),
+                })?;
+            index
+                .get_mut(platform)
+                .and_then(|components| components.remove(component))
+                .and_then(|entries| entries.into_iter().next())
+                .ok_or(RuntimeError::Unsupported { major })
+        })
+        .await
 }
 
-async fn fetch(network: &impl Network, url: &str) -> Result<Vec<u8>, RuntimeError> {
-    network
-        .fetch(url)
-        .await
-        .map_err(|source| RuntimeError::Fetch {
-            url: url.to_owned(),
-            source,
-        })
+fn fetch_error(url: &str, source: FetchError) -> RuntimeError {
+    RuntimeError::Fetch {
+        url: url.into(),
+        source,
+    }
 }
 
 #[cfg(test)]

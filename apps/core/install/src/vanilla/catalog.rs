@@ -3,7 +3,7 @@
 
 //! The official Minecraft version catalog used by both browsing and installation.
 
-use axlauncher_spi::Network;
+use axlauncher_spi::{FetchKind, Network};
 use serde::Deserialize;
 
 pub(super) const CATALOG: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
@@ -64,10 +64,34 @@ impl MinecraftVersion {
 
 /// Fetches Mojang's catalog without downloading any game files.
 pub async fn versions(network: &impl Network) -> Result<MinecraftCatalog, String> {
-    let bytes = network
-        .fetch(CATALOG)
+    fetch_catalog(network, Ok).await
+}
+
+pub(super) async fn find_version(
+    network: &impl Network,
+    id: &str,
+) -> Result<MinecraftVersion, String> {
+    fetch_catalog(network, |catalog| {
+        catalog
+            .versions
+            .into_iter()
+            .find(|entry| entry.id == id)
+            .ok_or_else(|| format!("Minecraft {id} is not in the Mojang version list."))
+    })
+    .await
+}
+
+async fn fetch_catalog<T>(
+    network: &impl Network,
+    accept: impl Fn(MinecraftCatalog) -> Result<T, String>,
+) -> Result<T, String> {
+    network
+        .fetch_with(CATALOG, FetchKind::UnverifiedMetadata, |response| {
+            let bytes = response
+                .map_err(|error| format!("Cannot fetch the Mojang version list: {error}"))?;
+            let catalog = serde_json::from_slice(&bytes)
+                .map_err(|error| format!("Cannot read the Mojang version list: {error}"))?;
+            accept(catalog)
+        })
         .await
-        .map_err(|error| format!("Cannot fetch the Mojang version list: {error}"))?;
-    serde_json::from_slice(&bytes)
-        .map_err(|error| format!("Cannot read the Mojang version list: {error}"))
 }

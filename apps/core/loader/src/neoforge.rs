@@ -53,68 +53,79 @@ impl<N: Network> ModLoader for NeoForgeApi<N> {
     }
 
     async fn versions(&self, game_version: &str) -> Result<Vec<LoaderVersion>, LoaderError> {
+        self.offers(game_version, None).await
+    }
+
+    async fn profile(&self, request: LoaderRequest) -> Result<LoaderProfile, LoaderError> {
+        let offers = self
+            .offers(&request.game_version, request.loader_version.as_deref())
+            .await?;
+        let chosen = offers
+            .iter()
+            .find(|offer| offer.stable == Some(true))
+            .unwrap_or(&offers[0]);
+
+        let url = if request.game_version == LEGACY_GAME_VERSION {
+            Self::legacy_installer_url(&chosen.version)
+        } else {
+            Self::installer_url(&chosen.version)
+        };
+        installer::fetch(&self.network, self.kind(), &url, &request.game_version).await
+    }
+}
+
+impl<N: Network> NeoForgeApi<N> {
+    /// Reads the repository that publishes builds for the requested game line.
+    async fn offers(
+        &self,
+        game_version: &str,
+        requested: Option<&str>,
+    ) -> Result<Vec<LoaderVersion>, LoaderError> {
         let repository = if game_version == LEGACY_GAME_VERSION {
             LEGACY_MAVEN
         } else {
             MAVEN
         };
-        let mut versions: Vec<_> =
-            maven_metadata::fetch_versions(&self.network, self.kind(), repository)
-                .await?
-                .into_iter()
-                .filter(|version| matches_game(version, game_version))
-                .map(|version| LoaderVersion {
-                    stable: Some(!is_prerelease(&version)),
-                    version,
-                })
-                .collect();
-        if versions.is_empty() {
-            return Err(LoaderError::NoVersions {
-                loader: self.kind(),
-                game_version: game_version.to_owned(),
+        maven_metadata::fetch_versions(&self.network, self.kind(), repository, |versions| {
+            select_offers(game_version, requested, versions)
+        })
+        .await
+    }
+}
+
+fn select_offers(
+    game_version: &str,
+    requested: Option<&str>,
+    versions: Vec<String>,
+) -> Result<Vec<LoaderVersion>, LoaderError> {
+    let loader = LoaderKind::NeoForge;
+    let mut versions: Vec<_> = versions
+        .into_iter()
+        .filter(|version| matches_game(version, game_version))
+        .map(|version| LoaderVersion {
+            stable: Some(!is_prerelease(&version)),
+            version,
+        })
+        .collect();
+    if versions.is_empty() {
+        return Err(LoaderError::NoVersions {
+            loader,
+            game_version: game_version.into(),
+        });
+    }
+    if let Some(requested) = requested {
+        return versions
+            .into_iter()
+            .find(|offer| offer.version == requested)
+            .map(|offer| vec![offer])
+            .ok_or_else(|| LoaderError::UnknownVersion {
+                loader,
+                version: requested.into(),
             });
-        }
-        versions.sort_by(|left, right| compare(&right.version, &left.version));
-        versions.dedup_by(|left, right| left.version == right.version);
-        Ok(versions)
     }
-
-    async fn profile(&self, request: LoaderRequest) -> Result<LoaderProfile, LoaderError> {
-        let offers = self.versions(&request.game_version).await?;
-        let chosen = match &request.loader_version {
-            Some(requested) => offers
-                .iter()
-                .find(|offer| &offer.version == requested)
-                .ok_or_else(|| LoaderError::UnknownVersion {
-                    loader: self.kind(),
-                    version: requested.clone(),
-                })?,
-            None => offers
-                .iter()
-                .find(|offer| offer.stable == Some(true))
-                .unwrap_or(&offers[0]),
-        };
-
-        // A version that names the game version is one of the 1.20.1 builds,
-        // which live under the older artifact.
-        let url = if chosen
-            .version
-            .starts_with(&format!("{}-", request.game_version))
-        {
-            Self::legacy_installer_url(&chosen.version)
-        } else {
-            Self::installer_url(&chosen.version)
-        };
-        let bytes = self
-            .network
-            .fetch(&url)
-            .await
-            .map_err(|source| LoaderError::Unavailable {
-                loader: self.kind(),
-                source,
-            })?;
-        installer::parse(self.kind(), &bytes, &request.game_version)
-    }
+    versions.sort_by(|left, right| compare(&right.version, &left.version));
+    versions.dedup_by(|left, right| left.version == right.version);
+    Ok(versions)
 }
 
 /// NeoForge encodes the game version before its build counter. From 26.x the

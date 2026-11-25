@@ -12,8 +12,8 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use axlauncher_spi::{
-    FetchError, LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader,
-    Network,
+    FetchError, FetchKind, LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion,
+    ModLoader, Network,
 };
 use serde::Deserialize;
 
@@ -90,13 +90,15 @@ impl<N: Network> ModLoader for ForgeApi<N> {
     }
 
     async fn versions(&self, game_version: &str) -> Result<Vec<LoaderVersion>, LoaderError> {
-        let (versions, promotions) = tokio::join!(
+        let (versions, recommended) = tokio::join!(
             self.maven_versions(game_version),
-            tokio::time::timeout(CATALOG_PROMOTIONS_TIMEOUT, self.promotions()),
+            tokio::time::timeout(
+                CATALOG_PROMOTIONS_TIMEOUT,
+                self.promoted_version(game_version, &[RECOMMENDED]),
+            ),
         );
         let mut versions = versions?;
-        if let Ok(Ok(promotions)) = promotions
-            && let Some(recommended) = promotions.version(game_version, RECOMMENDED)
+        if let Ok(Ok(recommended)) = recommended
             && let Some(entry) = versions
                 .iter_mut()
                 .find(|entry| entry.version == recommended)
@@ -117,54 +119,35 @@ impl<N: Network> ModLoader for ForgeApi<N> {
 
 impl<N: Network> ForgeApi<N> {
     async fn maven_versions(&self, game_version: &str) -> Result<Vec<LoaderVersion>, LoaderError> {
-        let prefix = format!("{game_version}-");
-        let repeated_game = format!("-{game_version}");
-        let coordinates = maven_metadata::fetch_versions(&self.network, self.kind(), MAVEN).await?;
-        let mut versions: Vec<LoaderVersion> = coordinates
-            .iter()
-            .filter_map(|coordinate| loader_version(coordinate, &prefix, &repeated_game))
-            .map(|version| LoaderVersion {
-                version: version.to_owned(),
-                stable: None,
-            })
-            .collect();
-        if versions.is_empty() {
-            return Err(LoaderError::NoVersions {
-                loader: self.kind(),
-                game_version: game_version.to_owned(),
-            });
-        }
-        versions.sort_by(|left, right| compare(&right.version, &left.version));
-        versions.dedup_by(|left, right| left.version == right.version);
-        Ok(versions)
+        maven_metadata::fetch_versions(&self.network, self.kind(), MAVEN, |coordinates| {
+            catalog_offers(game_version, &coordinates)
+        })
+        .await
     }
 
-    async fn promotions(&self) -> Result<Promotions, LoaderError> {
-        let bytes =
-            self.network
-                .fetch(PROMOTIONS)
-                .await
-                .map_err(|source| LoaderError::Unavailable {
-                    loader: self.kind(),
-                    source,
-                })?;
-        serde_json::from_slice(&bytes).map_err(|error| LoaderError::Malformed {
-            loader: self.kind(),
-            reason: format!("a promotions list that does not parse: {error}"),
-        })
+    async fn promoted_version(
+        &self,
+        game_version: &str,
+        channels: &[&str],
+    ) -> Result<String, LoaderError> {
+        self.network
+            .fetch_with(PROMOTIONS, FetchKind::UnverifiedMetadata, |response| {
+                promoted_version(game_version, channels, response)
+            })
+            .await
     }
 
     async fn default_version(&self, game_version: &str) -> Result<String, LoaderError> {
-        let promotions = self.promotions().await?;
-        if let Some(version) = [RECOMMENDED, LATEST]
-            .into_iter()
-            .find_map(|channel| promotions.version(game_version, channel))
-        {
-            return Ok(version.to_owned());
-        }
-        self.maven_versions(game_version)
+        match self
+            .promoted_version(game_version, &[RECOMMENDED, LATEST])
             .await
-            .map(|mut versions| versions.remove(0).version)
+        {
+            Err(LoaderError::NoVersions { .. }) => self
+                .maven_versions(game_version)
+                .await
+                .map(|mut versions| versions.remove(0).version),
+            result => result,
+        }
     }
 
     /// Downloads and parses the installer for one loader version.
@@ -174,28 +157,66 @@ impl<N: Network> ForgeApi<N> {
         loader_version: &str,
     ) -> Result<LoaderProfile, LoaderError> {
         let url = Self::installer_url(game_version, loader_version);
-        let bytes = match self.network.fetch(&url).await {
-            Ok(bytes) => bytes,
+        match installer::fetch(&self.network, self.kind(), &url, game_version).await {
             // Before 1.9 the Maven directory repeats the game version, so the
             // unsuffixed path is a 404 for an installer that does exist.
-            Err(FetchError::Rejected { .. }) => {
+            Err(LoaderError::Unavailable {
+                source: FetchError::Rejected { .. },
+                ..
+            }) => {
                 let legacy = Self::legacy_installer_url(game_version, loader_version);
-                self.network
-                    .fetch(&legacy)
-                    .await
-                    .map_err(|source| LoaderError::Unavailable {
-                        loader: self.kind(),
-                        source,
-                    })?
+                installer::fetch(&self.network, self.kind(), &legacy, game_version).await
             }
-            Err(source) => {
-                return Err(LoaderError::Unavailable {
-                    loader: self.kind(),
-                    source,
-                });
-            }
-        };
-        installer::parse(self.kind(), &bytes, game_version)
+            result => result,
+        }
+    }
+}
+
+fn catalog_offers(
+    game_version: &str,
+    coordinates: &[String],
+) -> Result<Vec<LoaderVersion>, LoaderError> {
+    let prefix = format!("{game_version}-");
+    let repeated_game = format!("-{game_version}");
+    let mut versions: Vec<_> = coordinates
+        .iter()
+        .filter_map(|coordinate| loader_version(coordinate, &prefix, &repeated_game))
+        .map(|version| LoaderVersion {
+            version: version.to_owned(),
+            stable: None,
+        })
+        .collect();
+    if versions.is_empty() {
+        return Err(no_versions(game_version));
+    }
+    versions.sort_by(|left, right| compare(&right.version, &left.version));
+    versions.dedup_by(|left, right| left.version == right.version);
+    Ok(versions)
+}
+
+fn promoted_version(
+    game_version: &str,
+    channels: &[&str],
+    response: Result<Vec<u8>, FetchError>,
+) -> Result<String, LoaderError> {
+    let loader = LoaderKind::Forge;
+    let bytes = response.map_err(|source| LoaderError::Unavailable { loader, source })?;
+    let promotions: Promotions =
+        serde_json::from_slice(&bytes).map_err(|error| LoaderError::Malformed {
+            loader,
+            reason: format!("a promotions list that does not parse: {error}"),
+        })?;
+    channels
+        .iter()
+        .find_map(|channel| promotions.version(game_version, channel))
+        .map(str::to_owned)
+        .ok_or_else(|| no_versions(game_version))
+}
+
+fn no_versions(game_version: &str) -> LoaderError {
+    LoaderError::NoVersions {
+        loader: LoaderKind::Forge,
+        game_version: game_version.to_owned(),
     }
 }
 

@@ -18,7 +18,7 @@ use axlauncher_ui::{
 use futures::{FutureExt, StreamExt};
 use tokio::sync::{mpsc, oneshot};
 
-use super::RootView;
+use super::{InstallOptions, RootView};
 
 const RESULTS_PER_PAGE: usize = 10;
 
@@ -149,10 +149,7 @@ impl RootView {
             cx.notify();
             return;
         }
-        let concurrency = self
-            .settings
-            .as_ref()
-            .map_or(0, |settings| settings.max_concurrent_downloads as usize);
+        let options = InstallOptions::from_settings(self.settings.as_ref());
         let (cancel, cancellation) = oneshot::channel();
         let (report, outcomes) = mpsc::unbounded_channel();
         batch.phase = Phase::Running;
@@ -160,13 +157,7 @@ impl RootView {
         batch.outcomes = Some(outcomes);
         self.monitor_downloads(cx);
         let task = cx.background_spawn(async move {
-            run_batch(
-                &DataDir::new(root),
-                links,
-                concurrency,
-                cancellation,
-                report,
-            )
+            run_batch(&DataDir::new(root), links, options, cancellation, report)
         });
         cx.spawn(async move |view, cx| {
             let result = task.await;
@@ -402,7 +393,7 @@ fn output_line(path: &Path) -> usize {
 fn run_batch(
     data: &DataDir,
     links: Vec<Link>,
-    concurrency: usize,
+    options: InstallOptions,
     cancellation: oneshot::Receiver<()>,
     report: mpsc::UnboundedSender<DownloadOutcome>,
 ) -> Result<BatchReport, String> {
@@ -423,7 +414,7 @@ fn run_batch(
             size: None,
         })
         .collect();
-    let cancelled = runtime.block_on(transfer_batch(&files, concurrency, cancellation, report))?;
+    let cancelled = runtime.block_on(transfer_batch(&files, options, cancellation, report))?;
     Ok(BatchReport {
         directory,
         cancelled,
@@ -432,13 +423,14 @@ fn run_batch(
 
 async fn transfer_batch(
     files: &[MissingFile],
-    concurrency: usize,
+    options: InstallOptions,
     cancellation: oneshot::Receiver<()>,
     report: mpsc::UnboundedSender<DownloadOutcome>,
 ) -> Result<bool, String> {
-    let network = ReqwestNetwork::desktop().map_err(|error| error.to_string())?;
+    let network =
+        ReqwestNetwork::desktop_with_mirrors(options.mirrors).map_err(|error| error.to_string())?;
     let downloads =
-        download_batch(&network, files, concurrency).take_until(cancellation.map(|_| ()));
+        download_batch(&network, files, options.concurrency).take_until(cancellation.map(|_| ()));
     let mut downloads = std::pin::pin!(downloads);
     let mut processed = 0;
     while let Some(outcome) = downloads.next().await {

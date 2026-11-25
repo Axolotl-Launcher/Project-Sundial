@@ -3,7 +3,7 @@
 
 //! Published artifact versions from the Forge and NeoForge Maven indexes.
 
-use axlauncher_spi::{LoaderError, LoaderKind, Network};
+use axlauncher_spi::{FetchKind, LoaderError, LoaderKind, Network};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -23,20 +23,24 @@ struct Versions {
     entries: Vec<String>,
 }
 
-pub(super) async fn fetch_versions(
+pub(super) async fn fetch_versions<T>(
     network: &impl Network,
     loader: LoaderKind,
     repository: &str,
-) -> Result<Vec<String>, LoaderError> {
+    accept: impl Fn(Vec<String>) -> Result<T, LoaderError>,
+) -> Result<T, LoaderError> {
     let url = format!("{repository}/maven-metadata.xml");
-    let bytes = network
-        .fetch(&url)
+    network
+        .fetch_with(&url, FetchKind::UnverifiedMetadata, |response| {
+            let bytes = response.map_err(|source| LoaderError::Unavailable { loader, source })?;
+            let document: Metadata =
+                quick_xml::de::from_reader(bytes.as_slice()).map_err(|error| {
+                    LoaderError::Malformed {
+                        loader,
+                        reason: format!("an invalid Maven version list: {error}"),
+                    }
+                })?;
+            accept(document.versioning.versions.entries)
+        })
         .await
-        .map_err(|source| LoaderError::Unavailable { loader, source })?;
-    let document: Metadata =
-        quick_xml::de::from_reader(bytes.as_slice()).map_err(|error| LoaderError::Malformed {
-            loader,
-            reason: format!("an invalid Maven version list: {error}"),
-        })?;
-    Ok(document.versioning.versions.entries)
 }

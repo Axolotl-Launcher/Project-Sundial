@@ -31,6 +31,45 @@ impl Network for NetworkFixture {
     }
 }
 
+struct MirrorFixture;
+
+impl Network for MirrorFixture {
+    async fn fetch(&self, url: &str) -> Result<Vec<u8>, FetchError> {
+        Err(FetchError::Fatal(format!("unclassified request for {url}")))
+    }
+
+    async fn fetch_with<T, E>(
+        &self,
+        url: &str,
+        kind: FetchKind,
+        accept: impl Fn(Result<Vec<u8>, FetchError>) -> Result<T, E>,
+    ) -> Result<T, E> {
+        let (required_policy, mirrored) = match url {
+            CATALOG => (
+                FetchKind::UnverifiedMetadata,
+                br#"{"latest":{"release":"26.2"},"versions":[]}"#.as_slice(),
+            ),
+            VERSION_URL => (FetchKind::Metadata, b"corrupt manifest".as_slice()),
+            _ => return accept(self.fetch(url).await),
+        };
+        assert_eq!(kind, required_policy);
+        match accept(Ok(mirrored.to_vec())) {
+            Ok(value) => Ok(value),
+            Err(_) => accept(NetworkFixture(MANIFEST_SHA1).fetch(url).await),
+        }
+    }
+}
+
+#[test]
+fn installation_retries_a_stale_catalog_and_corrupt_manifest_at_the_official_source() {
+    let root = crate::test_tempfile::tempdir().unwrap();
+    block_on(ensure_version(&MirrorFixture, root.path(), "26.3")).unwrap();
+    assert_eq!(
+        fs::read(root.path().join("versions/26.3/26.3.json")).unwrap(),
+        MANIFEST
+    );
+}
+
 #[test]
 fn the_catalog_keeps_official_order_and_historical_categories() {
     let catalog = block_on(versions(&NetworkFixture(MANIFEST_SHA1))).unwrap();

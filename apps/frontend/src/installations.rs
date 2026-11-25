@@ -12,14 +12,53 @@ use axlauncher_core::install::{
 };
 use axlauncher_core::launch::{SystemJava, Target};
 use axlauncher_core::loader::{ForgeApi, LoaderApi, NeoForgeApi, SUPPORTED_KINDS};
-use axlauncher_core::network::ReqwestNetwork;
+use axlauncher_core::network::{MirrorPreference, MirrorSettings, ReqwestNetwork};
 use axlauncher_core::spi::{LoaderKind, LoaderRequest};
 use axlauncher_core::state::javas::{self, ChosenJava};
 use axlauncher_core::state::profile::Game;
+use axlauncher_core::state::{SettingsData, SourcePreference};
 use axlauncher_ui::{AppContext, AsyncApp, Context, WeakEntity};
 use tokio::sync::watch;
 
 use crate::RootView;
+use crate::source_hosts::source_hosts;
+
+pub(crate) struct InstallOptions {
+    pub(crate) concurrency: usize,
+    pub(crate) mirrors: MirrorSettings,
+}
+
+impl InstallOptions {
+    pub(crate) fn from_settings(settings: Option<&SettingsData>) -> Self {
+        let hosts = source_hosts().mirrors.clone();
+        let Some(settings) = settings else {
+            return Self {
+                concurrency: 0,
+                mirrors: MirrorSettings {
+                    hosts,
+                    ..MirrorSettings::default()
+                },
+            };
+        };
+        Self {
+            concurrency: settings.max_concurrent_downloads as usize,
+            mirrors: MirrorSettings {
+                metadata: mirror_preference(settings.minecraft_metadata_source),
+                files: mirror_preference(settings.minecraft_file_source),
+                maven_central: mirror_preference(settings.maven_central_source),
+                hosts,
+            },
+        }
+    }
+}
+
+fn mirror_preference(preference: SourcePreference) -> MirrorPreference {
+    match preference {
+        SourcePreference::Auto => MirrorPreference::Auto,
+        SourcePreference::OfficialOnly => MirrorPreference::OfficialOnly,
+        SourcePreference::MirrorPreferred => MirrorPreference::MirrorPreferred,
+    }
+}
 
 pub(crate) enum Installation {
     Running(Progress),
@@ -65,12 +104,16 @@ pub(crate) fn vanilla_version(game: &Game) -> Option<&str> {
     (id == game.minecraft).then_some(id)
 }
 
-pub(crate) fn start(root: PathBuf, id: String, concurrency: usize, cx: &mut Context<'_, RootView>) {
+pub(crate) fn start(
+    root: PathBuf,
+    id: String,
+    options: InstallOptions,
+    cx: &mut Context<'_, RootView>,
+) {
     let (progress, mut updates) = watch::channel(Progress::Version);
     let version = id.clone();
     let work_root = root.clone();
-    let task =
-        cx.background_spawn(async move { install(&work_root, &version, concurrency, progress) });
+    let task = cx.background_spawn(async move { install(&work_root, &version, options, progress) });
     cx.spawn(async move |view, cx| {
         display_progress(&mut updates, &view, cx, &root, &id).await;
         let result = task.await;
@@ -100,7 +143,7 @@ async fn display_progress(
 fn install(
     root: &Path,
     id: &str,
-    concurrency: usize,
+    options: InstallOptions,
     progress: watch::Sender<Progress>,
 ) -> Installation {
     // Reqwest needs Tokio's I/O driver. The caller runs this on a GPUI worker.
@@ -108,7 +151,7 @@ fn install(
         .enable_all()
         .build()
         .map_err(|error| error.to_string())
-        .and_then(|runtime| runtime.block_on(download(root, id, concurrency, &progress)));
+        .and_then(|runtime| runtime.block_on(download(root, id, options, &progress)));
 
     match result {
         Ok(prepared) if prepared.is_complete() => Installation::Complete,
@@ -120,19 +163,27 @@ fn install(
 async fn download(
     root: &Path,
     id: &str,
-    concurrency: usize,
+    options: InstallOptions,
     progress: &watch::Sender<Progress>,
 ) -> Result<Prepared, String> {
-    let network = ReqwestNetwork::desktop().map_err(|error| error.to_string())?;
-    vanilla::install(&network, root, id, &Target::host(), concurrency, |stage| {
-        if let Progress::Downloading { processed, total } = stage
-            && processed != total
-            && !processed.is_multiple_of((total / 100).max(1))
-        {
-            return;
-        }
-        progress.send_replace(stage);
-    })
+    let network =
+        ReqwestNetwork::desktop_with_mirrors(options.mirrors).map_err(|error| error.to_string())?;
+    vanilla::install(
+        &network,
+        root,
+        id,
+        &Target::host(),
+        options.concurrency,
+        |stage| {
+            if let Progress::Downloading { processed, total } = stage
+                && processed != total
+                && !processed.is_multiple_of((total / 100).max(1))
+            {
+                return;
+            }
+            progress.send_replace(stage);
+        },
+    )
     .await
 }
 
@@ -165,7 +216,7 @@ pub(crate) fn start_loader(
     directory: PathBuf,
     game: Game,
     key: String,
-    concurrency: usize,
+    options: InstallOptions,
     cx: &mut Context<'_, RootView>,
 ) {
     let (progress, mut updates) = watch::channel(Progress::Version);
@@ -173,7 +224,7 @@ pub(crate) fn start_loader(
     let display_root = game_root.clone();
     let work_data = data_root.clone();
     let task = cx.background_spawn(async move {
-        install_loader(&work_data, &game_root, &game, concurrency, progress)
+        install_loader(&work_data, &game_root, &game, options, progress)
     });
     cx.spawn(async move |view, cx| {
         display_progress(&mut updates, &view, cx, &display_root, &display_key).await;
@@ -189,7 +240,7 @@ fn install_loader(
     data_root: &Path,
     game_root: &Path,
     game: &Game,
-    concurrency: usize,
+    options: InstallOptions,
     progress: watch::Sender<Progress>,
 ) -> Result<String, String> {
     let kind = game
@@ -209,12 +260,7 @@ fn install_loader(
         .build()
         .map_err(|error| error.to_string())?;
     runtime.block_on(download_loader(
-        data_root,
-        game_root,
-        kind,
-        request,
-        concurrency,
-        progress,
+        data_root, game_root, kind, request, options, progress,
     ))
 }
 
@@ -223,10 +269,12 @@ async fn download_loader(
     game_root: &Path,
     kind: LoaderKind,
     request: LoaderRequest,
-    concurrency: usize,
+    options: InstallOptions,
     progress: watch::Sender<Progress>,
 ) -> Result<String, String> {
-    let network = ReqwestNetwork::desktop().map_err(|error| error.to_string())?;
+    let network =
+        ReqwestNetwork::desktop_with_mirrors(options.mirrors).map_err(|error| error.to_string())?;
+    let concurrency = options.concurrency;
 
     let first = run_provider(
         kind,

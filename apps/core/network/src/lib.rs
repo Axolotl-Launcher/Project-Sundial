@@ -4,16 +4,22 @@
 //! HTTP and protocol clients.
 
 use std::io::{self, Read};
+use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 use axlauncher_spi::{
-    ByteRange, DownloadBody, DownloadProtocol, DownloadResponse, FetchError, Network,
+    ByteRange, DownloadBody, DownloadMirror, DownloadProtocol, DownloadResponse, FetchError,
+    FetchKind, Network,
 };
+use url::Url;
 
 pub mod auth;
 mod dns;
+mod mirrors;
 mod transfer;
 
 pub use dns::{DohConfig, DohUpstream};
+pub use mirrors::{MirrorHosts, MirrorPreference, MirrorSettings};
 
 /// A network provider that has not been given a transport yet.
 ///
@@ -33,6 +39,7 @@ pub struct ReqwestNetwork {
     client: reqwest::Client,
     file_http1: reqwest::Client,
     file_http2: reqwest::Client,
+    mirrors: Option<Arc<mirrors::Mirrors>>,
 }
 
 impl ReqwestNetwork {
@@ -42,6 +49,7 @@ impl ReqwestNetwork {
             file_http1: client.clone(),
             file_http2: client.clone(),
             client,
+            mirrors: None,
         }
     }
 
@@ -50,15 +58,29 @@ impl ReqwestNetwork {
         Self::with_doh(DohConfig::default())
     }
 
+    /// The desktop client with the current download source preferences.
+    pub fn desktop_with_mirrors(settings: MirrorSettings) -> Result<Self, FetchError> {
+        Self::build(DohConfig::default(), settings)
+    }
+
     /// Builds separate pools for metadata and file transfers with one DNS policy.
     pub fn with_doh(config: DohConfig) -> Result<Self, FetchError> {
-        use std::sync::Arc;
+        Self::build(config, MirrorSettings::default())
+    }
+
+    fn build(config: DohConfig, settings: MirrorSettings) -> Result<Self, FetchError> {
         use std::time::Duration;
 
         let resolver = Arc::new(dns::DohResolver::new(config)?);
+        let user_agent = format!(
+            "Axolotl-Launcher/{} ({})",
+            env!("CARGO_PKG_VERSION"),
+            std::env::consts::OS
+        );
         let builder = || {
             reqwest::Client::builder()
                 .dns_resolver(resolver.clone())
+                .user_agent(&user_agent)
                 .redirect(reqwest::redirect::Policy::custom(redirect))
                 .pool_idle_timeout(Duration::from_secs(15 * 60))
                 .connect_timeout(Duration::from_secs(15))
@@ -72,7 +94,52 @@ impl ReqwestNetwork {
             client: build(builder().timeout(Duration::from_secs(120)))?,
             file_http1: build(builder().http1_only())?,
             file_http2: build(builder().http2_prior_knowledge())?,
+            mirrors: Some(Arc::new(mirrors::Mirrors::new(settings))),
         })
+    }
+
+    fn alternate(&self, url: &str, kind: FetchKind) -> Option<DownloadMirror> {
+        self.mirrors.as_ref()?.alternate(url, kind)
+    }
+
+    fn connect_failed(&self, url: &str) {
+        if let Some(mirrors) = &self.mirrors {
+            mirrors.connect_failed(url);
+        }
+    }
+
+    fn fetch_request_error(&self, url: &str, error: reqwest::Error) -> FetchError {
+        if error.is_connect() {
+            self.connect_failed(url);
+        }
+        FetchError::Retryable(error.to_string())
+    }
+
+    async fn fetch_exact(&self, url: &str) -> Result<Vec<u8>, FetchError> {
+        let _permit = match self.mirrors.as_ref().and_then(|mirrors| {
+            let parsed = Url::parse(url).ok()?;
+            mirrors.buffered_quota(parsed.host_str()?)
+        }) {
+            Some(quota) => Some(quota.acquire().await.expect("mirror quota is never closed")),
+            None => None,
+        };
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|error| self.fetch_request_error(url, error))?;
+        let status = response.status();
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| FetchError::Retryable(error.to_string()))?
+            .to_vec();
+
+        if status.is_success() {
+            return Ok(bytes);
+        }
+        Err(status_error(status, bytes))
     }
 }
 
@@ -87,23 +154,35 @@ fn redirect(attempt: reqwest::redirect::Attempt<'_>) -> reqwest::redirect::Actio
 
 impl Network for ReqwestNetwork {
     async fn fetch(&self, url: &str) -> Result<Vec<u8>, FetchError> {
-        let response = self
-            .client
-            .get(url)
-            .send()
+        self.fetch_with(url, FetchKind::Metadata, std::convert::identity)
             .await
-            .map_err(|error| FetchError::Retryable(error.to_string()))?;
-        let status = response.status();
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|error| FetchError::Retryable(error.to_string()))?
-            .to_vec();
+    }
 
-        if status.is_success() {
-            return Ok(bytes);
-        }
-        Err(status_error(status, bytes))
+    async fn fetch_with<T, E>(
+        &self,
+        url: &str,
+        kind: FetchKind,
+        accept: impl Fn(Result<Vec<u8>, FetchError>) -> Result<T, E>,
+    ) -> Result<T, E> {
+        fetch_alternate(url, self.alternate(url, kind), async |source| {
+            accept(self.fetch_exact(source).await)
+        })
+        .await
+    }
+
+    fn download_mirror(&self, url: &str, has_digest: bool) -> Option<DownloadMirror> {
+        let kind = if has_digest {
+            FetchKind::File
+        } else {
+            FetchKind::UnverifiedFile
+        };
+        self.alternate(url, kind)
+    }
+
+    fn download_connection_limit(&self, host: &str) -> NonZeroUsize {
+        self.mirrors.as_ref().map_or(NonZeroUsize::MAX, |mirrors| {
+            mirrors.download_connection_limit(host)
+        })
     }
 
     async fn open_download(
@@ -117,7 +196,28 @@ impl Network for ReqwestNetwork {
             DownloadProtocol::Http1 => (&self.file_http1, Some(reqwest::Version::HTTP_11)),
             DownloadProtocol::Http2 => (&self.file_http2, Some(reqwest::Version::HTTP_2)),
         };
-        transfer::open(client, url, version, range).await
+        transfer::open(client, url, version, range, || self.connect_failed(url)).await
+    }
+}
+
+async fn fetch_alternate<T, E>(
+    original: &str,
+    mirror: Option<DownloadMirror>,
+    fetch: impl AsyncFn(&str) -> Result<T, E>,
+) -> Result<T, E> {
+    let Some(mirror) = mirror else {
+        return fetch(original).await;
+    };
+    if mirror.preferred {
+        return match fetch(&mirror.url).await {
+            Ok(value) => Ok(value),
+            Err(_) => fetch(original).await,
+        };
+    }
+    let original = fetch(original).await;
+    match original {
+        Ok(_) => original,
+        Err(_) => fetch(&mirror.url).await.or(original),
     }
 }
 

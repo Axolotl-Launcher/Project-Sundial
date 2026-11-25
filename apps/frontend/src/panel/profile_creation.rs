@@ -7,7 +7,7 @@ use std::{future::Future, time::Duration};
 
 use axlauncher_core::install::vanilla::{self, MinecraftCatalog, MinecraftVersionKind};
 use axlauncher_core::loader::{self, SUPPORTED_KINDS};
-use axlauncher_core::network::ReqwestNetwork;
+use axlauncher_core::network::{MirrorSettings, ReqwestNetwork};
 use axlauncher_core::spi::{LoaderError, LoaderKind, LoaderVersion};
 use axlauncher_core::state::profile::Game;
 use axlauncher_ui::component::IndexPath;
@@ -17,6 +17,7 @@ use axlauncher_ui::{
 };
 
 use super::RootView;
+use crate::installations::InstallOptions;
 
 mod view;
 
@@ -183,8 +184,11 @@ impl RootView {
             return;
         }
         self.profile_creation.minecraft_status = CatalogStatus::Loading;
-        let request = async { vanilla::versions(&network()?).await };
-        let task = cx.background_spawn(async { catalog_request(request) });
+        let mirrors = InstallOptions::from_settings(self.settings.as_ref()).mirrors;
+        let task = cx.background_spawn(async move {
+            let network = network(mirrors)?;
+            catalog_request(vanilla::versions(&network))
+        });
         cx.spawn_in(window, async move |view, cx| {
             complete_minecraft_request(view, cx, task.await);
         })
@@ -260,8 +264,10 @@ impl RootView {
             return;
         };
         state.loader_catalog.status = CatalogStatus::Loading;
-        let request = async move { fetch_loader_versions(kind, &game).await };
-        let task = cx.background_spawn(async { catalog_request(request) });
+        let mirrors = InstallOptions::from_settings(self.settings.as_ref()).mirrors;
+        let task = cx.background_spawn(async move {
+            catalog_request(fetch_loader_versions(kind, &game, mirrors))
+        });
         cx.spawn_in(window, async move |view, cx| {
             complete_loader_request(view, cx, revision, task.await);
         })
@@ -440,8 +446,8 @@ fn loader_build_choices(
     choices
 }
 
-fn network() -> Result<ReqwestNetwork, String> {
-    ReqwestNetwork::desktop().map_err(|error| error.to_string())
+fn network(mirrors: MirrorSettings) -> Result<ReqwestNetwork, String> {
+    ReqwestNetwork::desktop_with_mirrors(mirrors).map_err(|error| error.to_string())
 }
 
 fn catalog_request<T>(request: impl Future<Output = Result<T, String>>) -> Result<T, String> {
@@ -456,8 +462,12 @@ fn catalog_request<T>(request: impl Future<Output = Result<T, String>>) -> Resul
     })
 }
 
-async fn fetch_loader_versions(kind: LoaderKind, game: &str) -> Result<Vec<LoaderVersion>, String> {
-    match loader::versions(network()?, kind, game).await {
+async fn fetch_loader_versions(
+    kind: LoaderKind,
+    game: &str,
+    mirrors: MirrorSettings,
+) -> Result<Vec<LoaderVersion>, String> {
+    match loader::versions(network(mirrors)?, kind, game).await {
         Ok(versions) => Ok(versions),
         Err(LoaderError::NoVersions { .. }) => Ok(Vec::new()),
         Err(error) => Err(error.to_string()),

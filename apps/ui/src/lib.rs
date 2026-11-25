@@ -13,7 +13,7 @@
 //! Swapping the component system later means rewriting this crate alone.
 
 pub use gpui_kit::component::{
-    ActiveTheme, Disableable, Sizable, Size, StyledExt,
+    ActiveTheme, Disableable, IndexPath, Sizable, Size, StyledExt,
     button::{Button, ButtonVariants},
     group_box::{GroupBox, GroupBoxVariants},
     h_flex,

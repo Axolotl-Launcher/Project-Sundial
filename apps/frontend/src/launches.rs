@@ -10,8 +10,9 @@ use axlauncher_core::install::{loader, vanilla};
 use axlauncher_core::launch::{
     FlowError, LaunchRequest, ProcessLauncher, Target, flow, plan::Session,
 };
-use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::network::auth::AuthHttp;
+use axlauncher_core::network::{MirrorSettings, ReqwestNetwork};
+use axlauncher_core::spi::ServiceHost;
 use axlauncher_core::{launch_accounts, state::accounts::AccountId};
 use axlauncher_ui::{AppContext, AsyncApp, Context, WeakEntity};
 use tokio::sync::{oneshot, watch};
@@ -21,7 +22,11 @@ use crate::panel::accounts::DesktopAccounts;
 
 pub(crate) enum Player {
     Offline(Session),
-    Online(Arc<DesktopAccounts>, AccountId),
+    Online {
+        service: Arc<DesktopAccounts>,
+        id: AccountId,
+        fallen_proxy: Option<ServiceHost>,
+    },
 }
 
 pub(crate) enum Launch {
@@ -52,6 +57,7 @@ pub(crate) fn start(
     player: Player,
     vanilla: bool,
     data_root: PathBuf,
+    mirrors: MirrorSettings,
     cx: &mut Context<'_, RootView>,
 ) {
     let root = request.game_root.clone();
@@ -64,9 +70,9 @@ pub(crate) fn start(
             .enable_all()
             .build()
         {
-            Ok(runtime) => {
-                runtime.block_on(run(request, player, vanilla, &data_root, sender, resolved))
-            }
+            Ok(runtime) => runtime.block_on(run(
+                request, player, vanilla, &data_root, mirrors, sender, resolved,
+            )),
             Err(error) => Launch::Failed(error.to_string()),
         }
     });
@@ -110,6 +116,7 @@ async fn run(
     player: Player,
     vanilla: bool,
     data_root: &Path,
+    mirrors: MirrorSettings,
     sender: watch::Sender<bool>,
     resolved: oneshot::Sender<Arc<DesktopAccounts>>,
 ) -> Launch {
@@ -118,8 +125,12 @@ async fn run(
             drop(resolved);
             session
         }
-        Player::Online(service, id) => {
-            let result = online_session(&service, id).await;
+        Player::Online {
+            service,
+            id,
+            fallen_proxy,
+        } => {
+            let result = online_session(&service, id, mirrors, fallen_proxy).await;
             let _ = resolved.send(service);
             match result {
                 Ok(session) => session,
@@ -159,12 +170,19 @@ async fn run(
     }
 }
 
-async fn online_session(service: &DesktopAccounts, id: AccountId) -> Result<Session, String> {
-    let network =
-        AuthHttp::desktop().map_err(|_| "Could not initialize online sign-in.".to_owned())?;
+async fn online_session(
+    service: &DesktopAccounts,
+    id: AccountId,
+    mirrors: MirrorSettings,
+    fallen_proxy: Option<ServiceHost>,
+) -> Result<Session, String> {
+    let network = AuthHttp::desktop()
+        .map_err(|_| "Could not initialize online sign-in.".to_owned())?
+        .with_fallen_proxy(fallen_proxy.clone());
     launch_accounts::prepare(service, id, &network, || {
-        ReqwestNetwork::desktop()
+        ReqwestNetwork::desktop_with_mirrors(mirrors)
             .map_err(|_| "Could not initialize the authentication agent download.".to_owned())
     })
     .await
+    .map(|session| session.with_fallen_proxy(fallen_proxy))
 }
