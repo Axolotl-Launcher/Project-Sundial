@@ -136,6 +136,55 @@ fn a_missing_version_downloads_its_manifest_and_client_and_can_be_retried_offlin
     assert_eq!(retry.requested, 0);
 }
 
+struct PreReleaseCatalog;
+
+const PRE_RELEASE: &str = "1.14 Pre-Release 1";
+const PRE_RELEASE_MANIFEST: &[u8] = br#"{"id":"1.14 Pre-Release 1","downloads":{"client":{"size":3,"url":"https://example.invalid/client.jar"}}}"#;
+
+impl Network for PreReleaseCatalog {
+    async fn fetch(&self, url: &str) -> Result<Vec<u8>, FetchError> {
+        match url {
+            CATALOG => Ok(serde_json::to_vec(&serde_json::json!({
+                "latest": {"release": "26.3"},
+                "versions": [{"id": PRE_RELEASE, "type": "snapshot", "url": VERSION_URL,
+                    "sha1": sha1_smol::Sha1::from(PRE_RELEASE_MANIFEST).digest().to_string()}],
+            }))
+            .unwrap()),
+            VERSION_URL => Ok(PRE_RELEASE_MANIFEST.to_vec()),
+            CLIENT_URL => Ok(b"abc".to_vec()),
+            other => Err(FetchError::Fatal(format!("unexpected URL {other}"))),
+        }
+    }
+}
+
+#[test]
+fn a_catalog_pre_release_with_spaces_installs_and_passes_the_offline_check() {
+    let root = crate::test_tempfile::tempdir().unwrap();
+    let target = Target::host();
+    let prepared = block_on(install(
+        &PreReleaseCatalog,
+        root.path(),
+        PRE_RELEASE,
+        &target,
+        1,
+        |_| {},
+    ))
+    .expect("official-catalog fixture installs");
+    assert!(prepared.is_complete(), "{prepared:?}");
+    assert_eq!(
+        fs::read(
+            root.path()
+                .join("versions")
+                .join(PRE_RELEASE)
+                .join(format!("{PRE_RELEASE}.jar"))
+        )
+        .unwrap(),
+        b"abc"
+    );
+    check_files(root.path(), PRE_RELEASE, &target)
+        .expect("launch preflight sees the installed version");
+}
+
 #[test]
 fn a_manifest_with_the_wrong_hash_is_not_saved() {
     use crate::test_tempfile as tempfile;

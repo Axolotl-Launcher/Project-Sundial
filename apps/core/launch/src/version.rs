@@ -9,8 +9,9 @@
 
 use std::collections::BTreeMap;
 use std::io;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
+use axlauncher_domain::is_version_id;
 use serde::{Deserialize, Serialize};
 
 /// Why a version document could not be used.
@@ -393,18 +394,6 @@ pub struct OsRule {
     pub arch: Option<String>,
 }
 
-/// Whether `value` is a single, safe directory name.
-///
-/// Version ids become path components under `versions/`; accepting a traversal
-/// or an absolute path would read and launch a document outside that tree.
-fn safe_component(value: &str) -> bool {
-    if value.is_empty() || value.contains('/') || value.contains('\\') {
-        return false;
-    }
-    let mut components = Path::new(value).components();
-    matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
-}
-
 /// Reads `<root>/<id>/<id>.json` without resolving what it inherits.
 pub fn load(root: &Path, id: &str) -> Result<Version, VersionError> {
     let version: Version = read_document(root, id)?;
@@ -417,7 +406,7 @@ pub fn load(root: &Path, id: &str) -> Result<Version, VersionError> {
     .into_iter()
     .flatten()
     {
-        if !safe_component(candidate) {
+        if !is_version_id(candidate) {
             return Err(VersionError::InvalidId {
                 id: candidate.to_string(),
             });
@@ -439,7 +428,7 @@ pub(crate) fn release_time(root: &Path, id: &str) -> Result<Option<String>, Vers
 }
 
 fn read_document<T: serde::de::DeserializeOwned>(root: &Path, id: &str) -> Result<T, VersionError> {
-    if !safe_component(id) {
+    if !is_version_id(id) {
         return Err(VersionError::InvalidId { id: id.to_string() });
     }
     let path = root.join(id).join(format!("{id}.json"));

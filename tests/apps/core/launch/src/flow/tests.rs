@@ -8,6 +8,9 @@ mod language_tests;
 
 #[path = "account_tests.rs"]
 mod account_tests;
+
+#[path = "version_id_tests.rs"]
+mod version_id_tests;
 use crate::SystemJava;
 use axlauncher_spi::LaunchCommand;
 use std::fs;

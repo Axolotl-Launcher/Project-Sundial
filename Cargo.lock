@@ -629,6 +629,7 @@ dependencies = [
 name = "axlauncher_install"
 version = "0.1.0"
 dependencies = [
+ "axlauncher_domain",
  "axlauncher_download_engine",
  "axlauncher_launch",
  "axlauncher_network",
@@ -753,6 +754,7 @@ dependencies = [
 name = "axlauncher_state"
 version = "0.1.0"
 dependencies = [
+ "axlauncher_domain",
  "axlauncher_spi",
  "axlauncher_storage",
  "base64 0.23.1",

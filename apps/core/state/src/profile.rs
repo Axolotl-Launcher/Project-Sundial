@@ -225,7 +225,7 @@ fn visible_name(name: &str) -> bool {
 fn validate_game(game: &Game) -> Result<(), String> {
     let invalid = std::iter::once(game.minecraft.as_str())
         .chain(game.version_id.as_deref())
-        .find(|id| !relative_path(id) || id.contains('/'));
+        .find(|id| !axlauncher_domain::is_version_id(id));
     invalid.map_or(Ok(()), |id| Err(format!("invalid game version id {id:?}")))
 }
 

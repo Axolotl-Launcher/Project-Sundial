@@ -43,13 +43,23 @@ fn profile_creation_uses_one_managed_directory_per_profile() {
 }
 
 #[test]
+fn a_historical_catalog_version_keeps_its_spaces_in_the_profile() {
+    let temp = TempRoot::new();
+    let id = "1.14 Pre-Release 1";
+    let directory = create(temp.path(), "Pre-release", Game::new(id)).unwrap();
+    let profile = read(&directory).unwrap().unwrap();
+    assert_eq!(profile.game().unwrap().effective_version(), Some(id));
+}
+
+#[test]
 fn invalid_input_never_creates_an_instance_directory() {
     let temp = TempRoot::new();
     let instances = temp.path().join("instances");
     for (name, version) in [
         (" \t ", "1.21.11"),
         ("Example", "../outside"),
-        ("Example", "1.21 invalid"),
+        ("Example", "1.21?invalid"),
+        ("Example", "NUL.json"),
         ("Example", " "),
     ] {
         assert!(matches!(

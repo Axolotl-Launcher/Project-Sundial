@@ -11,13 +11,7 @@ use super::{Game, Profile, ProfileWriteError, save, validate};
 /// The directory is reserved before writing so concurrent creations cannot
 /// replace an existing profile. Invalid input never creates a directory.
 pub fn create(instances: &Path, name: &str, mut game: Game) -> Result<PathBuf, ProfileWriteError> {
-    let version = game.minecraft.trim();
-    if !valid_version(version) {
-        return Err(ProfileWriteError::Invalid {
-            reason: "Enter a Minecraft version ID such as 1.21.11.".into(),
-        });
-    }
-    game.minecraft = version.to_owned();
+    game.minecraft = game.minecraft.trim().to_owned();
     let profile = Profile::new(name.trim(), Some(game));
     validate(&profile).map_err(|reason| ProfileWriteError::Invalid { reason })?;
 
@@ -35,12 +29,4 @@ pub fn create(instances: &Path, name: &str, mut game: Game) -> Result<PathBuf, P
         return Err(error);
     }
     Ok(directory)
-}
-
-fn valid_version(version: &str) -> bool {
-    !version.is_empty()
-        && !version.ends_with('.')
-        && version
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_' | b'+'))
 }
