@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 Axolotl Team
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "axlauncher_modpack"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Built-in modpack format readers and installation planning"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+axlauncher_spi = { workspace = true }
+hex = { workspace = true }
+md-5 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+unicode-normalization = { workspace = true }
+url = { workspace = true }
+zip = { workspace = true, default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+futures = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

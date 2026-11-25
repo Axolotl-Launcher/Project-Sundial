@@ -23,6 +23,7 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 | Java discovery and game processes | `launch` provides `SystemJava` and `ProcessLauncher`. | Resolve the runtime through `Java::executable`. Pass the prepared `LaunchCommand` to `Launcher::launch`. |
 | Event output | `telemetry` implements the event sink. | Call `Telemetry::record(Event)`. Command metrics belong to `observability`. |
 | Desktop UI and startup environment | `ui` directly depends on gpui-kit. `frontend` chooses the application data root and wires the window. | Frontend code imports components through `axlauncher_ui` and calls system APIs through `core`. Platform shells call `frontend::run`. |
+| Selected modpack archives | `modpack` reads the user-selected archive and interprets the manifest and payload, including portable MultiMC instance exports with standard game components. | The [modpack service](../../apps/frontend/src/modpacks/service.rs) invokes the built-in plugin, executes its typed plan through the existing system APIs, and publishes the new profile through `state`. It accepts a progress callback. The desktop view owns subscriptions and presentation. |
 
 The frontend resolves the managed profiles directory with `DataDir`. Instance
 discovery and manifest access belong to `state`.
@@ -42,9 +43,11 @@ size of at least 16 KiB. Under contention, the scheduler weights each file's
 share by its remaining bytes and applies changes as connections are released.
 HTTP/2 retains its 4 MiB range threshold and 8 MiB initial range. Only
 standalone jobs probe for an unknown size. A range retry keeps bytes already
-written when the server returns the requested interval and total size. The
-staging file is promoted after checking SHA-1 when supplied, or the expected
-size when only size is supplied. The shared engine defaults to
+written when the server returns the requested interval and total size. Whole
+file transfers read to the end of the response body without comparing the
+written length with the HTTP `Content-Length` header. The staging file is
+promoted after checking SHA-1 when supplied, or the expected size when only
+size is supplied. The shared engine defaults to
 256 connections globally and 16 per file. The desktop setting controls how
 many files may be queued at once.
 
@@ -77,6 +80,8 @@ lookup for the destination.
 | `axlauncher_core` | [core](../../apps/core/src/lib.rs) | Application-facing system re-exports and desktop request orchestration. Delegates each operation to its owning system or SPI provider. |
 | `axlauncher_ui` | [ui](../../apps/ui/src/lib.rs) | Palette, theme installation and component re-exports. |
 | `axlauncher_frontend` | [frontend](../../apps/frontend/src/lib.rs) | Root view, interaction state, windows and UI task lifecycle. |
+| `axlauncher_modpack` | [modpack](../../apps/plugins/modpack/src/lib.rs) | Registered readers for modpack distribution inputs, plus file selection and override planning. Its only workspace dependency is SPI. |
+| `axlauncher_mmc_convert` | [mmc-convert](../../tools/mmc-convert/src/main.rs) | Standalone conversion of selected MultiMC exports with custom launch components into native, isolated profiles. It uses the modpack archive reader and the core facade. |
 | `axlauncher_platform_windows` | [Windows](../../platforms/windows/src/main.rs) | Windows executable entry point. |
 | `axlauncher_platform_linux` | [Linux](../../platforms/linux/src/main.rs) | Linux executable entry point. |
 | `axlauncher_platform_macos` | [macOS](../../platforms/macos/src/main.rs) | macOS executable entry point. |

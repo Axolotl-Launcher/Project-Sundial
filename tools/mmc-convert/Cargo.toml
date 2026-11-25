@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 Axolotl Team
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "axlauncher_mmc_convert"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Standalone conversion of MultiMC exports into Axolotl profiles"
+repository.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "axlauncher-mmc-convert"
+path = "src/main.rs"
+
+[dependencies]
+axlauncher_core.workspace = true
+axlauncher_modpack.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+zip = { workspace = true, default-features = false, features = ["deflate"] }
+
+[lints]
+workspace = true

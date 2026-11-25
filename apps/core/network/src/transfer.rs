@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use axlauncher_spi::{ByteRange, DownloadBody, DownloadResponse, FetchError, ResponseRange};
 use bytes::Bytes;
-use reqwest::header::{ACCEPT_ENCODING, CONTENT_RANGE, RANGE};
+use reqwest::header::{ACCEPT_ENCODING, CONTENT_RANGE, HeaderValue, RANGE};
 use reqwest::{Client, Response, StatusCode, Version};
 
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -17,9 +17,13 @@ pub(super) async fn open(
     url: &str,
     version: Option<Version>,
     range: Option<ByteRange>,
+    key: Option<&HeaderValue>,
     connect_failed: impl FnOnce(),
 ) -> Result<DownloadResponse<impl DownloadBody>, FetchError> {
     let mut request = client.get(url).header(ACCEPT_ENCODING, "identity");
+    if let Some(key) = key {
+        request = request.header("x-api-key", key.clone());
+    }
     if let Some(version) = version {
         request = request.version(version);
     }

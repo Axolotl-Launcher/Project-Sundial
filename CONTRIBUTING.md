@@ -73,6 +73,45 @@ installation data without an independent digest. **Trust built-in mirror**
 also permits those inputs from the mirror for that category.
 MCIM still follows the upstream source. Fallen-Proxy has a separate opt-in.
 
+### CurseForge modpack imports
+
+Set `CURSEFORGE_API_KEY` in the gitignored `.env` at the workspace root before
+building the launcher. Cargo embeds the key in the executable, including
+release builds. A build environment variable named `CURSEFORGE_API_KEY` takes
+precedence over the file. `AXLAUNCHER_CURSEFORGE_API_KEY` can supply a runtime
+override. Builds without a key can still import packs with bundled files only.
+
+The import waits for any files that need manual downloading. Use **Choose
+file…** for those entries, then **Continue installation**. The same session
+keeps its resolved file versions and the downloads already verified.
+
+CurseForge data packs without a world target stay in the instance's
+`datapacks/` folder. In vanilla Minecraft, add them through the new world's
+Data Packs screen or copy them into `saves/<world>/datapacks/` for an existing
+world. Files already bundled inside a world's directory keep that location.
+[CurseForge data pack guide](https://support.curseforge.com/support/solutions/articles/9000267956)
+
+### MultiMC exports with custom components
+
+Use the standalone converter for a MultiMC export that includes an enabled
+custom patch, a local library, a replacement client JAR, or JAR mods.
+
+```sh
+cargo run --locked -p axlauncher_mmc_convert -- path/to/export.zip path/to/AXLauncher
+```
+
+The second argument is the Axolotl data directory shown in the desktop app.
+The converter prepares the stock game and loader, applies supported patches
+in component order, and publishes an instance under `profiles/`. Reopen the
+launcher or reload its instance list to see it. The converted profile keeps
+its private runtime under `.axl-runtime`.
+
+Supported custom patch fields include the main class, flat game arguments,
+a single Java major, dependency constraints, bundled Java libraries, a
+bundled `mainJar`, and bundled ZIP or JAR entries in `jarMods`. A patch that
+replaces a stock component or library, uses custom native libraries or
+tweakers, or refers to an external artifact requires additional translation.
+
 ## Workspace layout
 
 | Path | Responsibility |

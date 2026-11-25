@@ -29,8 +29,11 @@ struct LoaderSelection {
 }
 
 impl InstallTarget {
-    /// Profiles without a supported loader have no installation action.
+    /// Shared installations exclude isolated runtimes and unsupported loaders.
     pub fn for_game(game: &Game) -> Option<Self> {
+        if game.is_runtime_isolated() {
+            return None;
+        }
         let game_version = game.minecraft.clone();
         if game.is_vanilla() {
             return Some(Self {
@@ -86,27 +89,31 @@ pub fn install(
     options: DownloadOptions,
     report: impl FnMut(Progress),
 ) -> Result<Option<String>, String> {
-    let data = DataDir::new(data_root);
-    let Some(selection) = target.loader else {
-        on_worker(download_vanilla(
-            &data,
-            &target.game_version,
-            options,
-            report,
-        ))
-        .map_err(|error| error.to_string())??;
-        return Ok(None);
-    };
-    let installed = on_worker(download_loader(
-        &data,
-        target.game_version,
-        selection,
-        options,
-        report,
-    ))
-    .map_err(|error| error.to_string())
-    .and_then(|installed| installed);
-    persist_loader_result(directory, installed).map(Some)
+    let is_loader = target.is_loader();
+    let installed = prepare(&DataDir::new(data_root), target, options, report);
+    if is_loader {
+        persist_loader_result(directory, installed).map(Some)
+    } else {
+        installed.map(|_| None)
+    }
+}
+
+/// The version ready in the shared game directory, without writing a profile.
+/// This also serves staged modpacks that cannot publish until all files land.
+pub fn prepare(
+    data: &DataDir,
+    target: InstallTarget,
+    options: DownloadOptions,
+    report: impl FnMut(Progress),
+) -> Result<String, String> {
+    on_worker(async {
+        if let Some(selection) = target.loader {
+            return download_loader(data, target.game_version, selection, options, report).await;
+        }
+        download_vanilla(data, &target.game_version, options, report).await?;
+        Ok(target.game_version)
+    })
+    .map_err(|error| error.to_string())?
 }
 
 fn persist_loader_result(

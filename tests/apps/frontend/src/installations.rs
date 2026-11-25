@@ -6,7 +6,7 @@ use super::*;
 #[test]
 fn one_throttle_preserves_phases_small_downloads_and_the_final_count() {
     let (progress, mut updates) = watch::channel(Progress::Version);
-    let total = PROGRESS_UPDATES * 3 + 1;
+    let total = 301;
     report_progress(&progress, Progress::Loader);
     assert_eq!(*updates.borrow_and_update(), Progress::Loader);
     report_progress(

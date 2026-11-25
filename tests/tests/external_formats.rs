@@ -1,11 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Guards the boundary in AGENTS.md: this project reads only its own formats.
+//! Guards the boundary in AGENTS.md for installed launcher data.
 //!
-//! Converting another launcher's data belongs to a separate tool, so a module
+//! Converting another launcher's installed data belongs to a separate tool, so a module
 //! or file named for compatibility, legacy data, migration, importing or
-//! conversion is a signal the rule was broken. This checks paths rather than
+//! conversion is a signal the rule was broken. The modpack plugin can read a
+//! selected MultiMC export archive. This checks paths rather than
 //! contents: the architecture lives in the module layout, and a comment is not
 //! evidence either way.
 

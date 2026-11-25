@@ -1,10 +1,39 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-use axlauncher_state::profile::{self, Game};
-use axlauncher_storage::SystemCredentials;
+use axlauncher_state::profile::{self, Game, InstallStatus, Profile, StagedProfile};
+use axlauncher_storage::{SystemCredentials, instance_runtime};
 
 use super::*;
+
+#[test]
+fn a_converted_profile_keeps_its_isolated_runtime_after_publication() {
+    let root = tempfile::tempdir().unwrap();
+    let data = DataDir::new(root.path());
+    let instances = data.instances();
+    let staged = StagedProfile::new(&instances).unwrap();
+    let game = Game::new("1.20.1").with_isolated_runtime();
+    let version = "axolotl-converted";
+    let runtime = instance_runtime(staged.directory());
+    std::fs::create_dir(&runtime).unwrap();
+    std::fs::write(runtime.join("kept"), b"converted files").unwrap();
+    assert!(profile::discover(&instances).instances.is_empty());
+
+    let directory = staged
+        .publish_installed(Profile::new("Converted", Some(game)), version)
+        .unwrap();
+    let discovered = profile::discover(&instances);
+    let entry = &discovered.instances[0];
+    let job = LaunchJob::for_profile(data.root(), entry, "Player".into(), None).unwrap();
+    assert_eq!(entry.profile.install.status, InstallStatus::Ready);
+    assert_eq!(job.version_id(), version);
+    assert_eq!(job.game_root(), instance_runtime(&directory));
+    assert_eq!(
+        std::fs::read(job.game_root().join("kept")).unwrap(),
+        b"converted files"
+    );
+    assert!(super::super::installation::install_key(entry.profile.game().unwrap()).is_none());
+}
 
 #[test]
 fn a_profile_without_game_files_needs_install_and_starts_nothing() {

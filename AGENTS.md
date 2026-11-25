@@ -20,11 +20,10 @@ See [.agents/AGENTS.md](.agents/AGENTS.md) for agent documentation and temporary
    and run `pnpm install --frozen-lockfile`. The Rust pin is in
    [rust-toolchain.toml](rust-toolchain.toml). Node and pnpm requirements are in
    [package.json](package.json).
-3. Use GitNexus for code navigation. Before editing, run upstream impact analysis
-   for the target and report callers, affected processes and risk. Warn before
-   editing a HIGH or CRITICAL target. Confirm UNKNOWN results with a text search.
-   Follow the [GitNexus guide](.agents/docs/gitnexus.md) for first-time setup,
-   renames and the required pre-commit change analysis.
+3. Before editing, search for the target's callers with `rg` and read the
+   surrounding code. For a pull request, the `PR impact analysis` workflow
+   posts the symbol- and process-level impact report; use it as review context,
+   not as a substitute for reading the changed code.
 
 ## Where changes belong
 
@@ -45,8 +44,10 @@ new dependencies in the root workspace and inherit them in the consuming crate.
 New crates inherit workspace lints, Rust version and licence. Upgrade gpui-kit
 and its pinned gpui-pre together.
 
-**Launcher data.** Axolotl reads and writes its own launcher schema. Foreign
-launcher conversion belongs in an independent tool. An unknown instance
+**Launcher data.** Axolotl reads and writes its own managed launcher schema.
+The modpack plugin may read a user-selected MultiMC instance export ZIP as a
+distribution input. Converting installed foreign instances, launcher settings
+or custom launch components belongs in an independent tool. An unknown instance
 `schema_version` must yield `DiscoveryError::UnsupportedSchema`. The
 [path policy](tests/tests/external_formats.rs) and
 [profile tests](tests/apps/core/state/src/profile.rs) cover these boundaries.

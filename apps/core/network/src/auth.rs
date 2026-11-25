@@ -47,6 +47,7 @@ impl AuthHttp {
     }
 
     async fn send_to(&self, url: &str, request: Request<'_>) -> Result<Response, TransportError> {
+        let api_key = request.api_key();
         let builder = match request.body {
             Some(Body::Form(body)) => self
                 .client
@@ -65,6 +66,13 @@ impl AuthHttp {
             .header(USER_AGENT, request.user_agent);
         let builder = match request.bearer {
             Some(token) => builder.bearer_auth(token),
+            None => builder,
+        };
+        let builder = match api_key {
+            Some(key) => builder.header(
+                "x-api-key",
+                super::api_key_header(key).map_err(|_| TransportError::InvalidResponse)?,
+            ),
             None => builder,
         };
         read_response(
@@ -89,7 +97,7 @@ impl AuthNetwork for AuthHttp {
 }
 
 fn fallen_service_url(request: &Request<'_>, host: &ServiceHost) -> Option<Url> {
-    if !request.is_minecraft_service() {
+    if !request.is_minecraft_service() || request.api_key().is_some() {
         return None;
     }
     let mut url = Url::parse(request.url).ok()?;

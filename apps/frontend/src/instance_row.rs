@@ -61,7 +61,7 @@ pub(crate) fn row(
             }
             _ => None,
         };
-        (install.is_some() || launch.is_some()).then(|| {
+        (install.is_some() || launch.is_some() || version.is_some()).then(|| {
             // The install slot is keyed by what the profile asked for, so a
             // second profile naming the same game and loader shares it. Only a
             // profile that recorded its own version id has an install to show;

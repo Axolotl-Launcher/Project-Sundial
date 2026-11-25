@@ -23,6 +23,7 @@ use tokio::sync::oneshot;
 
 use super::RootView;
 use crate::installations::Installation;
+use crate::modpacks::ModpackImport;
 
 mod batch;
 mod sources;
@@ -118,6 +119,17 @@ impl DownloadDebug {
 }
 
 impl RootView {
+    pub(super) fn modpack_download_changed(
+        &mut self,
+        modpack: Entity<ModpackImport>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if modpack.read(cx).install_progress().is_some() {
+            self.monitor_downloads(cx);
+        }
+        cx.notify();
+    }
+
     fn download_probe_event(
         &mut self,
         _: Entity<InputState>,
@@ -150,6 +162,7 @@ impl RootView {
         self.download_debug.batch.drain_outcomes();
         let keep_sampling = self.download_debug.status.is_running()
             || self.download_debug.batch.is_running()
+            || self.modpack.read(cx).install_progress().is_some()
             || self
                 .installations
                 .values()
@@ -157,6 +170,7 @@ impl RootView {
                 .any(|state| matches!(state, Installation::Running(_)));
         if !keep_sampling {
             self.download_debug.sampler = None;
+            self.download_debug.bytes_per_second = 0.;
         }
         cx.notify();
         keep_sampling
@@ -258,9 +272,20 @@ impl RootView {
                         column.child(Label::new(message).text_sm().text_color(status_color))
                     })
                     .child(self.render_batch_probe(cx))
+                    .children(self.render_modpack_progress(cx))
                     .children(self.render_installation_progress(cx)),
             )
             .into_any_element()
+    }
+
+    fn render_modpack_progress(&self, cx: &Context<'_, Self>) -> Option<Label> {
+        let (name, progress) = self.modpack.read(cx).install_progress()?;
+        Some(
+            Label::new(format!("{name} · {}", progress.message()))
+                .id(ElementId::Name("download-progress:modpack".into()))
+                .text_sm()
+                .text_color(cx.theme().muted_foreground),
+        )
     }
 
     fn render_download_probe(&self, cx: &mut Context<'_, Self>) -> AnyElement {

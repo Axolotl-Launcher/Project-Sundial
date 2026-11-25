@@ -66,7 +66,11 @@ impl LaunchJob {
             .unwrap_or_else(|| LAUNCHER_LANGUAGE.to_owned());
         Some(Self {
             request: LaunchRequest {
-                game_root: data.meta(),
+                game_root: if game.is_runtime_isolated() {
+                    axlauncher_storage::instance_runtime(&profile.directory)
+                } else {
+                    data.meta()
+                },
                 instance_directory: profile.directory.clone(),
                 version_id: version.to_owned(),
                 java_preference: None,

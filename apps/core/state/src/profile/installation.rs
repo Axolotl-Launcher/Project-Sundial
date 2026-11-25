@@ -4,7 +4,7 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use super::{DiscoveryError, InstallStatus, ProfileWriteError, read, save};
+use super::{DiscoveryError, InstallStatus, Profile, ProfileWriteError, read, save};
 
 #[derive(Debug)]
 pub enum InstallUpdateError {
@@ -48,13 +48,19 @@ pub fn mark_installed(directory: &Path, version_id: &str) -> Result<(), InstallU
     let mut profile = read(directory)
         .map_err(InstallUpdateError::Read)?
         .ok_or_else(|| InstallUpdateError::MissingProfile(directory.to_path_buf()))?;
-    let game = profile
-        .game
-        .as_mut()
-        .ok_or_else(|| InstallUpdateError::MissingGame(directory.to_path_buf()))?;
+    if !set_ready(&mut profile, version_id) {
+        return Err(InstallUpdateError::MissingGame(directory.to_path_buf()));
+    }
+    save(directory, &profile).map_err(InstallUpdateError::Write)
+}
+
+pub(super) fn set_ready(profile: &mut Profile, version_id: &str) -> bool {
+    let Some(game) = profile.game.as_mut() else {
+        return false;
+    };
     game.version_id = Some(version_id.to_owned());
     profile.install.status = InstallStatus::Ready;
-    save(directory, &profile).map_err(InstallUpdateError::Write)
+    true
 }
 
 /// A failed attempt leaves the last installed version ID in place.

@@ -17,6 +17,7 @@ pub struct Request<'a> {
     pub user_agent: &'a str,
     pub bearer: Option<&'a str>,
     pub body: Option<Body>,
+    api_key: Option<&'a str>,
     minecraft_service: bool,
 }
 
@@ -27,6 +28,7 @@ impl<'a> Request<'a> {
             user_agent,
             bearer: None,
             body: None,
+            api_key: None,
             minecraft_service: false,
         }
     }
@@ -39,6 +41,15 @@ impl<'a> Request<'a> {
     pub fn with_body(mut self, body: Body) -> Self {
         self.body = Some(body);
         self
+    }
+
+    pub fn with_api_key(mut self, key: &'a str) -> Self {
+        self.api_key = Some(key);
+        self
+    }
+
+    pub fn api_key(&self) -> Option<&'a str> {
+        self.api_key
     }
 
     /// Marks an official Minecraft services request as eligible for forwarding.

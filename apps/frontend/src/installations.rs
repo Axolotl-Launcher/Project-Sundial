@@ -15,8 +15,7 @@ use axlauncher_ui::{AppContext, AsyncApp, Context, WeakEntity};
 use tokio::sync::watch;
 
 use crate::RootView;
-
-const PROGRESS_UPDATES: usize = 100;
+use crate::installation_progress::{progress_message, should_report};
 
 pub(crate) enum Installation {
     Running(Progress),
@@ -27,14 +26,7 @@ pub(crate) enum Installation {
 impl Installation {
     pub(crate) fn message(&self) -> String {
         match self {
-            Self::Running(Progress::Version) => "Getting the version manifest".into(),
-            Self::Running(Progress::Loader) => "Resolving the mod loader".into(),
-            Self::Running(Progress::Java) => "Preparing the Java runtime".into(),
-            Self::Running(Progress::CheckingFiles) => "Checking local game files".into(),
-            Self::Running(Progress::Downloading { processed, total }) => {
-                format!("Processing downloads ({processed}/{total} files)")
-            }
-            Self::Running(Progress::Finishing) => "Finishing installation".into(),
+            Self::Running(stage) => progress_message(*stage),
             Self::Complete => "Game files ready".into(),
             Self::Failed(message) => message.clone(),
         }
@@ -87,15 +79,10 @@ async fn display_progress(
     }
 }
 
-/// Named phases and the final count reach the view even when file ticks are throttled.
 fn report_progress(progress: &watch::Sender<Progress>, stage: Progress) {
-    if let Progress::Downloading { processed, total } = stage
-        && processed != total
-        && !processed.is_multiple_of((total / PROGRESS_UPDATES).max(1))
-    {
-        return;
+    if should_report(stage) {
+        progress.send_replace(stage);
     }
-    progress.send_replace(stage);
 }
 
 #[cfg(test)]

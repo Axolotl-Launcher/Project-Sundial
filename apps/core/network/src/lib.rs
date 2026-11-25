@@ -40,6 +40,14 @@ pub struct ReqwestNetwork {
     file_http1: reqwest::Client,
     file_http2: reqwest::Client,
     mirrors: Option<Arc<mirrors::Mirrors>>,
+    request_policy: Option<fn(&Url) -> bool>,
+    download_key: Option<DownloadKey>,
+}
+
+#[derive(Debug, Clone)]
+struct DownloadKey {
+    host: &'static str,
+    value: reqwest::header::HeaderValue,
 }
 
 impl ReqwestNetwork {
@@ -50,6 +58,8 @@ impl ReqwestNetwork {
             file_http2: client.clone(),
             client,
             mirrors: None,
+            request_policy: None,
+            download_key: None,
         }
     }
 
@@ -60,15 +70,36 @@ impl ReqwestNetwork {
 
     /// The desktop client with the current download source preferences.
     pub fn desktop_with_mirrors(settings: MirrorSettings) -> Result<Self, FetchError> {
-        Self::build(DohConfig::default(), settings)
+        Self::build(DohConfig::default(), settings, None, None)
     }
 
     /// Builds separate pools for metadata and file transfers with one DNS policy.
     pub fn with_doh(config: DohConfig) -> Result<Self, FetchError> {
-        Self::build(config, MirrorSettings::default())
+        Self::build(config, MirrorSettings::default(), None, None)
     }
 
-    fn build(config: DohConfig, settings: MirrorSettings) -> Result<Self, FetchError> {
+    /// A desktop client scoped to the caller's allowed origins, including redirects.
+    pub fn desktop_with_download_policy(
+        allow: fn(&Url) -> bool,
+        key: Option<(&'static str, &str)>,
+    ) -> Result<Self, FetchError> {
+        let key = key
+            .map(|(host, value)| api_key_header(value).map(|value| DownloadKey { host, value }))
+            .transpose()?;
+        Self::build(
+            DohConfig::default(),
+            MirrorSettings::default(),
+            Some(allow),
+            key,
+        )
+    }
+
+    fn build(
+        config: DohConfig,
+        settings: MirrorSettings,
+        allow: Option<fn(&Url) -> bool>,
+        download_key: Option<DownloadKey>,
+    ) -> Result<Self, FetchError> {
         use std::time::Duration;
 
         let resolver = Arc::new(dns::DohResolver::new(config)?);
@@ -77,11 +108,12 @@ impl ReqwestNetwork {
             env!("CARGO_PKG_VERSION"),
             std::env::consts::OS
         );
+        let key_host = download_key.as_ref().map(|key| key.host);
         let builder = || {
             reqwest::Client::builder()
                 .dns_resolver(resolver.clone())
                 .user_agent(&user_agent)
-                .redirect(reqwest::redirect::Policy::custom(redirect))
+                .redirect(redirect_policy(allow, key_host))
                 .pool_idle_timeout(Duration::from_secs(15 * 60))
                 .connect_timeout(Duration::from_secs(15))
         };
@@ -95,7 +127,21 @@ impl ReqwestNetwork {
             file_http1: build(builder().http1_only())?,
             file_http2: build(builder().http2_prior_knowledge())?,
             mirrors: Some(Arc::new(mirrors::Mirrors::new(settings))),
+            request_policy: allow,
+            download_key,
         })
+    }
+
+    fn check_target(&self, url: &str) -> Result<(), FetchError> {
+        if self
+            .request_policy
+            .is_some_and(|allow| !Url::parse(url).is_ok_and(|url| allow(&url)))
+        {
+            return Err(FetchError::Fatal(
+                "request target is outside the download policy".into(),
+            ));
+        }
+        Ok(())
     }
 
     fn alternate(&self, url: &str, kind: FetchKind) -> Option<DownloadMirror> {
@@ -115,7 +161,14 @@ impl ReqwestNetwork {
         FetchError::Retryable(error.to_string())
     }
 
+    fn download_key(&self, url: &str) -> Option<&reqwest::header::HeaderValue> {
+        let key = self.download_key.as_ref()?;
+        let url = Url::parse(url).ok()?;
+        key_host_matches(&url, key.host).then_some(&key.value)
+    }
+
     async fn fetch_exact(&self, url: &str) -> Result<Vec<u8>, FetchError> {
+        self.check_target(url)?;
         let _permit = match self.mirrors.as_ref().and_then(|mirrors| {
             let parsed = Url::parse(url).ok()?;
             mirrors.buffered_quota(parsed.host_str()?)
@@ -141,6 +194,42 @@ impl ReqwestNetwork {
         }
         Err(status_error(status, bytes))
     }
+}
+
+fn api_key_header(key: &str) -> Result<reqwest::header::HeaderValue, FetchError> {
+    let mut value = reqwest::header::HeaderValue::from_str(key)
+        .map_err(|_| FetchError::Fatal("invalid API key header value".into()))?;
+    value.set_sensitive(true);
+    Ok(value)
+}
+
+fn key_host_matches(url: &Url, host: &str) -> bool {
+    url.scheme() == "https"
+        && url.host_str() == Some(host)
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
+}
+
+fn allows_key_redirect(host: &str, first: Option<&Url>, next: &Url) -> bool {
+    !first.is_some_and(|url| key_host_matches(url, host)) || key_host_matches(next, host)
+}
+
+fn redirect_policy(
+    allow: Option<fn(&Url) -> bool>,
+    key_host: Option<&'static str>,
+) -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(move |attempt| {
+        if allow.is_some_and(|allow| !allow(attempt.url())) {
+            return attempt.error("redirect target is outside the download policy");
+        }
+        if key_host.is_some_and(|host| {
+            !allows_key_redirect(host, attempt.previous().first(), attempt.url())
+        }) {
+            return attempt.error("refusing to redirect a keyed download outside its origin");
+        }
+        redirect(attempt)
+    })
 }
 
 fn redirect(attempt: reqwest::redirect::Attempt<'_>) -> reqwest::redirect::Action {
@@ -191,12 +280,16 @@ impl Network for ReqwestNetwork {
         protocol: DownloadProtocol,
         range: Option<ByteRange>,
     ) -> Result<DownloadResponse<impl DownloadBody>, FetchError> {
+        self.check_target(url)?;
         let (client, version) = match protocol {
             DownloadProtocol::Automatic => (&self.client, None),
             DownloadProtocol::Http1 => (&self.file_http1, Some(reqwest::Version::HTTP_11)),
             DownloadProtocol::Http2 => (&self.file_http2, Some(reqwest::Version::HTTP_2)),
         };
-        transfer::open(client, url, version, range, || self.connect_failed(url)).await
+        transfer::open(client, url, version, range, self.download_key(url), || {
+            self.connect_failed(url)
+        })
+        .await
     }
 }
 

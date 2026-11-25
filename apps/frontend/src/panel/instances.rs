@@ -114,6 +114,7 @@ impl RootView {
             .child(
                 v_flex()
                     .gap_3()
+                    .child(self.modpack.clone())
                     .children(profiles.issues.iter().enumerate().map(|(index, issue)| {
                         Label::new(issue.to_string())
                             .id(ElementId::named_usize("profile-discovery-issue", index))

@@ -4,10 +4,12 @@
 //! The development panel: one scrollable page for manual verification.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use axlauncher_core::BRAND_NAME;
+use axlauncher_core::state::profile::discover;
 use axlauncher_core::state::{SettingsData, SettingsOrigin, ThemeChoice};
+use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, Button, ButtonVariants, Context, Disableable, Entity, InputEvent,
@@ -17,6 +19,7 @@ use axlauncher_ui::{
 
 use crate::installations::Installation;
 use crate::launches::Launch;
+use crate::modpacks::{ImportEvent, ModpackImport};
 use crate::{Loaded, Startup, load_at, palette_for};
 
 pub(crate) mod accounts;
@@ -41,6 +44,7 @@ pub(crate) struct RootView {
     accounts: accounts::AccountsPanel,
     profile_creation: profile_creation::ProfileCreation,
     instances: instances::InstancesState,
+    modpack: Entity<ModpackImport>,
     download_debug: download_debug::DownloadDebug,
     inspection: launch::Inspection,
     installations: HashMap<PathBuf, HashMap<String, Installation>>,
@@ -70,6 +74,12 @@ impl RootView {
             .as_ref()
             .map(|settings| settings.theme)
             .unwrap_or_default();
+        let modpack = cx.new(ModpackImport::new);
+        modpack.update(cx, |view, cx| view.set_enabled(loaded.root.is_some(), cx));
+        cx.subscribe_in(&modpack, window, Self::modpack_event)
+            .detach();
+        cx.observe(&modpack, Self::modpack_download_changed)
+            .detach();
         let download_debug =
             download_debug::DownloadDebug::new(loaded.settings.as_ref(), window, cx);
         let accounts = accounts::AccountsPanel::new(loaded.root.as_deref(), window, cx);
@@ -90,6 +100,7 @@ impl RootView {
             accounts,
             profile_creation,
             instances: instances::InstancesState::new(loaded.profiles),
+            modpack,
             download_debug,
             inspection: launch::Inspection::default(),
             installations: HashMap::new(),
@@ -136,6 +147,8 @@ impl RootView {
     fn apply_loaded(&mut self, loaded: Loaded, window: &mut Window, cx: &mut Context<'_, Self>) {
         let same_root = self.root == loaded.root;
         self.root = loaded.root;
+        self.modpack
+            .update(cx, |view, cx| view.set_enabled(self.root.is_some(), cx));
         if !same_root {
             self.accounts.reset(self.root.as_deref(), window, cx);
         }
@@ -169,6 +182,54 @@ impl RootView {
         self.root_input
             .update(cx, |state, cx| state.set_value(root_text, window, cx));
         palette_for(self.theme).apply(cx);
+    }
+
+    fn modpack_event(
+        &mut self,
+        view: &Entity<ModpackImport>,
+        event: &ImportEvent,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        match event {
+            ImportEvent::InstallRequested => self.install_modpack(view, window, cx),
+            ImportEvent::Installed {
+                root,
+                directory,
+                name,
+            } => self.record_modpack(root, directory, name, cx),
+        }
+    }
+
+    fn install_modpack(
+        &mut self,
+        view: &Entity<ModpackImport>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let options = axlauncher_core::desktop::sources::DownloadOptions::from_settings(
+            self.settings.as_ref(),
+        );
+        view.update(cx, |view, cx| view.install(root, options, window, cx));
+    }
+
+    fn record_modpack(
+        &mut self,
+        root: &Path,
+        directory: &Path,
+        name: &str,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.activity.success(format!("Installed {name}"));
+        if self.root.as_deref() == Some(root) {
+            self.instances
+                .replace(discover(&DataDir::new(root).instances()), true);
+            self.select_instance(directory.to_path_buf(), cx);
+        }
+        cx.notify();
     }
 
     fn record_data_root(&mut self) {

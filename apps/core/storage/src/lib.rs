@@ -23,6 +23,11 @@ pub fn open_for_read(path: &Path) -> io::Result<fs::File> {
 mod console_log;
 pub use console_log::open_instance_console_log;
 
+/// The private game files prepared for an isolated instance.
+pub fn instance_runtime(instance: &Path) -> PathBuf {
+    instance.join(".axl-runtime")
+}
+
 /// The launcher's on-disk root and the directories under it.
 ///
 /// One type owns the layout so a path is never assembled from string literals
