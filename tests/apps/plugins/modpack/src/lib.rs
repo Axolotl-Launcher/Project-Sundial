@@ -15,6 +15,8 @@ use super::test_futures::executor::block_on;
 use super::test_tempfile as tempfile;
 use super::{InstallPlan, ModpackPlugin, OptionId, Pack, PackError, PackSource, PlanOptions};
 
+mod multimc;
+
 struct Offline;
 
 impl AuthNetwork for Offline {

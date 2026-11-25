@@ -149,9 +149,9 @@ entries above encode required versus optional, with no per-side field.
 
 MultiMC's native export ZIP contains a selection of files from an instance.
 The current exporter wraps them in a directory named after the instance. The
-importer locates the instance via `instance.cfg`. A modern converter can
-identify a single root or wrapper directory containing both `instance.cfg`
-and `mmc-pack.json`. The native export and MultiMC's separate Modrinth export
+importer locates the instance via `instance.cfg`. Axolotl identifies a single
+root or one-level wrapper directory containing both `instance.cfg` and
+`mmc-pack.json`. The native export and MultiMC's separate Modrinth export
 use different manifest layouts. [MultiMC export guide][mmc-guide] ·
 [MultiMC exporter][mmc-export] · [MultiMC importer][mmc-import]
 
@@ -163,9 +163,9 @@ use different manifest layouts. [MultiMC export guide][mmc-guide] ·
 | `patches/<uid>.json` | Local component metadata referenced by the component list. |
 | `libraries/`, `jarmods/` | Optional instance-local launch artifacts used by component patches and JAR mods. |
 
-Read `instance.cfg` as launcher metadata. Only explicitly mapped data, such
-as the display name, belongs in a converted instance. Leave commands, Java
-and wrapper paths, and JVM options out of automatic conversion.
+Axolotl reads the display name from `instance.cfg`. Commands, Java and wrapper
+paths, and JVM options stay in the export. Only payloads under the selected
+game directory are copied to the managed profile.
 [MultiMC export guide][mmc-guide] · [MultiMC instance implementation][mmc-instance]
 
 ### Components and patches
@@ -190,9 +190,11 @@ MultiMC resolves standard components through its metadata service. A local
 `patches/<uid>.json` can change dependency constraints, libraries, the main
 class, and other launch properties. It can also refer to local libraries or
 JAR mods. Matching a stock UID and version alone cannot reproduce a customized
-component. Report unsupported patches, unknown enabled components that affect
-launch, and local launch artifacts when the converter cannot preserve their
-behavior. Older exports without `mmc-pack.json` follow MultiMC's historical
+component. Axolotl accepts vanilla and one standard Forge, NeoForge, Fabric,
+or Quilt loader. It resolves standard runtime dependencies through its game
+and loader installers and rejects active local patches, unknown enabled
+components, and instance-local launch artifacts. Older exports without
+`mmc-pack.json` follow MultiMC's historical
 config and patch migration path. The layout here covers the current component
 file. [MultiMC metadata][mmc-meta] · [MultiMC component reader and writer][mmc-profile] ·
 [MultiMC patch guide][mmc-patches]
@@ -299,22 +301,23 @@ SHA-256 for its index and metadata and can use other algorithms for payloads.
   reader-owned optional item IDs. The selected items produce one `InstallPlan`
   for the frontend to execute. The plan carries game requirements, downloads,
   bundled files, and a redirect policy. The frontend uses the source tag for
-  presentation. Modrinth and CurseForge are the currently registered readers.
+  presentation. Modrinth, CurseForge, and MultiMC have registered readers.
   CurseForge planning resolves the selected file pins through its API. The
   import preview enables official CDN URL derivation by default for files
   whose metadata omits a direct URL. When automatic acquisition is unavailable
   or fails, the user can supply a file from the official download page and the
   installer verifies it against the pinned digest.
   [Plugin entry point](../../apps/plugins/modpack/src/lib.rs)
-- Keep Modrinth and CurseForge archives as distribution inputs to a new profile.
-  MultiMC conversion belongs in an independent tool under the repository's
-  launcher-data rule. The managed instance schema remains `.axlprofile` and
-  its creation, reads, and discovery belong to `state`.
+- Keep Modrinth, CurseForge, and MultiMC exports as distribution inputs to a
+  new profile. MultiMC exports contribute bundled files and game requirements
+  to the same plan. Converting installed foreign launcher data belongs in an
+  independent tool. The managed instance schema remains `.axlprofile` and its
+  creation, reads, and discovery belong to `state`.
   [Repository rule](../../AGENTS.md) · [Crate ownership](crates.md)
 - Identify the format from the manifest shape and its version. For the provider
   formats, use their documented ZIP roots. Reject ambiguous or duplicate
   manifest candidates and keep nested payload manifests out of detection.
-  Treat the MultiMC wrapper separately in the converter.
+  Locate the MultiMC wrapper inside its reader.
 - Resolve the exact Minecraft and loader build through the existing
   `ModLoader` port and installation flows. Use the injected `Network` and the
   download engine for transfers. The current engine's `MissingFile` carries a
@@ -333,7 +336,7 @@ SHA-256 for its index and metadata and can use other algorithms for payloads.
 - Verify with small fixtures that exercise the format-specific behavior. Cover
   Modrinth side filters, optional selection, alternative URLs, digest failure,
   and side-specific override precedence. Cover CurseForge pair matching,
-  missing download URLs, and non-mod destinations. For a MultiMC converter,
+  missing download URLs, and non-mod destinations. For MultiMC exports,
   cover the wrapper, both game-directory names, disabled components, and an
   unsupported local patch.
 

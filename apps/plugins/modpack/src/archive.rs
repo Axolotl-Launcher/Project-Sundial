@@ -8,7 +8,7 @@ use std::path::Path;
 
 use zip::ZipArchive;
 
-use crate::{PackError, paths};
+use crate::{ManifestLocation, PackError, paths};
 
 const MAX_ENTRIES: usize = 100_000;
 const MAX_MANIFEST_BYTES: u64 = 8 * 1024 * 1024;
@@ -61,6 +61,13 @@ impl Archive {
 
     pub(crate) fn entry(&self, path: &str) -> Option<Entry> {
         self.entries.get(path).copied()
+    }
+
+    pub(super) fn locate(&self, path: &str) -> Option<ManifestLocation> {
+        self.entry(path).map(|entry| ManifestLocation {
+            path: path.to_owned(),
+            entry,
+        })
     }
 
     pub(crate) fn entries(&self) -> impl Iterator<Item = (&str, Entry)> {

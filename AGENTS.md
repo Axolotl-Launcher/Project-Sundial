@@ -43,8 +43,10 @@ new dependencies in the root workspace and inherit them in the consuming crate.
 New crates inherit workspace lints, Rust version and licence. Upgrade gpui-kit
 and its pinned gpui-pre together.
 
-**Launcher data.** Axolotl reads and writes its own launcher schema. Foreign
-launcher conversion belongs in an independent tool. An unknown instance
+**Launcher data.** Axolotl reads and writes its own managed launcher schema.
+The modpack plugin may read a user-selected MultiMC instance export ZIP as a
+distribution input. Converting installed foreign instances, launcher settings
+or custom launch components belongs in an independent tool. An unknown instance
 `schema_version` must yield `DiscoveryError::UnsupportedSchema`. The
 [path policy](tests/tests/external_formats.rs) and
 [profile tests](tests/apps/core/state/src/profile.rs) cover these boundaries.

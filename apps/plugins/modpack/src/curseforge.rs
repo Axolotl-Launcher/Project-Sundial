@@ -9,10 +9,10 @@ use axlauncher_spi::auth::AuthNetwork;
 use serde::Deserialize;
 use url::Url;
 
-use crate::archive::{self, Archive, Entry};
+use crate::archive::{self, Archive};
 use crate::{
-    GameRequirements, OptionId, OptionalFile, Pack, PackError, PackFiles, PackReader, PackSource,
-    PlanOptions, PlannedDownloads, paths,
+    GameRequirements, ManifestLocation, OptionId, OptionalFile, Pack, PackError, PackFiles,
+    PackReader, PackSource, PlanOptions, PlannedDownloads, paths,
 };
 
 mod api;
@@ -23,12 +23,12 @@ const CDN: &str = "https://edge.forgecdn.net";
 pub(super) struct Reader;
 
 impl PackReader for Reader {
-    fn find_manifest(&self, archive: &Archive) -> Option<Entry> {
-        archive.entry(MARKER)
+    fn find_manifest(&self, archive: &Archive) -> Result<Option<ManifestLocation>, PackError> {
+        Ok(archive.locate(MARKER))
     }
 
-    fn read(&self, mut archive: Archive, marker: Entry) -> Result<Pack, PackError> {
-        let bytes = archive.manifest(marker, MARKER)?;
+    fn read(&self, mut archive: Archive, marker: ManifestLocation) -> Result<Pack, PackError> {
+        let bytes = archive.manifest(marker.entry, &marker.path)?;
         let header: Header = decode(&bytes)?;
         if header.manifest_type != "minecraftModpack" || header.manifest_version != 1 {
             return Err(PackError::Unsupported(format!(

@@ -10,8 +10,8 @@ use url::Url;
 
 use crate::archive::{self, Archive, Entry};
 use crate::{
-    Download, GameRequirements, OptionId, OptionalFile, Pack, PackError, PackFiles, PackReader,
-    PackSource, PlannedDownloads, paths,
+    Download, GameRequirements, ManifestLocation, OptionId, OptionalFile, Pack, PackError,
+    PackFiles, PackReader, PackSource, PlannedDownloads, paths,
 };
 
 const MARKER: &str = "modrinth.index.json";
@@ -19,12 +19,12 @@ const MARKER: &str = "modrinth.index.json";
 pub(crate) struct Reader;
 
 impl PackReader for Reader {
-    fn find_manifest(&self, archive: &Archive) -> Option<Entry> {
-        archive.entry(MARKER)
+    fn find_manifest(&self, archive: &Archive) -> Result<Option<ManifestLocation>, PackError> {
+        Ok(archive.locate(MARKER))
     }
 
-    fn read(&self, mut archive: Archive, manifest: Entry) -> Result<Pack, PackError> {
-        let bytes = archive.manifest(manifest, MARKER)?;
+    fn read(&self, mut archive: Archive, manifest: ManifestLocation) -> Result<Pack, PackError> {
+        let bytes = archive.manifest(manifest.entry, &manifest.path)?;
         let header: Format = decode(&bytes)?;
         if header.version != 1 || header.game != "minecraft" {
             return Err(PackError::Unsupported(format!(

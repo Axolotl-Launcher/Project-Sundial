@@ -8,6 +8,7 @@
 mod archive;
 mod curseforge;
 mod modrinth;
+mod multimc;
 mod paths;
 
 use std::collections::BTreeSet;
@@ -29,27 +30,37 @@ pub struct ModpackPlugin {
 }
 
 trait PackReader: Sync {
-    fn find_manifest(&self, archive: &Archive) -> Option<Entry>;
-    fn read(&self, archive: Archive, manifest: Entry) -> Result<Pack, PackError>;
+    fn find_manifest(&self, archive: &Archive) -> Result<Option<ManifestLocation>, PackError>;
+    fn read(&self, archive: Archive, manifest: ManifestLocation) -> Result<Pack, PackError>;
+}
+
+struct ManifestLocation {
+    path: String,
+    entry: Entry,
 }
 
 impl ModpackPlugin {
     /// Registers the archive formats shipped with this build.
     pub const fn builtin() -> Self {
         Self {
-            readers: &[&modrinth::Reader, &curseforge::Reader],
+            readers: &[&modrinth::Reader, &curseforge::Reader, &multimc::Reader],
         }
     }
 
     /// Opens the selected file and retains the archive used for inspection.
     pub fn inspect(&self, path: &Path) -> Result<Pack, PackError> {
         let archive = Archive::open(path)?;
-        let mut candidates = self
-            .readers
-            .iter()
-            .filter_map(|reader| Some((*reader, reader.find_manifest(&archive)?)));
-        let (reader, manifest) = candidates.next().ok_or(PackError::UnknownFormat)?;
-        if candidates.next().is_some() {
+        let mut candidates = self.readers.iter().filter_map(|reader| {
+            reader
+                .find_manifest(&archive)
+                .transpose()
+                .map(|found| found.map(|location| (*reader, location)))
+        });
+        let (reader, manifest) = candidates
+            .next()
+            .transpose()?
+            .ok_or(PackError::UnknownFormat)?;
+        if candidates.next().transpose()?.is_some() {
             return Err(PackError::AmbiguousFormat);
         }
         reader.read(archive, manifest)
@@ -84,6 +95,7 @@ pub enum PackError {
 pub enum PackSource {
     Modrinth,
     CurseForge,
+    MultiMc,
 }
 
 impl PackSource {
@@ -91,6 +103,7 @@ impl PackSource {
         match self {
             Self::Modrinth => "Modrinth",
             Self::CurseForge => "CurseForge",
+            Self::MultiMc => "MultiMC",
         }
     }
 }
@@ -162,6 +175,7 @@ pub struct Pack {
 enum PackFiles {
     Modrinth(modrinth::Files),
     CurseForge(curseforge::Files),
+    Bundled,
 }
 
 /// Controls how the planner acquires files with no public download URL.
@@ -236,6 +250,11 @@ impl Pack {
         let mut downloads = match &self.files {
             PackFiles::Modrinth(files) => files.plan(selected),
             PackFiles::CurseForge(files) => files.plan(selected, options, network).await?,
+            PackFiles::Bundled => PlannedDownloads {
+                files: Vec::new(),
+                redirect_policy: |_| false,
+                api_key: None,
+            },
         };
         paths::check_tree(downloads.files.iter().map(Download::path))?;
         downloads.files.retain(|file| {
