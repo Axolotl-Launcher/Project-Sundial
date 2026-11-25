@@ -199,6 +199,13 @@ config and patch migration path. The layout here covers the current component
 file. [MultiMC metadata][mmc-meta] · [MultiMC component reader and writer][mmc-profile] ·
 [MultiMC patch guide][mmc-patches]
 
+The standalone `axlauncher-mmc-convert` tool handles supported custom
+components. It applies active patches in order and produces a native version
+document plus a private runtime for the new profile. It supports appended
+bundled Java libraries, a bundled replacement client JAR, and ordered
+bundled archive JAR mods. The desktop importer remains the entry point for
+standard exports. [Converter usage](../../CONTRIBUTING.md#multimc-exports-with-custom-components)
+
 ## packwiz subscriptions
 
 ### Publishing and file resolution

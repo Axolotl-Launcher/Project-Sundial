@@ -61,6 +61,7 @@ fn permitted_edge(owner: &str, dependency: &str, target_dir: &Path) -> bool {
             "axlauncher_ui" | "axlauncher_core" | "axlauncher_modpack"
         ),
         "axlauncher_modpack" => dependency == "axlauncher_spi",
+        "axlauncher_mmc_convert" => matches!(dependency, "axlauncher_core" | "axlauncher_modpack"),
         "axlauncher_platform_windows"
         | "axlauncher_platform_linux"
         | "axlauncher_platform_macos" => dependency == "axlauncher_frontend",

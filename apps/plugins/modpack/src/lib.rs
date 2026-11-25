@@ -10,6 +10,7 @@ mod curseforge;
 mod modrinth;
 mod multimc;
 mod paths;
+pub use multimc::MultiMcExport;
 
 use std::collections::BTreeSet;
 use std::io::{self, BufRead, BufReader, Read};

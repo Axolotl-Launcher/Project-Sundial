@@ -27,6 +27,7 @@ members = [
   "platforms/macos",
   "platforms/windows",
   "tests",
+  "tools/mmc-convert",
 ]
 
 [workspace.package]

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::{self, Read};
+use std::path::Path;
 
 use axlauncher_spi::LoaderKind;
 use serde::Deserialize;
@@ -36,7 +38,42 @@ impl PackReader for Reader {
         Ok(found)
     }
 
-    fn read(&self, mut archive: Archive, manifest: ManifestLocation) -> Result<Pack, PackError> {
+    fn read(&self, archive: Archive, manifest: ManifestLocation) -> Result<Pack, PackError> {
+        let export = MultiMcExport::read(archive, manifest)?;
+        validate_local_artifacts(&export.archive, &export.root, &export.components)?;
+        let game = requirements(&export.components)?;
+        let bundled = archive::bundled(game_files(&export.archive, &export.root)?)?;
+        Ok(Pack {
+            source: PackSource::MultiMc,
+            name: export.name,
+            version: String::new(),
+            game,
+            required_count: 0,
+            optional: Vec::new(),
+            files: PackFiles::Bundled,
+            bundled: BundledFiles::new(bundled, export.archive),
+        })
+    }
+}
+
+/// Bounded access to an explicit export for the standalone conversion tool.
+pub struct MultiMcExport {
+    archive: Archive,
+    root: String,
+    components: Vec<Component>,
+    name: String,
+}
+
+impl MultiMcExport {
+    pub fn open(path: &Path) -> Result<Self, PackError> {
+        let archive = Archive::open(path)?;
+        let manifest = Reader
+            .find_manifest(&archive)?
+            .ok_or(PackError::UnknownFormat)?;
+        Self::read(archive, manifest)
+    }
+
+    fn read(mut archive: Archive, manifest: ManifestLocation) -> Result<Self, PackError> {
         let root = instance_root(&manifest.path).expect("MultiMC reader selected the manifest");
         let wrapper = root.trim_end_matches('/');
         if !root.is_empty() {
@@ -50,20 +87,142 @@ impl PackReader for Reader {
             )));
         }
         let Manifest { components } = decode(&bytes)?;
-        let game = requirements(&components)?;
-        validate_local_artifacts(&archive, root, &components)?;
-        let bundled = archive::bundled(game_files(&archive, root)?)?;
         let name = read_instance_name(&mut archive, root, wrapper)?;
-        Ok(Pack {
-            source: PackSource::MultiMc,
+        let mut seen = BTreeSet::new();
+        for component in &components {
+            validate_component(component, &mut seen)?;
+        }
+        Ok(Self {
+            archive,
+            root: root.into(),
+            components,
             name,
-            version: String::new(),
-            game,
-            required_count: 0,
-            optional: Vec::new(),
-            files: PackFiles::Bundled,
-            bundled: BundledFiles::new(bundled, archive),
         })
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The stock launcher requirements below the enabled custom components.
+    pub fn base_game(&self) -> Result<GameRequirements, PackError> {
+        let mut base = Vec::new();
+        let mut custom = false;
+        for component in self
+            .components
+            .iter()
+            .filter(|component| !component.disabled)
+        {
+            self.add_base_component(component, &mut base, &mut custom)?;
+        }
+        requirements(&base)
+    }
+
+    fn add_base_component(
+        &self,
+        component: &Component,
+        base: &mut Vec<Component>,
+        custom: &mut bool,
+    ) -> Result<(), PackError> {
+        let stock = matches!(
+            component.uid.as_str(),
+            MINECRAFT
+                | INTERMEDIARY
+                | "org.lwjgl"
+                | "org.lwjgl3"
+                | "net.minecraftforge"
+                | "net.neoforged"
+                | "net.fabricmc.fabric-loader"
+                | "org.quiltmc.quilt-loader"
+        );
+        let patched = self.patch_entry(&component.uid).is_some();
+        if patched && stock {
+            return Err(PackError::Unsupported(format!(
+                "MultiMC patch replaces stock component {}",
+                component.uid
+            )));
+        }
+        if patched {
+            *custom = true;
+            return Ok(());
+        }
+        if *custom && stock && !component.dependency_only {
+            return Err(PackError::Unsupported(format!(
+                "MultiMC custom component precedes {}",
+                component.uid
+            )));
+        }
+        base.push(component.clone());
+        Ok(())
+    }
+
+    pub fn component_version(&self, uid: &str) -> Option<&str> {
+        self.components
+            .iter()
+            .find(|component| !component.disabled && component.uid == uid)?
+            .version
+            .as_deref()
+    }
+
+    /// Active patch JSON in the order used by the export.
+    pub fn read_patches(
+        &mut self,
+        mut read: impl FnMut(&str, &[u8]) -> io::Result<()>,
+    ) -> Result<(), PackError> {
+        let active: Vec<_> = self
+            .components
+            .iter()
+            .filter(|component| !component.disabled)
+            .filter_map(|component| {
+                self.patch_entry(&component.uid)
+                    .map(|location| (component.uid.as_str(), location))
+            })
+            .collect();
+        for (uid, location) in active {
+            let bytes = self.archive.manifest(location.entry, &location.path)?;
+            read(uid, &bytes)?;
+        }
+        Ok(())
+    }
+
+    fn patch_entry(&self, uid: &str) -> Option<ManifestLocation> {
+        self.archive
+            .locate(&format!("{}patches/{uid}.json", self.root))
+    }
+
+    /// Reads a named regular file in an instance-local artifact directory.
+    pub fn stream_artifact(
+        &mut self,
+        path: &str,
+        write: impl FnOnce(&mut dyn Read) -> io::Result<()>,
+    ) -> Result<(), PackError> {
+        paths::validate(path)?;
+        if !path.starts_with("libraries/") && !path.starts_with("jarmods/") {
+            return Err(PackError::Invalid(format!(
+                "not a MultiMC artifact path: {path}"
+            )));
+        }
+        let entry = self
+            .archive
+            .entry(&format!("{}{path}", self.root))
+            .ok_or_else(|| PackError::Invalid(format!("missing MultiMC artifact {path}")))?;
+        entry.require_file(path)?;
+        if entry.size() > 512 * 1024 * 1024 {
+            return Err(PackError::Invalid(format!(
+                "MultiMC artifact is too large: {path}"
+            )));
+        }
+        self.archive.stream(entry, write)
+    }
+
+    pub fn write_game_files(
+        &mut self,
+        mut write: impl FnMut(&str, &mut dyn Read) -> io::Result<()>,
+    ) -> Result<(), PackError> {
+        for (path, entry) in archive::bundled(game_files(&self.archive, &self.root)?)? {
+            self.archive.stream(entry, |input| write(&path, input))?;
+        }
+        Ok(())
     }
 }
 
@@ -92,7 +251,7 @@ struct Manifest {
     components: Vec<Component>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Component {
     uid: String,
@@ -147,6 +306,14 @@ fn register_component<'a>(
     seen: &mut BTreeSet<String>,
     active: &mut BTreeMap<&'a str, &'a Component>,
 ) -> Result<(), PackError> {
+    validate_component(component, seen)?;
+    if !component.disabled {
+        active.insert(&component.uid, component);
+    }
+    Ok(())
+}
+
+fn validate_component(component: &Component, seen: &mut BTreeSet<String>) -> Result<(), PackError> {
     let uid = component.uid.as_str();
     if uid.is_empty()
         || !uid
@@ -157,9 +324,6 @@ fn register_component<'a>(
         return Err(PackError::Invalid(format!(
             "invalid or repeated MultiMC component {uid:?}"
         )));
-    }
-    if !component.disabled {
-        active.insert(uid, component);
     }
     Ok(())
 }
@@ -232,7 +396,7 @@ fn validate_local_artifacts(
         let directory = lower.split('/').next().unwrap_or_default();
         if matches!(directory, "libraries" | "jarmods") || active_patches.contains(&lower) {
             return Err(PackError::Unsupported(format!(
-                "MultiMC pack contains a local launch artifact: {path}"
+                "MultiMC pack contains a local launch artifact: {path}. Use axlauncher-mmc-convert for custom exports."
             )));
         }
     }

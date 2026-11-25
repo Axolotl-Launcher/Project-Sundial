@@ -75,6 +75,7 @@ lookup for the destination.
 | `axlauncher_ui` | [ui](../../apps/ui/src/lib.rs) | Palette, theme installation and component re-exports. |
 | `axlauncher_frontend` | [frontend](../../apps/frontend/src/lib.rs) | Root view, interaction state, windows and provider selection. |
 | `axlauncher_modpack` | [modpack](../../apps/plugins/modpack/src/lib.rs) | Registered readers for modpack distribution inputs, plus file selection and override planning. Its only workspace dependency is SPI. |
+| `axlauncher_mmc_convert` | [mmc-convert](../../tools/mmc-convert/src/main.rs) | Standalone conversion of selected MultiMC exports with custom launch components into native, isolated profiles. It uses the modpack archive reader and the core facade. |
 | `axlauncher_platform_windows` | [Windows](../../platforms/windows/src/main.rs) | Windows executable entry point. |
 | `axlauncher_platform_linux` | [Linux](../../platforms/linux/src/main.rs) | Linux executable entry point. |
 | `axlauncher_platform_macos` | [macOS](../../platforms/macos/src/main.rs) | macOS executable entry point. |

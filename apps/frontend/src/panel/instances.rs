@@ -77,6 +77,9 @@ pub(crate) fn profile_version(game: &Game) -> Option<&str> {
 /// A loader this build cannot install has no key, which keeps an action that
 /// would fail at the end of a download off the row.
 pub(crate) fn install_key(game: &Game) -> Option<String> {
+    if game.is_runtime_isolated() {
+        return None;
+    }
     let Some(loader) = game.loader.as_ref() else {
         return Some(game.minecraft.clone());
     };
@@ -137,7 +140,11 @@ impl RootView {
             .filter(|language| !language.is_empty())
             .unwrap_or_else(|| super::environment::LAUNCHER_LANGUAGE.to_owned());
         Some(LaunchRequest {
-            game_root: DataDir::new(self.root.as_ref()?).meta(),
+            game_root: if game.is_runtime_isolated() {
+                axlauncher_core::storage::instance_runtime(&entry.directory)
+            } else {
+                DataDir::new(self.root.as_ref()?).meta()
+            },
             instance_directory: entry.directory.clone(),
             version_id: version.to_owned(),
             java_preference: None,

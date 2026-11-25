@@ -672,6 +672,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "axlauncher_mmc_convert"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_core",
+ "axlauncher_modpack",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "zip",
+]
+
+[[package]]
 name = "axlauncher_mod_metadata"
 version = "0.1.0"
 

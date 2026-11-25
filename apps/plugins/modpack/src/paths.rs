@@ -10,7 +10,7 @@ use crate::PackError;
 pub(crate) fn validate(path: &str) -> Result<(), PackError> {
     let mut parts = path.split('/');
     let reserved = parts.next().is_some_and(|first| {
-        [".axlprofile", "files.json"]
+        [".axlprofile", ".axl-runtime", "files.json"]
             .iter()
             .any(|name| first.eq_ignore_ascii_case(name))
     });
