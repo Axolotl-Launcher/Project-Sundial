@@ -121,6 +121,8 @@ pub struct LoaderFile {
 /// Why a loader could not be listed or resolved.
 #[derive(Debug)]
 pub enum LoaderError {
+    /// The launcher has no provider for this loader.
+    Unsupported { loader: LoaderKind },
     /// The metadata service could not be reached, or refused the request.
     Unavailable {
         loader: LoaderKind,
@@ -141,6 +143,9 @@ pub enum LoaderError {
 impl fmt::Display for LoaderError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Unsupported { loader } => {
+                write!(formatter, "this build has no provider for {loader}")
+            }
             Self::Unavailable { loader, source } => {
                 write!(formatter, "cannot reach {loader}'s metadata: {source}")
             }
@@ -165,7 +170,10 @@ impl std::error::Error for LoaderError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Unavailable { source, .. } => Some(source),
-            Self::Malformed { .. } | Self::NoVersions { .. } | Self::UnknownVersion { .. } => None,
+            Self::Unsupported { .. }
+            | Self::Malformed { .. }
+            | Self::NoVersions { .. }
+            | Self::UnknownVersion { .. } => None,
         }
     }
 }

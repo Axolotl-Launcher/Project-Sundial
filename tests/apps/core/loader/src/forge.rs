@@ -17,6 +17,27 @@ const PROMOTIONS_BODY: &str = r#"{
   }
 }"#;
 
+const METADATA: &str = r#"<metadata><versioning><versions>
+    <version>1.20.1-47.4.0</version>
+    <version>1.20.1-47.4.29</version>
+    <version>1.7.10-10.13.4.1614</version>
+    <version>1.7.10-10.13.4.1614-1.7.10</version>
+    <version>1.10-12.18.0.2000-1.10.0</version>
+    <version>1.20.1-47.4.28</version>
+    <version>1.19.2-43.3.0</version>
+    <version>26.1-snapshot-1-62.0.1</version>
+    <version>26.1-62.0.2</version>
+</versions></versioning></metadata>"#;
+
+fn catalog() -> FakeNetwork {
+    FakeNetwork {
+        responses: BTreeMap::from([(
+            format!("{MAVEN}/maven-metadata.xml"),
+            Ok(METADATA.as_bytes().to_vec()),
+        )]),
+    }
+}
+
 struct FakeNetwork {
     responses: BTreeMap<String, Result<Vec<u8>, FetchError>>,
 }
@@ -31,17 +52,11 @@ impl Network for FakeNetwork {
 }
 
 fn block_on<F: std::future::Future>(future: F) -> F::Output {
-    use std::task::{Context, Poll, Waker};
-
-    let waker = Waker::noop();
-    let mut context = Context::from_waker(waker);
-    let mut future = std::pin::pin!(future);
-    loop {
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(value) => return value,
-            Poll::Pending => std::thread::yield_now(),
-        }
-    }
+    tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .unwrap()
+        .block_on(future)
 }
 
 fn installer() -> Vec<u8> {
@@ -72,11 +87,8 @@ fn installer() -> Vec<u8> {
 }
 
 #[test]
-fn the_two_promoted_versions_are_listed_newest_first() {
-    let network = FakeNetwork {
-        responses: BTreeMap::from([(PROMOTIONS.into(), Ok(PROMOTIONS_BODY.as_bytes().to_vec()))]),
-    };
-    let api = ForgeApi::new(network);
+fn the_catalog_includes_unpromoted_builds_newest_first() {
+    let api = ForgeApi::new(catalog());
 
     let versions = block_on(api.versions("1.20.1")).expect("versions");
 
@@ -85,22 +97,64 @@ fn the_two_promoted_versions_are_listed_newest_first() {
             .iter()
             .map(|v| v.version.as_str())
             .collect::<Vec<_>>(),
-        ["47.4.29", "47.4.28"]
+        ["47.4.29", "47.4.28", "47.4.0"]
     );
-    assert_eq!(versions[0].stable, Some(false), "latest is not recommended");
-    assert_eq!(versions[1].stable, Some(true), "recommended is stable");
+    assert!(versions.iter().all(|entry| entry.stable.is_none()));
 }
 
 #[test]
-fn a_game_version_without_promotions_is_no_versions() {
-    let network = FakeNetwork {
-        responses: BTreeMap::from([(PROMOTIONS.into(), Ok(PROMOTIONS_BODY.as_bytes().to_vec()))]),
-    };
-    let api = ForgeApi::new(network);
+fn the_catalog_marks_only_the_recommended_build() {
+    let mut network = catalog();
+    network
+        .responses
+        .insert(PROMOTIONS.into(), Ok(PROMOTIONS_BODY.as_bytes().to_vec()));
+
+    let versions = block_on(ForgeApi::new(network).versions("1.20.1")).unwrap();
+
+    let recommended: Vec<_> = versions
+        .iter()
+        .filter(|entry| entry.stable == Some(true))
+        .map(|entry| entry.version.as_str())
+        .collect();
+    assert_eq!(recommended, ["47.4.28"]);
+}
+
+#[test]
+fn a_game_version_without_maven_builds_is_no_versions() {
+    let api = ForgeApi::new(catalog());
 
     let error = block_on(api.versions("1.5.2")).expect_err("none");
 
     assert!(matches!(error, LoaderError::NoVersions { .. }), "{error}");
+}
+
+#[test]
+fn a_non_maven_response_is_a_metadata_error() {
+    let network = FakeNetwork {
+        responses: BTreeMap::from([(
+            format!("{MAVEN}/maven-metadata.xml"),
+            Ok(b"<html>Service unavailable</html>".to_vec()),
+        )]),
+    };
+    let error = block_on(ForgeApi::new(network).versions("1.20.1")).unwrap_err();
+    assert!(matches!(error, LoaderError::Malformed { .. }));
+}
+
+#[test]
+fn the_catalog_deduplicates_repeated_game_suffixes_and_preserves_branch_coordinates() {
+    let api = ForgeApi::new(catalog());
+    let historical = block_on(api.versions("1.7.10")).unwrap();
+    assert_eq!(historical.len(), 1);
+    assert_eq!(historical[0].version, "10.13.4.1614");
+    assert_eq!(
+        block_on(api.versions("1.10")).unwrap()[0].version,
+        "12.18.0.2000-1.10.0"
+    );
+    assert_eq!(block_on(api.versions("26.1")).unwrap()[0].version, "62.0.2");
+    assert_eq!(
+        block_on(api.versions("26.1-snapshot-1")).unwrap()[0].version,
+        "62.0.1"
+    );
 }
 
 #[test]

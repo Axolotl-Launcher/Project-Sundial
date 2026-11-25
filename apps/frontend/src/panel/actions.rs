@@ -254,29 +254,9 @@ impl RootView {
         let Some(data_root) = self.root.clone() else {
             return;
         };
-        let name = self.new_name.read(cx).value().trim().to_string();
-        let minecraft = self.new_minecraft.read(cx).value().trim().to_string();
-        let kind = self.new_loader.read(cx).value().trim().to_ascii_lowercase();
-        let version = self.new_loader_version.read(cx).value().trim().to_string();
-
-        if name.is_empty() || minecraft.is_empty() {
-            self.activity
-                .error("A profile needs a name and a Minecraft version.");
-            cx.notify();
+        let Some((name, game)) = self.profile_creation.profile(cx) else {
             return;
-        }
-        let mut game = Game::new(minecraft);
-        let loader = match loader_choice(&kind, &version) {
-            Ok(loader) => loader,
-            Err(error) => {
-                self.activity.error(error);
-                cx.notify();
-                return;
-            }
         };
-        if let Some((kind, version)) = loader {
-            game = game.with_loader(kind, version);
-        }
 
         let instances = DataDir::new(&data_root).instances();
         let directory = unique_directory(&instances, &name);
@@ -314,21 +294,6 @@ fn mark_failed(directory: &Path) -> Result<(), String> {
     };
     profile.set_install_status(InstallStatus::Failed);
     profile::save(directory, &profile).map_err(|error| error.to_string())
-}
-
-/// The loader a creation form asks for, or nothing for a vanilla profile.
-///
-/// The kind is stored in the spelling the SPI knows, so a marker this build
-/// writes is read the same way by every action that reads it.
-fn loader_choice(kind: &str, version: &str) -> Result<Option<(String, Option<String>)>, String> {
-    if kind.is_empty() || installations::is_vanilla(kind) {
-        return Ok(None);
-    }
-    let Some(parsed) = axlauncher_core::spi::LoaderKind::parse(kind) else {
-        return Err(format!("Loader {kind} is not available in this build yet."));
-    };
-    let version = (!version.is_empty()).then(|| version.to_string());
-    Ok(Some((parsed.as_str().to_string(), version)))
 }
 
 /// A directory name derived from a display name.

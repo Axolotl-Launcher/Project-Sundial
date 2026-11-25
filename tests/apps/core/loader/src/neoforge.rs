@@ -16,6 +16,13 @@ const METADATA: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
       <version>21.1.0</version>
       <version>20.2.93</version>
       <version>26.1.0.0-alpha.1</version>
+      <version>26.1.0.0-alpha.1+snapshot-1</version>
+      <version>26.1.0.0-alpha.9+snapshot-6</version>
+      <version>26.1.0.0-alpha.10+snapshot-6</version>
+      <version>26.1.0.0-alpha.15+pre-3</version>
+      <version>26.1.0.2</version>
+      <version>26.1.2.130</version>
+      <version>21.0.167</version>
     </versions>
   </versioning>
 </metadata>"#;
@@ -84,15 +91,49 @@ fn a_game_version_without_builds_is_no_versions() {
 }
 
 #[test]
-fn the_metadata_document_yields_its_versions() {
-    assert_eq!(
-        versions_in(METADATA),
-        ["20.2.3-beta", "21.1.0", "20.2.93", "26.1.0.0-alpha.1"]
-    );
+fn published_series_do_not_mix_patches_snapshots_and_base_releases() {
+    let network = FakeNetwork {
+        responses: BTreeMap::from([(
+            format!("{MAVEN}/maven-metadata.xml"),
+            Ok(METADATA.as_bytes().to_vec()),
+        )]),
+    };
+    let api = NeoForgeApi::new(network);
+    for (game, expected) in [
+        ("1.21", &["21.0.167"][..]),
+        ("26.1", &["26.1.0.2", "26.1.0.0-alpha.1"]),
+        ("26.1.2", &["26.1.2.130"]),
+        ("26.1-snapshot-1", &["26.1.0.0-alpha.1+snapshot-1"]),
+        (
+            "26.1-snapshot-6",
+            &[
+                "26.1.0.0-alpha.10+snapshot-6",
+                "26.1.0.0-alpha.9+snapshot-6",
+            ],
+        ),
+        ("26.1-pre-3", &["26.1.0.0-alpha.15+pre-3"]),
+    ] {
+        let listed = block_on(api.versions(game)).unwrap();
+        assert_eq!(
+            listed
+                .iter()
+                .map(|v| v.version.as_str())
+                .collect::<Vec<_>>(),
+            expected,
+            "{game}"
+        );
+    }
 }
 
 #[test]
-fn a_game_version_drops_its_leading_one() {
-    assert_eq!(game_prefix("1.20.2"), "20.2");
-    assert_eq!(game_prefix("26.1"), "26.1");
+fn minecraft_1_20_1_only_uses_its_own_maven_repository() {
+    let document = "<metadata><versioning><versions><version>1.20.1-47.1.5</version></versions></versioning></metadata>";
+    let network = FakeNetwork {
+        responses: BTreeMap::from([(
+            format!("{LEGACY_MAVEN}/maven-metadata.xml"),
+            Ok(document.as_bytes().to_vec()),
+        )]),
+    };
+    let listed = block_on(NeoForgeApi::new(network).versions("1.20.1")).unwrap();
+    assert_eq!(listed[0].version, "1.20.1-47.1.5");
 }

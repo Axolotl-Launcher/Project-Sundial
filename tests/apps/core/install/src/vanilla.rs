@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use super::*;
+use crate::vanilla::catalog::CATALOG;
 use axlauncher_spi::FetchError;
 
 use futures::executor::block_on;
@@ -17,14 +18,37 @@ impl Network for NetworkFixture {
     async fn fetch(&self, url: &str) -> Result<Vec<u8>, FetchError> {
         match url {
             CATALOG => Ok(serde_json::to_vec(&serde_json::json!({"versions": [
-                {"id":"26.3", "url":VERSION_URL, "sha1": self.0}
-            ]}))
+                {"id":"26.4-snapshot-10", "type":"snapshot", "releaseTime":"2026-11-17T16:02:02+00:00", "url":VERSION_URL, "sha1": self.0},
+                {"id":"26.3", "type":"release", "releaseTime":"2026-10-14T11:00:00+00:00", "url":VERSION_URL, "sha1": self.0},
+                {"id":"b1.7.3", "type":"old_beta", "releaseTime":"2011-07-07T22:00:00+00:00", "url":VERSION_URL, "sha1": self.0},
+                {"id":"rd-132211", "type":"old_alpha", "releaseTime":"2009-05-13T20:11:00+00:00", "url":VERSION_URL, "sha1": self.0}
+            ], "latest": {"release":"26.3", "snapshot":"26.4-snapshot-10"}}))
             .unwrap()),
             VERSION_URL => Ok(MANIFEST.to_vec()),
             CLIENT_URL => Ok(b"abc".to_vec()),
             other => Err(FetchError::Fatal(format!("unexpected URL {other}"))),
         }
     }
+}
+
+#[test]
+fn the_catalog_keeps_official_order_and_historical_categories() {
+    let catalog = block_on(versions(&NetworkFixture(MANIFEST_SHA1))).unwrap();
+    assert_eq!(catalog.latest_release(), "26.3");
+    let listed: Vec<_> = catalog
+        .versions()
+        .iter()
+        .map(|version| (version.id(), version.kind()))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            ("26.4-snapshot-10", MinecraftVersionKind::Snapshot),
+            ("26.3", MinecraftVersionKind::Release),
+            ("b1.7.3", MinecraftVersionKind::OldBeta),
+            ("rd-132211", MinecraftVersionKind::OldAlpha),
+        ]
+    );
 }
 
 #[test]

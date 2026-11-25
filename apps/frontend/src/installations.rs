@@ -11,7 +11,7 @@ use axlauncher_core::install::{
     runtime, vanilla,
 };
 use axlauncher_core::launch::{SystemJava, Target};
-use axlauncher_core::loader::{ForgeApi, LoaderApi, NeoForgeApi};
+use axlauncher_core::loader::{ForgeApi, LoaderApi, NeoForgeApi, SUPPORTED_KINDS};
 use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::spi::{LoaderKind, LoaderRequest};
 use axlauncher_core::state::javas::{self, ChosenJava};
@@ -150,17 +150,7 @@ fn download_failure(prepared: &Prepared) -> String {
 /// fail at the end of a download. The name is read through the SPI's own parser,
 /// so a spelling the port accepts is not refused here.
 pub(crate) fn supported_loader(kind: &str) -> bool {
-    is_vanilla(kind)
-        || matches!(
-            LoaderKind::parse(kind),
-            Some(
-                LoaderKind::Fabric
-                    | LoaderKind::LegacyFabric
-                    | LoaderKind::Quilt
-                    | LoaderKind::Forge
-                    | LoaderKind::NeoForge
-            )
-        )
+    is_vanilla(kind) || LoaderKind::parse(kind).is_some_and(|kind| SUPPORTED_KINDS.contains(&kind))
 }
 
 /// Starts installing a loader profile.
