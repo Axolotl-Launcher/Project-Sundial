@@ -9,7 +9,8 @@ use std::time::{Duration, Instant};
 use axlauncher_core::download_engine::{
     DownloadEngine, DownloadJob, DownloadProtocol, TransferStats,
 };
-use axlauncher_core::network::ReqwestNetwork;
+use axlauncher_core::network::{MirrorSettings, ReqwestNetwork};
+use axlauncher_core::state::SettingsData;
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
@@ -21,9 +22,10 @@ use futures::future::{Either, select};
 use tokio::sync::oneshot;
 
 use super::RootView;
-use crate::installations::Installation;
+use crate::installations::{InstallOptions, Installation};
 
 mod batch;
+mod sources;
 
 // Cargo Shear scans imports inside the crate but misses the mirrored tests.
 #[cfg(test)]
@@ -36,6 +38,7 @@ const MAX_VISIBLE_INSTALLATIONS: usize = 8;
 pub(super) struct DownloadDebug {
     url: Entity<InputState>,
     batch: batch::BatchDebug,
+    sources: sources::DownloadSources,
     stats: TransferStats,
     sampled_at: Instant,
     bytes_per_second: f64,
@@ -71,12 +74,17 @@ impl ProbeStatus {
 }
 
 impl DownloadDebug {
-    pub(super) fn new(window: &mut Window, cx: &mut Context<'_, RootView>) -> Self {
+    pub(super) fn new(
+        settings: Option<&SettingsData>,
+        window: &mut Window,
+        cx: &mut Context<'_, RootView>,
+    ) -> Self {
         let url = cx.new(|cx| InputState::new(window, cx).placeholder("https://…"));
         cx.subscribe(&url, RootView::download_probe_event).detach();
         Self {
             url,
             batch: batch::BatchDebug::new(window, cx),
+            sources: sources::DownloadSources::new(settings, window, cx),
             stats: DownloadEngine::shared().stats(),
             sampled_at: Instant::now(),
             bytes_per_second: 0.,
@@ -84,6 +92,16 @@ impl DownloadDebug {
             cancel: None,
             sampler: None,
         }
+    }
+
+    pub(super) fn reload_sources(
+        &mut self,
+        settings: Option<&SettingsData>,
+        window: &mut Window,
+        cx: &mut Context<'_, RootView>,
+    ) {
+        self.sources.sync(settings, window, cx);
+        self.sources.error = None;
     }
 
     fn sample(&mut self) {
@@ -162,7 +180,9 @@ impl RootView {
         self.download_debug.status = ProbeStatus::Running;
         self.download_debug.cancel = Some(cancel);
         self.monitor_downloads(cx);
-        let task = cx.background_spawn(async move { run_probe(url, destination, cancellation) });
+        let mirrors = InstallOptions::from_settings(self.settings.as_ref()).mirrors;
+        let task =
+            cx.background_spawn(async move { run_probe(url, destination, mirrors, cancellation) });
         cx.spawn(async move |view, cx| {
             let status = task.await;
             let _ = view.update(cx, |view, cx| view.finish_download_probe(status, cx));
@@ -232,6 +252,7 @@ impl RootView {
                                 .text_sm(),
                             ),
                     )
+                    .child(self.render_download_sources(cx))
                     .child(self.render_download_probe(cx))
                     .when_some(state.status.message(), |column, message| {
                         column.child(Label::new(message).text_sm().text_color(status_color))
@@ -329,7 +350,12 @@ fn protocol_label(protocol: DownloadProtocol) -> &'static str {
     }
 }
 
-fn run_probe(url: String, destination: PathBuf, cancel: oneshot::Receiver<()>) -> ProbeStatus {
+fn run_probe(
+    url: String,
+    destination: PathBuf,
+    mirrors: MirrorSettings,
+    cancel: oneshot::Receiver<()>,
+) -> ProbeStatus {
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -340,7 +366,7 @@ fn run_probe(url: String, destination: PathBuf, cancel: oneshot::Receiver<()>) -
         }
     };
     runtime.block_on(async {
-        let network = match ReqwestNetwork::desktop() {
+        let network = match ReqwestNetwork::desktop_with_mirrors(mirrors) {
             Ok(network) => network,
             Err(error) => return ProbeStatus::Failed(error.to_string()),
         };

@@ -82,7 +82,8 @@ impl RootView {
             .map(|settings| settings.theme)
             .unwrap_or_default();
         let create_instance = create_instance::CreateInstance::new(window, cx);
-        let download_debug = download_debug::DownloadDebug::new(window, cx);
+        let download_debug =
+            download_debug::DownloadDebug::new(loaded.settings.as_ref(), window, cx);
         let accounts = accounts::AccountsPanel::new(loaded.root.as_deref(), window, cx);
         let game_language = loaded
             .settings
@@ -155,6 +156,8 @@ impl RootView {
         self.refresh_accounts(cx);
         self.settings = loaded.settings;
         self.origin = loaded.origin;
+        self.download_debug
+            .reload_sources(self.settings.as_ref(), window, cx);
         self.notice = loaded.notice;
         self.theme = self
             .settings
@@ -187,6 +190,15 @@ impl RootView {
             Some(root) => self.activity.info(format!("Data root: {}", root.display())),
             None => self.activity.error("Data root unknown"),
         }
+    }
+
+    fn settings_readonly(&self) -> bool {
+        self.settings.is_none()
+            || self.root.is_none()
+            || matches!(
+                self.origin,
+                Some(SettingsOrigin::ReadOnlyOtherSchema { .. })
+            )
     }
 
     fn render_header(&mut self, cx: &mut Context<'_, Self>) -> AnyElement {
