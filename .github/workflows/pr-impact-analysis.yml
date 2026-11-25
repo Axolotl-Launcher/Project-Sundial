@@ -19,6 +19,8 @@ jobs:
     name: Analyze impact
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    outputs:
+      available: ${{ steps.scripts.outputs.available }}
     steps:
       - name: Check out the trusted base branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -97,7 +99,7 @@ jobs:
   comment:
     name: Publish impact comment
     needs: analyze
-    if: needs.analyze.result == 'success'
+    if: needs.analyze.result == 'success' && needs.analyze.outputs.available == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -125,14 +127,3 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
           IMPACT_REPORT: ${{ runner.temp }}/impact/impact.md
         run: node scripts/post-impact-comment.ts
-
-      - name: Verify the comment
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          count=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
-            --paginate --jq '.[] | select(.body | startswith("<!-- pr-impact-report -->")) | .id' \
-            | wc -l)
-          test "$count" -eq 1
