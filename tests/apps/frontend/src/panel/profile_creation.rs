@@ -3,8 +3,9 @@
 
 use super::{
     AUTOMATIC, CatalogStatus, LoaderCatalog, LoaderKind, LoaderVersion, loader_build_choices,
-    minecraft_picker_items, vanilla,
+    minecraft_picker_items,
 };
+use axlauncher_core::install::vanilla;
 use axlauncher_core::spi::{FetchError, Network};
 use axlauncher_ui::{SelectDelegate, SelectItem, SharedString};
 

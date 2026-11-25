@@ -3,12 +3,9 @@
 
 //! Version selection and catalog queries for the instance creation form.
 
-use std::{future::Future, time::Duration};
-
-use axlauncher_core::install::vanilla::{self, MinecraftCatalog, MinecraftVersionKind};
-use axlauncher_core::loader::{self, SUPPORTED_KINDS};
-use axlauncher_core::network::{MirrorSettings, ReqwestNetwork};
-use axlauncher_core::spi::{LoaderError, LoaderKind, LoaderVersion};
+use axlauncher_core::desktop::{catalog, sources::DownloadOptions};
+use axlauncher_core::install::vanilla::{MinecraftCatalog, MinecraftVersionKind};
+use axlauncher_core::spi::{LoaderKind, LoaderVersion};
 use axlauncher_core::state::profile::Game;
 use axlauncher_ui::component::IndexPath;
 use axlauncher_ui::{
@@ -17,13 +14,10 @@ use axlauncher_ui::{
 };
 
 use super::RootView;
-use crate::installations::InstallOptions;
 
 mod view;
 
 const AUTOMATIC: &str = "";
-const VANILLA: &str = "vanilla";
-const CATALOG_TIMEOUT: Duration = Duration::from_secs(15);
 
 type Picker = SelectState<SearchableVec<Choice>>;
 type ChoiceEvent = SelectEvent<SearchableVec<Choice>>;
@@ -184,11 +178,8 @@ impl RootView {
             return;
         }
         self.profile_creation.minecraft_status = CatalogStatus::Loading;
-        let mirrors = InstallOptions::from_settings(self.settings.as_ref()).mirrors;
-        let task = cx.background_spawn(async move {
-            let network = network(mirrors)?;
-            catalog_request(vanilla::versions(&network))
-        });
+        let options = DownloadOptions::from_settings(self.settings.as_ref());
+        let task = cx.background_spawn(async move { catalog::minecraft_versions(options) });
         cx.spawn_in(window, async move |view, cx| {
             complete_minecraft_request(view, cx, task.await);
         })
@@ -264,10 +255,9 @@ impl RootView {
             return;
         };
         state.loader_catalog.status = CatalogStatus::Loading;
-        let mirrors = InstallOptions::from_settings(self.settings.as_ref()).mirrors;
-        let task = cx.background_spawn(async move {
-            catalog_request(fetch_loader_versions(kind, &game, mirrors))
-        });
+        let options = DownloadOptions::from_settings(self.settings.as_ref());
+        let task =
+            cx.background_spawn(async move { catalog::loader_versions(options, kind, &game) });
         cx.spawn_in(window, async move |view, cx| {
             complete_loader_request(view, cx, revision, task.await);
         })
@@ -410,8 +400,8 @@ fn minecraft_picker_items(
 }
 
 fn loader_choices() -> SearchableVec<Choice> {
-    let mut choices = SearchableVec::new(vec![Choice::new(VANILLA, "Vanilla")]);
-    for kind in SUPPORTED_KINDS {
+    let mut choices = SearchableVec::new(vec![Choice::new(Game::VANILLA_KIND, "Vanilla")]);
+    for kind in catalog::supported_loaders() {
         let label = match kind {
             LoaderKind::Fabric => "Fabric",
             LoaderKind::LegacyFabric => "Legacy Fabric",
@@ -444,34 +434,6 @@ fn loader_build_choices(
         choices.push(Choice::new(version.version, label));
     }
     choices
-}
-
-fn network(mirrors: MirrorSettings) -> Result<ReqwestNetwork, String> {
-    ReqwestNetwork::desktop_with_mirrors(mirrors).map_err(|error| error.to_string())
-}
-
-fn catalog_request<T>(request: impl Future<Output = Result<T, String>>) -> Result<T, String> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| error.to_string())?;
-    runtime.block_on(async {
-        tokio::time::timeout(CATALOG_TIMEOUT, request)
-            .await
-            .map_err(|_| "The request timed out.".to_owned())?
-    })
-}
-
-async fn fetch_loader_versions(
-    kind: LoaderKind,
-    game: &str,
-    mirrors: MirrorSettings,
-) -> Result<Vec<LoaderVersion>, String> {
-    match loader::versions(network(mirrors)?, kind, game).await {
-        Ok(versions) => Ok(versions),
-        Err(LoaderError::NoVersions { .. }) => Ok(Vec::new()),
-        Err(error) => Err(error.to_string()),
-    }
 }
 
 #[cfg(test)]

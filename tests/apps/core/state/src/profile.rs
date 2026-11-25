@@ -18,72 +18,78 @@ fn put(root: &Path, relative: &str, bytes: &[u8]) {
 }
 
 #[test]
-fn blank_instances_round_trip_without_downloaded_content() {
+fn profile_creation_uses_one_managed_directory_per_profile() {
     let temp = TempRoot::new();
     let instances = temp.path().join("instances");
-    let blank = create_blank(&instances, "  空白实例  ", None).unwrap();
-    let vanilla = create_blank(&instances, "空白实例", Some(Game::new(" 1.21.11 "))).unwrap();
-
-    assert_ne!(blank, vanilla);
-    assert_eq!(fs::read_dir(&blank).unwrap().count(), 1);
-    let blank = read(&blank).unwrap().unwrap();
-    assert_eq!(blank.instance.name, "空白实例");
-    assert_eq!(blank.install.status, InstallStatus::NotInstalled);
-    assert!(blank.game.is_none());
-    assert!(blank.content.files.is_empty());
-    let version = read(&vanilla).unwrap().unwrap().game.unwrap();
-    assert_eq!(version.minecraft, "1.21.11");
-    assert!(version.loader.is_none());
-    assert_eq!(discover(&instances).instances.len(), 2);
-}
-
-#[test]
-fn a_loader_is_written_with_the_profile_and_read_back() {
-    let temp = TempRoot::new();
-    let instances = temp.path().join("instances");
-    let game = Game::new("1.21.11").with_loader("fabric", Some("0.19.5".into()));
-    let created = create_blank(&instances, "Modded", Some(game)).unwrap();
-
-    let game = read(&created).unwrap().unwrap().game.unwrap();
-    assert_eq!(game.minecraft, "1.21.11");
-    let loader = game.loader.expect("loader");
-    assert_eq!(loader.kind, "fabric");
-    assert_eq!(loader.version.as_deref(), Some("0.19.5"));
-
-    let recommended = create_blank(
+    let vanilla = create(&instances, "  Survival  ", Game::new(" 1.21.11 ")).unwrap();
+    let modded = create(
         &instances,
-        "Recommended",
-        Some(Game::new("1.21.11").with_loader("quilt", None)),
+        "Survival",
+        Game::new("1.21.11").with_loader("Fabric", Some("0.18.0".into())),
     )
     .unwrap();
-    let loader = read(&recommended)
-        .unwrap()
-        .unwrap()
-        .game
-        .unwrap()
-        .loader
-        .expect("loader");
-    assert_eq!(loader.kind, "quilt");
-    assert!(loader.version.is_none());
+
+    assert_ne!(vanilla, modded);
+    assert_eq!(fs::read_dir(&vanilla).unwrap().count(), 1);
+    let profile = read(&vanilla).unwrap().unwrap();
+    assert_eq!(vanilla, instances.join(&profile.id));
+    assert_eq!(profile.instance.name, "Survival");
+    assert_eq!(profile.install.status, InstallStatus::NotInstalled);
+    assert!(profile.content.files.is_empty());
+    assert_eq!(profile.game.unwrap().effective_version(), Some("1.21.11"));
+    let game = read(&modded).unwrap().unwrap().game.unwrap();
+    assert_eq!(game.loader.unwrap().version.as_deref(), Some("0.18.0"));
+    assert_eq!(discover(&instances).instances.len(), 2);
 }
 
 #[test]
 fn invalid_input_never_creates_an_instance_directory() {
     let temp = TempRoot::new();
     let instances = temp.path().join("instances");
-    assert!(matches!(
-        create_blank(&instances, " \t ", None),
-        Err(CreateError::InvalidName)
-    ));
-    assert!(matches!(
-        create_blank(&instances, "Example", Some(Game::new("../outside"))),
-        Err(CreateError::InvalidVersion)
-    ));
-    assert!(matches!(
-        create_blank(&instances, "Example", Some(Game::new("  "))),
-        Err(CreateError::InvalidVersion)
-    ));
+    for (name, version) in [
+        (" \t ", "1.21.11"),
+        ("Example", "../outside"),
+        ("Example", "1.21 invalid"),
+        ("Example", " "),
+    ] {
+        assert!(matches!(
+            create(&instances, name, Game::new(version)),
+            Err(ProfileWriteError::Invalid { .. })
+        ));
+    }
     assert!(!instances.exists());
+}
+
+#[test]
+fn effective_version_uses_the_recorded_id_or_a_vanilla_fallback() {
+    let vanilla = Game::new("1.21.11").with_loader(" vAnIlLa ", None);
+    assert!(vanilla.is_vanilla());
+    assert_eq!(vanilla.effective_version(), Some("1.21.11"));
+    let mut modded = Game::new("1.21.11").with_loader("fabric", None);
+    assert!(!modded.is_vanilla());
+    assert_eq!(modded.effective_version(), None);
+    modded.version_id = Some("fabric-custom".into());
+    assert_eq!(modded.effective_version(), Some("fabric-custom"));
+}
+
+#[test]
+fn state_updates_only_the_install_result_on_the_current_profile() {
+    let temp = TempRoot::new();
+    let directory = create(temp.path(), "Survival", Game::new("1.21.11")).unwrap();
+    let mut edited = read(&directory).unwrap().unwrap();
+    edited.instance.name = "Edited while installing".into();
+    save(&directory, &edited).unwrap();
+
+    mark_installed(&directory, "1.21.11").unwrap();
+    let ready = read(&directory).unwrap().unwrap();
+    assert_eq!(ready.instance.name, "Edited while installing");
+    assert_eq!(ready.install.status, InstallStatus::Ready);
+    assert_eq!(ready.game.unwrap().version_id.as_deref(), Some("1.21.11"));
+
+    mark_failed(&directory).unwrap();
+    let failed = read(&directory).unwrap().unwrap();
+    assert_eq!(failed.install.status, InstallStatus::Failed);
+    assert_eq!(failed.game.unwrap().version_id.as_deref(), Some("1.21.11"));
 }
 
 #[test]
@@ -254,9 +260,7 @@ fn local_resources_follow_old_directory_rules_and_the_actual_file_name() {
 fn a_new_profile_round_trips_through_save_and_read() {
     let temp = TempRoot::new();
     let directory = temp.path().join("survival");
-    let mut profile = Profile::new("Survival", Some(Game::new("1.21.11")));
-    profile.set_installed_version("fabric-loader-0.20.1-1.21.11");
-    profile.set_install_status(InstallStatus::Ready);
+    let profile = Profile::new("Survival", Some(Game::new("1.21.11")));
 
     save(&directory, &profile).expect("save");
     let loaded = read(&directory).expect("read").expect("present");
@@ -291,16 +295,14 @@ fn keys_this_build_does_not_know_survive_a_rewrite() {
     );
     put(&directory, ".axlprofile", original.as_bytes());
 
-    let mut profile = read(&directory).expect("read").expect("present");
-    profile.set_install_status(InstallStatus::Ready);
-    save(&directory, &profile).expect("save");
+    mark_failed(&directory).expect("record failure");
 
     let written: serde_json::Value =
         serde_json::from_slice(&fs::read(directory.join(".axlprofile")).expect("bytes"))
             .expect("json");
     assert_eq!(written["future"]["nested"], true);
     assert_eq!(written["instance"]["accent"], "green");
-    assert_eq!(written["install"]["status"], "ready");
+    assert_eq!(written["install"]["status"], "failed");
 }
 
 #[test]

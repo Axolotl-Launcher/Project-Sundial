@@ -22,14 +22,11 @@ use crate::{Loaded, Startup, load_at, palette_for};
 pub(crate) mod accounts;
 mod actions;
 mod activity;
-mod create_instance;
 mod download_debug;
 mod environment;
 mod instances;
 mod launch;
 mod profile_creation;
-
-pub(crate) use instances::{install_key, profile_version};
 
 const DEFAULT_PLAYER: &str = "Player";
 
@@ -44,7 +41,6 @@ pub(crate) struct RootView {
     accounts: accounts::AccountsPanel,
     profile_creation: profile_creation::ProfileCreation,
     instances: instances::InstancesState,
-    create_instance: create_instance::CreateInstance,
     download_debug: download_debug::DownloadDebug,
     inspection: launch::Inspection,
     installations: HashMap<PathBuf, HashMap<String, Installation>>,
@@ -74,7 +70,6 @@ impl RootView {
             .as_ref()
             .map(|settings| settings.theme)
             .unwrap_or_default();
-        let create_instance = create_instance::CreateInstance::new(window, cx);
         let download_debug =
             download_debug::DownloadDebug::new(loaded.settings.as_ref(), window, cx);
         let accounts = accounts::AccountsPanel::new(loaded.root.as_deref(), window, cx);
@@ -95,7 +90,6 @@ impl RootView {
             accounts,
             profile_creation,
             instances: instances::InstancesState::new(loaded.profiles),
-            create_instance,
             download_debug,
             inspection: launch::Inspection::default(),
             installations: HashMap::new(),
@@ -194,10 +188,7 @@ impl RootView {
     }
 
     fn fallen_proxy(&self) -> Option<axlauncher_core::spi::ServiceHost> {
-        self.settings
-            .as_ref()
-            .filter(|settings| settings.use_fallen_proxy)?;
-        Some(crate::source_hosts::fallen_proxy_host())
+        axlauncher_core::desktop::sources::fallen_proxy(self.settings.as_ref())
     }
 
     fn render_header(&mut self, cx: &mut Context<'_, Self>) -> AnyElement {

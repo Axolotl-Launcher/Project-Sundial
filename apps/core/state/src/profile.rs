@@ -16,9 +16,11 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 mod create;
 mod discovery;
+mod installation;
 mod resources;
-pub use create::{CreateError, create_blank};
+pub use create::create;
 pub use discovery::{DiscoveredProfile, DiscoveryError, ProfileDiscovery, discover};
+pub use installation::{InstallUpdateError, mark_failed, mark_installed};
 pub use resources::{Resource, ResourceKind, scan_resources};
 
 pub const FILE_NAME: &str = ".axlprofile";
@@ -29,9 +31,9 @@ const SCHEMA_VERSION: u32 = 1;
 #[non_exhaustive]
 pub struct Profile {
     pub schema_version: u32,
-    pub id: String,
+    id: String,
     pub instance: ProfileInfo,
-    pub game: Option<Game>,
+    game: Option<Game>,
     #[serde(default)]
     pub install: Install,
     #[serde(default)]
@@ -281,6 +283,22 @@ pub(crate) fn is_link(metadata: &fs::Metadata) -> bool {
 }
 
 impl Game {
+    pub const VANILLA_KIND: &str = "vanilla";
+
+    /// Vanilla may be implicit or explicitly named in the profile.
+    pub fn is_vanilla(&self) -> bool {
+        self.loader
+            .as_ref()
+            .is_none_or(|loader| loader.kind.trim().eq_ignore_ascii_case(Self::VANILLA_KIND))
+    }
+
+    /// A loader needs a recorded version ID before it can launch.
+    pub fn effective_version(&self) -> Option<&str> {
+        self.version_id
+            .as_deref()
+            .or_else(|| self.is_vanilla().then_some(self.minecraft.as_str()))
+    }
+
     /// A game with no loader: the vanilla version the profile names.
     pub fn new(minecraft: impl Into<String>) -> Self {
         Self {
@@ -324,21 +342,12 @@ impl Profile {
         }
     }
 
-    /// Replaces the game selection.
-    pub fn set_game(&mut self, game: Game) {
-        self.game = Some(game);
+    pub fn id(&self) -> &str {
+        &self.id
     }
 
-    /// Records the version id an install produced, so a launch needs no
-    /// provider round trip.
-    pub fn set_installed_version(&mut self, version_id: impl Into<String>) {
-        if let Some(game) = self.game.as_mut() {
-            game.version_id = Some(version_id.into());
-        }
-    }
-
-    pub fn set_install_status(&mut self, status: InstallStatus) {
-        self.install.status = status;
+    pub fn game(&self) -> Option<&Game> {
+        self.game.as_ref()
     }
 }
 

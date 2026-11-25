@@ -1,30 +1,20 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! The desktop wiring port and its placeholder provider.
+//! Desktop application services and their wiring ports.
 
-pub use axlauncher_spi::desktop::{
-    DesktopBackend, DesktopOperation, DesktopOperationError, operations,
-};
+use std::future::Future;
 
-/// A provider for wiring UI paths before their behavior is implemented.
-///
-/// ```
-/// use axlauncher_core::desktop::{DesktopBackend, PendingDesktopBackend, operations};
-///
-/// async fn list_instances(backend: &impl DesktopBackend) {
-///     let result = backend.request(operations::instance::LIST).await;
-///     assert!(result.is_err());
-/// }
-///
-/// let backend = PendingDesktopBackend;
-/// let _request = list_instances(&backend);
-/// ```
-#[derive(Debug, Default)]
-pub struct PendingDesktopBackend;
+pub mod catalog;
+pub mod installation;
+pub mod java;
+pub mod launching;
+pub mod sources;
 
-impl DesktopBackend for PendingDesktopBackend {
-    async fn request(&self, operation: DesktopOperation) -> Result<(), DesktopOperationError> {
-        Err(DesktopOperationError::NotImplemented { operation })
-    }
+/// A desktop worker runs one operation with its own Tokio I/O driver.
+fn on_worker<T>(operation: impl Future<Output = T>) -> std::io::Result<T> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    Ok(runtime.block_on(operation))
 }

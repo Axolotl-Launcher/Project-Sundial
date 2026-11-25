@@ -9,9 +9,8 @@
 //! loader's main class, libraries and arguments. Installing a loader is
 //! therefore fetching one document, not running an installer.
 //!
-//! [`LoaderApi`] serves the loaders whose metadata follows the same shape.
-//! A loader with a different API — one that ships an installer archive, say —
-//! is a new type implementing [`ModLoader`], not a branch inside this one.
+//! [`provider`] selects a [`ModLoader`] for both catalog requests and installs.
+//! Loaders with different formats keep their parsing and resolution separate.
 
 use axlauncher_spi::{
     FetchError, FetchKind, LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion,
@@ -24,35 +23,9 @@ mod installer;
 mod library;
 mod maven_metadata;
 mod neoforge;
+mod providers;
 mod versions;
-pub use forge::ForgeApi;
-pub use neoforge::NeoForgeApi;
-
-/// The loader kinds that have a version catalog and installation provider.
-pub const SUPPORTED_KINDS: [LoaderKind; 5] = [
-    LoaderKind::Fabric,
-    LoaderKind::LegacyFabric,
-    LoaderKind::Quilt,
-    LoaderKind::Forge,
-    LoaderKind::NeoForge,
-];
-
-/// Fetches a loader's published versions for a single Minecraft version.
-pub async fn versions(
-    network: impl Network,
-    kind: LoaderKind,
-    game_version: &str,
-) -> Result<Vec<LoaderVersion>, LoaderError> {
-    let provider = match kind {
-        LoaderKind::Fabric => LoaderApi::fabric(network),
-        LoaderKind::LegacyFabric => LoaderApi::legacy_fabric(network),
-        LoaderKind::Quilt => LoaderApi::quilt(network),
-        LoaderKind::Forge => return ForgeApi::new(network).versions(game_version).await,
-        LoaderKind::NeoForge => return NeoForgeApi::new(network).versions(game_version).await,
-        loader => return Err(LoaderError::Unsupported { loader }),
-    };
-    provider.versions(game_version).await
-}
+pub use providers::{provider, supported_kinds};
 
 /// Fabric's metadata service, whose scheme the `/versions/...` paths below are
 /// written for.
@@ -70,7 +43,7 @@ const QUILT_META: &str = "https://meta.quiltmc.org/v3";
 /// in the wiring for as long as the launcher runs, which is where a provider
 /// is chosen once.
 #[derive(Debug, Clone)]
-pub struct LoaderApi<N: Network> {
+struct LoaderApi<N: Network> {
     network: N,
     kind: LoaderKind,
     base: &'static str,

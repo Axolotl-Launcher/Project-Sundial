@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Desktop operations awaiting domain-specific request and result types.
+//! The desktop operation inventory. Executable workflows use typed services.
 
 use std::fmt;
 
@@ -30,35 +30,6 @@ impl fmt::Display for DesktopOperation {
     }
 }
 
-/// The outcome a caller can handle while an operation awaits implementation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum DesktopOperationError {
-    NotImplemented { operation: DesktopOperation },
-}
-
-impl fmt::Display for DesktopOperationError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::NotImplemented { operation } => {
-                write!(
-                    formatter,
-                    "Desktop operation {operation} is not implemented"
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for DesktopOperationError {}
-
-/// A wiring port for desktop operations while their typed domain ports are added.
-///
-/// The operation is the only input. Data and progress contracts belong to the
-/// owning system once an operation gains a real implementation.
-pub trait DesktopBackend {
-    fn request(
-        &self,
-        operation: DesktopOperation,
-    ) -> impl Future<Output = Result<(), DesktopOperationError>>;
-}
+#[cfg(test)]
+#[path = "../../../../tests/apps/core/spi/src/desktop.rs"]
+mod tests;

@@ -255,6 +255,16 @@ pub fn load(root: &Path) -> Result<LoadedJavas, JavasError> {
     })
 }
 
+/// A managed runtime fills an unanswered major without replacing a user's choice.
+pub fn choose_if_unset(root: &Path, runtime: ChosenJava) -> Result<(), JavasError> {
+    let mut document = load(root)?.javas;
+    if document.chosen_for(runtime.major_version).is_none() {
+        document.choose(runtime);
+        return save(root, &document);
+    }
+    Ok(())
+}
+
 /// Writes the document under `root`, refusing to replace one this build does
 /// not own.
 pub fn save(root: &Path, javas: &Javas) -> Result<(), JavasError> {

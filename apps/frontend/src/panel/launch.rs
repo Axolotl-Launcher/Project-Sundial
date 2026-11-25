@@ -3,13 +3,12 @@
 
 //! Read-only version and launch diagnostics for the selected profile.
 
-use std::path::Path;
-
-use axlauncher_core::launch::{LaunchCommand, LaunchRequest, flow, plan::Session};
+use axlauncher_core::desktop::launching::LaunchJob;
+use axlauncher_core::launch::{LaunchCommand, flow, plan::Session};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{Context, Task};
 
-use super::{RootView, profile_version};
+use super::RootView;
 
 mod render;
 
@@ -26,23 +25,19 @@ enum Output {
 
 impl RootView {
     fn selected_version(&self) -> Option<&str> {
-        let game = self.instances.selected()?.profile.game.as_ref()?;
-        profile_version(game)
+        let game = self.instances.selected()?.profile.game()?;
+        game.effective_version()
     }
 
     fn inspect_launch(&mut self, preview: bool, cx: &mut Context<'_, Self>) {
         let Some(entry) = self.instances.selected() else {
             return;
         };
-        let Some(request) = self.launch_request(entry, self.player_name(cx)) else {
-            return;
-        };
-        let Some(data_root) = self.root.clone() else {
+        let Some(job) = self.launch_job(entry, self.player_name(cx)) else {
             return;
         };
         let session = preview.then(|| self.preview_session(cx));
-        let task =
-            cx.background_spawn(async move { inspect(&request, session.as_ref(), &data_root) });
+        let task = cx.background_spawn(async move { inspect(&job, session.as_ref()) });
         self.inspection.output = None;
         self.inspection.task = Some(cx.spawn(async move |view, cx| {
             let output = task.await;
@@ -58,18 +53,14 @@ impl RootView {
     }
 }
 
-fn inspect(
-    request: &LaunchRequest,
-    session: Option<&Session>,
-    data_root: &Path,
-) -> Result<Output, String> {
-    let java = crate::java::managed(data_root);
+fn inspect(job: &LaunchJob, session: Option<&Session>) -> Result<Output, String> {
     if let Some(session) = session {
-        return flow::preview_with_session(&java, request, session)
+        return job
+            .preview(session)
             .map(Output::Command)
             .map_err(|error| error.to_string());
     }
-    flow::inspect_version(&java, request)
+    job.inspect()
         .map(Box::new)
         .map(Output::Version)
         .map_err(|error| error.to_string())

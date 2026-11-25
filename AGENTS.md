@@ -32,7 +32,9 @@ Keep tests under `tests/` and mirror the path to the source. Follow the
 layout and module rules in [tests/AGENTS.md](tests/AGENTS.md).
 
 Each resource has an owner. Use its existing API or SPI port. Only the owner
-may introduce direct resource access. Inject providers at the frontend.
+may introduce direct resource access. Route desktop installation and launch
+through the typed services in `axlauncher_core::desktop`; the frontend owns
+UI tasks, not provider dispatch or persistence.
 The [crate boundaries](.agents/docs/crates.md) define the allowed dependencies,
 resource access and narrow shared helpers. If a proposed improvement crosses
 a boundary, follow the [approval process](.agents/docs/crates.md#proposing-a-boundary-change).

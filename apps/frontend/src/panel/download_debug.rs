@@ -6,10 +6,10 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use axlauncher_core::desktop::sources::DownloadOptions;
 use axlauncher_core::download_engine::{
     DownloadEngine, DownloadJob, DownloadProtocol, TransferStats,
 };
-use axlauncher_core::network::{MirrorSettings, ReqwestNetwork};
 use axlauncher_core::state::SettingsData;
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
@@ -22,7 +22,7 @@ use futures::future::{Either, select};
 use tokio::sync::oneshot;
 
 use super::RootView;
-use crate::installations::{InstallOptions, Installation};
+use crate::installations::Installation;
 
 mod batch;
 mod sources;
@@ -180,9 +180,9 @@ impl RootView {
         self.download_debug.status = ProbeStatus::Running;
         self.download_debug.cancel = Some(cancel);
         self.monitor_downloads(cx);
-        let mirrors = InstallOptions::from_settings(self.settings.as_ref()).mirrors;
+        let options = DownloadOptions::from_settings(self.settings.as_ref());
         let task =
-            cx.background_spawn(async move { run_probe(url, destination, mirrors, cancellation) });
+            cx.background_spawn(async move { run_probe(url, destination, options, cancellation) });
         cx.spawn(async move |view, cx| {
             let status = task.await;
             let _ = view.update(cx, |view, cx| view.finish_download_probe(status, cx));
@@ -353,7 +353,7 @@ fn protocol_label(protocol: DownloadProtocol) -> &'static str {
 fn run_probe(
     url: String,
     destination: PathBuf,
-    mirrors: MirrorSettings,
+    options: DownloadOptions,
     cancel: oneshot::Receiver<()>,
 ) -> ProbeStatus {
     let runtime = match tokio::runtime::Builder::new_current_thread()
@@ -366,9 +366,9 @@ fn run_probe(
         }
     };
     runtime.block_on(async {
-        let network = match ReqwestNetwork::desktop_with_mirrors(mirrors) {
+        let network = match options.network() {
             Ok(network) => network,
-            Err(error) => return ProbeStatus::Failed(error.to_string()),
+            Err(error) => return ProbeStatus::Failed(error),
         };
         let job = DownloadJob {
             sources: &[&url],

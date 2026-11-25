@@ -14,10 +14,10 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 | HTTP and DNS | `network` owns HTTP clients, DNS routing, the OAuth loopback listener and transport error classification. | Inject `Network` for metadata and downloads, or `auth::AuthNetwork` for credential-bearing exchanges. |
 | Launcher data paths, blob storage and atomic writes | `storage` owns `DataDir`, `RootedStorage` and `write_atomic`. | Use `DataDir` for launcher paths and `Storage` for blob reads and writes. Document owners that need atomic replacement use `write_atomic`. The `Storage::write` contract permits ordinary writes. |
 | Minecraft accounts and system credentials | `state` owns account records, Microsoft and Yggdrasil authentication, and session refresh. `storage` owns the platform credential store. | Use `state::accounts::AccountService` with injected `auth::CredentialStore` and `auth::AuthNetwork` providers. |
-| Settings and instance manifests | `state` owns the settings document, `.axlprofile` creation and discovery, and instance resource scans. | Use `load_settings` and `save_settings` for settings. Use `profile::create_blank`, `profile::discover`, `profile::read` and `profile::scan_resources` for instances. `StateStore` serves the separate ID-based `InstanceRecord` API. |
+| Settings and instance manifests | `state` owns settings, `.axlprofile` creation and discovery, install status and runtime selections. | Use `load_settings` and `update_settings` for settings. Use `profile::create`, `profile::discover` and `profile::scan_resources` for instances; use `profile::mark_installed` or `profile::mark_failed` for install outcomes. `StateStore` serves the separate ID-based `InstanceRecord` API. |
 | File downloads | `download_engine` schedules connections and ranges, manages shared bandwidth and buffers, tries alternate sources and verifies files before promotion. | Pass file requests and an injected `Network` to `download_engine::download_all` or `download_engine::download_all_reporting`. Use `DownloadEngine` for explicit policy and source ordering. |
 | Installation files and asset indexes | `install` checks for missing libraries and assets, handles Minecraft metadata, and prepares the pinned third-party authentication agent. | Use `prepare::prepare` for game files and `auth_agent::prepare` for the Java agent. Both use `download_engine`. The SPI `Installer` accepts an `InstallPlan`. Its current `StepInstaller` implementation is a stub. |
-| Mod loader metadata services | `loader` lists versions and resolves version profiles through an injected `Network`. | Use the `ModLoader` SPI port. The `install` crate places the resulting profile and handles installation processors. |
+| Mod loader metadata services | `loader` lists versions and resolves version profiles through an injected `Network`. | `loader::provider` selects the `ModLoader` implementation for both catalog and install. `install` places the resulting profile and handles installation processors. |
 | Game version documents, classpath, JARs and natives | `launch` reads version files and JARs, evaluates launch rules and extracts natives. | Use `flow::launch` for prepared installations. Installation planning reuses `version::Version`, the library model and `rules::Target` to decide what to download. |
 | Installation processors | `install` plans and runs the Java processors declared in a version profile. | Use `install::processors` for installation steps. Use `Launcher` to start a game. |
 | Java discovery and game processes | `launch` provides `SystemJava` and `ProcessLauncher`. | Resolve the runtime through `Java::executable`. Pass the prepared `LaunchCommand` to `Launcher::launch`. |
@@ -26,6 +26,12 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 
 The frontend resolves the managed profiles directory with `DataDir`. Instance
 discovery and manifest access belong to `state`.
+
+Use `core::desktop` for the workflows that span several owners: profile version
+catalogs, game installation and launch. It wires providers, applies settings,
+and sequences the owner calls, but does not implement loader protocols, file
+preparation, profile writes, or process execution. GPUI workers and channels,
+progress redraw throttling, and view state stay in `frontend`.
 
 ## Download protocol behavior
 
@@ -68,9 +74,9 @@ lookup for the destination.
 | `axlauncher_install` | [install](../../apps/core/install/src/lib.rs) | Installation planning, metadata and preparation of game files before launch. |
 | `axlauncher_launch` | [launch](../../apps/core/launch/src/lib.rs) | Building and executing a command from prepared files. JAR extraction uses the crate-local `NativeReader` interface. |
 | `axlauncher_telemetry` | [telemetry](../../apps/core/telemetry/src/lib.rs) | Event sink implementation, currently `LoggingTelemetry`. |
-| `axlauncher_core` | [core](../../apps/core/src/lib.rs) | Application-facing system re-exports, account-based launch preparation across systems, and the brand constant. Domain behavior belongs in the owning child crate. |
+| `axlauncher_core` | [core](../../apps/core/src/lib.rs) | Application-facing system re-exports and desktop request orchestration. Delegates each operation to its owning system or SPI provider. |
 | `axlauncher_ui` | [ui](../../apps/ui/src/lib.rs) | Palette, theme installation and component re-exports. |
-| `axlauncher_frontend` | [frontend](../../apps/frontend/src/lib.rs) | Root view, interaction state, windows and provider selection. |
+| `axlauncher_frontend` | [frontend](../../apps/frontend/src/lib.rs) | Root view, interaction state, windows and UI task lifecycle. |
 | `axlauncher_platform_windows` | [Windows](../../platforms/windows/src/main.rs) | Windows executable entry point. |
 | `axlauncher_platform_linux` | [Linux](../../platforms/linux/src/main.rs) | Linux executable entry point. |
 | `axlauncher_platform_macos` | [macOS](../../platforms/macos/src/main.rs) | macOS executable entry point. |

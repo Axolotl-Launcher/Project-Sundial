@@ -5,6 +5,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::time::Duration;
 
+use axlauncher_core::state::SettingsData;
+
 use super::*;
 use crate::panel::download_debug::test_tempfile;
 
@@ -55,10 +57,10 @@ fn a_failed_link_does_not_prevent_other_outputs() {
     let (_cancel, cancellation) = oneshot::channel();
     let (report, mut outcomes) = mpsc::unbounded_channel();
 
-    let options = InstallOptions {
-        concurrency: 2,
-        ..InstallOptions::from_settings(None)
-    };
+    let options = DownloadOptions::from_settings(Some(&SettingsData {
+        max_concurrent_downloads: 2,
+        ..SettingsData::default()
+    }));
     let batch = run_batch(&data, links, options, cancellation, report).unwrap();
 
     assert!(!batch.cancelled);
@@ -88,10 +90,10 @@ fn cancelling_a_batch_preserves_the_files_already_saved() {
     let server = std::thread::spawn(move || serve_http1(listener));
     let (cancel, cancellation) = oneshot::channel();
     let (report, mut outcomes) = mpsc::unbounded_channel();
-    let options = InstallOptions {
-        concurrency: 1,
-        ..InstallOptions::from_settings(None)
-    };
+    let options = DownloadOptions::from_settings(Some(&SettingsData {
+        max_concurrent_downloads: 1,
+        ..SettingsData::default()
+    }));
     let worker =
         std::thread::spawn(move || run_batch(&data, links, options, cancellation, report).unwrap());
 

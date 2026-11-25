@@ -231,17 +231,10 @@ pub async fn install(
             async move { place(network, &directory, &name, &file).await }
         })
         .buffer_unordered(RUNTIME_CONCURRENCY);
-    // Each finished file is reported as it lands: a runtime is several hundred
-    // files, so waiting for all of them shows no progress for the whole
-    // download. The count is reported about a hundred times rather than once
-    // per file, because every report rebuilds a desktop panel.
-    let step = (total / 100).max(1);
     while let Some(result) = results.next().await {
         result?;
         processed += 1;
-        if processed == total || processed.is_multiple_of(step) {
-            report(Progress::Downloading { processed, total });
-        }
+        report(Progress::Downloading { processed, total });
     }
 
     if !java.is_file() {
