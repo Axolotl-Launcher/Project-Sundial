@@ -209,7 +209,7 @@ type RedirectPolicy = fn(&url::Url) -> bool;
 struct PlannedDownloads {
     files: Vec<Download>,
     redirect_policy: RedirectPolicy,
-    api_key: Option<String>,
+    cdn_key: Option<(&'static str, String)>,
 }
 
 impl Pack {
@@ -254,7 +254,7 @@ impl Pack {
             PackFiles::Bundled => PlannedDownloads {
                 files: Vec::new(),
                 redirect_policy: |_| false,
-                api_key: None,
+                cdn_key: None,
             },
         };
         paths::check_tree(downloads.files.iter().map(Download::path))?;
@@ -334,9 +334,10 @@ impl InstallPlan {
         self.downloads.redirect_policy
     }
 
-    /// The transfer client may send this credential only to the allowed origins.
-    pub fn download_api_key(&self) -> Option<&str> {
-        self.downloads.api_key.as_deref()
+    /// Credentials for direct file requests to the authenticated CDN origin.
+    pub fn download_key(&self) -> Option<(&'static str, &str)> {
+        let (host, key) = self.downloads.cdn_key.as_ref()?;
+        Some((*host, key.as_str()))
     }
 
     /// Bundled payloads stream through a host-supplied writer at their final relative paths.
@@ -384,6 +385,10 @@ impl Download {
 
     pub fn sha1(&self) -> Option<&str> {
         self.sha1.as_deref()
+    }
+
+    pub fn has_additional_digest(&self) -> bool {
+        self.sha512.is_some() || self.md5.is_some()
     }
 
     /// An official page where a user can obtain an unavailable download.

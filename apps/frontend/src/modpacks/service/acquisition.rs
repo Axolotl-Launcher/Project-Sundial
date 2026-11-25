@@ -72,7 +72,7 @@ impl StagedPack {
         if !self.remaining.is_empty() {
             let network = ReqwestNetwork::desktop_with_download_policy(
                 self.plan.redirect_policy(),
-                self.plan.download_api_key(),
+                self.plan.download_key(),
             )
             .map_err(|error| error.to_string())?;
             install_runtime()?.block_on(download_remaining(self, &network, concurrency, report))?;
@@ -246,21 +246,22 @@ async fn download(
     file: &Download,
 ) -> Result<(), String> {
     let sources: Vec<_> = file.urls().iter().map(String::as_str).collect();
-    DownloadEngine::shared()
-        .download(
-            network,
-            DownloadJob {
-                sources: &sources,
-                destination,
-                sha1: file.sha1(),
-                sha1_alternatives: &[],
-                size: file.size_hint(),
-                batch: true,
-            },
-        )
-        .await?;
-    let input = open_for_read(destination).map_err(|error| error.to_string())?;
-    file.verify(input).map_err(|error| error.to_string())
+    let engine = DownloadEngine::shared();
+    let job = DownloadJob {
+        sources: &sources,
+        destination,
+        sha1: file.sha1(),
+        sha1_alternatives: &[],
+        size: file.size_hint(),
+        batch: true,
+    };
+    if file.has_additional_digest() {
+        let digests = file.clone();
+        return engine
+            .download_verified(network, job, move |input| digests.verify(input))
+            .await;
+    }
+    engine.download(network, job).await
 }
 
 fn copy_verified(source: &Path, destination: &Path, download: &Download) -> io::Result<()> {

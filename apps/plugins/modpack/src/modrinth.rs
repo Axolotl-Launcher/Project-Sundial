@@ -152,7 +152,7 @@ impl Files {
         PlannedDownloads {
             files,
             redirect_policy: |url| allows_target(url, true),
-            api_key: None,
+            cdn_key: None,
         }
     }
 }

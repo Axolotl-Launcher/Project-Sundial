@@ -11,6 +11,9 @@ use super::{PinnedFile, allows_cdn, cdn_url};
 use crate::{Download, PackError, paths};
 
 const GAME_ID: u32 = 432;
+// Keep metadata batches within the transport's bounded response size.
+const FILE_BATCH_LIMIT: usize = 25;
+const PROJECT_BATCH_LIMIT: usize = 10;
 const API_ROOT: &str = "https://api.curseforge.com/v1";
 const USER_AGENT: &str = concat!("Axolotl-Launcher/", env!("CARGO_PKG_VERSION"));
 
@@ -37,13 +40,13 @@ impl<'a, N: AuthNetwork> Client<'a, N> {
             .into_iter()
             .collect();
         let files: BTreeMap<_, _> = self
-            .batch::<RemoteFile>("/mods/files", "fileIds", &file_ids, 25)
+            .batch::<RemoteFile>("/mods/files", "fileIds", &file_ids, FILE_BATCH_LIMIT)
             .await?
             .into_iter()
             .map(|file| (file.id, file))
             .collect();
         let projects: BTreeMap<_, _> = self
-            .batch::<Project>("/mods", "modIds", &project_ids, 10)
+            .batch::<Project>("/mods", "modIds", &project_ids, PROJECT_BATCH_LIMIT)
             .await?
             .into_iter()
             .map(|project| (project.id, project))

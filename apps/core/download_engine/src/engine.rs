@@ -3,9 +3,10 @@
 
 use std::borrow::Cow;
 use std::fs::File;
-use std::io;
+use std::io::{self, Seek};
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -27,6 +28,8 @@ const RETRY_DELAYS: [Duration; 4] = [
 ];
 const DEFAULT_FILE_CONNECTIONS: NonZeroUsize = NonZeroUsize::new(16).unwrap();
 const DEFAULT_BUFFER_BUDGET: NonZeroUsize = NonZeroUsize::new(16 * 1024 * 1024).unwrap();
+
+type Verification = Arc<dyn Fn(&mut File) -> io::Result<()> + Send + Sync>;
 
 /// Limits shared by all transfers performed by one engine.
 #[derive(Debug, Clone, Copy)]
@@ -144,13 +147,35 @@ impl DownloadEngine {
         network: &impl Network,
         job: DownloadJob<'_>,
     ) -> Result<(), String> {
+        self.download_job(network, job, None).await
+    }
+
+    /// Applies additional integrity checks to cached files and each source before promotion.
+    ///
+    /// The verifier starts at byte zero and signals a mismatch with `InvalidData`.
+    pub async fn download_verified(
+        &self,
+        network: &impl Network,
+        job: DownloadJob<'_>,
+        verify: impl Fn(&mut File) -> io::Result<()> + Send + Sync + 'static,
+    ) -> Result<(), String> {
+        let verify: Verification = Arc::new(verify);
+        self.download_job(network, job, Some(&verify)).await
+    }
+
+    async fn download_job(
+        &self,
+        network: &impl Network,
+        job: DownloadJob<'_>,
+        verify: Option<&Verification>,
+    ) -> Result<(), String> {
         let path = std::path::absolute(job.destination).map_err(|error| error.to_string())?;
         let exclusive = self.destinations.for_key(path, NonZeroUsize::MIN);
         let _lease = exclusive.acquire().await;
-        if already_verified(job).await {
+        if already_verified(job, verify).await {
             return Ok(());
         }
-        self.try_sources(network, job)
+        self.try_sources(network, job, verify)
             .await
             .map_err(|error| error.to_string())
     }
@@ -159,16 +184,16 @@ impl DownloadEngine {
         &self,
         network: &impl Network,
         job: DownloadJob<'_>,
+        verify: Option<&Verification>,
     ) -> Result<(), TransferError> {
-        let has_digest = job.sha1.is_some() || !job.sha1_alternatives.is_empty();
-        let mut sources = ordered_sources(network, job.sources, has_digest);
+        let mut sources = ordered_sources(network, job.sources, has_digest(job, verify));
         let mut last = TransferError::Invalid("no download source supplied".into());
         let mut rounds = RETRY_DELAYS.into_iter().enumerate();
         while let Some((round, delay)) = rounds.next().filter(|_| !sources.is_empty()) {
             wait_before_retry(delay).await;
             let final_round = round + 1 == RETRY_DELAYS.len();
             last = match self
-                .try_round(network, job, &mut sources, final_round)
+                .try_round(network, job, &mut sources, final_round, verify)
                 .await?
             {
                 Some(error) => error,
@@ -184,10 +209,14 @@ impl DownloadEngine {
         job: DownloadJob<'_>,
         sources: &mut Vec<Cow<'_, str>>,
         final_round: bool,
+        verify: Option<&Verification>,
     ) -> Result<Option<TransferError>, TransferError> {
         let mut last = TransferError::Invalid("no download source supplied".into());
         for source in std::mem::take(sources) {
-            let error = match self.attempt(network, job, &source, final_round).await {
+            let error = match self
+                .attempt(network, job, &source, final_round, verify)
+                .await
+            {
                 Ok(()) => return Ok(None),
                 Err(error @ TransferError::Disk(_)) => return Err(error),
                 Err(error) => error,
@@ -204,6 +233,7 @@ impl DownloadEngine {
         job: DownloadJob<'_>,
         source: &str,
         final_round: bool,
+        check: Option<&Verification>,
     ) -> Result<(), TransferError> {
         let host = Url::parse(source)
             .ok()
@@ -229,7 +259,7 @@ impl DownloadEngine {
         let mut staging = AtomicFile::new(job.destination)?;
         transfer.run(job, &mut staging, final_round).await?;
         drop(share);
-        verify(&mut staging, job).await?;
+        verify(&mut staging, job, check).await?;
         staging.commit(job.destination)?;
         Ok(())
     }
@@ -271,27 +301,30 @@ async fn wait_before_retry(delay: Duration) {
     }
 }
 
-async fn already_verified(job: DownloadJob<'_>) -> bool {
-    if job.sha1.is_none() && job.sha1_alternatives.is_empty() {
+fn has_digest(job: DownloadJob<'_>, verify: Option<&Verification>) -> bool {
+    job.sha1.is_some() || !job.sha1_alternatives.is_empty() || verify.is_some()
+}
+
+async fn already_verified(job: DownloadJob<'_>, check: Option<&Verification>) -> bool {
+    if !has_digest(job, check) {
         return false;
     }
     let Ok(file) = axlauncher_storage::open_for_read(job.destination) else {
         return false;
     };
-    verify_file(file, job.sha1, job.sha1_alternatives)
-        .await
-        .unwrap_or(false)
+    verify_file(file, job, check).await.is_ok()
 }
 
-async fn verify(staging: &mut AtomicFile, job: DownloadJob<'_>) -> Result<(), TransferError> {
-    if job.sha1.is_some() || !job.sha1_alternatives.is_empty() {
+async fn verify(
+    staging: &mut AtomicFile,
+    job: DownloadJob<'_>,
+    check: Option<&Verification>,
+) -> Result<(), TransferError> {
+    if has_digest(job, check) {
         let file = staging.rewind()?.try_clone()?;
-        return verify_file(file, job.sha1, job.sha1_alternatives)
-            .await?
-            .then_some(())
-            .ok_or_else(|| {
-                TransferError::Invalid(format!("SHA-1 mismatch for {}", job.destination.display()))
-            });
+        return verify_file(file, job, check)
+            .await
+            .map_err(|error| verification_error(error, job.destination));
     }
     let length = staging.file().metadata()?.len();
     if job.size.is_some_and(|expected| expected != length) {
@@ -303,16 +336,46 @@ async fn verify(staging: &mut AtomicFile, job: DownloadJob<'_>) -> Result<(), Tr
     Ok(())
 }
 
-async fn verify_file(file: File, sha1: Option<&str>, alternatives: &[String]) -> io::Result<bool> {
+fn verification_error(error: io::Error, destination: &Path) -> TransferError {
+    if error.kind() == io::ErrorKind::InvalidData {
+        return TransferError::Invalid(format!("{error} for {}", destination.display()));
+    }
+    TransferError::Disk(error)
+}
+
+async fn verify_file(
+    file: File,
+    job: DownloadJob<'_>,
+    check: Option<&Verification>,
+) -> io::Result<()> {
     let Ok(runtime) = tokio::runtime::Handle::try_current() else {
-        return verify_reader_any(file, sha1, alternatives);
+        return check_file(file, job.sha1, job.sha1_alternatives, check);
     };
-    let sha1 = sha1.map(str::to_owned);
-    let alternatives = alternatives.to_vec();
+    let sha1 = job.sha1.map(str::to_owned);
+    let alternatives = job.sha1_alternatives.to_vec();
+    let check = check.cloned();
     runtime
-        .spawn_blocking(move || verify_reader_any(file, sha1.as_deref(), &alternatives))
+        .spawn_blocking(move || check_file(file, sha1.as_deref(), &alternatives, check.as_ref()))
         .await
         .map_err(io::Error::other)?
+}
+
+fn check_file(
+    mut file: File,
+    sha1: Option<&str>,
+    alternatives: &[String],
+    check: Option<&Verification>,
+) -> io::Result<()> {
+    if (sha1.is_some() || !alternatives.is_empty())
+        && !verify_reader_any(&mut file, sha1, alternatives)?
+    {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "SHA-1 mismatch"));
+    }
+    if let Some(check) = check {
+        file.rewind()?;
+        check(&mut file)?;
+    }
+    Ok(())
 }
 
 impl From<io::Error> for TransferError {

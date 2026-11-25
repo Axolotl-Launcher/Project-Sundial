@@ -10,6 +10,31 @@ const EMPTY_SHA1: &str = "da39a3ee5e6b4b0d3255bfef95601890afd80709";
 const ABC_SHA1: &str = "a9993e364706816aba3e25717850c26c9cd0d89d";
 
 #[test]
+fn a_download_key_stays_on_its_https_origin() {
+    let host = "edge.forgecdn.net";
+    let client =
+        ReqwestNetwork::desktop_with_download_policy(|_| true, Some((host, "fixture-key")))
+            .unwrap();
+    let edge = Url::parse("https://edge.forgecdn.net/files/example.jar").unwrap();
+    let media = Url::parse("https://media.forgecdn.net/files/example.jar").unwrap();
+    assert!(client.download_key(edge.as_str()).unwrap().is_sensitive());
+    assert!(client.download_key(media.as_str()).is_none());
+    assert!(
+        client
+            .download_key("http://edge.forgecdn.net/file")
+            .is_none()
+    );
+    assert!(
+        client
+            .download_key("https://edge.forgecdn.net:8443/file")
+            .is_none()
+    );
+    assert!(allows_key_redirect(host, Some(&edge), &edge));
+    assert!(!allows_key_redirect(host, Some(&edge), &media));
+    assert!(allows_key_redirect(host, Some(&media), &edge));
+}
+
+#[test]
 fn verify_accepts_a_matching_hash_in_either_case() {
     assert!(verify(b"", EMPTY_SHA1));
     assert!(verify(b"", &EMPTY_SHA1.to_uppercase()));

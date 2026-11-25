@@ -133,8 +133,9 @@ launcher hint. [Prism manifest reader][prism-cf-read] ·
    page or a verified user-supplied copy and keep the install pending while the
    file is missing. An unselected optional entry can be skipped. Use URLs
    authorized by the provider. CurseForge announced mandatory authentication
-   for direct `edge.forgecdn.net` downloads from July 16, 2026. Scope the
-   credential to the authorized provider origin and keep it out of logs.
+   for direct `edge.forgecdn.net` downloads from July 16, 2026. Attach the
+   key to HTTPS file requests on that origin and reject cross-origin redirects
+   from keyed requests. The metadata client authenticates its own requests.
    [Distribution toggle][cf-distribution] · [CDN authentication announcement][cf-cdn] ·
    [Prism installer][prism-cf-install]
 

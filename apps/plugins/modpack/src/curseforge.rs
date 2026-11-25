@@ -18,6 +18,7 @@ mod api;
 
 const MARKER: &str = "manifest.json";
 const CDN: &str = "https://edge.forgecdn.net";
+const AUTHENTICATED_CDN_HOST: &str = "edge.forgecdn.net";
 
 pub(super) struct Reader;
 
@@ -228,7 +229,7 @@ impl Files {
         let mut planned = PlannedDownloads {
             files: Vec::new(),
             redirect_policy: allows_cdn,
-            api_key: None,
+            cdn_key: None,
         };
         if pinned.is_empty() {
             return Ok(planned);
@@ -237,7 +238,7 @@ impl Files {
         planned.files = api::Client::new(network, &key)
             .resolve(&pinned, options.auto_download_restricted())
             .await?;
-        planned.api_key = Some(key);
+        planned.cdn_key = Some((AUTHENTICATED_CDN_HOST, key));
         Ok(planned)
     }
 }
@@ -257,7 +258,7 @@ fn allows_cdn(url: &Url) -> bool {
         && url.password().is_none()
         && matches!(
             url.host_str(),
-            Some("edge.forgecdn.net" | "media.forgecdn.net")
+            Some(AUTHENTICATED_CDN_HOST | "media.forgecdn.net")
         )
 }
 
