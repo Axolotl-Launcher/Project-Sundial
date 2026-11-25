@@ -37,3 +37,7 @@ pub(crate) fn inspect(path: &Path) -> io::Result<Existing> {
 
     Ok(Existing::Schema(u32::try_from(version).unwrap_or(u32::MAX)))
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/apps/core/state/src/document.rs"]
+mod tests;

@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use axlauncher_core::state::profile::{ProfileDiscovery, create_blank, discover};
+use axlauncher_core::state::profile::{Game, ProfileDiscovery, create_blank, discover};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
@@ -194,7 +194,8 @@ impl RootView {
         state.error = None;
         let task = cx.background_spawn(async move {
             let instances = DataDir::new(&root).instances();
-            let result = create_blank(&instances, &name, Some(&version))
+            let game = (!version.trim().is_empty()).then(|| Game::new(&version));
+            let result = create_blank(&instances, &name, game)
                 .map(|path| (path, discover(&instances)))
                 .map_err(|error| error.to_string());
             (root, result)

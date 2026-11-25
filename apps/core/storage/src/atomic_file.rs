@@ -39,3 +39,7 @@ impl AtomicFile {
             .map_err(|error| error.error)
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/apps/core/storage/src/atomic_file.rs"]
+mod tests;

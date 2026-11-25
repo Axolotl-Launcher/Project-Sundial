@@ -239,6 +239,94 @@ fn an_installed_runtime_is_preferred_over_the_environment() {
 }
 
 #[test]
+fn a_chosen_runtime_wins_over_java_home_and_the_search_path() {
+    let temp = TempDir::new();
+    // All three offer major 21, so the test fails if the choice is not what
+    // decided the answer.
+    let chosen = jdk_home(&temp.path().join("chosen"), "21.0.7");
+    let home = jdk_home(&temp.path().join("home"), "21.0.7");
+    let on_path = jdk_home(&temp.path().join("path"), "21.0.7");
+    let search_path = std::env::join_paths([on_path.join("bin")]).expect("path");
+    let executable = chosen.join("bin").join(executable_name(JavaMode::Console));
+
+    let java = SystemJava::with_environment(Some(home), Some(search_path))
+        .with_chosen(vec![(21, executable.clone())]);
+
+    assert_eq!(java.executable_for(21, JavaMode::Console), Some(executable));
+}
+
+#[test]
+fn a_chosen_runtime_for_another_major_is_ignored() {
+    let temp = TempDir::new();
+    let chosen = jdk_home(&temp.path().join("chosen"), "25.0.1");
+    let home = jdk_home(&temp.path().join("home"), "17.0.2");
+    let chosen_executable = chosen.join("bin").join(executable_name(JavaMode::Console));
+    let environment_executable = home.join("bin").join(executable_name(JavaMode::Console));
+
+    let java =
+        SystemJava::with_environment(Some(home), None).with_chosen(vec![(25, chosen_executable)]);
+
+    assert_eq!(
+        java.executable_for(17, JavaMode::Console),
+        Some(environment_executable)
+    );
+}
+
+#[test]
+fn a_chosen_runtime_that_was_removed_falls_through_to_the_environment() {
+    let temp = TempDir::new();
+    let gone = temp
+        .path()
+        .join("gone")
+        .join("bin")
+        .join(executable_name(JavaMode::Console));
+    let home = jdk_home(&temp.path().join("home"), "21.0.7");
+    let environment_executable = home.join("bin").join(executable_name(JavaMode::Console));
+
+    let java = SystemJava::with_environment(Some(home), None).with_chosen(vec![(21, gone)]);
+
+    assert_eq!(
+        java.executable_for(21, JavaMode::Console),
+        Some(environment_executable)
+    );
+}
+
+#[test]
+fn the_default_executable_ignores_a_chosen_runtime() {
+    let temp = TempDir::new();
+    let chosen = jdk_home(&temp.path().join("chosen"), "21.0.7");
+    let home = jdk_home(&temp.path().join("home"), "17.0.2");
+    let chosen_executable = chosen.join("bin").join(executable_name(JavaMode::Console));
+    let environment_executable = home.join("bin").join(executable_name(JavaMode::Console));
+
+    // A choice is keyed by major, and this call has no major to match it
+    // against. Applying it here would start every document on that runtime.
+    let java =
+        SystemJava::with_environment(Some(home), None).with_chosen(vec![(21, chosen_executable)]);
+
+    assert_eq!(
+        java.executable(None, JavaMode::Console),
+        Some(environment_executable)
+    );
+}
+
+#[test]
+fn a_chosen_runtime_follows_the_requested_mode() {
+    let temp = TempDir::new();
+    let home = jdk_home(&temp.path().join("chosen"), "21.0.7");
+    let bin = home.join("bin");
+    let console = bin.join(executable_name(JavaMode::Console));
+    java_in(&bin, JavaMode::Windowed);
+
+    let java = SystemJava::with_environment(None, None).with_chosen(vec![(21, console)]);
+
+    assert_eq!(
+        java.executable_for(21, JavaMode::Windowed),
+        Some(bin.join(executable_name(JavaMode::Windowed)))
+    );
+}
+
+#[test]
 fn a_version_without_a_stated_major_does_not_get_a_managed_runtime() {
     let temp = TempDir::new();
     let managed = jdk_home(&temp.path().join("managed"), "21.0.7");

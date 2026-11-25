@@ -181,3 +181,7 @@ fn has_extension(name: &str, extensions: &[&str]) -> bool {
                 .any(|expected| ext.eq_ignore_ascii_case(expected))
         })
 }
+
+#[cfg(test)]
+#[path = "../../../../../tests/apps/core/state/src/profile/resources.rs"]
+mod tests;

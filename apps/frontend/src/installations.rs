@@ -6,14 +6,14 @@
 use std::path::{Path, PathBuf};
 
 use axlauncher_core::install::{
-    loader as loader_install,
     prepare::{Prepared, Progress},
     runtime, vanilla,
 };
-use axlauncher_core::launch::{SystemJava, Target};
-use axlauncher_core::loader::{ForgeApi, LoaderApi, NeoForgeApi, SUPPORTED_KINDS};
+use axlauncher_core::launch::version::{self, Version};
+use axlauncher_core::launch::{Java, JavaMode, Target};
+use axlauncher_core::loader::SUPPORTED_KINDS;
 use axlauncher_core::network::{MirrorPreference, MirrorSettings, ReqwestNetwork};
-use axlauncher_core::spi::{LoaderKind, LoaderRequest};
+use axlauncher_core::spi::LoaderKind;
 use axlauncher_core::state::javas::{self, ChosenJava};
 use axlauncher_core::state::profile::Game;
 use axlauncher_core::state::{SettingsData, SourcePreference};
@@ -22,6 +22,10 @@ use tokio::sync::watch;
 
 use crate::RootView;
 use crate::source_hosts::mirror_hosts;
+
+mod loader;
+
+pub(crate) use loader::start_loader;
 
 pub(crate) struct InstallOptions {
     pub(crate) concurrency: usize,
@@ -72,6 +76,7 @@ impl Installation {
             Self::Running(Progress::Version) => "Getting the version manifest".into(),
             Self::Running(Progress::Loader) => "Resolving the mod loader".into(),
             Self::Running(Progress::CheckingFiles) => "Checking local game files".into(),
+            Self::Running(Progress::Java) => "Getting the Java runtime".into(),
             Self::Running(Progress::Downloading { processed, total }) => {
                 format!("Processing downloads ({processed}/{total} files)")
             }
@@ -105,6 +110,7 @@ pub(crate) fn vanilla_version(game: &Game) -> Option<&str> {
 }
 
 pub(crate) fn start(
+    data_root: PathBuf,
     root: PathBuf,
     id: String,
     options: InstallOptions,
@@ -113,7 +119,10 @@ pub(crate) fn start(
     let (progress, mut updates) = watch::channel(Progress::Version);
     let version = id.clone();
     let work_root = root.clone();
-    let task = cx.background_spawn(async move { install(&work_root, &version, options, progress) });
+    let task =
+        cx.background_spawn(
+            async move { install(&data_root, &work_root, &version, options, progress) },
+        );
     cx.spawn(async move |view, cx| {
         display_progress(&mut updates, &view, cx, &root, &id).await;
         let result = task.await;
@@ -141,6 +150,7 @@ async fn display_progress(
 }
 
 fn install(
+    data_root: &Path,
     root: &Path,
     id: &str,
     options: InstallOptions,
@@ -151,7 +161,7 @@ fn install(
         .enable_all()
         .build()
         .map_err(|error| error.to_string())
-        .and_then(|runtime| runtime.block_on(download(root, id, options, &progress)));
+        .and_then(|runtime| runtime.block_on(download(data_root, root, id, options, &progress)));
 
     match result {
         Ok(prepared) if prepared.is_complete() => Installation::Complete,
@@ -161,6 +171,7 @@ fn install(
 }
 
 async fn download(
+    data_root: &Path,
     root: &Path,
     id: &str,
     options: InstallOptions,
@@ -168,7 +179,7 @@ async fn download(
 ) -> Result<Prepared, String> {
     let network =
         ReqwestNetwork::desktop_with_mirrors(options.mirrors).map_err(|error| error.to_string())?;
-    vanilla::install(
+    let prepared = vanilla::install(
         &network,
         root,
         id,
@@ -184,7 +195,74 @@ async fn download(
             progress.send_replace(stage);
         },
     )
+    .await?;
+    provide_java(&network, data_root, root, id, progress).await?;
+    Ok(prepared)
+}
+
+/// The Java major an installed version asks for when no runtime provides it.
+///
+/// A manifest before 1.17 states no `javaVersion`, and such a version runs on
+/// whatever Java the machine already has. A stated major with no matching
+/// runtime is the one case an install has to fetch for: launching the version
+/// otherwise fails before the game starts, with a message asking the user to
+/// configure `JAVA_HOME` by hand.
+fn missing_java(version: &Version, available: impl FnOnce(u32) -> bool) -> Option<u32> {
+    let required = version.java_version.as_ref()?.major;
+    (!available(required)).then_some(required)
+}
+
+/// Fetches the runtime the installed version names, unless one already answers
+/// for its major.
+///
+/// The game files are already on disk when this runs, so a runtime that cannot
+/// be installed fails the whole install: a profile without its runtime is not
+/// launchable, and the panel offers the install again.
+async fn provide_java(
+    network: &ReqwestNetwork,
+    data_root: &Path,
+    root: &Path,
+    id: &str,
+    progress: &watch::Sender<Progress>,
+) -> Result<(), String> {
+    let document = version::load(&root.join("versions"), id)
+        .map_err(|error| format!("Cannot read the installed Minecraft {id} manifest: {error}"))?;
+    let required = missing_java(&document, |major| {
+        crate::java::managed(data_root)
+            .executable_for(major, JavaMode::Windowed)
+            .is_some()
+    });
+    let Some(major) = required else {
+        return Ok(());
+    };
+
+    report_progress(progress, Progress::Java);
+    let installed = runtime::install(
+        network,
+        &axlauncher_core::storage::DataDir::new(data_root).java_versions(),
+        major,
+        |stage| report_progress(progress, java_stage(stage)),
+    )
     .await
+    .map_err(|error| {
+        format!(
+            "Minecraft {id} needs Java {major}, and its runtime could not be installed: {error}"
+        )
+    })?;
+    record_runtime(data_root, &installed);
+    Ok(())
+}
+
+/// A runtime's own stages, as the panel should name them.
+///
+/// The runtime fetch drives the same pipeline as a game install and reports the
+/// same phases, so its manifest and completion phases would otherwise appear as
+/// the game's. Its per-file counts stay: they describe the same downloads.
+fn java_stage(stage: Progress) -> Progress {
+    match stage {
+        Progress::Downloading { .. } => stage,
+        _ => Progress::Java,
+    }
 }
 
 fn download_failure(prepared: &Prepared) -> String {
@@ -204,203 +282,6 @@ pub(crate) fn supported_loader(kind: &str) -> bool {
     is_vanilla(kind) || LoaderKind::parse(kind).is_some_and(|kind| SUPPORTED_KINDS.contains(&kind))
 }
 
-/// Starts installing a loader profile.
-///
-/// Progress is reported under `key`, the identity the row looks the install up
-/// by, because a loader profile has no version id until this install produces
-/// one. The id is returned on completion, and the caller records it on the
-/// profile.
-pub(crate) fn start_loader(
-    data_root: PathBuf,
-    game_root: PathBuf,
-    directory: PathBuf,
-    game: Game,
-    key: String,
-    options: InstallOptions,
-    cx: &mut Context<'_, RootView>,
-) {
-    let (progress, mut updates) = watch::channel(Progress::Version);
-    let display_key = key.clone();
-    let display_root = game_root.clone();
-    let work_data = data_root.clone();
-    let task = cx.background_spawn(async move {
-        install_loader(&work_data, &game_root, &game, options, progress)
-    });
-    cx.spawn(async move |view, cx| {
-        display_progress(&mut updates, &view, cx, &display_root, &display_key).await;
-        let outcome = task.await;
-        let _ = view.update(cx, |view, cx| {
-            view.finish_loader_install(&data_root, &directory, &key, outcome, cx)
-        });
-    })
-    .detach();
-}
-
-fn install_loader(
-    data_root: &Path,
-    game_root: &Path,
-    game: &Game,
-    options: InstallOptions,
-    progress: watch::Sender<Progress>,
-) -> Result<String, String> {
-    let kind = game
-        .loader
-        .as_ref()
-        .and_then(|loader| LoaderKind::parse(&loader.kind))
-        .ok_or_else(|| "This profile names no loader to install.".to_string())?;
-    let request = LoaderRequest {
-        game_version: game.minecraft.clone(),
-        loader_version: game
-            .loader
-            .as_ref()
-            .and_then(|loader| loader.version.clone()),
-    };
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| error.to_string())?;
-    runtime.block_on(download_loader(
-        data_root, game_root, kind, request, options, progress,
-    ))
-}
-
-async fn download_loader(
-    data_root: &Path,
-    game_root: &Path,
-    kind: LoaderKind,
-    request: LoaderRequest,
-    options: InstallOptions,
-    progress: watch::Sender<Progress>,
-) -> Result<String, String> {
-    let network =
-        ReqwestNetwork::desktop_with_mirrors(options.mirrors).map_err(|error| error.to_string())?;
-    let concurrency = options.concurrency;
-
-    let first = run_provider(
-        kind,
-        &network,
-        &crate::java::managed(data_root),
-        game_root,
-        request.clone(),
-        concurrency,
-        &progress,
-    )
-    .await;
-
-    let installed = match first {
-        Err(loader_install::LoaderInstallError::Java { required }) => {
-            let installed = runtime::install(
-                &network,
-                &axlauncher_core::storage::DataDir::new(data_root).java_versions(),
-                required,
-                |stage| report_progress(&progress, stage),
-            )
-            .await
-            .map_err(|error| error.to_string())?;
-            record_runtime(data_root, &installed);
-            run_provider(
-                kind,
-                &network,
-                &crate::java::managed(data_root),
-                game_root,
-                request,
-                concurrency,
-                &progress,
-            )
-            .await
-            .map_err(|error| error.to_string())?
-        }
-        other => other.map_err(|error| error.to_string())?,
-    };
-
-    if installed.prepared.is_complete() {
-        Ok(installed.version_id)
-    } else {
-        Err(download_failure(&installed.prepared))
-    }
-}
-
-/// Each provider is its own type, so the match is over concrete values rather
-/// than a trait object: the port is generic over the network provider.
-async fn run_provider(
-    kind: LoaderKind,
-    network: &ReqwestNetwork,
-    java: &SystemJava,
-    game_root: &Path,
-    request: LoaderRequest,
-    concurrency: usize,
-    progress: &watch::Sender<Progress>,
-) -> Result<loader_install::LoaderInstalled, loader_install::LoaderInstallError> {
-    let api = match kind {
-        LoaderKind::Fabric => LoaderApi::fabric(network.clone()),
-        LoaderKind::LegacyFabric => LoaderApi::legacy_fabric(network.clone()),
-        LoaderKind::Quilt => LoaderApi::quilt(network.clone()),
-        LoaderKind::Forge => {
-            let api = ForgeApi::new(network.clone());
-            return install_with(
-                network,
-                java,
-                &api,
-                game_root,
-                request,
-                concurrency,
-                progress,
-            )
-            .await;
-        }
-        LoaderKind::NeoForge => {
-            let api = NeoForgeApi::new(network.clone());
-            return install_with(
-                network,
-                java,
-                &api,
-                game_root,
-                request,
-                concurrency,
-                progress,
-            )
-            .await;
-        }
-        other => {
-            return Err(loader_install::LoaderInstallError::Vanilla(format!(
-                "No provider for loader {other} is wired yet."
-            )));
-        }
-    };
-    install_with(
-        network,
-        java,
-        &api,
-        game_root,
-        request,
-        concurrency,
-        progress,
-    )
-    .await
-}
-
-async fn install_with(
-    network: &ReqwestNetwork,
-    java: &SystemJava,
-    loader: &impl axlauncher_core::spi::ModLoader,
-    game_root: &Path,
-    request: LoaderRequest,
-    concurrency: usize,
-    progress: &watch::Sender<Progress>,
-) -> Result<loader_install::LoaderInstalled, loader_install::LoaderInstallError> {
-    loader_install::InstallRequest {
-        network,
-        loader,
-        java,
-        game_root,
-        request,
-        target: &Target::host(),
-        concurrency,
-    }
-    .install(|stage| report_progress(progress, stage))
-    .await
-}
-
 /// Reports a stage the panel can afford to rebuild for.
 ///
 /// An install downloads thousands of assets and dozens of libraries, and a
@@ -417,16 +298,17 @@ fn report_progress(progress: &watch::Sender<Progress>, stage: Progress) {
     let _ = progress.send(stage);
 }
 
-/// A runtime the launcher installed becomes the user's choice for its major,
-/// so a later launch reuses it without discovery.
+/// A runtime this build installed becomes the recorded answer for its major,
+/// unless the user already chose one.
+///
+/// `chosen` is the user's intent; a runtime an install fetched only fills a
+/// major nobody answered, and replacing a choice the user made would silently
+/// override their configuration.
 fn record_runtime(data_root: &Path, installed: &runtime::InstalledRuntime) {
     let Ok(loaded) = javas::load(data_root) else {
         return;
     };
     let mut document = loaded.javas;
-    // `chosen` is the user's intent; a runtime this install fetched is only
-    // what provides a still-unanswered major. Replacing a choice the user made
-    // would silently override their configuration.
     if document.chosen_for(installed.major).is_none() {
         document.choose(ChosenJava {
             major_version: installed.major,
@@ -437,3 +319,7 @@ fn record_runtime(data_root: &Path, installed: &runtime::InstalledRuntime) {
     }
     let _ = javas::save(data_root, &document);
 }
+
+#[cfg(test)]
+#[path = "../../../tests/apps/frontend/src/installations.rs"]
+mod tests;

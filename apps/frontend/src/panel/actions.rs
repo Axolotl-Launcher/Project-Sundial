@@ -68,7 +68,7 @@ impl RootView {
                 options,
                 cx,
             ),
-            None => installations::start(game_root, version, options, cx),
+            None => installations::start(data_root, game_root, version, options, cx),
         }
     }
 

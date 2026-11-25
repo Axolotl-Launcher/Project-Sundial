@@ -82,7 +82,8 @@ impl RootView {
             .settings
             .as_ref()
             .map_or("", |settings| settings.default_game_language.as_str());
-        let environment = environment::EnvironmentState::new(game_language, window, cx);
+        let environment =
+            environment::EnvironmentState::new(loaded.root.as_deref(), game_language, window, cx);
         let mut view = Self {
             root: loaded.root,
             notice: loaded.notice,
@@ -155,7 +156,7 @@ impl RootView {
             .as_ref()
             .map(|settings| settings.theme)
             .unwrap_or_default();
-        self.environment.refresh();
+        self.environment.refresh(self.root.as_deref());
         let game_language = self
             .settings
             .as_ref()
