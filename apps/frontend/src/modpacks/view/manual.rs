@@ -11,7 +11,7 @@ use axlauncher_ui::{
 };
 
 use super::controls::choose_file;
-use crate::modpacks::acquisition::ManualFile;
+use crate::modpacks::service::ManualFile;
 
 #[derive(Default)]
 pub(super) struct ManualDownloads {

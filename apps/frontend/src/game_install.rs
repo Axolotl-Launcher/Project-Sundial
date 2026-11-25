@@ -17,7 +17,6 @@ use axlauncher_core::spi::{LoaderKind, LoaderRequest};
 use axlauncher_core::state::javas::{self, ChosenJava};
 use axlauncher_core::state::profile::Game;
 use axlauncher_core::state::{SettingsData, SourcePreference};
-use tokio::sync::watch;
 
 use crate::source_hosts::source_hosts;
 
@@ -62,7 +61,7 @@ pub(crate) async fn download_vanilla(
     root: &Path,
     id: &str,
     options: InstallOptions,
-    progress: &watch::Sender<Progress>,
+    report: impl Fn(Progress),
 ) -> Result<Prepared, String> {
     let network =
         ReqwestNetwork::desktop_with_mirrors(options.mirrors).map_err(|error| error.to_string())?;
@@ -72,15 +71,7 @@ pub(crate) async fn download_vanilla(
         id,
         &Target::host(),
         options.concurrency,
-        |stage| {
-            if let Progress::Downloading { processed, total } = stage
-                && processed != total
-                && !processed.is_multiple_of((total / 100).max(1))
-            {
-                return;
-            }
-            progress.send_replace(stage);
-        },
+        |stage| report_progress(&report, stage),
     )
     .await
 }
@@ -93,12 +84,24 @@ pub(crate) fn download_failure(prepared: &Prepared) -> String {
     )
 }
 
+pub(crate) fn progress_message(stage: Progress) -> String {
+    match stage {
+        Progress::Version => "Getting the version manifest".into(),
+        Progress::Loader => "Resolving the mod loader".into(),
+        Progress::CheckingFiles => "Checking local game files".into(),
+        Progress::Downloading { processed, total } => {
+            format!("Processing downloads ({processed}/{total} files)")
+        }
+        Progress::Finishing => "Finishing installation".into(),
+    }
+}
+
 pub(crate) fn install_loader(
     data_root: &Path,
     game_root: &Path,
     game: &Game,
     options: InstallOptions,
-    progress: watch::Sender<Progress>,
+    report: impl Fn(Progress),
 ) -> Result<String, String> {
     let kind = game
         .loader
@@ -117,7 +120,7 @@ pub(crate) fn install_loader(
         .build()
         .map_err(|error| error.to_string())?;
     runtime.block_on(download_loader(
-        data_root, game_root, kind, request, options, progress,
+        data_root, game_root, kind, request, options, &report,
     ))
 }
 
@@ -127,7 +130,7 @@ async fn download_loader(
     kind: LoaderKind,
     request: LoaderRequest,
     options: InstallOptions,
-    progress: watch::Sender<Progress>,
+    report: &impl Fn(Progress),
 ) -> Result<String, String> {
     let network =
         ReqwestNetwork::desktop_with_mirrors(options.mirrors).map_err(|error| error.to_string())?;
@@ -140,7 +143,7 @@ async fn download_loader(
         game_root,
         request.clone(),
         concurrency,
-        &progress,
+        report,
     )
     .await;
 
@@ -150,7 +153,7 @@ async fn download_loader(
                 &network,
                 &axlauncher_core::storage::DataDir::new(data_root).java_versions(),
                 required,
-                |stage| report_progress(&progress, stage),
+                |stage| report_progress(report, stage),
             )
             .await
             .map_err(|error| error.to_string())?;
@@ -162,7 +165,7 @@ async fn download_loader(
                 game_root,
                 request,
                 concurrency,
-                &progress,
+                report,
             )
             .await
             .map_err(|error| error.to_string())?
@@ -186,7 +189,7 @@ async fn run_provider(
     game_root: &Path,
     request: LoaderRequest,
     concurrency: usize,
-    progress: &watch::Sender<Progress>,
+    report: &impl Fn(Progress),
 ) -> Result<loader_install::LoaderInstalled, loader_install::LoaderInstallError> {
     let api = match kind {
         LoaderKind::Fabric => LoaderApi::fabric(network.clone()),
@@ -194,29 +197,13 @@ async fn run_provider(
         LoaderKind::Quilt => LoaderApi::quilt(network.clone()),
         LoaderKind::Forge => {
             let api = ForgeApi::new(network.clone());
-            return install_with(
-                network,
-                java,
-                &api,
-                game_root,
-                request,
-                concurrency,
-                progress,
-            )
-            .await;
+            return install_with(network, java, &api, game_root, request, concurrency, report)
+                .await;
         }
         LoaderKind::NeoForge => {
             let api = NeoForgeApi::new(network.clone());
-            return install_with(
-                network,
-                java,
-                &api,
-                game_root,
-                request,
-                concurrency,
-                progress,
-            )
-            .await;
+            return install_with(network, java, &api, game_root, request, concurrency, report)
+                .await;
         }
         other => {
             return Err(loader_install::LoaderInstallError::Vanilla(format!(
@@ -224,16 +211,7 @@ async fn run_provider(
             )));
         }
     };
-    install_with(
-        network,
-        java,
-        &api,
-        game_root,
-        request,
-        concurrency,
-        progress,
-    )
-    .await
+    install_with(network, java, &api, game_root, request, concurrency, report).await
 }
 
 async fn install_with(
@@ -243,7 +221,7 @@ async fn install_with(
     game_root: &Path,
     request: LoaderRequest,
     concurrency: usize,
-    progress: &watch::Sender<Progress>,
+    report: &impl Fn(Progress),
 ) -> Result<loader_install::LoaderInstalled, loader_install::LoaderInstallError> {
     loader_install::InstallRequest {
         network,
@@ -254,7 +232,7 @@ async fn install_with(
         target: &Target::host(),
         concurrency,
     }
-    .install(|stage| report_progress(progress, stage))
+    .install(|stage| report_progress(report, stage))
     .await
 }
 
@@ -264,14 +242,14 @@ async fn install_with(
 /// runtime is several hundred files. Every tick rebuilds the panel, so the
 /// per-file counts are collapsed to about a hundred while the named phases and
 /// the final count always reach it.
-fn report_progress(progress: &watch::Sender<Progress>, stage: Progress) {
+fn report_progress(report: &impl Fn(Progress), stage: Progress) {
     if let Progress::Downloading { processed, total } = stage
         && processed != total
         && !processed.is_multiple_of((total / 100).max(1))
     {
         return;
     }
-    let _ = progress.send(stage);
+    report(stage);
 }
 
 /// A runtime the launcher installed becomes the user's choice for its major,

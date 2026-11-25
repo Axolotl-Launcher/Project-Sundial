@@ -83,6 +83,8 @@ impl RootView {
         modpack.update(cx, |view, cx| view.set_enabled(loaded.root.is_some(), cx));
         cx.subscribe_in(&modpack, window, Self::modpack_event)
             .detach();
+        cx.observe(&modpack, Self::modpack_download_changed)
+            .detach();
         let download_debug =
             download_debug::DownloadDebug::new(loaded.settings.as_ref(), window, cx);
         let accounts = accounts::AccountsPanel::new(loaded.root.as_deref(), window, cx);

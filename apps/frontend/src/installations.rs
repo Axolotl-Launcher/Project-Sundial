@@ -14,7 +14,7 @@ use tokio::sync::watch;
 
 use crate::RootView;
 pub(crate) use crate::game_install::InstallOptions;
-use crate::game_install::{download_failure, download_vanilla, install_loader};
+use crate::game_install::{download_failure, download_vanilla, install_loader, progress_message};
 
 pub(crate) enum Installation {
     Running(Progress),
@@ -25,13 +25,7 @@ pub(crate) enum Installation {
 impl Installation {
     pub(crate) fn message(&self) -> String {
         match self {
-            Self::Running(Progress::Version) => "Getting the version manifest".into(),
-            Self::Running(Progress::Loader) => "Resolving the mod loader".into(),
-            Self::Running(Progress::CheckingFiles) => "Checking local game files".into(),
-            Self::Running(Progress::Downloading { processed, total }) => {
-                format!("Processing downloads ({processed}/{total} files)")
-            }
-            Self::Running(Progress::Finishing) => "Finishing installation".into(),
+            Self::Running(stage) => progress_message(*stage),
             Self::Complete => "Game files ready".into(),
             Self::Failed(message) => message.clone(),
         }
@@ -107,7 +101,11 @@ fn install(
         .enable_all()
         .build()
         .map_err(|error| error.to_string())
-        .and_then(|runtime| runtime.block_on(download_vanilla(root, id, options, &progress)));
+        .and_then(|runtime| {
+            runtime.block_on(download_vanilla(root, id, options, |stage| {
+                progress.send_replace(stage);
+            }))
+        });
 
     match result {
         Ok(prepared) if prepared.is_complete() => Installation::Complete,
@@ -145,7 +143,9 @@ pub(crate) fn start_loader(
     let display_root = game_root.clone();
     let work_data = data_root.clone();
     let task = cx.background_spawn(async move {
-        install_loader(&work_data, &game_root, &game, options, progress)
+        install_loader(&work_data, &game_root, &game, options, |stage| {
+            progress.send_replace(stage);
+        })
     });
     cx.spawn(async move |view, cx| {
         display_progress(&mut updates, &view, cx, &display_root, &display_key).await;

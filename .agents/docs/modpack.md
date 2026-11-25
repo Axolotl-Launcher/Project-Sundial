@@ -306,7 +306,7 @@ SHA-256 for its index and metadata and can use other algorithms for payloads.
 
 - The registered readers expose one `Pack` preview with a source tag and
   reader-owned optional item IDs. The selected items produce one `InstallPlan`
-  for the frontend to execute. The plan carries game requirements, downloads,
+  for the modpack service to execute. The plan carries game requirements, downloads,
   bundled files, and a redirect policy. The frontend uses the source tag for
   presentation. Modrinth, CurseForge, and MultiMC have registered readers.
   CurseForge planning resolves the selected file pins through its API. The
@@ -314,11 +314,20 @@ SHA-256 for its index and metadata and can use other algorithms for payloads.
   whose metadata omits a direct URL. When automatic acquisition is unavailable
   or fails, the user can supply a file from the official download page and the
   installer verifies it against the pinned digest. Continuing the same
-  import reuses its resolved plan and staging directory, and only processes
-  the remaining manual entries. Root-level `datapacks/` is a storage location.
+  import reuses its resolved plan, staging directory, and successful results.
+  Root-level `datapacks/` is a storage location.
   Vanilla Minecraft loads data packs from a world or through the new-world
   Data Packs screen. [CurseForge data pack guide][cf-datapacks]
   [Plugin entry point](../../apps/plugins/modpack/src/lib.rs)
+- The modpack service prepares pack files and the game concurrently after
+  planning. The pack batch writes to private staging, and the game installer
+  holds the existing shared game-root lock. Each batch applies the configured
+  file concurrency independently and uses the shared download engine. The
+  service publishes after both branches succeed. Import and Download debug
+  display the same task progress. Download debug samples the engine's global
+  transfer statistics while an import is running.
+  [Modpack service](../../apps/frontend/src/modpacks/service.rs) ·
+  [Download debug](../../apps/frontend/src/panel/download_debug.rs)
 - Keep Modrinth, CurseForge, and MultiMC exports as distribution inputs to a
   new profile. MultiMC exports contribute bundled files and game requirements
   to the same plan. Converting installed foreign launcher data belongs in an

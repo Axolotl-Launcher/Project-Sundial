@@ -3,13 +3,11 @@
 
 use std::path::PathBuf;
 
-use axlauncher_modpack::{ModpackPlugin, OptionId, OptionalFile, Pack};
+use axlauncher_modpack::{OptionId, OptionalFile, Pack};
 use axlauncher_ui::{
     App, BackgroundExecutor, Checkbox, Disableable, ElementId, Label, PathPromptOptions,
     SharedString, Window,
 };
-
-use crate::modpacks::Progress;
 
 pub(super) fn data_pack_notice() -> Label {
     Label::new(
@@ -43,17 +41,6 @@ pub(super) fn preview_title(pack: &Pack) -> String {
     format!("{} · {}", pack.name(), pack.version())
 }
 
-pub(super) fn progress_label(progress: Progress) -> String {
-    match progress {
-        Progress::Planning => "Resolving pack files…".into(),
-        Progress::Files { done, total } if done < total => {
-            format!("Downloading pack files ({done}/{total})")
-        }
-        Progress::Files { .. } => "Preparing pack files…".into(),
-        Progress::Game => "Preparing Minecraft…".into(),
-    }
-}
-
 pub(super) fn restricted_download_option(
     automatic: bool,
     busy: bool,
@@ -85,15 +72,9 @@ pub(super) fn option_checkbox(
 pub(super) async fn inspect_path(
     path: Result<Option<PathBuf>, String>,
     executor: BackgroundExecutor,
-    plugin: ModpackPlugin,
 ) -> Result<Option<Pack>, String> {
     let Some(path) = path? else { return Ok(None) };
     executor
-        .spawn(async move {
-            plugin
-                .inspect(&path)
-                .map(Some)
-                .map_err(|error| error.to_string())
-        })
+        .spawn(async move { crate::modpacks::service::inspect(&path).map(Some) })
         .await
 }

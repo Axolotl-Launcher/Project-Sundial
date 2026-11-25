@@ -5,26 +5,25 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axlauncher_core::storage::DataDir;
-use axlauncher_modpack::{ModpackPlugin, OptionId, Pack, PackSource, PlanOptions};
+use axlauncher_modpack::{OptionId, Pack, PackSource, PlanOptions};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, App, AsyncWindowContext, Button, ButtonVariants, Context, Disableable,
     Entity, EventEmitter, FocusHandle, IntoElement, KeyDownEvent, Label, Pagination, Render,
     WeakEntity, Window, h_flex, v_flex,
 };
-use tokio::sync::watch;
 
-use super::{InstallFailure, Installed, PendingInstall, Progress, Selection, run_install};
-use crate::game_install::InstallOptions;
+use super::service::PendingInstall;
 
 mod controls;
+mod install;
 mod manual;
+mod progress;
 use controls::{
-    choose_file, inspect_path, option_checkbox, preview_title, progress_label,
-    restricted_download_option,
+    choose_file, inspect_path, option_checkbox, preview_title, restricted_download_option,
 };
 use manual::ManualDownloads;
+use progress::Progress;
 
 pub(crate) enum ImportEvent {
     InstallRequested,
@@ -40,7 +39,6 @@ impl EventEmitter<ImportEvent> for ModpackImport {}
 const OPTIONAL_PAGE_SIZE: usize = 10;
 
 pub(crate) struct ModpackImport {
-    plugin: ModpackPlugin,
     trigger: FocusHandle,
     preview_focus: FocusHandle,
     state: State,
@@ -61,7 +59,7 @@ struct Preview {
     selected: BTreeSet<OptionId>,
     policy: PlanOptions,
     manual: Entity<ManualDownloads>,
-    pending: Option<(PathBuf, Box<PendingInstall>)>,
+    pending: Option<Box<PendingInstall>>,
     page: usize,
 }
 
@@ -81,7 +79,6 @@ impl Preview {
 impl ModpackImport {
     pub(crate) fn new(cx: &mut Context<'_, Self>) -> Self {
         Self {
-            plugin: ModpackPlugin::builtin(),
             trigger: cx.focus_handle(),
             preview_focus: cx.focus_handle(),
             state: State::Idle,
@@ -185,6 +182,7 @@ impl ModpackImport {
                 progress,
                 preview.manual.read(cx).picking(),
                 waiting,
+                preview.manual.read(cx).has_pending(),
                 cx,
             ))
             .into_any_element()
@@ -239,11 +237,13 @@ impl ModpackImport {
         progress: Option<Progress>,
         picking: bool,
         waiting: bool,
+        has_manual: bool,
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
-        let status = progress.map(progress_label);
+        let status = progress.map(Progress::message);
         h_flex()
             .gap_2()
+            .flex_wrap()
             .child(
                 Button::new("cancel-modpack")
                     .label("Cancel")
@@ -253,10 +253,10 @@ impl ModpackImport {
             )
             .child(
                 Button::new("install-modpack")
-                    .label(if waiting {
-                        "Continue installation"
-                    } else {
-                        "Install pack"
+                    .label(match (waiting, has_manual) {
+                        (true, true) => "Continue installation",
+                        (true, false) => "Retry installation",
+                        _ => "Install pack",
                     })
                     .primary()
                     .track_focus(&self.preview_focus)
@@ -279,9 +279,8 @@ impl ModpackImport {
         self.root_data_packs = false;
         let selection = choose_file("Choose a modpack archive", cx);
         let executor = cx.background_executor().clone();
-        let plugin = self.plugin;
         cx.spawn_in(window, async move |view, cx| {
-            let result = inspect_path(selection.await, executor, plugin).await;
+            let result = inspect_path(selection.await, executor).await;
             complete_preview(view, cx, result);
         })
         .detach();
@@ -340,7 +339,7 @@ impl ModpackImport {
     }
 
     fn close_modpack(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        if self.manual_picker_open(cx) {
+        if !matches!(self.state, State::Preview(_)) || self.manual_picker_open(cx) {
             return;
         }
         self.state = State::Idle;
@@ -359,104 +358,9 @@ impl ModpackImport {
         focus.focus(window, cx);
         cx.notify();
     }
-    fn request_install(&mut self, _: &mut Window, cx: &mut Context<'_, Self>) {
-        if self.enabled && matches!(self.state, State::Preview(_)) && !self.manual_picker_open(cx) {
-            cx.emit(ImportEvent::InstallRequested);
-        }
-    }
-
-    pub(crate) fn install(
-        &mut self,
-        root: PathBuf,
-        options: InstallOptions,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let previous = std::mem::replace(&mut self.state, State::Idle);
-        let State::Preview(mut preview) = previous else {
-            self.state = previous;
-            return;
-        };
-        let (progress, updates) = watch::channel(Progress::Planning);
-        let pack = Arc::clone(&preview.pack);
-        let selected = preview.selected.clone();
-        let local = preview.manual.read(cx).selected_paths();
-        let policy = preview.policy;
-        let (root, pending) = match preview.pending.take() {
-            Some((root, pending)) => (root, Some(pending)),
-            None => (root, None),
-        };
-        let data = DataDir::new(&root);
-        self.state = State::Installing(preview, *updates.borrow());
-        self.error = None;
-        let task = cx.background_spawn(async move {
-            run_install(
-                data,
-                &pack,
-                Selection {
-                    options: &selected,
-                    policy,
-                },
-                pending,
-                &local,
-                options,
-                progress,
-            )
-        });
-        cx.spawn_in(window, async move |view, cx| {
-            show_progress(&view, cx, updates).await;
-            let outcome = task.await;
-            complete_install(view, cx, root, outcome);
-        })
-        .detach();
-        cx.notify();
-    }
-
-    fn finish_modpack(
-        &mut self,
-        root: PathBuf,
-        result: Result<Installed, InstallFailure>,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        let State::Installing(mut preview, _) = std::mem::replace(&mut self.state, State::Idle)
-        else {
-            return;
-        };
-        match result {
-            Ok(Installed {
-                directory,
-                root_data_packs,
-            }) => {
-                self.root_data_packs = root_data_packs;
-                cx.emit(ImportEvent::Installed {
-                    root,
-                    directory,
-                    name: preview.pack.name().to_owned(),
-                });
-            }
-            Err(InstallFailure::Failed(error)) => {
-                self.error = Some(error);
-                self.state = State::Preview(preview);
-            }
-            Err(InstallFailure::Manual(pending)) => {
-                ManualDownloads::replace_pending(&preview.manual, pending.files().to_vec(), cx);
-                preview.pending = Some((root, pending));
-                self.state = State::Preview(preview);
-            }
-        }
-        self.focus_modpack(window, cx);
-    }
-
     pub(crate) fn set_enabled(&mut self, enabled: bool, cx: &mut Context<'_, Self>) {
         self.enabled = enabled;
         cx.notify();
-    }
-    fn update_modpack_progress(&mut self, progress: Progress, cx: &mut Context<'_, Self>) {
-        if let State::Installing(_, previous) = &mut self.state {
-            *previous = progress;
-            cx.notify();
-        }
     }
     fn set_automatic(&mut self, enabled: &bool, _: &mut Window, cx: &mut Context<'_, Self>) {
         if let State::Preview(preview) = &mut self.state {
@@ -473,27 +377,5 @@ fn complete_preview(
 ) {
     let _ = view.update_in(cx, |view, window, cx| {
         view.finish_modpack_preview(result, window, cx)
-    });
-}
-
-async fn show_progress(
-    view: &WeakEntity<ModpackImport>,
-    cx: &mut AsyncWindowContext,
-    mut updates: watch::Receiver<Progress>,
-) {
-    while updates.changed().await.is_ok() {
-        let progress = *updates.borrow_and_update();
-        let _ = view.update_in(cx, |view, _, cx| view.update_modpack_progress(progress, cx));
-    }
-}
-
-fn complete_install(
-    view: WeakEntity<ModpackImport>,
-    cx: &mut AsyncWindowContext,
-    root: PathBuf,
-    result: Result<Installed, InstallFailure>,
-) {
-    let _ = view.update_in(cx, |view, window, cx| {
-        view.finish_modpack(root, result, window, cx)
     });
 }
