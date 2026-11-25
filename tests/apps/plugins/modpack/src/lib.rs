@@ -25,7 +25,7 @@ impl AuthNetwork for Offline {
     }
 }
 
-fn local_plan<'a>(pack: &'a Pack, selected: &BTreeSet<OptionId>) -> InstallPlan<'a> {
+fn local_plan(pack: &Pack, selected: &BTreeSet<OptionId>) -> InstallPlan {
     block_on(pack.plan(selected, PlanOptions::default(), &Offline)).unwrap()
 }
 

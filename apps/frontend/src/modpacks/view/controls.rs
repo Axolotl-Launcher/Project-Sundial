@@ -3,10 +3,19 @@
 
 use std::path::PathBuf;
 
-use axlauncher_modpack::Pack;
-use axlauncher_ui::{App, Checkbox, Disableable, PathPromptOptions, Window};
+use axlauncher_modpack::{ModpackPlugin, OptionId, OptionalFile, Pack};
+use axlauncher_ui::{
+    App, BackgroundExecutor, Checkbox, Disableable, ElementId, Label, PathPromptOptions,
+    SharedString, Window,
+};
 
 use crate::modpacks::Progress;
+
+pub(super) fn data_pack_notice() -> Label {
+    Label::new(
+        "Data packs were saved in the instance’s datapacks folder. In vanilla Minecraft, add them when creating a world or copy them into an existing world’s datapacks folder.",
+    )
+}
 
 pub(super) fn choose_file(
     prompt: &'static str,
@@ -55,4 +64,36 @@ pub(super) fn restricted_download_option(
         .checked(automatic)
         .disabled(busy)
         .on_change(change)
+}
+
+pub(super) fn option_checkbox(
+    file: &OptionalFile,
+    checked: bool,
+    busy: bool,
+    change: impl Fn(&(OptionId, bool), &mut Window, &mut App) + 'static,
+) -> Checkbox {
+    let id = file.id().clone();
+    let label = SharedString::from(file.label().to_owned());
+    Checkbox::new(ElementId::Name(SharedString::from(id.key().to_owned())))
+        .label(label.clone())
+        .tooltip(label)
+        .checked(checked)
+        .disabled(busy)
+        .on_change(move |checked, window, cx| change(&(id.clone(), *checked), window, cx))
+}
+
+pub(super) async fn inspect_path(
+    path: Result<Option<PathBuf>, String>,
+    executor: BackgroundExecutor,
+    plugin: ModpackPlugin,
+) -> Result<Option<Pack>, String> {
+    let Some(path) = path? else { return Ok(None) };
+    executor
+        .spawn(async move {
+            plugin
+                .inspect(&path)
+                .map(Some)
+                .map_err(|error| error.to_string())
+        })
+        .await
 }

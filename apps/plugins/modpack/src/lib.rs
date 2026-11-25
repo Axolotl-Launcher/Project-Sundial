@@ -14,7 +14,7 @@ mod paths;
 use std::collections::BTreeSet;
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use axlauncher_spi::LoaderKind;
 use axlauncher_spi::auth::AuthNetwork;
@@ -142,6 +142,7 @@ impl OptionalFile {
 }
 
 /// The exact game and loader builds required to play a pack.
+#[derive(Clone)]
 pub struct GameRequirements {
     minecraft: String,
     loader: Option<(LoaderKind, String)>,
@@ -168,8 +169,7 @@ pub struct Pack {
     required_count: usize,
     optional: Vec<OptionalFile>,
     files: PackFiles,
-    bundled: Vec<(String, Entry)>,
-    archive: Mutex<Archive>,
+    bundled: BundledFiles,
 }
 
 enum PackFiles {
@@ -237,7 +237,7 @@ impl Pack {
     }
 
     pub fn bundled_count(&self) -> usize {
-        self.bundled.len()
+        self.bundled.entries.len()
     }
 
     /// A plan contains every required file and the optional items chosen in this preview.
@@ -246,7 +246,7 @@ impl Pack {
         selected: &BTreeSet<OptionId>,
         options: PlanOptions,
         network: &impl AuthNetwork,
-    ) -> Result<InstallPlan<'_>, PackError> {
+    ) -> Result<InstallPlan, PackError> {
         let mut downloads = match &self.files {
             PackFiles::Modrinth(files) => files.plan(selected),
             PackFiles::CurseForge(files) => files.plan(selected, options, network).await?,
@@ -259,6 +259,7 @@ impl Pack {
         paths::check_tree(downloads.files.iter().map(Download::path))?;
         downloads.files.retain(|file| {
             self.bundled
+                .entries
                 .binary_search_by(|(path, _)| path.as_str().cmp(file.path()))
                 .is_err()
         });
@@ -267,32 +268,64 @@ impl Pack {
                 .files
                 .iter()
                 .map(Download::path)
-                .chain(self.bundled.iter().map(|(path, _)| path.as_str())),
+                .chain(self.bundled.entries.iter().map(|(path, _)| path.as_str())),
         )?;
         Ok(InstallPlan {
-            pack: self,
+            name: self.name.clone(),
+            game: self.game.clone(),
+            bundled: self.bundled.clone(),
             downloads,
         })
     }
 }
 
 /// The common input to installation, backed by the inspected archive.
-pub struct InstallPlan<'a> {
-    pack: &'a Pack,
+pub struct InstallPlan {
+    name: String,
+    game: GameRequirements,
+    bundled: BundledFiles,
     downloads: PlannedDownloads,
 }
 
-impl InstallPlan<'_> {
+#[derive(Clone)]
+struct BundledFiles {
+    entries: Arc<[(String, Entry)]>,
+    archive: Arc<Mutex<Archive>>,
+}
+
+impl BundledFiles {
+    fn new(entries: Vec<(String, Entry)>, archive: Archive) -> Self {
+        Self {
+            entries: entries.into(),
+            archive: Arc::new(Mutex::new(archive)),
+        }
+    }
+}
+
+impl InstallPlan {
     pub fn name(&self) -> &str {
-        self.pack.name()
+        &self.name
     }
 
     pub fn game(&self) -> &GameRequirements {
-        self.pack.game()
+        &self.game
     }
 
     pub fn downloads(&self) -> &[Download] {
         &self.downloads.files
+    }
+
+    /// Data packs stored at the game root may still need to be enabled in a world.
+    pub fn has_root_data_packs(&self) -> bool {
+        self.downloads
+            .files
+            .iter()
+            .any(|file| file.path().starts_with("datapacks/"))
+            || self
+                .bundled
+                .entries
+                .iter()
+                .any(|(path, _)| path.starts_with("datapacks/"))
     }
 
     /// A transport can apply the reader's redirect policy without inspecting the source.
@@ -311,11 +344,11 @@ impl InstallPlan<'_> {
         mut write: impl FnMut(&str, &mut dyn Read) -> io::Result<()>,
     ) -> Result<(), PackError> {
         let mut archive = self
-            .pack
+            .bundled
             .archive
             .lock()
             .map_err(|_| io::Error::other("archive lock poisoned"))?;
-        for (path, entry) in &self.pack.bundled {
+        for (path, entry) in &*self.bundled.entries {
             archive.stream(*entry, |input| write(path, input))?;
         }
         Ok(())

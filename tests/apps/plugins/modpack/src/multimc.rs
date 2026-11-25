@@ -16,7 +16,7 @@ fn components(extra: impl IntoIterator<Item = Value>) -> Value {
     json!({"formatVersion": 1, "components": result})
 }
 
-fn bundled(plan: &InstallPlan<'_>) -> BTreeMap<String, String> {
+fn bundled(plan: &InstallPlan) -> BTreeMap<String, String> {
     let mut files = BTreeMap::new();
     plan.write_bundled_files(|path, reader| {
         let mut content = String::new();

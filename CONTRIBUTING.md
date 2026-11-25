@@ -89,6 +89,16 @@ release builds. A build environment variable named `CURSEFORGE_API_KEY` takes
 precedence over the file. `AXLAUNCHER_CURSEFORGE_API_KEY` can supply a runtime
 override. Builds without a key can still import packs with bundled files only.
 
+The import waits for any files that need manual downloading. Use **Choose
+file…** for those entries, then **Continue installation**. The same session
+keeps its resolved file versions and the downloads already verified.
+
+CurseForge data packs without a world target stay in the instance's
+`datapacks/` folder. In vanilla Minecraft, add them through the new world's
+Data Packs screen or copy them into `saves/<world>/datapacks/` for an existing
+world. Files already bundled inside a world's directory keep that location.
+[CurseForge data pack guide](https://support.curseforge.com/support/solutions/articles/9000267956)
+
 ## Workspace layout
 
 | Path | Responsibility |

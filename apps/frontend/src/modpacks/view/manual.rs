@@ -25,6 +25,9 @@ impl ManualDownloads {
     pub(super) fn replace_pending(view: &Entity<Self>, mut files: Vec<ManualFile>, app: &mut App) {
         files.sort_unstable_by(|left, right| left.path().cmp(right.path()));
         view.update(app, |manual, cx| {
+            manual
+                .chosen
+                .retain(|path, _| files.iter().any(|file| file.path() == path));
             manual.pending = files;
             cx.notify();
         });

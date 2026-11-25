@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Mutex;
 
 use axlauncher_spi::LoaderKind;
 use serde::Deserialize;
 
 use crate::archive::{self, Archive, Entry};
 use crate::{
-    GameRequirements, ManifestLocation, Pack, PackError, PackFiles, PackReader, PackSource, paths,
+    BundledFiles, GameRequirements, ManifestLocation, Pack, PackError, PackFiles, PackReader,
+    PackSource, paths,
 };
 
 const COMPONENTS: &str = "mmc-pack.json";
@@ -62,8 +62,7 @@ impl PackReader for Reader {
             required_count: 0,
             optional: Vec::new(),
             files: PackFiles::Bundled,
-            bundled,
-            archive: Mutex::new(archive),
+            bundled: BundledFiles::new(bundled, archive),
         })
     }
 }

@@ -306,7 +306,11 @@ SHA-256 for its index and metadata and can use other algorithms for payloads.
   import preview enables official CDN URL derivation by default for files
   whose metadata omits a direct URL. When automatic acquisition is unavailable
   or fails, the user can supply a file from the official download page and the
-  installer verifies it against the pinned digest.
+  installer verifies it against the pinned digest. Continuing the same
+  import reuses its resolved plan and staging directory, and only processes
+  the remaining manual entries. Root-level `datapacks/` is a storage location.
+  Vanilla Minecraft loads data packs from a world or through the new-world
+  Data Packs screen. [CurseForge data pack guide][cf-datapacks]
   [Plugin entry point](../../apps/plugins/modpack/src/lib.rs)
 - Keep Modrinth, CurseForge, and MultiMC exports as distribution inputs to a
   new profile. MultiMC exports contribute bundled files and game requirements
@@ -355,6 +359,7 @@ for format behavior. [PCL CE Modrinth reader][pcl-mr] · [PCL CE MultiMC reader]
 [prism-mr]: https://github.com/PrismLauncher/PrismLauncher/blob/768ddbb61f78841cc0913055a6d87f179fd8b70f/launcher/modplatform/modrinth/ModrinthInstanceCreationTask.cpp
 [cf-export]: https://support.curseforge.com/support/solutions/articles/9000197908-exporting-a-modpack-for-curseforge-project-submission
 [cf-api]: https://docs.curseforge.com/rest-api/
+[cf-datapacks]: https://support.curseforge.com/support/solutions/articles/9000267956
 [cf-distribution]: https://support.curseforge.com/en/support/solutions/articles/9000207877
 [cf-cdn]: https://blog.curseforge.com/introducing-api-key-authentication-for-curseforge-file-downloads/
 [prism-cf-read]: https://github.com/PrismLauncher/PrismLauncher/blob/768ddbb61f78841cc0913055a6d87f179fd8b70f/launcher/modplatform/flame/PackManifest.cpp

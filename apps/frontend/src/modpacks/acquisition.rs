@@ -1,15 +1,20 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
+use std::collections::BTreeMap;
 use std::io::{self, Seek};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use axlauncher_core::download_engine::{DownloadEngine, DownloadJob};
 use axlauncher_core::network::verify_reader;
 use axlauncher_core::spi::Network;
 use axlauncher_core::storage::{AtomicFile, open_for_read};
-use axlauncher_modpack::Download;
+use axlauncher_modpack::{Download, InstallPlan};
+use tokio::sync::watch;
 
+use super::Progress;
+
+#[derive(Clone)]
 pub(super) struct ManualFile {
     path: String,
     url: String,
@@ -32,19 +37,58 @@ pub(super) async fn acquire(
     network: &impl Network,
     directory: &Path,
     file: &Download,
-    local: Option<&Path>,
 ) -> Result<Option<ManualFile>, String> {
     let destination = directory.join(file.path());
-    let result = match local {
-        Some(local) if file.manual_url().is_some() => {
-            copy_verified(local, &destination, file).map_err(|error| error.to_string())
-        }
-        _ if file.urls().is_empty() => return offer_manual(file, None),
-        _ => download(network, &destination, file).await,
-    };
-    match result {
+    if file.urls().is_empty() {
+        return offer_manual(file, None);
+    }
+    match download(network, &destination, file).await {
         Ok(()) => Ok(None),
         Err(error) => offer_manual(file, Some(error)),
+    }
+}
+
+pub(super) fn supply_manual_files(
+    files: Vec<ManualFile>,
+    plan: &InstallPlan,
+    directory: &Path,
+    local: &BTreeMap<String, PathBuf>,
+    progress: &watch::Sender<Progress>,
+) -> Vec<ManualFile> {
+    let total = plan.downloads().len();
+    let mut done = total - files.len();
+    progress.send_replace(Progress::Files { done, total });
+    files
+        .into_iter()
+        .filter_map(|file| {
+            let pending = supply_file(file, plan, directory, local);
+            done += usize::from(pending.is_none());
+            progress.send_replace(Progress::Files { done, total });
+            pending
+        })
+        .collect()
+}
+
+fn supply_file(
+    mut file: ManualFile,
+    plan: &InstallPlan,
+    directory: &Path,
+    local: &BTreeMap<String, PathBuf>,
+) -> Option<ManualFile> {
+    let Some(source) = local.get(file.path()) else {
+        return Some(file);
+    };
+    let download = plan
+        .downloads()
+        .iter()
+        .find(|download| download.path() == file.path())
+        .expect("pending files come from this plan");
+    match copy_verified(source, &directory.join(file.path()), download) {
+        Ok(()) => None,
+        Err(error) => {
+            file.reason = Some(error.to_string());
+            Some(file)
+        }
     }
 }
 
@@ -106,3 +150,10 @@ fn copy_verified(source: &Path, destination: &Path, download: &Download) -> io::
     download.verify(file)?;
     staged.commit(destination)
 }
+
+#[cfg(test)]
+use zip as test_zip;
+
+#[cfg(test)]
+#[path = "../../../../tests/apps/frontend/src/modpacks/acquisition.rs"]
+mod tests;

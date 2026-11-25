@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use std::collections::BTreeSet;
-use std::sync::Mutex;
 
 use axlauncher_spi::LoaderKind;
 use axlauncher_spi::auth::AuthNetwork;
@@ -11,8 +10,8 @@ use url::Url;
 
 use crate::archive::{self, Archive};
 use crate::{
-    GameRequirements, ManifestLocation, OptionId, OptionalFile, Pack, PackError, PackFiles,
-    PackReader, PackSource, PlanOptions, PlannedDownloads, paths,
+    BundledFiles, GameRequirements, ManifestLocation, OptionId, OptionalFile, Pack, PackError,
+    PackFiles, PackReader, PackSource, PlanOptions, PlannedDownloads, paths,
 };
 
 mod api;
@@ -123,8 +122,7 @@ impl Manifest {
             required_count: self.files.len() - optional.len(),
             optional,
             files: PackFiles::CurseForge(Files(self.files)),
-            bundled,
-            archive: Mutex::new(archive),
+            bundled: BundledFiles::new(bundled, archive),
         })
     }
 }

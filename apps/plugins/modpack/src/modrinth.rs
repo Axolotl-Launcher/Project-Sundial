@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Mutex;
 
 use axlauncher_spi::LoaderKind;
 use serde::Deserialize;
@@ -10,8 +9,8 @@ use url::Url;
 
 use crate::archive::{self, Archive, Entry};
 use crate::{
-    Download, GameRequirements, ManifestLocation, OptionId, OptionalFile, Pack, PackError,
-    PackFiles, PackReader, PackSource, PlannedDownloads, paths,
+    BundledFiles, Download, GameRequirements, ManifestLocation, OptionId, OptionalFile, Pack,
+    PackError, PackFiles, PackReader, PackSource, PlannedDownloads, paths,
 };
 
 const MARKER: &str = "modrinth.index.json";
@@ -124,8 +123,7 @@ impl Manifest {
             required_count: downloads.len() - optional.len(),
             optional,
             files: PackFiles::Modrinth(Files(downloads)),
-            bundled: archive::bundled(overrides)?,
-            archive: Mutex::new(archive),
+            bundled: BundledFiles::new(archive::bundled(overrides)?, archive),
         })
     }
 }
