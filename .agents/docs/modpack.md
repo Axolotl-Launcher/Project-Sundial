@@ -295,6 +295,17 @@ SHA-256 for its index and metadata and can use other algorithms for payloads.
 
 ## Implications for Axolotl
 
+- The registered readers expose one `Pack` preview with a source tag and
+  reader-owned optional item IDs. The selected items produce one `InstallPlan`
+  for the frontend to execute. The plan carries game requirements, downloads,
+  bundled files, and a redirect policy. The frontend uses the source tag for
+  presentation. Modrinth and CurseForge are the currently registered readers.
+  CurseForge planning resolves the selected file pins through its API. The
+  import preview enables official CDN URL derivation by default for files
+  whose metadata omits a direct URL. When automatic acquisition is unavailable
+  or fails, the user can supply a file from the official download page and the
+  installer verifies it against the pinned digest.
+  [Plugin entry point](../../apps/plugins/modpack/src/lib.rs)
 - Keep Modrinth and CurseForge archives as distribution inputs to a new profile.
   MultiMC conversion belongs in an independent tool under the repository's
   launcher-data rule. The managed instance schema remains `.axlprofile` and
@@ -309,7 +320,8 @@ SHA-256 for its index and metadata and can use other algorithms for payloads.
   download engine for transfers. The current engine's `MissingFile` carries a
   primary URL and SHA-1 fields. Its digest path verifies SHA-1, so full
   `.mrpack` integrity checks need a way to validate SHA-512 before publishing
-  the profile. Check declared length and required digests before publication.
+  the profile. Use the Modrinth `fileSize` as a scheduling hint and validate
+  the downloaded bytes against both manifest digests before publication.
   [Crate ownership](crates.md) · [Download engine](../../apps/core/download_engine/src/lib.rs)
 - Plan selected files before writing. Validate archive entry paths, manifest
   paths, and API-derived file names against the destination root. Account for

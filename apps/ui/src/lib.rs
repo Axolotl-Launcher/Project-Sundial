@@ -15,10 +15,12 @@
 pub use gpui_kit::component::{
     ActiveTheme, Disableable, IndexPath, Sizable, Size, StyledExt,
     button::{Button, ButtonVariants},
+    checkbox::Checkbox,
     group_box::{GroupBox, GroupBoxVariants},
     h_flex,
     input::{Input, InputEvent, InputState, Textarea, TextareaState},
     label::Label,
+    link::Link,
     pagination::Pagination,
     scroll::ScrollableElement,
     select::{SearchableVec, Select, SelectDelegate, SelectEvent, SelectItem, SelectState},

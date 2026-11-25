@@ -81,6 +81,14 @@ installation data without an independent digest. **Trust configured mirror**
 also permits those inputs from the configured mirror for that category.
 MCIM still follows the upstream source. Fallen-Proxy has a separate opt-in.
 
+### CurseForge modpack imports
+
+Set `CURSEFORGE_API_KEY` in the gitignored `.env` at the workspace root before
+building the launcher. Cargo embeds the key in the executable, including
+release builds. A build environment variable named `CURSEFORGE_API_KEY` takes
+precedence over the file. `AXLAUNCHER_CURSEFORGE_API_KEY` can supply a runtime
+override. Builds without a key can still import packs with bundled files only.
+
 ## Workspace layout
 
 | Path | Responsibility |

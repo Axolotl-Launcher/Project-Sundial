@@ -21,6 +21,7 @@ members = [
   "apps/core/storage",
   "apps/core/telemetry",
   "apps/frontend",
+  "apps/plugins/modpack",
   "apps/ui",
   "platforms/linux",
   "platforms/macos",
@@ -76,7 +77,7 @@ sha2 = "0.11.1"
 flate2 = "1.1.11"
 tar = "0.4.46"
 xz2 = "0.1.7"
-# Archives: native extraction, and modpack import inside the install system.
+# Archives: native extraction and modpack distribution inputs.
 zip = "9.8.1"
 
 # Game metadata documents.
@@ -120,6 +121,7 @@ axlauncher_install = { path = "apps/core/install" }
 axlauncher_launch = { path = "apps/core/launch" }
 axlauncher_loader = { path = "apps/core/loader" }
 axlauncher_mod_metadata = { path = "apps/core/mod_metadata" }
+axlauncher_modpack = { path = "apps/plugins/modpack" }
 axlauncher_network = { path = "apps/core/network" }
 axlauncher_observability = { path = "apps/core/observability" }
 axlauncher_resources = { path = "apps/core/resources" }
@@ -214,7 +216,6 @@ ignored = [
   "tracing",
   "tracing-subscriber",
   "trash",
-  "unicode-normalization",
   "walkdir",
   "webpki-roots",
   "which",

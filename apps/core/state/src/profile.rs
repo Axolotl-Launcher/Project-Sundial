@@ -17,9 +17,11 @@ use serde::{Deserialize, Deserializer, Serialize};
 mod create;
 mod discovery;
 mod resources;
+mod staged;
 pub use create::{CreateError, create_blank};
 pub use discovery::{DiscoveredProfile, DiscoveryError, ProfileDiscovery, discover};
 pub use resources::{Resource, ResourceKind, scan_resources};
+pub use staged::StagedProfile;
 
 pub const FILE_NAME: &str = ".axlprofile";
 const SCHEMA_VERSION: u32 = 1;
