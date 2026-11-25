@@ -24,8 +24,12 @@ import { renderDrawio, renderSvg } from "./impact-mindmap.ts";
 const ANALYZER = "gitnexus@1.6.12";
 const JSON_INDENT = 2;
 
-function git(args: readonly string[]): string {
-  return execFileSync("git", args, { encoding: "utf8", windowsHide: true }).trim();
+function git(args: readonly string[], cwd: string): string {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    windowsHide: true,
+  }).trim();
 }
 
 function required(name: string): string {
@@ -38,8 +42,8 @@ function required(name: string): string {
 
 /// The commit the pull request branched from, not the current base tip. A
 /// two-dot diff against the tip would include base-branch drift.
-function mergeBase(baseSha: string, headSha: string): string {
-  return git(["merge-base", baseSha, headSha]);
+function mergeBase(baseSha: string, headSha: string, cwd: string): string {
+  return git(["merge-base", baseSha, headSha], cwd);
 }
 
 function outputDirectory(): string {
@@ -150,7 +154,7 @@ async function analyze(): Promise<number> {
   const headSha = required("HEAD_SHA");
   const baseSha = required("BASE_SHA");
   const worktree = resolve(required("IMPACT_WORKTREE"));
-  const mergeBaseSha = mergeBase(baseSha, headSha);
+  const mergeBaseSha = mergeBase(baseSha, headSha, worktree);
   const invocation = mcpCommand();
   const client = new GitNexusClient(
     invocation.command,

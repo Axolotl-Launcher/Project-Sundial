@@ -4,11 +4,12 @@
 // Publishes the impact report on a pull request.
 //
 // The report is produced by the trusted base-branch analysis in the same
-// workflow run, so this script receives the final Markdown directly. It never
-// reads or executes anything from the pull request. A hidden marker keeps the
-// comment idempotent: later runs update the existing comment.
+// workflow run. This script reads only the resulting Markdown, verifies the
+// live pull-request head before writing, and never executes PR code. A hidden
+// marker keeps the comment idempotent: later runs update it.
 
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 import { REPORT_MARKER } from "./impact-report.ts";
 
@@ -86,8 +87,26 @@ function publish(
   );
 }
 
+function liveHead(repository: string, pullRequest: number, token: string): string {
+  const output = execFileSync(
+    "gh",
+    [
+      "api",
+      `repos/${repository}/pulls/${String(pullRequest)}`,
+      "--jq",
+      ".head.sha",
+    ],
+    {
+      encoding: "utf8",
+      windowsHide: true,
+      env: { ...process.env, GH_TOKEN: token },
+    },
+  );
+  return output.trim();
+}
+
 function main(): number {
-  const markdown = required("IMPACT_MARKDOWN");
+  const markdown = readFileSync(required("IMPACT_REPORT"), "utf8");
   if (!markdown.startsWith(REPORT_MARKER)) {
     throw new Error("the analysis output is missing its report marker");
   }
@@ -96,7 +115,19 @@ function main(): number {
   if (!Number.isInteger(pullRequest) || pullRequest <= 0) {
     throw new Error("PR_NUMBER is not a pull request number");
   }
-  publish(repository, pullRequest, markdown, required("GH_TOKEN"));
+  const token = required("GH_TOKEN");
+  const expectedHead = required("EXPECTED_HEAD_SHA");
+  if (liveHead(repository, pullRequest, token) !== expectedHead) {
+    console.log("The pull request moved; a newer run will publish its impact report.");
+    return 0;
+  }
+  const runUrl = `https://github.com/${repository}/actions/runs/${required("GITHUB_RUN_ID")}`;
+  publish(
+    repository,
+    pullRequest,
+    `${markdown.trimEnd()}\n\nThe draw.io mind map, Mermaid source and SVG preview are in the [\`pr-impact\` artifact](${runUrl}#artifacts) for this run.`,
+    token,
+  );
   return 0;
 }
 

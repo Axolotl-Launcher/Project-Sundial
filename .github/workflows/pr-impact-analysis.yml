@@ -19,8 +19,6 @@ jobs:
     name: Analyze impact
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    outputs:
-      markdown: ${{ steps.report.outputs.markdown }}
     steps:
       - name: Check out the trusted base branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,6 +40,7 @@ jobs:
         if: steps.scripts.outputs.available == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
           path: .pr
           fetch-depth: 0
@@ -74,7 +73,6 @@ jobs:
 
       - name: Analyze the pull request
         if: steps.scripts.outputs.available == 'true'
-        id: report
         env:
           GITNEXUS_HOME: ${{ runner.temp }}/gitnexus-home
           GITNEXUS_STORAGE_PATH: ${{ runner.temp }}/gitnexus-index
@@ -85,13 +83,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           IMPACT_OUTPUT: ${{ runner.temp }}/impact
           IMPACT_WORKTREE: ${{ github.workspace }}/.pr
-        run: |
-          node scripts/impact-pr.ts
-          {
-            echo 'markdown<<PR_IMPACT_EOF'
-            cat "$IMPACT_OUTPUT/impact.md"
-            echo 'PR_IMPACT_EOF'
-          } >> "$GITHUB_OUTPUT"
+        run: node scripts/impact-pr.ts
 
       - name: Upload the impact report
         if: steps.scripts.outputs.available == 'true'
@@ -105,7 +97,7 @@ jobs:
   comment:
     name: Publish impact comment
     needs: analyze
-    if: needs.analyze.outputs.markdown != ''
+    if: needs.analyze.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -118,12 +110,20 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
 
+      - name: Download the impact report
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pr-impact
+          path: ${{ runner.temp }}/impact
+
       - name: Publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          IMPACT_MARKDOWN: ${{ needs.analyze.outputs.markdown }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          IMPACT_REPORT: ${{ runner.temp }}/impact/impact.md
         run: node scripts/post-impact-comment.ts
 
       - name: Verify the comment
