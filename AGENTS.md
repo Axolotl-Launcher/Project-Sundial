@@ -85,6 +85,12 @@ habit carried over from another project.
   code files over 500 lines by role, including tests. Explain lint suppressions.
   Workspace lints cover unsafe code, `dbg!`, `todo!` and placeholder names.
   See [Clippy thresholds](clippy.toml) and [workspace lints](Cargo.toml).
+- Keep modules deep and interfaces narrow. Run `pnpm architecture` to check
+  them with `deslop-please`. The CI gate covers the Linux host target with
+  default features. Fix findings at their cause and remove resolved debt from
+  `.deslop-please.allow`, including access from modules that no longer use a
+  leaked field. The baseline is reserved for debt that existed when the check
+  was introduced.
 - Write scripts in strippable TypeScript. Keep machine paths, credentials, logs
   and mirror endpoints out of the repository. For registry access see the
   [mirror instructions](CONTRIBUTING.md#cargo-registry-mirrors) and preserve

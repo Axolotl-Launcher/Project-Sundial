@@ -35,6 +35,13 @@ path = [".npmrc", ".editorconfig", ".gitattributes", ".gitignore"]
 SPDX-FileCopyrightText = "2026 Axolotl Team"
 SPDX-License-Identifier = "GPL-3.0-only"
 
+# deslop-please rewrites this file from scratch on --update-allow, so a header
+# inside it would be lost.
+[[annotations]]
+path = ".deslop-please.allow"
+SPDX-FileCopyrightText = "2026 Axolotl Team"
+SPDX-License-Identifier = "GPL-3.0-only"
+
 # XML: a comment before the XML declaration is illegal, so the bundle metadata
 # carries its licensing here.
 [[annotations]]
