@@ -35,7 +35,6 @@ impl Network for NetworkFixture {
 fn the_catalog_keeps_official_order_and_historical_categories() {
     let catalog = block_on(versions(&NetworkFixture(MANIFEST_SHA1))).unwrap();
     assert_eq!(catalog.latest_release(), "26.3");
-    assert_eq!(catalog.latest_snapshot(), "26.4-snapshot-10");
     let listed: Vec<_> = catalog
         .versions()
         .iter()
@@ -49,10 +48,6 @@ fn the_catalog_keeps_official_order_and_historical_categories() {
             ("b1.7.3", MinecraftVersionKind::OldBeta),
             ("rd-132211", MinecraftVersionKind::OldAlpha),
         ]
-    );
-    assert_eq!(
-        catalog.versions()[0].release_time(),
-        "2026-11-17T16:02:02+00:00"
     );
 }
 

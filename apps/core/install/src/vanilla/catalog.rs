@@ -18,7 +18,6 @@ pub struct MinecraftCatalog {
 #[derive(Debug, Deserialize)]
 struct Latest {
     release: String,
-    snapshot: String,
 }
 
 /// A selectable Minecraft version and the manifest that installs it.
@@ -27,8 +26,6 @@ pub struct MinecraftVersion {
     id: String,
     #[serde(rename = "type")]
     kind: MinecraftVersionKind,
-    #[serde(rename = "releaseTime")]
-    release_time: String,
     pub(super) url: String,
     pub(super) sha1: String,
 }
@@ -50,10 +47,6 @@ impl MinecraftCatalog {
         &self.latest.release
     }
 
-    pub fn latest_snapshot(&self) -> &str {
-        &self.latest.snapshot
-    }
-
     pub fn versions(&self) -> &[MinecraftVersion] {
         &self.versions
     }
@@ -66,11 +59,6 @@ impl MinecraftVersion {
 
     pub fn kind(&self) -> MinecraftVersionKind {
         self.kind
-    }
-
-    /// The publication timestamp from the official catalog.
-    pub fn release_time(&self) -> &str {
-        &self.release_time
     }
 }
 

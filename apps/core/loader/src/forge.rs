@@ -9,6 +9,7 @@
 //! promotion, including historical builds.
 
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use axlauncher_spi::{
     FetchError, LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader,
@@ -23,6 +24,9 @@ use crate::{installer, maven_metadata};
 const PROMOTIONS: &str =
     "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json";
 
+/// Limit how long optional recommendations can hold up the Maven listing.
+const CATALOG_PROMOTIONS_TIMEOUT: Duration = Duration::from_secs(3);
+
 /// The repository the installers are published to.
 const MAVEN: &str = "https://maven.minecraftforge.net/net/minecraftforge/forge";
 
@@ -33,6 +37,14 @@ const LATEST: &str = "latest";
 #[derive(Deserialize)]
 struct Promotions {
     promos: BTreeMap<String, String>,
+}
+
+impl Promotions {
+    fn version(&self, game_version: &str, channel: &str) -> Option<&str> {
+        self.promos
+            .get(&format!("{game_version}-{channel}"))
+            .map(String::as_str)
+    }
 }
 
 /// Forge's published loader versions.
@@ -78,6 +90,33 @@ impl<N: Network> ModLoader for ForgeApi<N> {
     }
 
     async fn versions(&self, game_version: &str) -> Result<Vec<LoaderVersion>, LoaderError> {
+        let (versions, promotions) = tokio::join!(
+            self.maven_versions(game_version),
+            tokio::time::timeout(CATALOG_PROMOTIONS_TIMEOUT, self.promotions()),
+        );
+        let mut versions = versions?;
+        if let Ok(Ok(promotions)) = promotions
+            && let Some(recommended) = promotions.version(game_version, RECOMMENDED)
+            && let Some(entry) = versions
+                .iter_mut()
+                .find(|entry| entry.version == recommended)
+        {
+            entry.stable = Some(true);
+        }
+        Ok(versions)
+    }
+
+    async fn profile(&self, request: LoaderRequest) -> Result<LoaderProfile, LoaderError> {
+        let chosen = match &request.loader_version {
+            Some(requested) if !requested.trim().is_empty() => requested.clone(),
+            _ => self.default_version(&request.game_version).await?,
+        };
+        self.install(&request.game_version, &chosen).await
+    }
+}
+
+impl<N: Network> ForgeApi<N> {
+    async fn maven_versions(&self, game_version: &str) -> Result<Vec<LoaderVersion>, LoaderError> {
         let prefix = format!("{game_version}-");
         let repeated_game = format!("-{game_version}");
         let coordinates = maven_metadata::fetch_versions(&self.network, self.kind(), MAVEN).await?;
@@ -100,17 +139,7 @@ impl<N: Network> ModLoader for ForgeApi<N> {
         Ok(versions)
     }
 
-    async fn profile(&self, request: LoaderRequest) -> Result<LoaderProfile, LoaderError> {
-        let chosen = match &request.loader_version {
-            Some(requested) if !requested.trim().is_empty() => requested.clone(),
-            _ => self.default_version(&request.game_version).await?,
-        };
-        self.install(&request.game_version, &chosen).await
-    }
-}
-
-impl<N: Network> ForgeApi<N> {
-    async fn default_version(&self, game_version: &str) -> Result<String, LoaderError> {
+    async fn promotions(&self) -> Result<Promotions, LoaderError> {
         let bytes =
             self.network
                 .fetch(PROMOTIONS)
@@ -119,18 +148,21 @@ impl<N: Network> ForgeApi<N> {
                     loader: self.kind(),
                     source,
                 })?;
-        let promotions: Promotions =
-            serde_json::from_slice(&bytes).map_err(|error| LoaderError::Malformed {
-                loader: self.kind(),
-                reason: format!("a promotions list that does not parse: {error}"),
-            })?;
+        serde_json::from_slice(&bytes).map_err(|error| LoaderError::Malformed {
+            loader: self.kind(),
+            reason: format!("a promotions list that does not parse: {error}"),
+        })
+    }
+
+    async fn default_version(&self, game_version: &str) -> Result<String, LoaderError> {
+        let promotions = self.promotions().await?;
         if let Some(version) = [RECOMMENDED, LATEST]
-            .iter()
-            .find_map(|channel| promotions.promos.get(&format!("{game_version}-{channel}")))
+            .into_iter()
+            .find_map(|channel| promotions.version(game_version, channel))
         {
-            return Ok(version.clone());
+            return Ok(version.to_owned());
         }
-        self.versions(game_version)
+        self.maven_versions(game_version)
             .await
             .map(|mut versions| versions.remove(0).version)
     }

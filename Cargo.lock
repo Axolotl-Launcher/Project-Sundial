@@ -665,6 +665,7 @@ dependencies = [
  "quick-xml",
  "serde",
  "serde_json",
+ "tokio",
  "zip",
 ]
 

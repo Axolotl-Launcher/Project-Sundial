@@ -52,17 +52,11 @@ impl Network for FakeNetwork {
 }
 
 fn block_on<F: std::future::Future>(future: F) -> F::Output {
-    use std::task::{Context, Poll, Waker};
-
-    let waker = Waker::noop();
-    let mut context = Context::from_waker(waker);
-    let mut future = std::pin::pin!(future);
-    loop {
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(value) => return value,
-            Poll::Pending => std::thread::yield_now(),
-        }
-    }
+    tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .unwrap()
+        .block_on(future)
 }
 
 fn installer() -> Vec<u8> {
@@ -106,6 +100,23 @@ fn the_catalog_includes_unpromoted_builds_newest_first() {
         ["47.4.29", "47.4.28", "47.4.0"]
     );
     assert!(versions.iter().all(|entry| entry.stable.is_none()));
+}
+
+#[test]
+fn the_catalog_marks_only_the_recommended_build() {
+    let mut network = catalog();
+    network
+        .responses
+        .insert(PROMOTIONS.into(), Ok(PROMOTIONS_BODY.as_bytes().to_vec()));
+
+    let versions = block_on(ForgeApi::new(network).versions("1.20.1")).unwrap();
+
+    let recommended: Vec<_> = versions
+        .iter()
+        .filter(|entry| entry.stable == Some(true))
+        .map(|entry| entry.version.as_str())
+        .collect();
+    assert_eq!(recommended, ["47.4.28"]);
 }
 
 #[test]

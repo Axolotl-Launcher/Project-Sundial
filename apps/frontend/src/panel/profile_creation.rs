@@ -202,9 +202,9 @@ impl RootView {
         state.minecraft_status = match result {
             Ok(catalog) if catalog.versions().is_empty() => CatalogStatus::Empty,
             Ok(catalog) => {
-                let latest = SharedString::from(catalog.latest_release().to_owned());
-                let items = minecraft_choices(&catalog);
-                set_picker(&state.minecraft, items, &latest, window, cx);
+                let entered = state.manual_game.read(cx).value();
+                let (items, selected) = minecraft_picker_items(&catalog, &entered);
+                set_picker(&state.minecraft, items, &selected, window, cx);
                 CatalogStatus::Ready
             }
             Err(error) => CatalogStatus::Failed(error),
@@ -285,7 +285,7 @@ impl RootView {
                 let automatic = SharedString::from(AUTOMATIC);
                 set_picker(
                     &state.loader_version,
-                    loader_build_choices(versions),
+                    loader_build_choices(state.loader_kind(cx), versions),
                     &automatic,
                     window,
                     cx,
@@ -376,8 +376,12 @@ fn nonempty(value: &str) -> Option<&str> {
     (!value.is_empty()).then_some(value)
 }
 
-fn minecraft_choices(catalog: &MinecraftCatalog) -> SearchableVec<Choice> {
-    SearchableVec::new(
+fn minecraft_picker_items(
+    catalog: &MinecraftCatalog,
+    entered: &str,
+) -> (SearchableVec<Choice>, SharedString) {
+    let selected = nonempty(entered).unwrap_or_else(|| catalog.latest_release());
+    let items = SearchableVec::new(
         catalog
             .versions()
             .iter()
@@ -395,7 +399,8 @@ fn minecraft_choices(catalog: &MinecraftCatalog) -> SearchableVec<Choice> {
                 )
             })
             .collect::<Vec<_>>(),
-    )
+    );
+    (items, SharedString::from(selected.to_owned()))
 }
 
 fn loader_choices() -> SearchableVec<Choice> {
@@ -414,11 +419,19 @@ fn loader_choices() -> SearchableVec<Choice> {
     choices
 }
 
-fn loader_build_choices(versions: Vec<LoaderVersion>) -> SearchableVec<Choice> {
+fn loader_build_choices(
+    kind: Option<LoaderKind>,
+    versions: Vec<LoaderVersion>,
+) -> SearchableVec<Choice> {
+    let stability_label = if kind == Some(LoaderKind::Forge) {
+        "Recommended"
+    } else {
+        "Stable"
+    };
     let mut choices = SearchableVec::new(vec![Choice::new(AUTOMATIC, "Automatic")]);
     for version in versions {
         let label = if version.stable == Some(true) {
-            format!("{} · Stable", version.version)
+            format!("{} · {stability_label}", version.version)
         } else {
             version.version.clone()
         };
