@@ -20,11 +20,10 @@ See [.agents/AGENTS.md](.agents/AGENTS.md) for agent documentation and temporary
    and run `pnpm install --frozen-lockfile`. The Rust pin is in
    [rust-toolchain.toml](rust-toolchain.toml). Node and pnpm requirements are in
    [package.json](package.json).
-3. Use GitNexus for code navigation. Before editing, run upstream impact analysis
-   for the target and report callers, affected processes and risk. Warn before
-   editing a HIGH or CRITICAL target. Confirm UNKNOWN results with a text search.
-   Follow the [GitNexus guide](.agents/docs/gitnexus.md) for first-time setup,
-   renames and the required pre-commit change analysis.
+3. Before editing, search for the target's callers with `rg` and read the
+   surrounding code. For a pull request, the `PR impact analysis` workflow
+   posts the symbol- and process-level impact report; use it as review context,
+   not as a substitute for reading the changed code.
 
 ## Where changes belong
 
