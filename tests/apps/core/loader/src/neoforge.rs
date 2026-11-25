@@ -17,6 +17,8 @@ const METADATA: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
       <version>20.2.93</version>
       <version>26.1.0.0-alpha.1</version>
       <version>26.1.0.0-alpha.1+snapshot-1</version>
+      <version>26.1.0.0-alpha.9+snapshot-6</version>
+      <version>26.1.0.0-alpha.10+snapshot-6</version>
       <version>26.1.0.0-alpha.15+pre-3</version>
       <version>26.1.0.2</version>
       <version>26.1.2.130</version>
@@ -102,6 +104,13 @@ fn published_series_do_not_mix_patches_snapshots_and_base_releases() {
         ("26.1", &["26.1.0.2", "26.1.0.0-alpha.1"]),
         ("26.1.2", &["26.1.2.130"]),
         ("26.1-snapshot-1", &["26.1.0.0-alpha.1+snapshot-1"]),
+        (
+            "26.1-snapshot-6",
+            &[
+                "26.1.0.0-alpha.10+snapshot-6",
+                "26.1.0.0-alpha.9+snapshot-6",
+            ],
+        ),
         ("26.1-pre-3", &["26.1.0.0-alpha.15+pre-3"]),
     ] {
         let listed = block_on(api.versions(game)).unwrap();

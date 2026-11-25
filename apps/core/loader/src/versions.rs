@@ -10,7 +10,7 @@
 
 use std::cmp::Ordering;
 
-/// Orders two version strings.
+/// Orders two version strings, ignoring build metadata after `+`.
 pub(crate) fn compare(left: &str, right: &str) -> Ordering {
     let (left_core, left_pre) = split_pre(left);
     let (right_core, right_pre) = split_pre(right);
@@ -27,6 +27,7 @@ pub(crate) fn compare(left: &str, right: &str) -> Ordering {
 }
 
 fn split_pre(version: &str) -> (&str, Option<&str>) {
+    let version = version.split_once('+').map_or(version, |(build, _)| build);
     match version.split_once('-') {
         Some((core, pre)) => (core, Some(pre)),
         None => (version, None),
