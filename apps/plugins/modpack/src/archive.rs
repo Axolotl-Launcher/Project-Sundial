@@ -11,7 +11,7 @@ use zip::ZipArchive;
 use crate::{ManifestLocation, PackError, paths};
 
 const MAX_ENTRIES: usize = 100_000;
-const MAX_MANIFEST_BYTES: u64 = 8 * 1024 * 1024;
+pub(super) const MAX_MANIFEST_BYTES: u64 = 8 * 1024 * 1024;
 
 #[derive(Clone, Copy)]
 pub(crate) struct Entry {

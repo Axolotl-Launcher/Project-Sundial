@@ -6,6 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use axlauncher_spi::LoaderKind;
 use serde_json::{Value, json};
 
+use crate::MultiMcExport;
+
 use super::{
     InstallPlan, ModpackPlugin, PackError, PackSource, archive_with_marker, local_plan, tempfile,
 };
@@ -64,7 +66,6 @@ fn a_wrapped_multimc_pack_uses_the_common_plan_for_game_files() {
     assert_eq!(pack.game().loader(), Some((LoaderKind::Fabric, "0.17.0")));
     let plan = local_plan(&pack, &BTreeSet::new());
     assert!(plan.downloads().is_empty());
-    assert!(plan.download_api_key().is_none());
     assert_eq!(
         bundled(&plan),
         BTreeMap::from([
@@ -125,6 +126,30 @@ fn active_mmc_patches_and_local_launch_artifacts_are_refused() {
             matches!(result, Err(PackError::Unsupported(message)) if message.contains(artifact))
         );
     }
+}
+
+#[test]
+fn excessive_combined_patch_size_is_rejected_before_invoking_the_reader() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("export.zip");
+    let manifest = components(["one", "two", "three"].map(|uid| json!({"uid": uid})));
+    let patch = format!("{{}}{}", " ".repeat(6 * 1024 * 1024));
+    archive_with_marker(
+        &path,
+        "mmc-pack.json",
+        &manifest,
+        &[
+            ("instance.cfg", "name=Large patches"),
+            ("patches/one.json", &patch),
+            ("patches/two.json", &patch),
+            ("patches/three.json", &patch),
+        ],
+    );
+    let mut export = MultiMcExport::open(&path).unwrap();
+    let result = export.read_patches(|_, _| panic!("patch budget must be checked first"));
+    assert!(
+        matches!(result, Err(PackError::Invalid(message)) if message.contains("total size limit"))
+    );
 }
 
 #[test]

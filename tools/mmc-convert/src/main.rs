@@ -70,10 +70,7 @@ async fn convert(input: &Path, data: &DataDir) -> Result<PathBuf> {
         game = game.with_loader(kind.as_str(), Some(build.into()));
     }
     let mut profile = Profile::new(export.name(), Some(game));
-    if base_id == "axolotl-converted" || effective.jar_id() == "axolotl-converted" {
-        return Err("Base version conflicts with the converted profile ID".into());
-    }
-    effective.id = "axolotl-converted".into();
+    set_converted_id(&mut effective)?;
     patches::apply(patch_set, &mut export, &game_root, &mut effective)?;
     let checked = prepare::prepare(&network, &game_root, &effective, &target, 0).await?;
     base::complete(checked)?;
@@ -85,4 +82,14 @@ async fn convert(input: &Path, data: &DataDir) -> Result<PathBuf> {
     profile.set_installed_version(effective.id);
     profile.set_install_status(InstallStatus::Ready);
     Ok(staging.publish(&profile)?)
+}
+
+fn set_converted_id(version: &mut version::Version) -> Result<()> {
+    const CONVERTED_ID: &str = "axolotl-converted";
+    if version.id == CONVERTED_ID || version.jar_id() == CONVERTED_ID {
+        return Err("Base version conflicts with the converted profile ID".into());
+    }
+    version.jar = Some(version.jar_id().to_owned());
+    version.id = CONVERTED_ID.into();
+    Ok(())
 }

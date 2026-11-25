@@ -18,6 +18,8 @@ const COMPONENTS: &str = "mmc-pack.json";
 const CONFIG: &str = "instance.cfg";
 const MINECRAFT: &str = "net.minecraft";
 const INTERMEDIARY: &str = "net.fabricmc.intermediary";
+const MAX_ACTIVE_PATCHES: usize = 128;
+const MAX_PATCH_BYTES: u64 = 2 * archive::MAX_MANIFEST_BYTES;
 
 pub(super) struct Reader;
 
@@ -177,7 +179,17 @@ impl MultiMcExport {
                 self.patch_entry(&component.uid)
                     .map(|location| (component.uid.as_str(), location))
             })
+            .take(MAX_ACTIVE_PATCHES + 1)
             .collect();
+        let size: u64 = active
+            .iter()
+            .map(|(_, patch)| patch.entry.size().min(MAX_PATCH_BYTES + 1))
+            .sum();
+        if active.len() > MAX_ACTIVE_PATCHES || size > MAX_PATCH_BYTES {
+            return Err(PackError::Invalid(
+                "MultiMC active patches exceed the count or total size limit".into(),
+            ));
+        }
         for (uid, location) in active {
             let bytes = self.archive.manifest(location.entry, &location.path)?;
             read(uid, &bytes)?;

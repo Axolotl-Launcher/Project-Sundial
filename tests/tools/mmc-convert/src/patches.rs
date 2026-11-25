@@ -23,17 +23,19 @@ fn jar(value: &str) -> Vec<u8> {
     archive.finish().unwrap().into_inner()
 }
 
-fn export(path: &Path) {
+fn export(path: &Path, replacement: bool) {
     let mut archive = ZipWriter::new(File::create(path).unwrap());
     let manifest = json!({"formatVersion":1,"components":[
         {"uid":"net.minecraft","version":"1.20.1"}, {"uid":"example.original"}, {"uid":"example.final"}
     ]});
-    let first = json!({"uid":"example.original","mainClass":"example.First",
-        "mainJar":{"name":"example:replacement:1","MMC-hint":"local"},
+    let mut first = json!({"uid":"example.original","mainClass":"example.First",
         "libraries":[{"name":"example:library:1","MMC-hint":"local"}],
         "jarMods":[{"name":"example:first:1","MMC-hint":"local"}],
         "requires":[{"uid":"net.minecraft","equals":"1.20.1"}]
     });
+    if replacement {
+        first["mainJar"] = json!({"name":"example:replacement:1","MMC-hint":"local"});
+    }
     let second = json!({"uid":"example.final","mainClass":"example.Game",
         "jarMods":[{"name":"example:second:1","MMC-hint":"local"}]
     });
@@ -66,7 +68,7 @@ fn export(path: &Path) {
 fn active_patches_produce_an_isolated_client_and_local_classpath_from_a_real_zip() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("pack.zip");
-    export(&path);
+    export(&path, true);
     let instances = temporary.path().join("profiles");
     let staging = StagedProfile::new(&instances).unwrap();
     let root = instance_runtime(staging.directory());
@@ -100,6 +102,33 @@ fn active_patches_produce_an_isolated_client_and_local_classpath_from_a_real_zip
     let (directory, root) = publish(staging, &version);
     assert_eq!(discover(&instances).instances.len(), 1);
     assert_launch_layout(&directory, &root, &version);
+}
+
+#[test]
+fn vanilla_jar_mods_use_the_stock_jar_after_the_profile_is_renamed() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("pack.zip");
+    export(&path, false);
+    let root = temporary.path();
+    let stock = root.join("versions/1.20.1/1.20.1.jar");
+    fs::create_dir_all(stock.parent().unwrap()).unwrap();
+    fs::write(&stock, jar("vanilla")).unwrap();
+    let mut export = MultiMcExport::open(&path).unwrap();
+    let patches = read(&mut export).unwrap();
+    let mut version: Version = serde_json::from_value(json!({"id":"1.20.1"})).unwrap();
+    crate::set_converted_id(&mut version).unwrap();
+    assert_eq!(version.jar_id(), "1.20.1");
+    apply(patches, &mut export, root, &mut version).unwrap();
+    let client = root.join("versions/axolotl-converted/axolotl-converted.jar");
+    let mut archive = ZipArchive::new(File::open(client).unwrap()).unwrap();
+    let mut value = String::new();
+    archive
+        .by_name("example/Game.class")
+        .unwrap()
+        .read_to_string(&mut value)
+        .unwrap();
+    assert_eq!(value, "second");
+    assert!(stock.is_file());
 }
 
 fn publish(staging: StagedProfile, version: &Version) -> (PathBuf, PathBuf) {
