@@ -55,9 +55,7 @@ jobs:
       - name: Run desktop workspace tests
         run: cargo nextest run --workspace --profile ci --locked --no-tests=fail
 
-  # Architecture: deep modules, narrow interfaces. rust-analyzer's SCIP index is
-  # the input, so this job pays for a first index on a cold cache; the tool
-  # caches it under target/ afterwards.
+  # The architecture gate covers the Linux host target with default features.
   architecture:
     name: Architecture
     runs-on: ubuntu-24.04
@@ -73,20 +71,16 @@ jobs:
         with:
           save-cache: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
-      # Then pinned toolchain has no rust-analyzer by default; the tool needs it
-      # to build the index.
       - name: Add rust-analyzer
         run: rustup component add rust-analyzer
 
-      - name: Install deslop-please
-        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          tool: deslop-please@0.1.4
+          node-version-file: package.json
 
-      # .deslop-please.allow is the baseline of accepted debt; anything new,
-      # or any removed entry that now reports, fails here.
       - name: Check the architecture
-        run: deslop-please --allow .deslop-please.allow
+        run: node scripts/architecture.ts --allow .deslop-please.allow
 
   ci-result:
     name: CI result

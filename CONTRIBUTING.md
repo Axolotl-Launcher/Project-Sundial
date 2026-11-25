@@ -94,7 +94,7 @@ typos
 tombi format --check
 tombi lint
 reuse lint
-deslop-please --allow .deslop-please.allow
+pnpm architecture
 ```
 
 `pnpm check` runs the host-filtered Turbo checks, formatters, script checks,
@@ -108,21 +108,28 @@ Clippy and Nextest on Ubuntu, Windows, and macOS, and the
 
 [deslop-please](https://github.com/deterministic-machines/deslop-please) enforces
 the "deep modules, narrow interfaces" rule from *A Philosophy of Software
-Design*. Install it with `cargo install deslop-please`, and make sure
-`rust-analyzer` is on `PATH` (`rustup component add rust-analyzer`); the tool
-builds its index from `rust-analyzer scip`.
+Design*. Install `rust-analyzer` with `rustup component add rust-analyzer`. The
+architecture script applies the repository's field-leak patch to the pinned
+`deslop-please` 0.1.4 source, then builds it with `cargo install --locked`. CI and
+`pnpm architecture` use the same script and patch.
+
+The CI gate covers the Linux host target with default features. The local check
+uses the current Cargo target and default features. Run it on Linux to reproduce
+the CI scope.
 
 ```bash
-pnpm architecture                      # the check CI runs
-deslop-please                          # every finding, including accepted debt
-deslop-please --update-allow .deslop-please.allow   # only when adding debt deliberately
+pnpm architecture             # Check against the baseline
+node scripts/architecture.ts  # Show every finding, including existing debt
 ```
 
-`.deslop-please.allow` is the baseline: it lists the 23 findings that existed
-when the check was introduced. A new finding fails CI. Fix the cause rather than
-adding a line; when a listed finding is fixed, delete its line. The four
-reported kinds are a module cycle, a tangle, a field read by another module, and
-a shallow module (its public surface is most of what it holds).
+`.deslop-please.allow` records the findings that existed when the check was
+introduced. For field leaks it records the field and the modules that access
+it. A finding outside the baseline fails CI, including a new module accessing
+an already listed field. Fix the cause and remove any resolved entries or
+module names from the baseline.
+
+The tool checks for module cycles, tangles, field leaks, shallow modules,
+directories with too many Rust files or subdirectories, and long Rust files.
 
 ## Dependency policy
 
