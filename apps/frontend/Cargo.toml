@@ -14,7 +14,6 @@ license.workspace = true
 axlauncher_core = { workspace = true }
 axlauncher_modpack = { workspace = true }
 axlauncher_ui = { workspace = true }
-dirs = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 

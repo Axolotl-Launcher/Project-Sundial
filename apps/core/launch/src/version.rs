@@ -431,7 +431,7 @@ fn read_document<T: serde::de::DeserializeOwned>(root: &Path, id: &str) -> Resul
     if !is_version_id(id) {
         return Err(VersionError::InvalidId { id: id.to_string() });
     }
-    let path = root.join(id).join(format!("{id}.json"));
+    let path = axlauncher_storage::version_document(root, id);
     let bytes = std::fs::read(&path).map_err(|source| VersionError::Read {
         path: path.clone(),
         source,

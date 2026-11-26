@@ -68,7 +68,7 @@ pub(super) async fn prepare_for_version(
     id: &str,
     report: impl FnMut(Progress),
 ) -> Result<(), String> {
-    let document = version::load(&data.versions(), id)
+    let document = version::load(&data.game().versions(), id)
         .map_err(|error| format!("Cannot read the installed Minecraft {id} manifest: {error}"))?;
     let Some(major) = missing_java(&document, |major| {
         managed(data)

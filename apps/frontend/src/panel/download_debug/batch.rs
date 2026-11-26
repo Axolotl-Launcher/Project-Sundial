@@ -7,7 +7,7 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use axlauncher_core::download_engine::{DownloadOutcome, MissingFile, download_batch};
-use axlauncher_core::storage::DataDir;
+use axlauncher_core::storage::{DataDir, download_debug_batch_file};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, App, Button, ButtonVariants, Context, Disableable, ElementId, Entity,
@@ -130,7 +130,7 @@ impl RootView {
         if batch.is_running() {
             return;
         }
-        let Some(root) = self.root.clone() else {
+        let Some(paths) = self.paths.clone() else {
             return;
         };
         let links = parse_links(&batch.input.read(cx).value());
@@ -155,9 +155,10 @@ impl RootView {
         batch.cancel = Some(cancel);
         batch.outcomes = Some(outcomes);
         self.monitor_downloads(cx);
-        let task = cx.background_spawn(async move {
-            run_batch(&DataDir::new(root), links, options, cancellation, report)
-        });
+        let task =
+            cx.background_spawn(
+                async move { run_batch(&paths, links, options, cancellation, report) },
+            );
         cx.spawn(async move |view, cx| {
             let result = task.await;
             let _ = view.update(cx, |view, cx| view.finish_batch_probe(result, cx));
@@ -250,7 +251,7 @@ impl RootView {
             .child(
                 Button::new("start-batch-download")
                     .label("Run batch test")
-                    .disabled(batch.is_running() || self.root.is_none())
+                    .disabled(batch.is_running() || self.paths.is_none())
                     .on_click(cx.listener(|view, _, _, cx| view.start_batch_probe(cx))),
             )
             .when(batch.is_running(), |row| {
@@ -407,7 +408,7 @@ fn run_batch(
         .into_iter()
         .map(|link| MissingFile {
             url: link.url,
-            path: directory.join(format!("{}.bin", link.line)),
+            path: download_debug_batch_file(&directory, link.line),
             sha1: None,
             sha1_alternatives: Vec::new(),
             size: None,

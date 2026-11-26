@@ -48,8 +48,10 @@ dirs = "6"
 # gpui-component 与 Lucide 资源），是 Zed crates/gpui 的长期跟进快照。
 # 升级时须整体升级 gpui-kit，不要单独改 gpui-pre。
 gpui-kit = "0.10.0"
+proc-macro2 = "1.0.107"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+syn = "2.0.119"
 
 # Declared now so each system can start with what it needs. These mirror the
 # reference launcher's runtime dependencies, chosen per system; the selection

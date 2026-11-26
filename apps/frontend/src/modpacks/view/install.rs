@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::path::PathBuf;
+use axlauncher_core::storage::DataDir;
 use std::sync::Arc;
 
 use axlauncher_ui::{AppContext, AsyncWindowContext, Context, Task, WeakEntity, Window};
@@ -27,7 +27,7 @@ impl ModpackImport {
 
     pub(crate) fn install(
         &mut self,
-        root: PathBuf,
+        paths: DataDir,
         options: DownloadOptions,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
@@ -49,7 +49,7 @@ impl ModpackImport {
             let report = |change| report_progress(&progress, change);
             match pending {
                 Some(install) => install.resume(&local, options, report),
-                None => service::install(root, &pack, &selected, policy, options, report),
+                None => service::install(paths, &pack, &selected, policy, options, report),
             }
         });
         cx.spawn_in(window, async move |view, cx| {
@@ -87,13 +87,13 @@ impl ModpackImport {
         };
         match result {
             Ok(Outcome::Installed {
-                root,
+                paths,
                 directory,
                 root_data_packs,
             }) => {
                 self.root_data_packs = root_data_packs;
                 cx.emit(ImportEvent::Installed {
-                    root,
+                    paths,
                     directory,
                     name: preview.pack.name().to_owned(),
                 });

@@ -63,7 +63,12 @@ impl Network for MirrorFixture {
 #[test]
 fn installation_retries_a_stale_catalog_and_corrupt_manifest_at_the_official_source() {
     let root = crate::test_tempfile::tempdir().unwrap();
-    block_on(ensure_version(&MirrorFixture, root.path(), "26.3")).unwrap();
+    block_on(ensure_version(
+        &MirrorFixture,
+        &GameDir::standalone(root.path()),
+        "26.3",
+    ))
+    .unwrap();
     assert_eq!(
         fs::read(root.path().join("versions/26.3/26.3.json")).unwrap(),
         MANIFEST
@@ -96,10 +101,11 @@ fn a_missing_version_downloads_its_manifest_and_client_and_can_be_retried_offlin
 
     let root = tempfile::tempdir().unwrap();
     let mut phases = Vec::new();
-    assert!(check_files(root.path(), "26.3", &Target::host()).is_err());
+    let game = GameDir::standalone(root.path());
+    assert!(check_files(&game, "26.3", &Target::host()).is_err());
     let installed = block_on(install(
         &NetworkFixture(MANIFEST_SHA1),
-        root.path(),
+        &game,
         "26.3",
         &Target::host(),
         1,
@@ -108,7 +114,7 @@ fn a_missing_version_downloads_its_manifest_and_client_and_can_be_retried_offlin
     .unwrap();
 
     assert!(installed.is_complete());
-    assert!(check_files(root.path(), "26.3", &Target::host()).is_ok());
+    assert!(check_files(&game, "26.3", &Target::host()).is_ok());
     assert_eq!(installed.written, 1);
     assert_eq!(
         fs::read(root.path().join("versions/26.3/26.3.json")).unwrap(),
@@ -125,7 +131,7 @@ fn a_missing_version_downloads_its_manifest_and_client_and_can_be_retried_offlin
 
     let retry = block_on(install(
         &axlauncher_network::UnimplementedNetwork,
-        root.path(),
+        &game,
         "26.3",
         &Target::host(),
         1,
@@ -160,10 +166,11 @@ impl Network for PreReleaseCatalog {
 #[test]
 fn a_catalog_pre_release_with_spaces_installs_and_passes_the_offline_check() {
     let root = crate::test_tempfile::tempdir().unwrap();
+    let game = GameDir::standalone(root.path());
     let target = Target::host();
     let prepared = block_on(install(
         &PreReleaseCatalog,
-        root.path(),
+        &game,
         PRE_RELEASE,
         &target,
         1,
@@ -181,8 +188,7 @@ fn a_catalog_pre_release_with_spaces_installs_and_passes_the_offline_check() {
         .unwrap(),
         b"abc"
     );
-    check_files(root.path(), PRE_RELEASE, &target)
-        .expect("launch preflight sees the installed version");
+    check_files(&game, PRE_RELEASE, &target).expect("launch preflight sees the installed version");
 }
 
 #[test]
@@ -192,7 +198,7 @@ fn a_manifest_with_the_wrong_hash_is_not_saved() {
     let root = tempfile::tempdir().unwrap();
     let result = block_on(install(
         &NetworkFixture("bad"),
-        root.path(),
+        &GameDir::standalone(root.path()),
         "26.3",
         &Target::host(),
         1,
@@ -205,16 +211,17 @@ fn a_manifest_with_the_wrong_hash_is_not_saved() {
 #[test]
 fn simultaneous_launches_share_the_game_lock_and_exclude_installation() {
     let root = crate::test_tempfile::tempdir().unwrap();
-    let first = launch_lock(root.path()).unwrap();
-    let second = launch_lock(root.path()).unwrap();
-    assert!(installation_lock(root.path()).is_err());
+    let game = GameDir::standalone(root.path());
+    let first = launch_lock(&game).unwrap();
+    let second = launch_lock(&game).unwrap();
+    assert!(installation_lock(&game).is_err());
     drop(first);
-    assert!(installation_lock(root.path()).is_err());
+    assert!(installation_lock(&game).is_err());
     drop(second);
-    let install = installation_lock(root.path()).unwrap();
-    assert!(launch_lock(root.path()).is_err());
+    let install = installation_lock(&game).unwrap();
+    assert!(launch_lock(&game).is_err());
     drop(install);
-    assert!(launch_lock(root.path()).is_ok());
+    assert!(launch_lock(&game).is_ok());
 }
 
 #[test]
@@ -244,14 +251,15 @@ fn offline_check_detects_a_missing_pre_1_6_resource_copy() {
     }
 
     let target = Target::host();
+    let game = GameDir::standalone(root);
     assert!(
-        check_files(root, "b1.7.3", &target)
+        check_files(&game, "b1.7.3", &target)
             .unwrap_err()
             .contains("a.ogg")
     );
     let repair = block_on(install(
         &axlauncher_network::UnimplementedNetwork,
-        root,
+        &game,
         "b1.7.3",
         &target,
         1,
@@ -260,5 +268,5 @@ fn offline_check_detects_a_missing_pre_1_6_resource_copy() {
     .unwrap();
     assert!(repair.is_complete());
     assert_eq!(repair.requested, 0);
-    assert!(check_files(root, "b1.7.3", &target).is_ok());
+    assert!(check_files(&game, "b1.7.3", &target).is_ok());
 }

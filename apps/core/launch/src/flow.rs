@@ -10,6 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use axlauncher_spi::{Java, JavaMode, LaunchCommand, LaunchError, Launcher};
+use axlauncher_storage::{GameDir, instance_options};
 
 use crate::chain::{self, ChainError};
 use crate::jar::JarReader;
@@ -18,9 +19,6 @@ use crate::natives::{self, NativeError};
 use crate::plan::{self, Layout, PlanError, Session};
 use crate::rules::Target;
 use crate::version::{self, Version, VersionError};
-
-/// The directory under a game root that holds version documents.
-const VERSIONS: &str = "versions";
 
 /// The launcher name the game is told about.
 const LAUNCHER_NAME: &str = "Axolotl Launcher";
@@ -33,7 +31,7 @@ const LEGACY_JAVA: u32 = 8;
 #[derive(Debug, Clone)]
 pub struct LaunchRequest {
     /// The directory holding `versions/`, `libraries/` and `assets/`.
-    pub game_root: PathBuf,
+    pub game_root: GameDir,
     /// The instance's own directory, which the game writes its files into.
     pub instance_directory: PathBuf,
     /// The version to launch, as its directory under `versions/` names it.
@@ -235,9 +233,9 @@ fn prepare_game_language(request: &LaunchRequest) -> Result<(), FlowError> {
     let Some(language) = &request.game_language else {
         return Ok(());
     };
-    let time = version::release_time(&request.game_root.join(VERSIONS), language.minecraft())
+    let time = version::release_time(&request.game_root.versions(), language.minecraft())
         .map_err(|source| FlowError::VersionDocument { source })?;
-    let path = request.instance_directory.join("options.txt");
+    let path = instance_options(&request.instance_directory);
     language
         .apply(time.as_deref(), &path)
         .map_err(|source| FlowError::GameOptions { path, source })
@@ -286,7 +284,7 @@ pub fn inspect_version(
 /// its own it names no asset index, no client jar and no vanilla libraries, so
 /// launching it unresolved would start the game with nothing to run.
 fn load_version(request: &LaunchRequest) -> Result<(Version, Option<String>), FlowError> {
-    let root = request.game_root.join(VERSIONS);
+    let root = request.game_root.versions();
     let document = version::load(&root, &request.version_id)
         .map_err(|source| FlowError::VersionDocument { source })?;
     let parent = document.inherits_from.clone();
@@ -339,7 +337,7 @@ fn java_executable(
 
 /// The shared directory for this version's unpacked natives.
 fn natives_directory(request: &LaunchRequest) -> PathBuf {
-    axlauncher_storage::game_natives(&request.game_root).join(&request.version_id)
+    request.game_root.version_natives(&request.version_id)
 }
 
 /// The number of native files unpacked into the instance's natives directory.

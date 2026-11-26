@@ -3,6 +3,8 @@
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+
+use axlauncher_core::storage::DataDir;
 use std::sync::Arc;
 
 use axlauncher_modpack::{OptionId, Pack, PackSource, PlanOptions};
@@ -28,7 +30,7 @@ use progress::Progress;
 pub(crate) enum ImportEvent {
     InstallRequested,
     Installed {
-        root: PathBuf,
+        paths: DataDir,
         directory: PathBuf,
         name: String,
     },

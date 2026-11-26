@@ -60,7 +60,7 @@ fn write_atomic_creates_missing_parents() {
 
 #[test]
 fn an_asset_object_lives_under_its_two_character_prefix() {
-    let layout = DataDir::new("root");
+    let layout = GameDir::standalone("root/meta");
 
     assert_eq!(
         layout.asset_object("ab12").expect("hash with a prefix"),
@@ -71,11 +71,11 @@ fn an_asset_object_lives_under_its_two_character_prefix() {
 
 #[test]
 fn each_version_keeps_its_own_natives_and_game_files() {
-    let layout = DataDir::new("root");
+    let layout = GameDir::standalone("root/meta");
 
     assert_eq!(
-        layout.version("1.20.1"),
-        Path::new("root/meta/versions/1.20.1")
+        layout.version_document("1.20.1"),
+        Path::new("root/meta/versions/1.20.1/1.20.1.json")
     );
     assert_eq!(
         layout.version_natives("1.20.1"),
@@ -89,7 +89,7 @@ fn each_version_keeps_its_own_natives_and_game_files() {
 
 #[test]
 fn a_virtual_asset_tree_is_named_after_its_index() {
-    let layout = DataDir::new("root");
+    let layout = GameDir::standalone("root/meta");
 
     assert_eq!(
         layout.virtual_assets("legacy"),
@@ -99,13 +99,17 @@ fn a_virtual_asset_tree_is_named_after_its_index() {
 
 #[test]
 fn profiles_and_runtime_files_use_the_managed_layout() {
-    let layout = DataDir::new("root");
-
-    assert_eq!(layout.instances(), Path::new("root/profiles"));
-    assert_eq!(layout.log_configs(), Path::new("root/meta/log_configs"));
+    let root = TempDir::new();
+    let layout = DataDir::isolated(&root.0).unwrap();
+    let game = layout.game();
+    assert_eq!(layout.instances(), root.0.join("profiles"));
+    assert_eq!(
+        game.log_config("client.xml"),
+        root.0.join("meta/log_configs/client.xml")
+    );
     let hash = "0123456789012345678901234567890123456789";
     assert_eq!(
-        native_archive(&layout.meta(), hash),
+        game.native_archive(hash),
         Some(
             layout
                 .caches()
@@ -113,5 +117,9 @@ fn profiles_and_runtime_files_use_the_managed_layout() {
                 .join(format!("{hash}.jar"))
         )
     );
-    assert_eq!(native_archive(&layout.meta(), "../escape"), None);
+    assert_eq!(game.native_archive("../escape"), None);
+    assert_eq!(
+        GameDir::isolated(&layout.instances()).native_archive(hash),
+        None
+    );
 }

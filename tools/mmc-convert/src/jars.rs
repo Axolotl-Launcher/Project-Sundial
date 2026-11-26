@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use axlauncher_core::launch::Version;
 use axlauncher_core::launch::version::{Downloads, GameDownload};
-use axlauncher_core::storage::AtomicFile;
+use axlauncher_core::storage::{AtomicFile, GameDir};
 use axlauncher_modpack::MultiMcExport;
 use zip::write::SimpleFileOptions;
 use zip::{ZipArchive, ZipWriter};
@@ -51,7 +51,7 @@ impl<'a> Overlay<'a> {
     pub(super) fn install(
         self,
         export: &mut MultiMcExport,
-        root: &Path,
+        root: &GameDir,
         version: &mut Version,
     ) -> Result<()> {
         if self.main.is_none() && self.layers.is_empty() {
@@ -64,9 +64,9 @@ impl<'a> Overlay<'a> {
                 main.copy(export, "libraries", &path)?;
                 path
             }
-            None => client(root, version.jar_id()),
+            None => root.client_jar(version.jar_id()),
         };
-        let destination = client(root, &version.id);
+        let destination = root.client_jar(&version.id);
         let size = assemble(&destination, &base, &self.layers)?;
         version.jar = Some(version.id.clone());
         version.downloads = Some(Downloads {
@@ -78,10 +78,6 @@ impl<'a> Overlay<'a> {
         });
         Ok(())
     }
-}
-
-fn client(root: &Path, id: &str) -> PathBuf {
-    root.join("versions").join(id).join(format!("{id}.jar"))
 }
 
 fn assemble(destination: &Path, base: &Path, layers: &[PathBuf]) -> Result<u64> {

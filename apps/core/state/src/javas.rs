@@ -22,16 +22,13 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use axlauncher_storage::write_atomic;
+use axlauncher_storage::{javas_path, write_atomic};
 use serde::{Deserialize, Serialize};
 
 use crate::document::{self, Existing};
 
 /// The only schema this build reads.
 pub const JAVAS_SCHEMA_VERSION: u32 = 1;
-
-/// The document's name under the data root.
-pub const JAVAS_FILE: &str = "javas.json";
 
 /// What a scan learned about one runtime.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -219,7 +216,7 @@ pub struct LoadedJavas {
 /// Reads the document under `root`, treating an absent file as no choices and
 /// no cache.
 pub fn load(root: &Path) -> Result<LoadedJavas, JavasError> {
-    let path = root.join(JAVAS_FILE);
+    let path = javas_path(root);
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -268,7 +265,7 @@ pub fn choose_if_unset(root: &Path, runtime: ChosenJava) -> Result<(), JavasErro
 /// Writes the document under `root`, refusing to replace one this build does
 /// not own.
 pub fn save(root: &Path, javas: &Javas) -> Result<(), JavasError> {
-    let path = root.join(JAVAS_FILE);
+    let path = javas_path(root);
 
     match document::inspect(&path).map_err(|source| JavasError::Read {
         path: path.clone(),

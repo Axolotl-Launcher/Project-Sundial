@@ -17,20 +17,8 @@ pub use axlauncher_download_engine::{
 use axlauncher_launch::natives::classifier_download;
 use axlauncher_launch::rules::{self, Target};
 use axlauncher_launch::version::{Artifact, Library};
-use axlauncher_storage::write_atomic;
+use axlauncher_storage::{GameDir, write_atomic};
 use serde::Deserialize;
-
-/// The directory under the game root that holds library artifacts.
-const LIBRARIES_DIR: &str = "libraries";
-
-/// The directory under the game root that holds version folders.
-const VERSIONS_DIR: &str = "versions";
-
-/// The directory under the game root that holds the asset store.
-const ASSETS_DIR: &str = "assets";
-
-/// The directory under `assets` that holds content-addressed objects.
-const OBJECTS_DIR: &str = "objects";
 
 /// How many leading hash characters select an asset object's directory.
 const OBJECT_PREFIX_LEN: usize = 2;
@@ -59,12 +47,12 @@ impl AssetIndexDocument {
     ///
     /// Read from the raw key names, because both are spelled with underscores
     /// in the document and would otherwise need aliases on every field.
-    pub fn flat_root(&self, game_root: &Path, index_id: &str) -> Option<PathBuf> {
+    pub fn flat_root(&self, game_root: &GameDir, index_id: &str) -> Option<PathBuf> {
         if self.virtual_map {
-            return Some(game_root.join(ASSETS_DIR).join("virtual").join(index_id));
+            return Some(game_root.virtual_assets(index_id));
         }
         if self.map_to_resources {
-            return Some(game_root.join("resources"));
+            return Some(game_root.legacy_resources());
         }
         None
     }
@@ -91,7 +79,7 @@ impl AssetIndexDocument {
 /// classifier archives a modern manifest declares: the game still needs them
 /// extracted, so an install that skipped them would leave `natives/` empty.
 pub fn missing_libraries(
-    game_root: &Path,
+    game_root: &GameDir,
     libraries: &[Library],
     target: &Target,
 ) -> Vec<MissingFile> {
@@ -99,12 +87,12 @@ pub fn missing_libraries(
 }
 
 pub(crate) fn missing_library_files(
-    game_root: &Path,
+    game_root: &GameDir,
     libraries: &[Library],
     target: &Target,
     include_local: bool,
 ) -> Vec<MissingFile> {
-    let root = game_root.join(LIBRARIES_DIR);
+    let root = game_root.libraries();
     let mut destinations = std::collections::HashSet::new();
     libraries
         .iter()
@@ -118,7 +106,7 @@ pub(crate) fn missing_library_files(
                 let path = artifact
                     .sha1
                     .as_deref()
-                    .and_then(|sha1| axlauncher_storage::native_archive(game_root, sha1))
+                    .and_then(|sha1| game_root.native_archive(sha1))
                     .filter(|_| needs_download(&maven_path, artifact.size))
                     .unwrap_or(maven_path);
                 Some((path, artifact))
@@ -188,14 +176,11 @@ fn contained_artifact(root: &Path, artifact: Artifact) -> Option<(PathBuf, Artif
 /// under that jar's own folder is what makes the profile launchable without the
 /// vanilla version having been installed separately.
 pub fn client_jar(
-    game_root: &Path,
+    game_root: &GameDir,
     version: &axlauncher_launch::version::Version,
 ) -> Option<MissingFile> {
     let download = version.downloads.as_ref()?.client.as_ref()?;
-    let path = game_root
-        .join(VERSIONS_DIR)
-        .join(version.jar_id())
-        .join(format!("{}.jar", version.jar_id()));
+    let path = game_root.client_jar(version.jar_id());
     needs_download(&path, download.size).then(|| MissingFile {
         url: download.url.clone(),
         path,
@@ -210,11 +195,11 @@ pub fn client_jar(
 /// The document names it by id under `log_configs`, which is where the
 /// argument this build assembles looks for it.
 pub fn log_config(
-    game_root: &Path,
+    game_root: &GameDir,
     version: &axlauncher_launch::version::Version,
 ) -> Option<MissingFile> {
     let client = version.logging.as_ref()?.client.as_ref()?;
-    let path = axlauncher_storage::game_log_configs(game_root).join(&client.file.id);
+    let path = game_root.log_config(&client.file.id);
     needs_download(&path, client.file.size).then(|| MissingFile {
         url: client.file.url.clone(),
         path,
@@ -226,8 +211,7 @@ pub fn log_config(
 
 /// The asset objects `index` names that are absent or the wrong size under
 /// `game_root`. Multiple names for the same object share a single download.
-pub fn missing_assets(game_root: &Path, index: &AssetIndexDocument) -> Vec<MissingFile> {
-    let root = game_root.join(ASSETS_DIR).join(OBJECTS_DIR);
+pub fn missing_assets(game_root: &GameDir, index: &AssetIndexDocument) -> Vec<MissingFile> {
     let mut hashes = HashSet::new();
     index
         .objects
@@ -238,7 +222,7 @@ pub fn missing_assets(game_root: &Path, index: &AssetIndexDocument) -> Vec<Missi
             if !hashes.insert(hash) {
                 return None;
             }
-            let path = root.join(prefix).join(hash);
+            let path = game_root.asset_object(hash)?;
             needs_download(&path, Some(object.size)).then(|| MissingFile {
                 url: format!("{ASSET_OBJECT_BASE}/{prefix}/{hash}"),
                 path,
@@ -279,7 +263,7 @@ const MAX_FLAT_FAILURES: usize = 8;
 /// Failure paths are capped at [`MAX_FLAT_FAILURES`] so a wholly unwritable
 /// tree reports the reason rather than one line per asset.
 pub fn materialise_flat(
-    game_root: &Path,
+    game_root: &GameDir,
     index_id: &str,
     index: &AssetIndexDocument,
 ) -> Vec<String> {
@@ -290,15 +274,17 @@ pub fn materialise_flat(
         })
 }
 
-fn materialise_flat_at(game_root: &Path, root: &Path, index: &AssetIndexDocument) -> Vec<String> {
-    let objects = game_root.join(ASSETS_DIR).join(OBJECTS_DIR);
+fn materialise_flat_at(
+    game_root: &GameDir,
+    root: &Path,
+    index: &AssetIndexDocument,
+) -> Vec<String> {
     let mut failures = Vec::new();
 
     for (name, object) in &index.objects {
-        let Some(prefix) = object.hash.get(..OBJECT_PREFIX_LEN) else {
+        let Some(source) = game_root.asset_object(&object.hash) else {
             continue;
         };
-        let source = objects.join(prefix).join(&object.hash);
         let destination = root.join(name.replace('/', std::path::MAIN_SEPARATOR_STR));
         if !needs_download(&destination, Some(object.size)) {
             continue;
@@ -315,7 +301,7 @@ fn materialise_flat_at(game_root: &Path, root: &Path, index: &AssetIndexDocument
 
 /// The first missing or incomplete copy in the tree the game reads.
 pub(crate) fn missing_flat_asset(
-    game_root: &Path,
+    game_root: &GameDir,
     index_id: &str,
     index: &AssetIndexDocument,
 ) -> Option<PathBuf> {

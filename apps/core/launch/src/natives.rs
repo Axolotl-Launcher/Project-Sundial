@@ -15,6 +15,8 @@ use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
+use axlauncher_storage::GameDir;
+
 use crate::rules::{self, Target};
 use crate::version::{Artifact, Library};
 
@@ -146,16 +148,19 @@ pub fn extract<R: NativeReader>(
 /// Extracts the archives selected for a managed version under a version lock.
 pub(crate) fn extract_version(
     reader: &impl NativeReader,
-    game_root: &Path,
+    game_root: &GameDir,
     version_id: &str,
     libraries: &[Library],
     target: &Target,
 ) -> Result<Extracted, NativeError> {
-    let root = axlauncher_storage::game_natives(game_root);
-    let lock_dir = root.join(".locks");
-    let lock_path = lock_dir.join(format!("{version_id}.lock"));
+    let lock_path = game_root.natives_lock(version_id);
+    let library_root = game_root.libraries();
     let lock = (|| {
-        fs::create_dir_all(&lock_dir)?;
+        fs::create_dir_all(
+            lock_path
+                .parent()
+                .expect("native lock is inside the game tree"),
+        )?;
         let file = fs::OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -172,14 +177,14 @@ pub(crate) fn extract_version(
     let archives = libraries.iter().filter_map(|library| {
         let path = native_jar(library, target)?;
         let cached = classifier_download(library, target).and_then(|artifact| {
-            let cached = axlauncher_storage::native_archive(game_root, artifact.sha1.as_deref()?)?;
+            let cached = game_root.native_archive(artifact.sha1.as_deref()?)?;
             let metadata = fs::metadata(&cached).ok()?;
             (metadata.is_file() && artifact.size.is_none_or(|size| metadata.len() == size))
                 .then_some(cached)
         });
-        Some(cached.unwrap_or_else(|| game_root.join("libraries").join(path)))
+        Some(cached.unwrap_or_else(|| library_root.join(path)))
     });
-    let extracted = extract_archives(reader, archives, &root.join(version_id));
+    let extracted = extract_archives(reader, archives, &game_root.version_natives(version_id));
     drop(lock);
     extracted
 }

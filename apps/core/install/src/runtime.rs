@@ -247,7 +247,7 @@ pub async fn install(
     let recorded = serde_json::to_vec(&recorded).map_err(|error| RuntimeError::Malformed {
         reason: error.to_string(),
     })?;
-    let marker = record::marker_path(&directory);
+    let marker = axlauncher_storage::runtime_record(&directory);
     write_atomic(&marker, &recorded).map_err(|source| RuntimeError::Write {
         path: marker,
         source,

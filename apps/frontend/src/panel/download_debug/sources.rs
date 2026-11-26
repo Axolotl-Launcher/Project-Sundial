@@ -149,7 +149,7 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(root) = self.root.as_deref().filter(|_| !self.settings_readonly()) else {
+        let Some(paths) = self.paths.as_ref().filter(|_| !self.settings_readonly()) else {
             self.download_debug
                 .reload_sources(self.settings.as_ref(), window, cx);
             return;
@@ -160,7 +160,7 @@ impl RootView {
             return;
         }
 
-        let saved = field.save(root, value);
+        let saved = field.save(paths.root(), value);
         self.finish_source_save(saved, window, cx);
     }
 
@@ -170,10 +170,10 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(root) = self.root.as_deref().filter(|_| !self.settings_readonly()) else {
+        let Some(paths) = self.paths.as_ref().filter(|_| !self.settings_readonly()) else {
             return;
         };
-        let saved = update_settings(root, |settings| settings.use_fallen_proxy = enabled);
+        let saved = update_settings(paths.root(), |settings| settings.use_fallen_proxy = enabled);
         if saved.is_ok() {
             self.inspection = Inspection::default();
         }

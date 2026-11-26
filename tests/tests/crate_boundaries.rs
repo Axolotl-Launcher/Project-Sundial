@@ -84,6 +84,24 @@ fn permitted_edge(owner: &str, dependency: &str, target_dir: &Path) -> bool {
     }
 }
 
+fn resource_owner(dependency: &str) -> Option<&'static str> {
+    match dependency {
+        "reqwest" => Some("axlauncher_network"),
+        "keyring" | "dirs" | "dirs-next" | "directories" | "directories-next" => {
+            Some("axlauncher_storage")
+        }
+        "gpui-kit" => Some("axlauncher_ui"),
+        _ => None,
+    }
+}
+
+fn dependency_allowed(owner: &str, name: &str, directory: Option<&Path>) -> bool {
+    if let Some(resource_owner) = resource_owner(name) {
+        return owner == resource_owner;
+    }
+    directory.is_none_or(|directory| permitted_edge(owner, name, directory))
+}
+
 #[test]
 fn production_dependencies_respect_crate_boundaries() {
     let workspace = workspace();
@@ -113,14 +131,8 @@ fn production_dependencies_respect_crate_boundaries() {
             .iter()
             .filter(|dep| dep.kind.as_deref() != Some("dev"))
         {
-            let allowed = match dependency.name.as_str() {
-                "reqwest" => package.name == "axlauncher_network",
-                "keyring" => package.name == "axlauncher_storage",
-                "gpui-kit" => package.name == "axlauncher_ui",
-                name => directories
-                    .get(name)
-                    .is_none_or(|directory| permitted_edge(&package.name, name, directory)),
-            };
+            let name = dependency.name.as_str();
+            let allowed = dependency_allowed(&package.name, name, directories.get(name).copied());
             assert!(
                 allowed,
                 "{} -> {} crosses a resource boundary. See .agents/docs/crates.md",

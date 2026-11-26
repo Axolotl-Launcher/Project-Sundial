@@ -105,10 +105,17 @@ impl Drop for TempDir {
 
 #[test]
 fn a_cached_classifier_extracts_into_the_shared_version_directory() {
+    use axlauncher_storage::{DataDir, Directory};
+
     let temp = TempDir::new("cached-classifier");
-    let game_root = temp.0.join("meta");
+    let mut paths = DataDir::isolated(&temp.0).unwrap();
+    let cache = temp.0.join("custom-cache");
+    paths
+        .set_directory(Directory::AppCache, Some(&cache))
+        .unwrap();
+    let game_root = paths.game();
     let hash = "a9993e364706816aba3e25717850c26c9cd0d89d";
-    let archive = axlauncher_storage::native_archive(&game_root, hash).expect("archive path");
+    let archive = cache.join("minecraft-natives").join(format!("{hash}.jar"));
     fs::create_dir_all(archive.parent().expect("parent")).expect("cache directory");
     fs::write(&archive, b"abc").expect("cached jar");
     let reader =
@@ -135,7 +142,7 @@ fn a_cached_classifier_extracts_into_the_shared_version_directory() {
 
     assert_eq!(
         extracted.files,
-        [game_root.join("natives/1.12.2/lwjgl.dll")]
+        [game_root.root().join("natives/1.12.2/lwjgl.dll")]
     );
 }
 

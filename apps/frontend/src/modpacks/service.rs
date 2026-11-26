@@ -24,7 +24,7 @@ use acquisition::StagedPack;
 
 pub(super) enum Outcome {
     Installed {
-        root: PathBuf,
+        paths: DataDir,
         directory: PathBuf,
         root_data_packs: bool,
     },
@@ -80,7 +80,7 @@ pub(super) fn inspect(path: &Path) -> Result<Pack, String> {
 }
 
 pub(super) fn install(
-    root: PathBuf,
+    data: DataDir,
     pack: &Pack,
     selected: &BTreeSet<OptionId>,
     policy: PlanOptions,
@@ -88,7 +88,6 @@ pub(super) fn install(
     report: impl Fn(ProgressUpdate) + Sync,
 ) -> Result<Outcome, String> {
     report(ProgressUpdate::Pack(PackState::Planning));
-    let data = DataDir::new(root);
     let api = AuthHttp::desktop()
         .map_err(|error| format!("Could not start the metadata client: {error:?}"))?;
     let plan = install_runtime()?
@@ -123,7 +122,7 @@ impl PendingInstall {
             let root_data_packs = self.pack.has_root_data_packs();
             let directory = self.pack.publish(self.game, version)?;
             return Ok(Outcome::Installed {
-                root: self.data.root().to_path_buf(),
+                paths: self.data,
                 directory,
                 root_data_packs,
             });

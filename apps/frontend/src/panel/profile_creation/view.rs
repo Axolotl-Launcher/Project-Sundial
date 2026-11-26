@@ -15,7 +15,7 @@ impl RootView {
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
         let state = &self.profile_creation;
-        let disabled = self.root.is_none();
+        let disabled = self.paths.is_none();
         let has_loader = state.loader_kind(cx).is_some();
         let name = Input::new(&state.name)
             .id("new-profile-name")

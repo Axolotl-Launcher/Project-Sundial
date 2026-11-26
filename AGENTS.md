@@ -35,6 +35,9 @@ UI tasks, not provider dispatch or persistence.
 The [crate boundaries](.agents/docs/crates.md) define the allowed dependencies,
 resource access and narrow shared helpers. If a proposed improvement crosses
 a boundary, follow the [approval process](.agents/docs/crates.md#proposing-a-boundary-change).
+Follow the [filesystem path policy](.agents/docs/filesystem-paths.md) for new
+path configuration and launcher-managed layouts; use the storage APIs instead
+of building those paths at call sites.
 
 Keep domain and SPI independent of implementations, core independent of UI,
 and platform entry points thin. Declare

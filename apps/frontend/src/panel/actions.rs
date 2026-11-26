@@ -30,10 +30,11 @@ impl RootView {
         game: &Game,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(data_root) = self.root.clone() else {
+        let Some(paths) = self.paths.clone() else {
             return;
         };
-        let game_root = DataDir::new(&data_root).meta();
+        let game_paths = paths.game();
+        let game_root = game_paths.root();
         let version = game.minecraft.clone();
         let Some(target) = InstallTarget::for_game(game) else {
             self.activity.error(format!(
@@ -46,21 +47,21 @@ impl RootView {
             return;
         };
         let key = target.key();
-        if self.install_in_progress(&game_root, &key, game) {
+        if self.install_in_progress(game_root, &key, game) {
             return;
         }
         let options = DownloadOptions::from_settings(self.settings.as_ref());
         self.activity
             .info(format!("Installing {version} in {}", game_root.display()));
         self.set_installation(
-            &game_root,
+            game_root,
             &key,
             Installation::Running(Progress::Version),
             cx,
         );
         self.monitor_downloads(cx);
 
-        installations::start(data_root, directory.to_path_buf(), target, options, cx);
+        installations::start(paths, directory.to_path_buf(), target, options, cx);
     }
 
     /// Whether this profile already has an install the button must not repeat.
@@ -78,7 +79,7 @@ impl RootView {
 
     pub(crate) fn finish_installation(
         &mut self,
-        data_root: &Path,
+        paths: &DataDir,
         directory: &Path,
         key: &str,
         recorded_profile: bool,
@@ -94,13 +95,12 @@ impl RootView {
             Ok(None) => Installation::Complete,
             Err(error) => Installation::Failed(error),
         };
-        let data = DataDir::new(data_root);
-        if recorded_profile && self.root.as_deref() == Some(data_root) {
+        if recorded_profile && self.paths.as_ref() == Some(paths) {
             self.instances
-                .replace(profile::discover(&data.instances()), true);
+                .replace(profile::discover(&paths.instances()), true);
             self.inspection = super::launch::Inspection::default();
         }
-        self.set_installation(&data.meta(), key, installation, cx);
+        self.set_installation(paths.game().root(), key, installation, cx);
     }
 
     fn installation(&self, root: &Path, version: &str) -> Option<&Installation> {
@@ -215,14 +215,14 @@ impl RootView {
 impl RootView {
     /// A profile from the desktop form, selected once its marker is on disk.
     pub(crate) fn create_profile(&mut self, cx: &mut Context<'_, Self>) {
-        let Some(data_root) = self.root.clone() else {
+        let Some(paths) = self.paths.as_ref() else {
             return;
         };
         let Some((name, game)) = self.profile_creation.profile(cx) else {
             return;
         };
 
-        let instances = DataDir::new(&data_root).instances();
+        let instances = paths.instances();
         match profile::create(&instances, &name, game) {
             Ok(directory) => {
                 self.activity

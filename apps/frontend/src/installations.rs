@@ -34,28 +34,28 @@ impl Installation {
 }
 
 pub(crate) fn start(
-    data_root: PathBuf,
+    paths: DataDir,
     directory: PathBuf,
     target: InstallTarget,
     options: DownloadOptions,
     cx: &mut Context<'_, RootView>,
 ) {
-    let game_root = DataDir::new(&data_root).meta();
+    let game = paths.game();
     let key = target.key();
     let is_loader = target.is_loader();
     let (progress, mut updates) = watch::channel(Progress::Version);
-    let task_root = data_root.clone();
+    let task_paths = paths.clone();
     let task_directory = directory.clone();
     let task = cx.background_spawn(async move {
-        installation::install(&task_root, &task_directory, target, options, |stage| {
+        installation::install(&task_paths, &task_directory, target, options, |stage| {
             report_progress(&progress, stage);
         })
     });
     cx.spawn(async move |view, cx| {
-        display_progress(&mut updates, &view, cx, &game_root, &key).await;
+        display_progress(&mut updates, &view, cx, game.root(), &key).await;
         let outcome = task.await;
         let _ = view.update(cx, |view, cx| {
-            view.finish_installation(&data_root, &directory, &key, is_loader, outcome, cx)
+            view.finish_installation(&paths, &directory, &key, is_loader, outcome, cx)
         });
     })
     .detach();

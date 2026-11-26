@@ -21,16 +21,13 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use axlauncher_storage::write_atomic;
+use axlauncher_storage::{instance_file_index, write_atomic};
 use serde::{Deserialize, Serialize};
 
 use crate::document::{self, Existing};
 
 /// The only file-index schema this build reads.
 pub const FILES_SCHEMA_VERSION: u32 = 1;
-
-/// The document's name inside an instance directory.
-pub const FILES_FILE: &str = "files.json";
 
 /// One file the instance holds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -181,7 +178,7 @@ impl std::error::Error for FilesError {
 
 /// The document's path inside `instance_directory`.
 pub fn path(instance_directory: &Path) -> PathBuf {
-    instance_directory.join(FILES_FILE)
+    instance_file_index(instance_directory)
 }
 
 /// Reads an instance's file index.

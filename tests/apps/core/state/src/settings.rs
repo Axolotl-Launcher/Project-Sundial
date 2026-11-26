@@ -28,7 +28,7 @@ fn concurrent_updates_keep_both_language_and_theme() {
 }
 
 fn seed(root: &Path, contents: &str) -> PathBuf {
-    let path = root.join(SETTINGS_FILE);
+    let path = root.join("settings.json");
     fs::write(&path, contents).expect("seed");
     path
 }
@@ -42,7 +42,7 @@ fn a_missing_file_is_created_with_defaults() {
     assert_eq!(loaded.origin, SettingsOrigin::Created);
     assert_eq!(loaded.data, SettingsData::default());
 
-    let written = fs::read_to_string(temp.path().join(SETTINGS_FILE)).expect("read back");
+    let written = fs::read_to_string(temp.path().join("settings.json")).expect("read back");
     assert!(written.contains(r#""schema_version": 1"#));
     assert!(written.contains(r#""theme": "dark""#));
 }
@@ -92,7 +92,7 @@ fn an_unreadable_document_is_quarantined_and_defaults_apply() {
         fs::read_to_string(path).expect("kept bytes"),
         "{ not a document }"
     );
-    assert!(temp.path().join(SETTINGS_FILE).is_file());
+    assert!(temp.path().join("settings.json").is_file());
 }
 
 #[test]
@@ -152,7 +152,7 @@ fn saving_preserves_fields_written_by_a_newer_build() {
     settings.theme = ThemeChoice::Dark;
     save_settings(temp.path(), &settings).expect("save");
 
-    let text = fs::read_to_string(temp.path().join(SETTINGS_FILE)).expect("read");
+    let text = fs::read_to_string(temp.path().join("settings.json")).expect("read");
     assert!(text.contains("future_setting"), "{text}");
     assert!(text.contains("\"theme\": \"dark\""), "{text}");
 }

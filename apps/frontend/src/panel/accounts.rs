@@ -3,7 +3,6 @@
 
 //! Account selection and desktop account operations for the current data root.
 
-use std::path::Path;
 use std::sync::Arc;
 
 use axlauncher_core::launch::plan::Session;
@@ -51,7 +50,7 @@ pub(super) struct AccountsPanel {
 
 impl AccountsPanel {
     pub(super) fn new(
-        root: Option<&Path>,
+        paths: Option<&DataDir>,
         window: &mut Window,
         cx: &mut Context<'_, RootView>,
     ) -> Self {
@@ -63,7 +62,7 @@ impl AccountsPanel {
                 .detach();
         }
         Self {
-            service: service(root),
+            service: service(paths),
             snapshot: None,
             error: None,
             working: false,
@@ -78,11 +77,11 @@ impl AccountsPanel {
 
     pub(super) fn reset(
         &mut self,
-        root: Option<&Path>,
+        paths: Option<&DataDir>,
         window: &mut Window,
         cx: &mut Context<'_, RootView>,
     ) {
-        self.service = service(root);
+        self.service = service(paths);
         self.snapshot = None;
         self.error = None;
         self.working = false;
@@ -112,9 +111,11 @@ impl AccountsPanel {
     }
 }
 
-fn service(root: Option<&Path>) -> Option<Arc<DesktopAccounts>> {
-    let data = DataDir::new(root?);
-    Some(Arc::new(AccountService::new(data, SystemCredentials)))
+fn service(paths: Option<&DataDir>) -> Option<Arc<DesktopAccounts>> {
+    Some(Arc::new(AccountService::new(
+        paths?.clone(),
+        SystemCredentials,
+    )))
 }
 
 impl RootView {

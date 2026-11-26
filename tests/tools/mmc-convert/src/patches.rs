@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use axlauncher_core::install::loader;
 use axlauncher_core::launch::{Target, plan};
 use axlauncher_core::state::profile::{Game, Profile, StagedProfile, discover};
-use axlauncher_core::storage::{instance_runtime, write_atomic};
+use axlauncher_core::storage::write_atomic;
 use serde_json::json;
 use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 
@@ -71,14 +71,16 @@ fn active_patches_produce_an_isolated_client_and_local_classpath_from_a_real_zip
     export(&path, true);
     let instances = temporary.path().join("profiles");
     let staging = StagedProfile::new(&instances).unwrap();
-    let root = instance_runtime(staging.directory());
-    fs::create_dir(&root).unwrap();
+    let game = GameDir::isolated(staging.directory());
+    let root = game.root();
+    fs::create_dir(root).unwrap();
     let mut export = MultiMcExport::open(&path).unwrap();
     assert_eq!(export.base_game().unwrap().minecraft(), "1.20.1");
     let patches = read(&mut export).unwrap();
     let mut version: Version =
         serde_json::from_value(json!({"id":"axolotl-converted","jar":"1.20.1"})).unwrap();
-    apply(patches, &mut export, &root, &mut version).unwrap();
+    let data = DataDir::isolated(temporary.path()).unwrap();
+    apply(patches, &mut export, &data, &game, &mut version).unwrap();
     assert_eq!(version.jar_id(), version.id);
     assert_eq!(version.main_class, "example.Game");
     assert_eq!(version.libraries[0].name, "example:library:1");
@@ -118,7 +120,15 @@ fn vanilla_jar_mods_use_the_stock_jar_after_the_profile_is_renamed() {
     let mut version: Version = serde_json::from_value(json!({"id":"1.20.1"})).unwrap();
     crate::set_converted_id(&mut version).unwrap();
     assert_eq!(version.jar_id(), "1.20.1");
-    apply(patches, &mut export, root, &mut version).unwrap();
+    let data = DataDir::isolated(root).unwrap();
+    apply(
+        patches,
+        &mut export,
+        &data,
+        &GameDir::standalone(root),
+        &mut version,
+    )
+    .unwrap();
     let client = root.join("versions/axolotl-converted/axolotl-converted.jar");
     let mut archive = ZipArchive::new(File::open(client).unwrap()).unwrap();
     let mut value = String::new();
@@ -132,9 +142,9 @@ fn vanilla_jar_mods_use_the_stock_jar_after_the_profile_is_renamed() {
 }
 
 fn publish(staging: StagedProfile, version: &Version) -> (PathBuf, PathBuf) {
-    let root = instance_runtime(staging.directory());
+    let game = GameDir::isolated(staging.directory());
     write_atomic(
-        &loader::document_path(&root, &version.id),
+        &game.version_document(&version.id),
         &serde_json::to_vec(version).unwrap(),
     )
     .unwrap();
@@ -143,14 +153,14 @@ fn publish(staging: StagedProfile, version: &Version) -> (PathBuf, PathBuf) {
         Some(Game::new("1.20.1").with_isolated_runtime()),
     );
     let directory = staging.publish_installed(profile, &version.id).unwrap();
-    let root = instance_runtime(&directory);
-    loader::check_files(&root, &version.id, &Target::host()).unwrap();
-    (directory, root)
+    let game = GameDir::isolated(&directory);
+    loader::check_files(&game, &version.id, &Target::host()).unwrap();
+    (directory, game.root().to_path_buf())
 }
 
 fn assert_launch_layout(directory: &Path, root: &Path, version: &Version) {
     let layout = plan::Layout {
-        game_root: root.into(),
+        game_root: GameDir::standalone(root),
         game_directory: directory.into(),
         natives_directory: root.join("natives"),
         launcher_name: "Axolotl".into(),

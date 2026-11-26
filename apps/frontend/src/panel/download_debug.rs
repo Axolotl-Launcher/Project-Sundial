@@ -11,7 +11,6 @@ use axlauncher_core::download_engine::{
     DownloadEngine, DownloadJob, DownloadProtocol, TransferStats,
 };
 use axlauncher_core::state::SettingsData;
-use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, AsyncApp, BackgroundExecutor, Button, ButtonVariants, Context,
@@ -180,10 +179,10 @@ impl RootView {
         if self.download_debug.status.is_running() {
             return;
         }
-        let Some(root) = self.root.as_ref() else {
+        let Some(paths) = self.paths.as_ref() else {
             return;
         };
-        let destination = DataDir::new(root).download_debug_file();
+        let destination = paths.download_debug_file();
         let url = self.download_debug.url.read(cx).value().trim().to_owned();
         if url.is_empty() {
             self.download_debug.status = ProbeStatus::Failed("Enter a download URL.".into());
@@ -308,7 +307,7 @@ impl RootView {
                     .child(
                         Button::new("start-download-probe")
                             .label("Test download")
-                            .disabled(running || self.root.is_none())
+                            .disabled(running || self.paths.is_none())
                             .on_click(cx.listener(|view, _, _, cx| view.start_download_probe(cx))),
                     )
                     .when(running, |row| {
@@ -327,10 +326,10 @@ impl RootView {
     }
 
     fn render_installation_progress(&self, cx: &Context<'_, Self>) -> Vec<AnyElement> {
-        let Some(root) = self.root.as_ref().map(|root| DataDir::new(root).meta()) else {
+        let Some(root) = self.paths.as_ref().map(|paths| paths.game()) else {
             return Vec::new();
         };
-        let Some(versions) = self.installations.get(&root) else {
+        let Some(versions) = self.installations.get(root.root()) else {
             return Vec::new();
         };
         let mut active: Vec<_> = versions

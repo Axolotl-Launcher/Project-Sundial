@@ -20,8 +20,8 @@ mod settings;
 mod test_support;
 
 pub use settings::{
-    LoadedSettings, SETTINGS_FILE, SETTINGS_SCHEMA_VERSION, SettingsData, SettingsError,
-    SettingsOrigin, SourcePreference, ThemeChoice, load_settings, save_settings, update_settings,
+    LoadedSettings, SETTINGS_SCHEMA_VERSION, SettingsData, SettingsError, SettingsOrigin,
+    SourcePreference, ThemeChoice, load_settings, save_settings, update_settings,
 };
 
 use axlauncher_spi::{Id, InstanceRecord, StateStore, StorageError};

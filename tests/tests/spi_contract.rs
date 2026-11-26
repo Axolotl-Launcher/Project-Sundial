@@ -187,8 +187,11 @@ fn install_from(
     }))
     .map_err(|error| error.to_string())?;
 
-    let placed = axlauncher_install::loader::place(game_root, &profile)
-        .map_err(|error| error.to_string())?;
+    let placed = axlauncher_install::loader::place(
+        &axlauncher_storage::GameDir::standalone(game_root),
+        &profile,
+    )
+    .map_err(|error| error.to_string())?;
     Ok(vec![
         placed.version_id,
         placed.document.display().to_string(),

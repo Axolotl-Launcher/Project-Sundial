@@ -13,6 +13,7 @@
 use std::path::{Path, PathBuf};
 
 use axlauncher_launch::{Layout, Session, Target, natives, plan, rules, version};
+use axlauncher_storage::GameDir;
 
 /// Directories a launcher's game root may live in, most specific first.
 fn candidate_roots() -> Vec<PathBuf> {
@@ -94,7 +95,10 @@ fn a_real_manifest_yields_a_complete_command() {
 /// native classifier jar is never a classpath entry, yet its absence still
 /// means the install is incomplete.
 fn is_complete(root: &Path, document: &version::Version, target: &Target) -> bool {
-    if !plan::client_jar(root, document.jar_id()).is_file() {
+    if !GameDir::standalone(root)
+        .client_jar(document.jar_id())
+        .is_file()
+    {
         return false;
     }
     let libraries = root.join("libraries");
@@ -125,7 +129,7 @@ fn build_command(
         .join("axlauncher-real-manifest")
         .join(id);
     let layout = Layout {
-        game_root: root.to_path_buf(),
+        game_root: GameDir::standalone(root),
         game_directory: instance.clone(),
         natives_directory: instance.join("natives"),
         launcher_name: "Axolotl Launcher".into(),

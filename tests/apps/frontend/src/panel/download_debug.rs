@@ -9,7 +9,9 @@ use super::*;
 #[test]
 fn a_probe_saves_the_http1_response_under_the_data_root() {
     let root = test_tempfile::tempdir().unwrap();
-    let destination = DataDir::new(root.path()).download_debug_file();
+    let destination = axlauncher_core::storage::DataDir::isolated(root.path())
+        .unwrap()
+        .download_debug_file();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}/file", listener.local_addr().unwrap());
     let server = std::thread::spawn(move || serve_http1(listener));

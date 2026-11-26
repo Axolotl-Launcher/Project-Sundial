@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 
 use axlauncher_core::desktop::launching::LaunchJob;
 use axlauncher_core::state::profile::{DiscoveredProfile, ProfileDiscovery};
-use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, Context, ElementId, GroupBox, Input, IntoElement, Label, h_flex,
@@ -92,7 +91,7 @@ impl RootView {
         player_name: String,
     ) -> Option<LaunchJob> {
         LaunchJob::for_profile(
-            self.root.as_deref()?,
+            self.paths.as_ref()?,
             entry,
             player_name,
             self.settings.as_ref(),
@@ -103,10 +102,10 @@ impl RootView {
         let muted = cx.theme().muted_foreground;
         let danger = cx.theme().danger;
         let profiles = &self.instances.discovered;
-        let data = self.root.as_ref().map(DataDir::new);
-        let installations = data
+        let installations = self
+            .paths
             .as_ref()
-            .and_then(|data| self.installations.get(&data.meta()));
+            .and_then(|data| self.installations.get(data.game().root()));
 
         GroupBox::new()
             .id("instances")

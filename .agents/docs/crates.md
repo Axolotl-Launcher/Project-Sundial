@@ -12,7 +12,7 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 | Resource | Direct access belongs to | Entry point for callers |
 | --- | --- | --- |
 | HTTP and DNS | `network` owns HTTP clients, DNS routing, the OAuth loopback listener and transport error classification. | Inject `Network` for metadata and downloads, or `auth::AuthNetwork` for credential-bearing exchanges. |
-| Launcher data paths, blob storage and atomic writes | `storage` owns `DataDir`, `RootedStorage` and `write_atomic`. | Use `DataDir` for launcher paths and `Storage` for blob reads and writes. Document owners that need atomic replacement use `write_atomic`. The `Storage::write` contract permits ordinary writes. |
+| Launcher data paths, blob storage and atomic writes | `storage` resolves directory defaults and overrides, and owns `DataDir`, `GameDir`, `RootedStorage` and `write_atomic`. | Use the [filesystem policy](filesystem-paths.md) and the storage path APIs rather than discovering or constructing managed locations. Use `Storage` for blobs and `write_atomic` for owned documents. |
 | Minecraft accounts and system credentials | `state` owns account records, Microsoft and Yggdrasil authentication, and session refresh. `storage` owns the platform credential store. | Use `state::accounts::AccountService` with injected `auth::CredentialStore` and `auth::AuthNetwork` providers. |
 | Settings and instance manifests | `state` owns settings, `.axlprofile` creation and discovery, install status and runtime selections. | Use `load_settings` and `update_settings` for settings. Use `profile::create`, `profile::discover` and `profile::scan_resources` for instances; use `profile::mark_installed` or `profile::mark_failed` for install outcomes. `StateStore` serves the separate ID-based `InstanceRecord` API. |
 | File downloads | `download_engine` schedules connections and ranges, manages shared bandwidth and buffers, tries alternate sources and verifies files before promotion. | Pass file requests and an injected `Network` to `download_engine::download_all` or `download_engine::download_all_reporting`. Use `DownloadEngine` for explicit policy and source ordering. |
@@ -23,11 +23,11 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 | Installation processors | `install` plans and runs the Java processors declared in a version profile. | Use `install::processors` for installation steps. Use `Launcher` to start a game. |
 | Java discovery and game processes | `launch` provides `SystemJava` and `ProcessLauncher`. | Resolve the runtime through `Java::executable`. Pass the prepared `LaunchCommand` to `Launcher::launch`. |
 | Event output | `telemetry` implements the event sink. | Call `Telemetry::record(Event)`. Command metrics belong to `observability`. |
-| Desktop UI and startup environment | `ui` directly depends on gpui-kit. `frontend` chooses the application data root and wires the window. | Frontend code imports components through `axlauncher_ui` and calls system APIs through `core`. Platform shells call `frontend::run`. |
+| Desktop UI and startup environment | `ui` directly depends on gpui-kit. `frontend` wires the window, displays the active paths, and passes directory changes to storage. | Frontend code imports components through `axlauncher_ui` and calls system APIs through `core`. Platform shells call `frontend::run`. |
 | Selected modpack archives | `modpack` reads the user-selected archive and interprets the manifest and payload, including portable MultiMC instance exports with standard game components. | The [modpack service](../../apps/frontend/src/modpacks/service.rs) invokes the built-in plugin, executes its typed plan through the existing system APIs, and publishes the new profile through `state`. It accepts a progress callback. The desktop view owns subscriptions and presentation. |
 
-The frontend resolves the managed profiles directory with `DataDir`. Instance
-discovery and manifest access belong to `state`.
+The frontend passes a `DataDir` snapshot to desktop workers. Instance discovery
+and manifest access belong to `state`.
 
 Use `core::desktop` for the workflows that span several owners: profile version
 catalogs, game installation and launch. It wires providers, applies settings,
@@ -99,7 +99,7 @@ lookup for the destination.
    be used directly. Keep one implementation of each parser, integrity check
    or atomic write operation in its owning crate.
 3. Core systems normally depend only on domain and SPI within the workspace.
-   State and launch may depend on storage for atomic writes. The download engine
+   State and launch may depend on storage for managed paths and atomic writes. The download engine
    uses storage for staged file writes and network for digest verification. Install
    uses the download engine for planned files, storage for installation paths
    and atomic writes, network for metadata digest verification and launch for

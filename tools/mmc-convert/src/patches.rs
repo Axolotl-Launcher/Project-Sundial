@@ -3,10 +3,10 @@
 
 use std::collections::BTreeMap;
 use std::io;
-use std::path::Path;
 
 use axlauncher_core::launch::Version;
 use axlauncher_core::launch::version::{Artifact, JavaVersion, Library, LibraryDownloads};
+use axlauncher_core::storage::{DataDir, GameDir};
 use axlauncher_modpack::MultiMcExport;
 use serde::Deserialize;
 
@@ -162,10 +162,11 @@ fn replace_arguments(
 pub(super) fn apply(
     patches: Vec<Patch>,
     export: &mut MultiMcExport,
-    root: &Path,
+    data: &DataDir,
+    root: &GameDir,
     version: &mut Version,
 ) -> Result<()> {
-    let work = tempfile::tempdir_in(root)?;
+    let work = data.scratch()?;
     let mut jars = jars::Overlay::new(work.path());
     for patch in patches {
         patch.apply_arguments(version)?;
@@ -178,7 +179,7 @@ pub(super) fn apply(
 fn install_libraries(
     libraries: Vec<LocalArtifact>,
     export: &mut MultiMcExport,
-    root: &Path,
+    root: &GameDir,
     version: &mut Version,
 ) -> Result<()> {
     for library in libraries {
@@ -190,7 +191,7 @@ fn install_libraries(
 fn install_library(
     library: &LocalArtifact,
     export: &mut MultiMcExport,
-    root: &Path,
+    root: &GameDir,
     version: &mut Version,
 ) -> Result<()> {
     let coordinate = |name: &str| {
@@ -209,7 +210,7 @@ fn install_library(
         return Err(format!("MultiMC patch replaces existing library {}", library.name()).into());
     }
     let path = library.maven_path()?;
-    let destination = root.join("libraries").join(&path);
+    let destination = root.libraries().join(&path);
     if destination.exists() {
         return Err(format!(
             "MultiMC library destination {} already exists",

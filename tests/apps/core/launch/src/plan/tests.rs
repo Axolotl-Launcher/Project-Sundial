@@ -46,7 +46,7 @@ fn sample_library() -> crate::version::Library {
 }
 
 fn fixture(root: &Path, version_id: &str) -> (Version, Layout) {
-    let jar = client_jar(root, version_id);
+    let jar = GameDir::standalone(root).client_jar(version_id);
     fs::create_dir_all(jar.parent().expect("parent")).expect("versions");
     fs::write(&jar, b"jar").expect("client jar");
     fs::create_dir_all(root.join("libraries")).expect("libraries");
@@ -157,7 +157,7 @@ fn old_clients_receive_the_flat_asset_directory_selected_by_the_index() {
 
 fn layout(root: &Path) -> Layout {
     Layout {
-        game_root: root.to_path_buf(),
+        game_root: GameDir::standalone(root),
         game_directory: root.join("instances").join("one"),
         natives_directory: root.join("natives"),
         launcher_name: "Axolotl Launcher".into(),
@@ -287,7 +287,7 @@ fn a_platform_specific_argument_is_included_only_on_its_platform() {
 fn a_missing_client_jar_is_an_error_naming_the_path() {
     let temp = TempDir::new();
     let (version, layout) = fixture(temp.0.as_path(), "1.21");
-    fs::remove_file(client_jar(temp.0.as_path(), "1.21")).expect("remove jar");
+    fs::remove_file(GameDir::standalone(&temp.0).client_jar("1.21")).expect("remove jar");
 
     let error = build(
         Path::new("java"),
@@ -343,10 +343,11 @@ fn a_version_with_a_flat_argument_string_still_gets_game_arguments() {
 fn a_loader_profile_runs_the_jar_it_inherits() {
     let temp = TempDir::new();
     let (mut version, layout) = fixture(temp.0.as_path(), "1.20.1-forge");
-    let vanilla = client_jar(temp.0.as_path(), "1.20.1");
+    let game = GameDir::standalone(&temp.0);
+    let vanilla = game.client_jar("1.20.1");
     fs::create_dir_all(vanilla.parent().expect("parent")).expect("versions");
     fs::write(&vanilla, b"vanilla").expect("vanilla jar");
-    fs::remove_file(client_jar(temp.0.as_path(), "1.20.1-forge")).expect("remove own jar");
+    fs::remove_file(game.client_jar("1.20.1-forge")).expect("remove own jar");
     version.jar = Some("1.20.1".into());
 
     let command = build(
@@ -386,7 +387,11 @@ fn the_logging_configuration_is_named_on_the_jvm_command_line() {
     });
 
     // An install puts the file there; a launch without it stays silent.
-    let log_config = layout.game_root.join("log_configs").join("client-1.21.xml");
+    let log_config = layout
+        .game_root
+        .root()
+        .join("log_configs")
+        .join("client-1.21.xml");
     fs::create_dir_all(log_config.parent().expect("parent")).expect("log dir");
     fs::write(&log_config, b"<Configuration/>").expect("log config");
 
@@ -399,14 +404,7 @@ fn the_logging_configuration_is_named_on_the_jvm_command_line() {
     )
     .expect("command");
 
-    let expected = format!(
-        "-Dlog4j.configurationFile={}",
-        layout
-            .game_root
-            .join("log_configs")
-            .join("client-1.21.xml")
-            .display()
-    );
+    let expected = format!("-Dlog4j.configurationFile={}", log_config.display());
     assert!(
         command.args.iter().any(|argument| argument == &expected),
         "{:?}",
