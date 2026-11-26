@@ -322,26 +322,28 @@ fn a_failed_repair_removes_the_completion_record_until_retry_succeeds() {
 }
 
 #[test]
-fn a_second_installer_cannot_modify_a_runtime_while_its_writer_is_active() {
+fn a_second_installer_waits_and_reuses_the_published_runtime() {
     let Some(platform) = platform() else {
         return;
     };
     let root = tempfile::tempdir().unwrap();
-    let (_, responses) = fixture(platform);
-    let directory = root.path().join(component_for(21).unwrap());
+    let (directory, responses) = install_once(platform, root.path());
     let active = axlauncher_storage::try_lock_runtime(&directory).unwrap();
-    let network = FakeNetwork { responses };
-
-    let second = block_on(install(&network, root.path(), 21, |_| {}));
-    assert!(matches!(
-        second,
-        Err(RuntimeError::Write { source, .. }) if source.kind() == io::ErrorKind::WouldBlock
-    ));
-    assert!(!axlauncher_storage::runtime_record(&directory).exists());
-
-    drop(active);
-    block_on(install(&network, root.path(), 21, |_| {})).unwrap();
-    assert!(axlauncher_storage::runtime_record(&directory).is_file());
+    let network = index_only(&responses);
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .unwrap();
+    executor.block_on(async {
+        let mut second = std::pin::pin!(install(&network, root.path(), 21, |_| {}));
+        assert!(futures::poll!(second.as_mut()).is_pending());
+        drop(active);
+        let result = tokio::time::timeout(Duration::from_secs(5), second)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(result.java.is_file());
+    });
 }
 
 #[test]
