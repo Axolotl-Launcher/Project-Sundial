@@ -5,12 +5,13 @@
 
 use std::sync::Arc;
 
+pub(crate) use axlauncher_core::desktop::accounts::DesktopAccounts;
+use axlauncher_core::desktop::accounts::{
+    Account, AccountId, AccountSnapshot, Change, SignInCommit,
+};
 use axlauncher_core::launch::plan::Session;
 use axlauncher_core::launch_accounts;
-use axlauncher_core::state::accounts::{
-    Account, AccountId, AccountService, AccountSnapshot, SignInCommit,
-};
-use axlauncher_core::storage::{DataDir, SystemCredentials};
+use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     AsyncApp, AsyncWindowContext, Context, Entity, FocusHandle, Focusable, InputEvent, InputState,
@@ -23,7 +24,6 @@ mod login;
 mod render;
 mod third_party;
 
-pub(crate) type DesktopAccounts = AccountService<SystemCredentials>;
 type AccountResult = (Option<AccountSnapshot>, Option<String>);
 
 #[derive(Default)]
@@ -81,6 +81,9 @@ impl AccountsPanel {
         window: &mut Window,
         cx: &mut Context<'_, RootView>,
     ) {
+        if let Some(service) = &self.service {
+            service.close();
+        }
         self.service = service(paths);
         self.snapshot = None;
         self.error = None;
@@ -92,6 +95,12 @@ impl AccountsPanel {
 
     pub(super) fn selected(&self) -> Option<&Account> {
         self.snapshot.as_ref()?.selected()
+    }
+
+    pub(super) fn update_paths(&self, paths: Option<&DataDir>) {
+        if let (Some(service), Some(paths)) = (&self.service, paths) {
+            service.update_paths(paths);
+        }
     }
 
     pub(super) fn selected_online(&self) -> Option<(Arc<DesktopAccounts>, AccountId)> {
@@ -112,10 +121,7 @@ impl AccountsPanel {
 }
 
 fn service(paths: Option<&DataDir>) -> Option<Arc<DesktopAccounts>> {
-    Some(Arc::new(AccountService::new(
-        paths?.clone(),
-        SystemCredentials,
-    )))
+    paths.cloned().map(DesktopAccounts::new)
 }
 
 impl RootView {
@@ -135,7 +141,8 @@ impl RootView {
             .service
             .as_ref()
             .expect("saved account service");
-        launch_accounts::preview(account, service.data_dir()).with_fallen_proxy(self.fallen_proxy())
+        launch_accounts::preview(account, &service.data_dir())
+            .with_fallen_proxy(self.fallen_proxy())
     }
 
     pub(super) fn refresh_accounts(&mut self, cx: &mut Context<'_, Self>) {
@@ -302,29 +309,11 @@ async fn show_offline_result(
     });
 }
 
-enum AccountAction {
-    Read,
-    AddOffline { name: String, uuid: String },
-    Select(Option<AccountId>),
-    Remove(AccountId),
-}
+use Change as AccountAction;
 
 async fn apply(action: AccountAction, service: &DesktopAccounts) -> AccountResult {
-    let outcome = match action {
-        AccountAction::Read => Ok(None),
-        AccountAction::AddOffline { name, uuid } => {
-            service.add_offline(&name, Some(&uuid)).map(|()| None)
-        }
-        AccountAction::Select(id) => service.select(id).map(|()| None),
-        AccountAction::Remove(id) => service.remove(id).await.map(|cleared| {
-            (!cleared).then_some(
-                "The account was removed. The launcher will retry clearing its system credential.",
-            )
-        }),
-    };
-    match (outcome, service.snapshot().await) {
-        (Ok(warning), Ok(snapshot)) => (Some(snapshot), warning.map(str::to_owned)),
-        (Err(error), Ok(snapshot)) => (Some(snapshot), Some(error.to_string())),
-        (_, Err(error)) => (None, Some(error.to_string())),
+    match service.change(action).await {
+        Ok((snapshot, notice)) => (Some(snapshot), notice),
+        Err(error) => (None, Some(error)),
     }
 }

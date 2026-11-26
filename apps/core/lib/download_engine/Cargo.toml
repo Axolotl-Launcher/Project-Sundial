@@ -10,10 +10,14 @@ description = "Bounded concurrent downloads with digest verification and atomic 
 repository.workspace = true
 license.workspace = true
 
+[features]
+worker = ["dep:axlauncher_worker"]
+
 [dependencies]
 axlauncher_network = { workspace = true }
 axlauncher_spi = { workspace = true }
 axlauncher_storage = { workspace = true }
+axlauncher_worker = { workspace = true, optional = true }
 bytes = { workspace = true }
 fastrand = { workspace = true }
 futures = { workspace = true }

@@ -108,3 +108,29 @@ fn scratch_obeys_the_override_and_cleans_up_only_its_own_directory() {
     assert!(!path.exists());
     assert!(scratch_root.is_dir());
 }
+
+#[test]
+fn worker_scratch_uses_the_cache_override_and_not_general_temporary_space() {
+    let root = tempfile::tempdir().unwrap();
+    let mut paths = DataDir::isolated(root.path()).unwrap();
+    let cache = root.path().join("custom cache");
+    let temp = root.path().join("custom temp");
+    paths
+        .set_directory(Directory::AppCache, Some(&cache))
+        .unwrap();
+    paths
+        .set_directory(Directory::AppTemp, Some(&temp))
+        .unwrap();
+
+    let scratch = paths.worker_scratch().unwrap();
+    let path = scratch.path().to_path_buf();
+    assert_eq!(path.parent(), Some(cache.join("workers").as_path()));
+    assert!(!temp.exists());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(path.metadata().unwrap().permissions().mode() & 0o777, 0o700);
+    }
+    drop(scratch);
+    assert!(!path.exists());
+}

@@ -20,7 +20,9 @@ fn a_probe_saves_the_http1_response_under_the_data_root() {
     let status = run_probe(
         url,
         destination.clone(),
-        DownloadOptions::from_settings(None),
+        axlauncher_download_engine::Direct(
+            &axlauncher_core::network::ReqwestNetwork::desktop().unwrap(),
+        ),
         cancellation,
     );
 
@@ -53,7 +55,7 @@ fn cancelling_a_probe_keeps_the_previous_completed_file() {
     let status = run_probe(
         "http://127.0.0.1:1/file".into(),
         destination.clone(),
-        DownloadOptions::from_settings(None),
+        axlauncher_download_engine::Direct(&axlauncher_core::network::UnimplementedNetwork),
         cancellation,
     );
 

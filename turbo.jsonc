@@ -7,7 +7,7 @@
   "concurrency": "100%",
   // Re-run a task when shared build inputs change, not only when that
   // package's own files do.
-  "globalDependencies": ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/**"],
+  "globalDependencies": ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/**", "scripts/desktop.ts"],
   "globalEnv": ["CARGO_NET_OFFLINE", "RUSTUP_TOOLCHAIN"],
   "globalPassThroughEnv": [
     "CARGO_*",
@@ -20,7 +20,7 @@
     "build": {
       "dependsOn": ["^build"],
       "cache": false,
-      "env": ["CARGO_PROFILE_*"],
+      "env": ["CARGO_PROFILE_*", "AXLAUNCHER_MACOS_SIGN_IDENTITY"],
       "outputs": []
     },
     "dev": {

@@ -18,7 +18,6 @@ mod api;
 
 const MARKER: &str = "manifest.json";
 const CDN: &str = "https://edge.forgecdn.net";
-const AUTHENTICATED_CDN_HOST: &str = "edge.forgecdn.net";
 
 pub(super) struct Reader;
 
@@ -224,7 +223,7 @@ impl Files {
             .collect();
         let mut planned = PlannedDownloads {
             files: Vec::new(),
-            redirect_policy: allows_cdn,
+            origins: axlauncher_spi::downloads::PackOrigins::CurseForge,
             cdn_key: None,
         };
         if pinned.is_empty() {
@@ -234,7 +233,7 @@ impl Files {
         planned.files = api::Client::new(network, &key)
             .resolve(&pinned, options.auto_download_restricted())
             .await?;
-        planned.cdn_key = Some((AUTHENTICATED_CDN_HOST, key));
+        planned.cdn_key = Some(key);
         Ok(planned)
     }
 }
@@ -248,14 +247,7 @@ fn api_key() -> Option<String> {
 }
 
 fn allows_cdn(url: &Url) -> bool {
-    url.scheme() == "https"
-        && url.port().is_none()
-        && url.username().is_empty()
-        && url.password().is_none()
-        && matches!(
-            url.host_str(),
-            Some(AUTHENTICATED_CDN_HOST | "media.forgecdn.net")
-        )
+    axlauncher_spi::downloads::PackOrigins::CurseForge.allows(url, true)
 }
 
 fn cdn_url(id: u32, file_name: &str) -> String {

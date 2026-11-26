@@ -90,6 +90,7 @@ fn failed_reauthentication_keeps_the_saved_key_and_removal_retries_after_restart
         let keyring = CredentialMemory::default();
         let service = AccountService::new(data.clone(), &keyring);
         service.remember(verify().await, None).await.unwrap();
+        assert!(!service.has_volatile_session().await);
         let id = service.snapshot().await.unwrap().selected().unwrap().id();
         let old = Document::load(&data)
             .unwrap()
@@ -99,6 +100,7 @@ fn failed_reauthentication_keeps_the_saved_key_and_removal_retries_after_restart
             .unwrap();
         keyring.fail_write.store(true, Ordering::Relaxed);
         service.remember(verify().await, Some(id)).await.unwrap();
+        assert!(service.has_volatile_session().await);
         assert_eq!(
             service.snapshot().await.unwrap().persistence(id),
             Some(Persistence::SessionOnly)

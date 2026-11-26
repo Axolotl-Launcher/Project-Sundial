@@ -12,7 +12,6 @@ pub mod launch_accounts;
 
 pub use axlauncher_content as content;
 pub use axlauncher_domain as domain;
-pub use axlauncher_download_engine as download_engine;
 pub use axlauncher_install as install;
 pub use axlauncher_launch as launch;
 pub use axlauncher_loader as loader;
@@ -26,5 +25,6 @@ pub use axlauncher_spi as spi;
 pub use axlauncher_state as state;
 pub use axlauncher_storage as storage;
 pub use axlauncher_telemetry as telemetry;
+pub use axlauncher_worker::Images as WorkerImages;
 
 pub const BRAND_NAME: &str = "Axolotl Launcher";

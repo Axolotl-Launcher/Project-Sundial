@@ -14,19 +14,11 @@ use uuid::Uuid;
 use super::microsoft::{self, MicrosoftError, Tokens, VerifiedAccount};
 use super::yggdrasil::{self, YggdrasilError};
 use super::{Account, AccountError, AccountId, Document, SignInCommit};
+pub use axlauncher_worker::accounts::Persistence;
 
 mod persistence;
 
 const REFRESH_RETRY_DELAY: Duration = Duration::from_secs(15);
-
-/// Whether a saved online account has a usable persisted credential.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Persistence {
-    Saved,
-    SessionOnly,
-    SignInRequired,
-    StoreUnavailable,
-}
 
 /// Account metadata and selection available to the desktop view.
 pub struct AccountSnapshot {
@@ -35,16 +27,38 @@ pub struct AccountSnapshot {
 }
 
 impl AccountSnapshot {
+    #[cfg(test)]
     pub fn list(&self) -> &[Account] {
         &self.document.accounts
     }
 
+    #[cfg(test)]
     pub fn selected(&self) -> Option<&Account> {
         self.document.find(self.document.selected?).ok()
     }
 
+    #[cfg(test)]
     pub fn persistence(&self, id: AccountId) -> Option<Persistence> {
         self.persistence.get(&id).copied()
+    }
+
+    pub fn into_reply(self) -> axlauncher_worker::accounts::AccountSnapshot {
+        use axlauncher_worker::accounts::{Account as ViewAccount, AccountSnapshot};
+
+        let accounts = self
+            .document
+            .accounts
+            .into_iter()
+            .map(|account| {
+                ViewAccount::new(
+                    account.id,
+                    account.name,
+                    account.server,
+                    self.persistence.get(&account.id).copied(),
+                )
+            })
+            .collect();
+        AccountSnapshot::new(accounts, self.document.selected)
     }
 }
 
@@ -93,10 +107,6 @@ impl<S: CredentialStore> AccountService<S> {
         }
     }
 
-    pub fn data_dir(&self) -> &DataDir {
-        &self.data
-    }
-
     pub async fn snapshot(&self) -> Result<AccountSnapshot, AccountError> {
         let sessions = self.sessions.lock().await;
         let document = Document::load(&self.data)?;
@@ -124,6 +134,15 @@ impl<S: CredentialStore> AccountService<S> {
         })
     }
 
+    pub async fn has_volatile_session(&self) -> bool {
+        self.sessions
+            .lock()
+            .await
+            .accounts
+            .values()
+            .any(|cached| cached.session_only)
+    }
+
     pub fn add_offline(&self, name: &str, uuid: Option<&str>) -> Result<(), AccountError> {
         let account = Account::offline(name, uuid)?;
         Document::update(&self.data, |document| document.add_offline(account))
@@ -145,6 +164,7 @@ impl<S: CredentialStore> AccountService<S> {
     }
 
     /// Saves a verified account or replaces the credentials for the expected identity.
+    #[cfg(test)]
     pub async fn remember(
         &self,
         verified: VerifiedAccount,
@@ -185,6 +205,7 @@ impl<S: CredentialStore> AccountService<S> {
     }
 
     /// Saves a profile and its server-bound access and client tokens in the system credential store.
+    #[cfg(test)]
     pub async fn remember_yggdrasil(
         &self,
         verified: yggdrasil::VerifiedAccount,
@@ -200,7 +221,7 @@ impl<S: CredentialStore> AccountService<S> {
         expected: Option<AccountId>,
         commit: &SignInCommit,
     ) -> Result<(), AccountError> {
-        let id = verified.server.account_id(verified.profile.id());
+        let id = yggdrasil::account_id(&verified.server, verified.profile.id());
         if expected.is_some_and(|expected| id != expected) {
             return Err(YggdrasilError::WrongProfile.into());
         }
@@ -278,7 +299,7 @@ impl<S: CredentialStore> AccountService<S> {
     ) -> Result<String, AccountError> {
         let server = account
             .server()
-            .filter(|server| server.account_id(account.id.uuid()) == account.id)
+            .filter(|server| yggdrasil::account_id(server, account.id.uuid()) == account.id)
             .ok_or(YggdrasilError::InvalidResponse)?;
         if cached.third_party_sign_in_required {
             return Err(YggdrasilError::SignInAgain.into());
@@ -393,5 +414,5 @@ impl Cached {
 }
 
 #[cfg(test)]
-#[path = "../../../../../tests/apps/core/state/src/accounts/sessions.rs"]
+#[path = "../../../../../../tests/apps/core/lib/accounts/src/accounts/sessions.rs"]
 mod tests;

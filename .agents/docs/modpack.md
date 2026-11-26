@@ -301,7 +301,7 @@ only when it is still usable. Keep user-created files outside the managed
 set and define how to handle edits to tracked files before removing them.
 The current download engine verifies SHA-1, while packwiz commonly uses
 SHA-256 for its index and metadata and can use other algorithms for payloads.
-[Crate ownership](crates.md) · [Download engine](../../apps/core/download_engine/src/lib.rs)
+[Crate ownership](crates.md) · [Download engine](../../apps/core/lib/download_engine/src/lib.rs)
 
 ## Implications for Axolotl
 
@@ -346,7 +346,7 @@ SHA-256 for its index and metadata and can use other algorithms for payloads.
   `.mrpack` integrity checks need a way to validate SHA-512 before publishing
   the profile. Use the Modrinth `fileSize` as a scheduling hint and validate
   the downloaded bytes against both manifest digests before publication.
-  [Crate ownership](crates.md) · [Download engine](../../apps/core/download_engine/src/lib.rs)
+  [Crate ownership](crates.md) · [Download engine](../../apps/core/lib/download_engine/src/lib.rs)
 - Plan selected files before writing. Validate archive entry paths, manifest
   paths, and API-derived file names against the destination root. Account for
   absolute paths, traversal, links, Windows path rules, case collisions, and

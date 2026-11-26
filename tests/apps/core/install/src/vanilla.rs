@@ -105,6 +105,7 @@ fn a_missing_version_downloads_its_manifest_and_client_and_can_be_retried_offlin
     assert!(check_files(&game, "26.3", &Target::host()).is_err());
     let installed = block_on(install(
         &NetworkFixture(MANIFEST_SHA1),
+        &axlauncher_download_engine::Direct(&NetworkFixture(MANIFEST_SHA1)),
         &game,
         "26.3",
         &Target::host(),
@@ -131,6 +132,7 @@ fn a_missing_version_downloads_its_manifest_and_client_and_can_be_retried_offlin
 
     let retry = block_on(install(
         &axlauncher_network::UnimplementedNetwork,
+        &axlauncher_download_engine::Direct(&axlauncher_network::UnimplementedNetwork),
         &game,
         "26.3",
         &Target::host(),
@@ -170,6 +172,7 @@ fn a_catalog_pre_release_with_spaces_installs_and_passes_the_offline_check() {
     let target = Target::host();
     let prepared = block_on(install(
         &PreReleaseCatalog,
+        &axlauncher_download_engine::Direct(&PreReleaseCatalog),
         &game,
         PRE_RELEASE,
         &target,
@@ -198,6 +201,7 @@ fn a_manifest_with_the_wrong_hash_is_not_saved() {
     let root = tempfile::tempdir().unwrap();
     let result = block_on(install(
         &NetworkFixture("bad"),
+        &axlauncher_download_engine::Direct(&NetworkFixture("bad")),
         &GameDir::standalone(root.path()),
         "26.3",
         &Target::host(),
@@ -259,6 +263,7 @@ fn offline_check_detects_a_missing_pre_1_6_resource_copy() {
     );
     let repair = block_on(install(
         &axlauncher_network::UnimplementedNetwork,
+        &axlauncher_download_engine::Direct(&axlauncher_network::UnimplementedNetwork),
         &game,
         "b1.7.3",
         &target,

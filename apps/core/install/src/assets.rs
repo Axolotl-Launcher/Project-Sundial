@@ -11,12 +11,10 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-pub use axlauncher_download_engine::{
-    DEFAULT_CONCURRENCY, DownloadOutcome, MissingFile, download_all,
-};
 use axlauncher_launch::natives::classifier_download;
 use axlauncher_launch::rules::{self, Target};
 use axlauncher_launch::version::{Artifact, Library};
+use axlauncher_spi::downloads::MissingFile;
 use axlauncher_storage::{GameDir, write_atomic};
 use serde::Deserialize;
 

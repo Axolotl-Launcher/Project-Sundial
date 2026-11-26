@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use axlauncher_state::profile::{self, Game, InstallStatus, Profile, StagedProfile};
-use axlauncher_storage::{Directory, SystemCredentials};
+use axlauncher_storage::Directory;
 
 use super::*;
 
@@ -80,7 +80,7 @@ fn a_profile_without_game_files_needs_install_and_starts_nothing() {
 
     let failure = job
         .run(
-            Player::<SystemCredentials>::Offline(Session::offline("Player")),
+            Player::Offline(Session::offline("Player")),
             DownloadOptions::from_settings(None),
             |_| panic!("offline launch must not resolve an online account"),
             || panic!("missing files must not start a process"),

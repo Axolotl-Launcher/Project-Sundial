@@ -565,6 +565,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "axlauncher_accounts"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_network",
+ "axlauncher_spi",
+ "axlauncher_storage",
+ "axlauncher_worker",
+ "base64 0.23.1",
+ "md-5",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "axlauncher_content"
 version = "0.1.0"
 dependencies = [
@@ -577,7 +597,6 @@ version = "0.1.0"
 dependencies = [
  "axlauncher_content",
  "axlauncher_domain",
- "axlauncher_download_engine",
  "axlauncher_install",
  "axlauncher_launch",
  "axlauncher_loader",
@@ -591,7 +610,7 @@ dependencies = [
  "axlauncher_state",
  "axlauncher_storage",
  "axlauncher_telemetry",
- "base64 0.23.1",
+ "axlauncher_worker",
  "tempfile",
  "tokio",
 ]
@@ -607,6 +626,7 @@ dependencies = [
  "axlauncher_network",
  "axlauncher_spi",
  "axlauncher_storage",
+ "axlauncher_worker",
  "bytes",
  "fastrand",
  "futures",
@@ -620,6 +640,7 @@ name = "axlauncher_frontend"
 version = "0.1.0"
 dependencies = [
  "axlauncher_core",
+ "axlauncher_download_engine",
  "axlauncher_modpack",
  "axlauncher_ui",
  "futures",
@@ -689,6 +710,7 @@ name = "axlauncher_mmc_convert"
 version = "0.1.0"
 dependencies = [
  "axlauncher_core",
+ "axlauncher_download_engine",
  "axlauncher_modpack",
  "serde",
  "serde_json",
@@ -708,7 +730,6 @@ dependencies = [
  "axlauncher_spi",
  "futures",
  "hex",
- "md-5",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -733,6 +754,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "reqwest",
+ "serde",
  "sha1_smol",
  "tokio",
  "url",
@@ -773,10 +795,13 @@ dependencies = [
  "axlauncher_spi",
  "axlauncher_state",
  "axlauncher_storage",
+ "axlauncher_worker",
  "proc-macro2",
  "serde",
  "serde_json",
  "syn 2.0.119",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -796,6 +821,11 @@ version = "0.1.0"
 dependencies = [
  "axlauncher_domain",
  "bytes",
+ "futures",
+ "md-5",
+ "serde",
+ "sha2 0.11.1",
+ "url",
 ]
 
 [[package]]
@@ -805,15 +835,9 @@ dependencies = [
  "axlauncher_domain",
  "axlauncher_spi",
  "axlauncher_storage",
- "base64 0.23.1",
- "md-5",
  "serde",
  "serde_json",
- "sha2 0.11.1",
  "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "url",
  "uuid",
 ]
 
@@ -840,6 +864,23 @@ name = "axlauncher_ui"
 version = "0.1.0"
 dependencies = [
  "gpui-kit",
+]
+
+[[package]]
+name = "axlauncher_worker"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_network",
+ "axlauncher_spi",
+ "axlauncher_storage",
+ "futures",
+ "libloading",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
+ "uuid",
 ]
 
 [[package]]
