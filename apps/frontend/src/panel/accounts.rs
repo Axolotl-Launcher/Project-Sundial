@@ -43,6 +43,7 @@ pub(super) struct AccountsPanel {
     add_offline: bool,
     name: Entity<InputState>,
     uuid: Entity<InputState>,
+    offline_scope: FocusHandle,
     offline_trigger: FocusHandle,
     login: Option<login::Attempt>,
     third_party: third_party::Form,
@@ -69,6 +70,7 @@ impl AccountsPanel {
             add_offline: false,
             name,
             uuid,
+            offline_scope: cx.focus_handle(),
             offline_trigger: cx.focus_handle(),
             login: None,
             third_party: third_party::Form::new(window, cx),
@@ -236,9 +238,11 @@ impl RootView {
     }
 
     fn close_offline_form(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
+        if self.accounts.offline_scope.contains_focused(window, cx) {
+            self.accounts.offline_trigger.focus(window, cx);
+        }
         self.accounts.add_offline = false;
         self.accounts.error = None;
-        self.accounts.offline_trigger.focus(window, cx);
         cx.notify();
     }
 

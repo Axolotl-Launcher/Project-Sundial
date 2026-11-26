@@ -105,6 +105,7 @@ impl RootView {
 
     fn offline_form(&self, cx: &mut Context<'_, Self>) -> AnyElement {
         v_flex()
+            .track_focus(&self.accounts.offline_scope)
             .gap_2()
             .child(Label::new("Player name").text_sm())
             .child(
