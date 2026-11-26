@@ -14,6 +14,8 @@ const RECOVERIES: usize = 3;
 const FIRST_BACKOFF_MS: u64 = 500;
 const COOLDOWN_JITTER_MS: u64 = 100;
 const WAIT_LIMIT: Duration = Duration::from_secs(30);
+const TOO_MANY_REQUESTS: u16 = 429;
+const SERVICE_UNAVAILABLE: u16 = 503;
 
 #[derive(Clone, Copy)]
 pub(crate) struct Delay {
@@ -58,20 +60,10 @@ impl Cooldowns {
     }
 
     pub(crate) fn observe(&self, origin: &Origin, error: &FetchError, attempts: &Attempts) {
-        let (status, duration) = match error {
-            FetchError::HttpRetryable {
-                status: 429,
-                retry_after,
-            } => (
-                429,
-                retry_after.unwrap_or_else(|| attempts.backoff(None).duration),
-            ),
-            FetchError::HttpRetryable {
-                status: 503,
-                retry_after: Some(delay),
-            } => (503, *delay),
-            _ => return,
+        let Some((status, hint)) = origin_throttle(error) else {
+            return;
         };
+        let duration = hint.unwrap_or_else(|| attempts.backoff(None).duration);
         let mut cooldowns = self.0.lock().expect("download cooldown lock");
         cooldowns.retain(|_, (_, delay)| {
             !delay
@@ -84,6 +76,21 @@ impl Cooldowns {
         if limit.1.remaining() <= duration {
             *limit = (status, Delay::new(duration));
         }
+    }
+}
+
+pub(crate) fn origin_throttle(error: &FetchError) -> Option<(u16, Option<Duration>)> {
+    let FetchError::HttpRetryable {
+        status,
+        retry_after,
+    } = *error
+    else {
+        return None;
+    };
+    match status {
+        TOO_MANY_REQUESTS => Some((status, retry_after)),
+        SERVICE_UNAVAILABLE if retry_after.is_some() => Some((status, retry_after)),
+        _ => None,
     }
 }
 

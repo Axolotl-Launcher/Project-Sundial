@@ -16,6 +16,10 @@ use reqwest::{Client, Response, StatusCode, Version};
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
 const FILE_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const RANGE_READ_TIMEOUT: Duration = Duration::from_secs(15);
+const REJECTION_TIMEOUT: Duration = Duration::from_millis(250);
+const REJECTION_BYTES: usize = 4096;
+const CDN_CONNECTION_TIMED_OUT: u16 = 522;
+const CDN_ORIGIN_RESPONSE_TIMED_OUT: u16 = 524;
 
 pub(super) async fn open(
     client: &Client,
@@ -64,15 +68,15 @@ pub(super) async fn open(
             "unexpected download protocol {received:?}"
         )));
     }
-    describe(response)
+    describe(response).await
 }
 
-fn describe(response: Response) -> Result<DownloadResponse<ResponseBody>, FetchError> {
+async fn describe(response: Response) -> Result<DownloadResponse<ResponseBody>, FetchError> {
     if !matches!(
         response.status(),
         StatusCode::OK | StatusCode::PARTIAL_CONTENT
     ) {
-        return Err(download_status(&response));
+        return Err(download_error(response).await);
     }
     let headers = response.headers();
     let range = if response.status() == StatusCode::PARTIAL_CONTENT {
@@ -109,22 +113,52 @@ fn describe(response: Response) -> Result<DownloadResponse<ResponseBody>, FetchE
     })
 }
 
-fn download_status(response: &Response) -> FetchError {
-    let status = response.status().as_u16();
-    if matches!(status, 408 | 429 | 500 | 502 | 503 | 504 | 522 | 524) {
+async fn download_error(mut response: Response) -> FetchError {
+    let status = response.status();
+    if is_transient_status(status) {
         let retry_after = response
             .headers()
             .get(RETRY_AFTER)
             .and_then(|value| value.to_str().ok())
             .and_then(|value| retry_delay(value, SystemTime::now()));
         return FetchError::HttpRetryable {
-            status,
+            status: status.as_u16(),
             retry_after,
         };
     }
     FetchError::Rejected {
+        status: status.as_u16(),
+        body: rejection_excerpt(&mut response).await,
+    }
+}
+
+fn is_transient_status(status: StatusCode) -> bool {
+    // Include the CDN status codes used for transient upstream timeouts.
+    matches!(
         status,
-        body: Vec::new(),
+        StatusCode::REQUEST_TIMEOUT
+            | StatusCode::TOO_MANY_REQUESTS
+            | StatusCode::INTERNAL_SERVER_ERROR
+            | StatusCode::BAD_GATEWAY
+            | StatusCode::SERVICE_UNAVAILABLE
+            | StatusCode::GATEWAY_TIMEOUT
+    ) || matches!(
+        status.as_u16(),
+        CDN_CONNECTION_TIMED_OUT | CDN_ORIGIN_RESPONSE_TIMED_OUT
+    )
+}
+
+async fn rejection_excerpt(response: &mut Response) -> Vec<u8> {
+    let mut excerpt = Vec::new();
+    let _ = tokio::time::timeout(REJECTION_TIMEOUT, read_excerpt(response, &mut excerpt)).await;
+    excerpt
+}
+
+async fn read_excerpt(response: &mut Response, excerpt: &mut Vec<u8>) {
+    while excerpt.len() < REJECTION_BYTES
+        && let Ok(Some(chunk)) = response.chunk().await
+    {
+        excerpt.extend_from_slice(&chunk[..chunk.len().min(REJECTION_BYTES - excerpt.len())]);
     }
 }
 

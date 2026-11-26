@@ -110,23 +110,57 @@ fn retry_after_accepts_seconds_and_dates_at_response_receipt() {
 
 #[test]
 fn http_errors_are_classified_before_reading_the_body() {
-    for (status, header) in [(429, "8"), (503, "invalid"), (501, "8"), (404, "8")] {
-        assert_download_status(status, header);
-    }
+    assert_eq!(
+        download_rejection(429, "8", &[]),
+        FetchError::HttpRetryable {
+            status: 429,
+            retry_after: Some(Duration::from_secs(8)),
+        }
+    );
+    assert_eq!(
+        download_rejection(503, "invalid", &[]),
+        FetchError::HttpRetryable {
+            status: 503,
+            retry_after: None,
+        }
+    );
 }
 
-fn assert_download_status(status: u16, header: &'static str) {
+#[test]
+fn a_permanent_rejection_keeps_a_bounded_excerpt_when_the_body_stalls() {
+    let body = b"artifact moved to an archive";
+    assert_eq!(
+        download_rejection(404, "8", body),
+        FetchError::Rejected {
+            status: 404,
+            body: body.to_vec(),
+        }
+    );
+    let long = [b'x'; REJECTION_BYTES + 64];
+    assert_eq!(
+        download_rejection(501, "8", &long),
+        FetchError::Rejected {
+            status: 501,
+            body: vec![b'x'; REJECTION_BYTES],
+        }
+    );
+}
+
+fn download_rejection(status: u16, header: &'static str, body: &[u8]) -> FetchError {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}/file", listener.local_addr().unwrap());
     let (release, hold) = std::sync::mpsc::channel();
+    let body = body.to_vec();
     let worker = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
         read_request(&stream);
         write!(
             stream,
-            "HTTP/1.1 {status} Error\r\nRetry-After: {header}\r\nContent-Length: 20\r\n\r\n"
+            "HTTP/1.1 {status} Error\r\nRetry-After: {header}\r\nContent-Length: {}\r\n\r\n",
+            body.len() + 1
         )
         .unwrap();
+        stream.write_all(&body).unwrap();
         hold.recv_timeout(Duration::from_secs(5)).unwrap();
     });
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -146,21 +180,7 @@ fn assert_download_status(status: u16, header: &'static str) {
     });
     release.send(()).unwrap();
     worker.join().unwrap();
-    let expected = match status {
-        429 => FetchError::HttpRetryable {
-            status,
-            retry_after: Some(Duration::from_secs(8)),
-        },
-        503 => FetchError::HttpRetryable {
-            status,
-            retry_after: None,
-        },
-        _ => FetchError::Rejected {
-            status,
-            body: Vec::new(),
-        },
-    };
-    assert_eq!(result, expected);
+    result
 }
 
 #[test]

@@ -17,7 +17,7 @@ use bytes::Bytes;
 use url::Origin;
 
 use crate::resources::{BUFFER_BYTES, Bandwidth, Lease, Quota};
-use crate::retry::{Attempts, Cooldowns};
+use crate::retry::{Attempts, Cooldowns, origin_throttle};
 use crate::weighted::{FileShare, ShareLease};
 
 pub(crate) struct TransferResources {
@@ -119,14 +119,7 @@ impl TransferError {
     pub(crate) fn throttle_status(&self) -> Option<u16> {
         match self {
             Self::CoolingDown(status) => Some(*status),
-            Self::Open(FetchError::HttpRetryable {
-                status: status @ 429,
-                ..
-            })
-            | Self::Open(FetchError::HttpRetryable {
-                status: status @ 503,
-                retry_after: Some(_),
-            }) => Some(*status),
+            Self::Open(error) => origin_throttle(error).map(|(status, _)| status),
             _ => None,
         }
     }
@@ -135,6 +128,7 @@ impl TransferError {
 impl fmt::Display for TransferError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            // Rejection bodies can contain credentials or signed URLs from the server.
             Self::Open(FetchError::Rejected { status, .. }) => {
                 write!(formatter, "opening download: HTTP {status}")
             }

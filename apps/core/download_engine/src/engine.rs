@@ -254,6 +254,22 @@ impl<'a> Source<'a> {
         check: Option<&Verification>,
         wait: &mut WaitBudget,
     ) -> Result<(), TransferError> {
+        let mut staging = self
+            .receive(engine, network, job, has_digest(job, check), wait)
+            .await?;
+        self.verify_stage(&mut staging, job, check).await?;
+        staging.commit(job.destination)?;
+        Ok(())
+    }
+
+    async fn receive(
+        &mut self,
+        engine: &DownloadEngine,
+        network: &impl Network,
+        job: DownloadJob<'_>,
+        has_digest: bool,
+        wait: &mut WaitBudget,
+    ) -> Result<AtomicFile, TransferError> {
         let (Some(host), Some(origin)) = (self.host.as_ref(), self.origin.as_ref()) else {
             return Err(TransferError::Open(FetchError::Fatal(
                 "invalid download URL".into(),
@@ -286,7 +302,7 @@ impl<'a> Source<'a> {
         let result = FileTransfer {
             transfer: &transfer,
             parallelism: engine.policy.connections_per_file.get(),
-            has_digest: has_digest(job, check),
+            has_digest,
             probe_unknown: !job.batch,
         }
         .run(
@@ -297,15 +313,21 @@ impl<'a> Source<'a> {
             wait,
         )
         .await;
-        drop(share);
-        if matches!(self.mode, TransferMode::Paused(_)) && result.is_err() {
-            self.staging = Some(staging);
-            return result;
+        match result {
+            Ok(()) => Ok(staging),
+            Err(error) => self.receive_failed(staging, error),
         }
-        result?;
-        self.verify_stage(&mut staging, job, check).await?;
-        staging.commit(job.destination)?;
-        Ok(())
+    }
+
+    fn receive_failed(
+        &mut self,
+        staging: AtomicFile,
+        error: TransferError,
+    ) -> Result<AtomicFile, TransferError> {
+        if matches!(self.mode, TransferMode::Paused(_)) {
+            self.staging = Some(staging);
+        }
+        Err(error)
     }
 
     async fn verify_stage(
