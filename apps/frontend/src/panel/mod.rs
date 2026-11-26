@@ -317,6 +317,10 @@ impl RootView {
             )
     }
 
+    fn invalidate_launch_preview(&mut self) {
+        self.inspection = launch::Inspection::default();
+    }
+
     fn fallen_proxy(&self) -> Option<axlauncher_core::spi::ServiceHost> {
         axlauncher_core::desktop::sources::fallen_proxy(self.settings.as_ref())
     }

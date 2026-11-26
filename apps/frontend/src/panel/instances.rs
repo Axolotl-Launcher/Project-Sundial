@@ -6,17 +6,24 @@
 use std::path::{Path, PathBuf};
 
 use axlauncher_core::desktop::launching::LaunchJob;
-use axlauncher_core::state::profile::{DiscoveredProfile, ProfileDiscovery, discover};
+use axlauncher_core::domain::memory::MaximumHeap;
+use axlauncher_core::state::profile::{
+    self, DiscoveredProfile, Profile, ProfileDiscovery, discover,
+};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, AnyElement, Context, ElementId, GroupBox, Input, IntoElement, Label, h_flex,
-    v_flex,
+    ActiveTheme, AnyElement, Button, Context, ElementId, GroupBox, Input, IntoElement, Label,
+    Sizable, Window, h_flex, v_flex,
 };
 
 use crate::instance_row;
 
-use super::{RootView, java::InstancePicker, launch};
+use super::{
+    RootView,
+    java::{InstancePicker, memory::open_editor},
+    launch,
+};
 
 pub(super) struct InstancesState {
     discovered: ProfileDiscovery,
@@ -73,6 +80,17 @@ impl InstancesState {
             .iter()
             .find(|entry| entry.directory == directory)
     }
+
+    pub(super) fn update_profile(&mut self, directory: &Path, profile: Profile) {
+        if let Some(entry) = self
+            .discovered
+            .instances
+            .iter_mut()
+            .find(|entry| entry.directory == directory)
+        {
+            entry.profile = profile;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -114,6 +132,88 @@ impl RootView {
             player_name,
             self.settings.as_ref(),
         )
+    }
+
+    fn instance_memory_button(
+        &self,
+        entry: &DiscoveredProfile,
+        cx: &mut Context<'_, Self>,
+    ) -> Option<AnyElement> {
+        entry.profile.game()?;
+        let directory = entry.directory.clone();
+        let label = if entry.profile.memory().is_some() {
+            "Memory · Manual"
+        } else {
+            "Memory · Global"
+        };
+        let button =
+            Button::new(ElementId::Name(
+                format!("instance-memory:{}", directory.display()).into(),
+            ))
+            .label(label)
+            .accessibility_label(format!(
+                "Configure memory for {}",
+                entry.profile.instance.name
+            ))
+            .small()
+            .on_click(cx.listener(move |view, _, window, cx| {
+                view.open_instance_memory(&directory, window, cx)
+            }));
+        Some(h_flex().child(button).into_any_element())
+    }
+
+    fn open_instance_memory(
+        &mut self,
+        directory: &Path,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(entry) = self.instances.find(directory) else {
+            return;
+        };
+        let directory = entry.directory.clone();
+        let id = entry.profile.id().to_owned();
+        let title = format!("Memory for {}", entry.profile.instance.name);
+        let suggested = self
+            .settings
+            .as_ref()
+            .and_then(|settings| settings.memory().manual_heap())
+            .unwrap_or_default();
+        let view = cx.weak_entity();
+        open_editor(
+            title,
+            "Follow global settings",
+            entry.profile.memory(),
+            suggested,
+            window,
+            cx,
+            move |heap, cx| {
+                view.update(cx, |view, cx| view.save_heap(&directory, &id, heap, cx))
+                    .map_err(|error| error.to_string())?
+            },
+        );
+    }
+
+    fn save_heap(
+        &mut self,
+        directory: &Path,
+        id: &str,
+        heap: Option<MaximumHeap>,
+        cx: &mut Context<'_, Self>,
+    ) -> Result<(), String> {
+        if self
+            .instances
+            .find(directory)
+            .is_none_or(|entry| entry.profile.id() != id)
+        {
+            return Err("This instance changed. Reopen the editor to continue.".into());
+        }
+        let updated =
+            profile::set_memory(directory, id, heap).map_err(|error| error.to_string())?;
+        self.instances.update_profile(directory, updated);
+        self.invalidate_launch_preview();
+        cx.notify();
+        Ok(())
     }
 
     pub(super) fn render_instances(&self, cx: &mut Context<'_, Self>) -> AnyElement {
@@ -166,6 +266,7 @@ impl RootView {
                             .gap_2()
                             .child(row)
                             .child(InstancePicker::new(self.java.clone(), entry))
+                            .children(self.instance_memory_button(entry, cx))
                     })),
             )
             .into_any_element()
