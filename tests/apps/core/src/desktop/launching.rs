@@ -6,6 +6,9 @@ use axlauncher_storage::{Directory, SystemCredentials};
 
 use super::*;
 
+#[path = "launching/host_java.rs"]
+mod host_java;
+
 #[test]
 fn a_launch_job_retains_the_directory_snapshot_used_for_installation() {
     let root = tempfile::tempdir().unwrap();

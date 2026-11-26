@@ -55,6 +55,9 @@ jobs:
       - name: Run desktop workspace tests
         run: cargo nextest run --workspace --profile ci --locked --no-tests=fail
 
+      - name: Exercise the Java workflow with a native JDK
+        run: cargo nextest run --workspace --locked --no-tests=fail --run-ignored only --success-output immediate -E "test(=desktop::launching::tests::host_java::a_real_jvm_runs_through_desktop_java_management)"
+
   # The architecture gate covers the Linux host target with default features.
   architecture:
     name: Architecture
