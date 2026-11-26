@@ -19,7 +19,7 @@ fn returning_to_a_data_root_does_not_reuse_its_in_flight_result() {
 
     panel.change_paths(Some(right.clone()));
     assert!(!panel.write_pending("profile"));
-    panel.begin(Activity::Scanning).unwrap();
+    panel.begin(Activity::Loading).unwrap();
     assert!(panel.take_completed(right.root()).is_some());
 
     panel.change_paths(Some(left.clone()));
@@ -37,21 +37,10 @@ fn java_panel_actions_reopen_saved_catalog_and_instance_choices() {
     let data = DataDir::isolated(folder.path()).unwrap();
     let executable = java_fixture(folder.path());
     let registered = Operation::Add(executable).run(&data).unwrap();
-    let path = registered.manual_paths().next().unwrap().to_owned();
-    assert_eq!(registered.default_for(42), Some(path.as_path()));
-    assert_eq!(
-        catalog_rows(&registered)[path.as_path()].default_major,
-        Some(42)
-    );
-    assert!(registered.preferred().next().is_none());
+    let path = registered.paths().next().unwrap().to_owned();
+    assert_eq!(catalog_rows(&registered)[path.as_path()].preferred, [42]);
     let profile = "selected-instance".to_owned();
 
-    Operation::Prefer {
-        major: 42,
-        path: Some(path.clone()),
-    }
-    .run(&data)
-    .unwrap();
     Operation::Select {
         profile: profile.clone(),
         path: Some(path.clone()),
@@ -73,7 +62,7 @@ fn java_panel_actions_reopen_saved_catalog_and_instance_choices() {
     .unwrap();
     assert!(automatic.profile_preference(&profile).is_none());
     let removed = Operation::Remove(path).run(&data).unwrap();
-    assert!(removed.manual_paths().next().is_none());
+    assert!(removed.paths().next().is_none());
     assert!(removed.preferred().next().is_none());
 }
 

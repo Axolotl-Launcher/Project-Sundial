@@ -48,7 +48,7 @@ impl JavaPanel {
             paths,
             ..Self::default()
         };
-        panel.refresh(cx);
+        panel.run(Operation::Startup, cx);
         panel
     }
 
@@ -87,7 +87,7 @@ impl JavaPanel {
 
     pub(super) fn write_pending(&self, profile: &str) -> bool {
         match self.current().map(|(_, activity)| activity) {
-            Some(Activity::SavingCatalog) => true,
+            Some(Activity::Starting | Activity::Discovering | Activity::SavingCatalog) => true,
             Some(Activity::SavingProfile(current)) => profile == current,
             _ => false,
         }
@@ -171,7 +171,7 @@ impl JavaPanel {
         if activity.writes() && !matches!(outcome, Err(OperationError::LoadOrSave(_))) {
             cx.emit(JavaEvent::SelectionChanged(profile.clone()));
         }
-        if matches!(activity, Activity::Scanning)
+        if matches!(activity, Activity::Loading)
             && let (Some(previous), Ok(next)) = (self.catalog.as_deref(), &outcome)
             && previous != next
         {
@@ -300,36 +300,32 @@ fn java_toolbar(disabled: bool, cx: &mut Context<'_, JavaPanel>) -> impl IntoEle
                 .on_click(cx.listener(|view, _, _, cx| view.add_java(cx))),
         )
         .child(
-            Button::new("java-refresh")
-                .label("Refresh")
-                .accessibility_label("Refresh Java installations")
+            Button::new("java-discover")
+                .label("Auto-detect Java")
                 .ghost()
                 .disabled(disabled)
-                .on_click(cx.listener(|view, _, _, cx| view.refresh(cx))),
+                .on_click(cx.listener(|view, _, _, cx| view.run(Operation::Discover, cx))),
         )
 }
 
 #[derive(Default)]
 struct RuntimeRow<'a> {
     runtime: Option<&'a JavaRuntime>,
-    default_major: Option<u32>,
-    manual: bool,
     preferred: Vec<u32>,
 }
 
 fn catalog_rows(catalog: &JavaCatalog) -> BTreeMap<&Path, RuntimeRow<'_>> {
     let mut rows = BTreeMap::<&Path, RuntimeRow<'_>>::new();
-    for runtime in catalog.available() {
-        let row = rows.entry(runtime.path()).or_default();
-        row.runtime = Some(runtime);
-        row.default_major = Some(runtime.major())
-            .filter(|&major| catalog.default_for(major) == Some(runtime.path()));
+    for path in catalog.paths() {
+        rows.entry(path).or_default();
     }
-    for path in catalog.manual_paths() {
-        rows.entry(path).or_default().manual = true;
+    for runtime in catalog.available() {
+        rows.entry(runtime.path()).or_default().runtime = Some(runtime);
     }
     for (major, path) in catalog.preferred() {
-        rows.entry(path).or_default().preferred.push(major);
+        if let Some(row) = rows.get_mut(path) {
+            row.preferred.push(major);
+        }
     }
     rows
 }
@@ -344,17 +340,14 @@ fn java_row(
         .runtime
         .map_or_else(|| "Unavailable".into(), runtime_title);
     let muted = cx.theme().muted_foreground;
-    let statuses = row
-        .default_major
-        .into_iter()
-        .map(|major| (major, format!("Default for Java {major}")))
-        .chain(
-            row.preferred
-                .iter()
-                .copied()
-                .filter(|&major| Some(major) != row.default_major)
-                .map(|major| (major, format!("Java {major} preference unavailable"))),
-        );
+    let statuses = row.preferred.iter().map(|&major| {
+        let status = if row.runtime.is_some_and(|runtime| runtime.major() == major) {
+            format!("Preferred for Java {major}")
+        } else {
+            format!("Preferred Java {major} unavailable")
+        };
+        (major, status)
+    });
     h_flex()
         .items_start()
         .gap_3()
@@ -401,54 +394,28 @@ fn runtime_actions(
                     view.run(
                         Operation::Prefer {
                             major,
-                            path: Some(selected.clone()),
+                            path: selected.clone(),
                         },
                         cx,
                     )
                 }))
         });
-    let remove =
-        row.manual.then(|| {
-            let selected = path.to_owned();
-            Button::new(java_id("java-remove", path))
-                .label("Remove")
-                .tooltip("Remove this registration and clear its preferences")
-                .ghost()
-                .small()
-                .disabled(disabled)
-                .on_click(cx.listener(move |view, _, _, cx| {
-                    view.run(Operation::Remove(selected.clone()), cx)
-                }))
-        });
-    h_flex()
-        .flex_wrap()
-        .gap_1()
-        .children(prefer)
-        .children(
-            row.preferred
-                .iter()
-                .map(|&major| clear_preference(path, major, disabled, cx)),
-        )
-        .children(remove)
-        .into_any_element()
-}
-
-fn clear_preference(
-    path: &Path,
-    major: u32,
-    disabled: bool,
-    cx: &mut Context<'_, JavaPanel>,
-) -> Button {
-    Button::new(java_id(&format!("java-clear-{major}"), path))
-        .label(format!("Clear Java {major} preference"))
+    let selected = path.to_owned();
+    let remove = Button::new(java_id("java-remove", path))
+        .label("Remove")
+        .tooltip("Remove this installation from the Java list")
         .ghost()
         .small()
         .disabled(disabled)
         .on_click(
-            cx.listener(move |view, _, _, cx| {
-                view.run(Operation::Prefer { major, path: None }, cx)
-            }),
-        )
+            cx.listener(move |view, _, _, cx| view.run(Operation::Remove(selected.clone()), cx)),
+        );
+    h_flex()
+        .flex_wrap()
+        .gap_1()
+        .children(prefer)
+        .child(remove)
+        .into_any_element()
 }
 
 fn java_id(kind: &str, path: &Path) -> ElementId {

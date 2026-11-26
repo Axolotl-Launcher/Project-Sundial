@@ -99,7 +99,8 @@ fn a_profile_override_takes_precedence_even_with_a_different_java_major() {
     let id = &job.profile_id;
     let selected = java::test_runtime(&root.path().join("selected"), 43);
     let automatic = java::test_runtime(&root.path().join("automatic"), 42);
-    java::set_preferred(&data, 42, Some(&automatic)).unwrap();
+    java::add(&data, &automatic).unwrap();
+    java::add(&data, &selected).unwrap();
     java::set_profile_preference(&data, id, Some(&selected)).unwrap();
     assert_selected_java(&job, &selected);
 
@@ -115,7 +116,8 @@ fn a_missing_profile_java_uses_automatic_selection_until_it_returns() {
     let home = root.path().join("chosen");
     let chosen = java::test_runtime(&home, 42);
     let fallback = java::test_runtime(&root.path().join("fallback"), 42);
-    java::set_preferred(&data, 42, Some(&fallback)).unwrap();
+    java::add(&data, &fallback).unwrap();
+    java::add(&data, &chosen).unwrap();
     java::set_profile_preference(&data, &job.profile_id, Some(&chosen)).unwrap();
     std::fs::remove_file(&chosen).unwrap();
 

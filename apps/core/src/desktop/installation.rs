@@ -208,7 +208,7 @@ async fn install_loader(
     };
 
     java::provision(network, data, required, &mut report).await?;
-    // SystemJava takes its inventory at construction, before this runtime existed.
+    // Provisioning registered the runtime after the original list was loaded.
     let refreshed_java = java::managed(data);
     loader::InstallRequest {
         java: &refreshed_java,

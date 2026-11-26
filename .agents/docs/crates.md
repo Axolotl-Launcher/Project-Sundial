@@ -36,18 +36,21 @@ and sequences the owner calls, but does not implement loader protocols, file
 preparation, profile writes, or process execution. GPUI workers and channels,
 progress redraw throttling, and view state stay in `frontend`.
 
-The desktop Java catalog refreshes installed runtimes on demand through `launch`.
-Launch and installation reuse recent system search paths and recheck the files
-before use. Storage resolves conventional OS search roots, Windows registry
-locations and the catalog lock and document paths. State persists manual
-registrations, per-major preferences and machine-local preferences keyed by
-portable profile ID. Every managed-runtime selection requires its completion
-record. Installers wait asynchronously for the per-runtime writer lock and
-withdraw a damaged runtime's record before repairing it.
+State persists one local Java list, per-major preferences and machine-local
+preferences keyed by portable profile ID. Launch and installation check the
+listed executables before use. The desktop Java catalog scans through `launch`
+when requested, or at application startup if the saved list is empty. Listed
+entries have the same operations regardless of how they were added. Storage
+resolves discovery roots, Windows registry locations and the catalog paths.
+Installation registers the specific runtime it provisions for Minecraft. Every
+managed-runtime selection requires its completion record. Installers wait
+asynchronously for the per-runtime writer lock and withdraw a damaged runtime's
+record before repairing it.
 
-Automatic selection prefers host-architecture runtimes, then the newest
-available release and build for each Java major. A valid saved preference
-overrides that default.
+Adding the first runtimes for a major or removing its preferred entry selects
+and saves a preference. The selection favors host architecture, then the newest
+available release and build. Launch can fall back to another available listed
+runtime without changing the saved preference.
 
 On Windows, exploratory discovery follows PCL-CE's bounded breadth-first
 search from fixed drives, Program Files and user directories. Registry and

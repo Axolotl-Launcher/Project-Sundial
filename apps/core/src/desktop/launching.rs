@@ -112,6 +112,7 @@ impl LaunchJob {
         let mut request = self.request.clone();
         request.java_preference = saved
             .profile_preference(&self.profile_id)
+            .filter(|path| saved.contains(path))
             .map(Path::to_path_buf);
         Ok((java::provider(&self.data, &saved), request))
     }

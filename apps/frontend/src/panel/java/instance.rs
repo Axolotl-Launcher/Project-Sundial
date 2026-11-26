@@ -78,7 +78,7 @@ fn java_picker_placeholder(busy: bool, cx: &App) -> AnyElement {
     let message = if busy {
         "Loading Java list…"
     } else {
-        "Java list unavailable. Refresh the Java section to try again."
+        "Java list unavailable. Reload the launcher data to try again."
     };
     Label::new(message)
         .text_xs()
@@ -112,16 +112,6 @@ impl InstanceChoice {
         for runtime in catalog.available() {
             let title = format!("{} · {}", runtime_title(runtime), runtime.path().display());
             menu = menu.item(self.item(title, Some(runtime.path().to_owned()), selected));
-        }
-        if let Some(path) = selected
-            && let Some(runtime) = catalog.profile_runtime(&self.profile)
-            && !catalog
-                .available()
-                .iter()
-                .any(|available| available.path() == path)
-        {
-            let title = format!("{} · {}", runtime_title(runtime), path.display());
-            menu = menu.item(self.item(title, Some(path.to_owned()), selected));
         }
         menu
     }
