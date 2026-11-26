@@ -8,23 +8,23 @@ use axlauncher_core::launch::{LaunchCommand, flow, plan::Session};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{Context, Task};
 
-use super::RootView;
+use super::super::RootView;
 
 mod render;
 
 #[derive(Default)]
-pub(super) struct Inspection {
+pub(in crate::panel) struct Inspection {
     output: Option<Result<Output, String>>,
     task: Option<Task<()>>,
     predates_java_refresh: bool,
 }
 
 impl Inspection {
-    pub(super) fn mark_java_refresh(&mut self) {
+    pub(in crate::panel) fn mark_java_refresh(&mut self) {
         self.predates_java_refresh = self.output.is_some() || self.task.is_some();
     }
 
-    pub(super) fn invalidate_refreshed_catalog(&mut self) {
+    pub(in crate::panel) fn invalidate_refreshed_catalog(&mut self) {
         if self.predates_java_refresh {
             *self = Self::default();
         }
@@ -100,5 +100,5 @@ fn inspect(job: &LaunchJob, session: Option<&Session>) -> Result<Output, String>
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/frontend/src/panel/launch.rs"]
+#[path = "../../../../../tests/apps/frontend/src/panel/instances/launch.rs"]
 mod tests;

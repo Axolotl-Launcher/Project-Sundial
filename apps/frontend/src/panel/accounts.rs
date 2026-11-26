@@ -204,7 +204,7 @@ impl RootView {
     ) {
         if let Some(snapshot) = snapshot {
             self.accounts.snapshot = Some(snapshot);
-            self.inspection = super::launch::Inspection::default();
+            self.invalidate_inspection();
         }
         self.accounts.error = error;
         cx.notify();

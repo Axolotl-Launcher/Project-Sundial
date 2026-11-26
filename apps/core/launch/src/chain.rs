@@ -119,6 +119,17 @@ pub fn resolve(root: &Path, version: Version) -> Result<Version, ChainError> {
     resolve_below(root, version, &mut visited)
 }
 
+/// Reads `<root>/<id>/<id>.json` and everything it inherits from.
+///
+/// A loader's profile names its vanilla version in `inheritsFrom` and carries
+/// only the fields it changes, so the document on disk is not launchable by
+/// itself. [`resolve`] applies the parent first and then the profile's own
+/// values, which is the order the game's format defines.
+pub fn load_resolved(root: &Path, id: &str) -> Result<Version, ChainError> {
+    let version = version::load(root, id).map_err(|source| ChainError::Document { source })?;
+    resolve(root, version)
+}
+
 fn resolve_below(
     root: &Path,
     mut version: Version,

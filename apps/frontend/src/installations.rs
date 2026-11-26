@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! The install service's progress and outcome as seen by the desktop.
+//!
+//! The module starts the background work and hands the view its progress and
+//! result. Presenting them belongs to the panel that owns the row.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use axlauncher_core::desktop::{
     installation::{self, InstallTarget},
@@ -11,10 +14,9 @@ use axlauncher_core::desktop::{
 };
 use axlauncher_core::install::prepare::Progress;
 use axlauncher_core::storage::DataDir;
-use axlauncher_ui::{AppContext, AsyncApp, Context, WeakEntity};
+use axlauncher_ui::{AppContext, Task};
 use tokio::sync::watch;
 
-use crate::RootView;
 use crate::installation_progress::{progress_message, should_report};
 
 pub(crate) enum Installation {
@@ -38,12 +40,12 @@ pub(crate) fn start(
     directory: PathBuf,
     target: InstallTarget,
     options: DownloadOptions,
-    cx: &mut Context<'_, RootView>,
-) {
-    let game = paths.game();
+    cx: &mut impl AppContext,
+) -> InstallationJob {
     let key = target.key();
     let is_loader = target.is_loader();
-    let (progress, mut updates) = watch::channel(Progress::Version);
+    let game_root = paths.game().root().to_path_buf();
+    let (progress, updates) = watch::channel(Progress::Version);
     let task_paths = paths.clone();
     let task_directory = directory.clone();
     let task = cx.background_spawn(async move {
@@ -51,32 +53,26 @@ pub(crate) fn start(
             report_progress(&progress, stage);
         })
     });
-    cx.spawn(async move |view, cx| {
-        display_progress(&mut updates, &view, cx, game.root(), &key).await;
-        let outcome = task.await;
-        let _ = view.update(cx, |view, cx| {
-            view.finish_installation(&paths, &directory, &key, is_loader, outcome, cx)
-        });
-    })
-    .detach();
+    InstallationJob {
+        key,
+        directory,
+        is_loader,
+        paths,
+        game_root,
+        updates,
+        task,
+    }
 }
 
-async fn display_progress(
-    updates: &mut watch::Receiver<Progress>,
-    view: &WeakEntity<RootView>,
-    cx: &mut AsyncApp,
-    root: &Path,
-    id: &str,
-) {
-    while updates.changed().await.is_ok() {
-        let progress = *updates.borrow_and_update();
-        let updated = view.update(cx, |view, cx| {
-            view.set_installation(root, id, Installation::Running(progress), cx)
-        });
-        if updated.is_err() {
-            return;
-        }
-    }
+/// A running install: the key its row watches, its progress, and its result.
+pub(crate) struct InstallationJob {
+    pub(crate) key: String,
+    pub(crate) directory: PathBuf,
+    pub(crate) is_loader: bool,
+    pub(crate) paths: DataDir,
+    pub(crate) game_root: PathBuf,
+    pub(crate) updates: watch::Receiver<Progress>,
+    pub(crate) task: Task<Result<Option<String>, String>>,
 }
 
 fn report_progress(progress: &watch::Sender<Progress>, stage: Progress) {

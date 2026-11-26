@@ -13,7 +13,6 @@ use axlauncher_ui::{
 };
 
 use super::RootView;
-use crate::panel::launch::Inspection;
 
 #[derive(Clone, Copy)]
 struct SourceOption(SourcePreference, &'static str);
@@ -175,7 +174,7 @@ impl RootView {
         };
         let saved = update_settings(paths.root(), |settings| settings.use_fallen_proxy = enabled);
         if saved.is_ok() {
-            self.inspection = Inspection::default();
+            self.invalidate_inspection();
         }
         self.finish_source_save(saved, window, cx);
     }

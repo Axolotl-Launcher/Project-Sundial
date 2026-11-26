@@ -66,6 +66,12 @@ struct LoaderCatalog {
     status: CatalogStatus,
 }
 
+/// What the loader version list has to tell the form, without its state.
+pub(super) enum LoaderNotice {
+    Empty,
+    Failed(String),
+}
+
 impl LoaderCatalog {
     fn restart(&mut self) -> u64 {
         self.revision += 1;
@@ -75,6 +81,44 @@ impl LoaderCatalog {
 
     fn accepts(&self, revision: u64) -> bool {
         self.revision == revision && matches!(self.status, CatalogStatus::Loading)
+    }
+
+    fn loading(&mut self) {
+        self.status = CatalogStatus::Loading;
+    }
+
+    fn is_ready(&self) -> bool {
+        matches!(self.status, CatalogStatus::Ready)
+    }
+
+    fn ready(&mut self) {
+        self.status = CatalogStatus::Ready;
+    }
+
+    fn empty(&mut self) {
+        self.status = CatalogStatus::Empty;
+    }
+
+    fn failed(&mut self, error: String) {
+        self.status = CatalogStatus::Failed(error);
+    }
+
+    fn notice(&self) -> Option<LoaderNotice> {
+        match &self.status {
+            CatalogStatus::Empty => Some(LoaderNotice::Empty),
+            CatalogStatus::Failed(error) => Some(LoaderNotice::Failed(error.clone())),
+            _ => None,
+        }
+    }
+
+    fn placeholder(&self, idle: &'static str) -> SharedString {
+        match self.status {
+            CatalogStatus::Loading => "Loading versions…",
+            CatalogStatus::Empty => "No versions available",
+            CatalogStatus::Failed(_) => "Versions unavailable",
+            _ => idle,
+        }
+        .into()
     }
 }
 
@@ -196,7 +240,7 @@ impl RootView {
     ) {
         let state = &mut self.profile_creation;
         state.minecraft_status = match result {
-            Ok(catalog) if catalog.versions().is_empty() => CatalogStatus::Empty,
+            Ok(catalog) if catalog.is_empty() => CatalogStatus::Empty,
             Ok(catalog) => {
                 let entered = state.manual_game.read(cx).value();
                 let (items, selected) = minecraft_picker_items(&catalog, &entered);
@@ -255,7 +299,7 @@ impl RootView {
         ) else {
             return;
         };
-        state.loader_catalog.status = CatalogStatus::Loading;
+        state.loader_catalog.loading();
         let options = DownloadOptions::from_settings(self.settings.as_ref());
         let task =
             cx.background_spawn(async move { catalog::loader_versions(options, kind, &game) });
@@ -276,8 +320,8 @@ impl RootView {
         if !state.loader_catalog.accepts(revision) {
             return;
         }
-        state.loader_catalog.status = match result {
-            Ok(versions) if versions.is_empty() => CatalogStatus::Empty,
+        match result {
+            Ok(versions) if versions.is_empty() => state.loader_catalog.empty(),
             Ok(versions) => {
                 let automatic = SharedString::from(AUTOMATIC);
                 set_picker(
@@ -287,10 +331,10 @@ impl RootView {
                     window,
                     cx,
                 );
-                CatalogStatus::Ready
+                state.loader_catalog.ready();
             }
-            Err(error) => CatalogStatus::Failed(error),
-        };
+            Err(error) => state.loader_catalog.failed(error),
+        }
         cx.notify();
     }
 
@@ -380,14 +424,10 @@ fn minecraft_picker_items(
     let selected = nonempty(entered).unwrap_or_else(|| catalog.latest_release());
     let items = SearchableVec::new(
         catalog
-            .versions()
-            .iter()
-            .map(|version| {
-                let category = minecraft_category(version.id(), version.manifest_type());
-                Choice::new(
-                    version.id().to_owned(),
-                    format!("{} · {category}", version.id()),
-                )
+            .entries()
+            .map(|(id, manifest_type)| {
+                let category = minecraft_category(id, manifest_type);
+                Choice::new(id.to_owned(), format!("{id} · {category}"))
             })
             .collect::<Vec<_>>(),
     );

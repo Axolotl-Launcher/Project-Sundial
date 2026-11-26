@@ -7,7 +7,7 @@ use axlauncher_ui::{
     Label, Select, SharedString, h_flex, rems, v_flex,
 };
 
-use super::{CatalogStatus, ProfileCreation, RootView};
+use super::{CatalogStatus, LoaderNotice, ProfileCreation, RootView};
 
 impl RootView {
     pub(in crate::panel) fn render_profile_creation(
@@ -57,7 +57,7 @@ impl RootView {
                             .label("Create")
                             .primary()
                             .disabled(disabled || state.profile(cx).is_none())
-                            .on_click(cx.listener(|view, _, _, cx| view.create_profile(cx))),
+                            .on_click(cx.listener(|view, _, _, cx| view.submit_profile_form(cx))),
                     ),
             )
             .when(!state.manual, |column| {
@@ -87,7 +87,7 @@ impl RootView {
         if let Some(status) = Self::minecraft_feedback(&state.minecraft_status, cx) {
             feedback = feedback.child(status);
         }
-        if let Some(status) = Self::loader_feedback(&state.loader_catalog.status, cx) {
+        if let Some(status) = Self::loader_feedback(&state.loader_catalog, cx) {
             feedback = feedback.child(status);
         }
         feedback.into_any_element()
@@ -117,14 +117,17 @@ impl RootView {
         }
     }
 
-    fn loader_feedback(status: &CatalogStatus, cx: &mut Context<'_, Self>) -> Option<AnyElement> {
-        match status {
-            CatalogStatus::Empty => Some(
+    fn loader_feedback(
+        catalog: &super::LoaderCatalog,
+        cx: &mut Context<'_, Self>,
+    ) -> Option<AnyElement> {
+        match catalog.notice() {
+            Some(LoaderNotice::Empty) => Some(
                 Label::new("This loader has no builds for the selected Minecraft version.")
                     .text_sm()
                     .into_any_element(),
             ),
-            CatalogStatus::Failed(error) => Some(retry_row(
+            Some(LoaderNotice::Failed(error)) => Some(retry_row(
                 "loader-versions-error",
                 format!("Could not load loader versions. {error}"),
                 Button::new("loader-versions-retry")
@@ -167,13 +170,10 @@ impl ProfileCreation {
         }
         Select::new(&self.loader_version)
             .accessibility_label("Loader version")
-            .placeholder(placeholder(
-                &self.loader_catalog.status,
-                "Choose Minecraft first",
-            ))
+            .placeholder(self.loader_catalog.placeholder("Choose Minecraft first"))
             .search_placeholder("Search loader versions")
             .menu_width(rems(17.))
-            .disabled(disabled || !matches!(self.loader_catalog.status, CatalogStatus::Ready))
+            .disabled(disabled || !self.loader_catalog.is_ready())
             .into_any_element()
     }
 }

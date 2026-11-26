@@ -91,7 +91,7 @@ fn an_absent_index_is_fetched_and_written() {
     ))
     .expect("index");
 
-    assert!(index.objects.is_empty());
+    assert_eq!(index, AssetIndexDocument::default());
     let path = temp.0.join("assets/indexes/34.json");
     assert_eq!(fs::read(path).expect("written index"), body);
 }
@@ -160,7 +160,7 @@ fn an_index_already_on_disk_is_not_fetched_again() {
     ))
     .expect("index");
 
-    assert!(index.objects.is_empty());
+    assert_eq!(index, AssetIndexDocument::default());
 }
 
 #[test]
@@ -219,7 +219,7 @@ fn a_version_without_an_index_prepares_nothing_from_assets() {
     ))
     .expect("index");
 
-    assert!(index.objects.is_empty());
+    assert_eq!(index, AssetIndexDocument::default());
 }
 
 #[test]

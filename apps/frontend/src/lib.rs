@@ -21,7 +21,6 @@ use axlauncher_ui::{Bounds, Palette, TitlebarOptions, WindowBounds, WindowOption
 mod file_picker;
 mod installation_progress;
 mod installations;
-mod instance_row;
 mod launches;
 mod modpacks;
 mod panel;

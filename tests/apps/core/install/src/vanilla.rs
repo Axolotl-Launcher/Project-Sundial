@@ -79,11 +79,7 @@ fn installation_retries_a_stale_catalog_and_corrupt_manifest_at_the_official_sou
 fn the_catalog_keeps_official_order_and_historical_categories() {
     let catalog = block_on(versions(&NetworkFixture(MANIFEST_SHA1))).unwrap();
     assert_eq!(catalog.latest_release(), "26.3");
-    let listed: Vec<_> = catalog
-        .versions()
-        .iter()
-        .map(|version| (version.id(), version.manifest_type()))
-        .collect();
+    let listed: Vec<_> = catalog.entries().collect();
     assert_eq!(
         listed,
         [

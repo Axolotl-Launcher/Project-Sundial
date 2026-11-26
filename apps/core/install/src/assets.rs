@@ -33,7 +33,7 @@ const ASSET_OBJECT_BASE: &str = "https://resources.download.minecraft.net";
 /// read rather than guessed from a version number.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct AssetIndexDocument {
-    pub objects: BTreeMap<String, AssetObject>,
+    objects: BTreeMap<String, AssetObject>,
     #[serde(default, rename = "virtual")]
     pub virtual_map: bool,
     #[serde(default)]
@@ -58,15 +58,22 @@ impl AssetIndexDocument {
 
 /// One object in an asset index.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct AssetObject {
-    pub hash: String,
-    pub size: u64,
+struct AssetObject {
+    hash: String,
+    size: u64,
 }
 
 impl AssetIndexDocument {
     /// The document encoded in `bytes`, as Mojang publishes it.
     pub fn parse(bytes: &[u8]) -> Result<Self, serde_json::Error> {
         serde_json::from_slice(bytes)
+    }
+
+    /// Each asset name and the object it maps to.
+    fn objects(&self) -> impl Iterator<Item = (&str, &AssetObject)> {
+        self.objects
+            .iter()
+            .map(|(name, object)| (name.as_str(), object))
     }
 }
 
@@ -204,9 +211,8 @@ pub fn log_config(
 pub fn missing_assets(game_root: &GameDir, index: &AssetIndexDocument) -> Vec<MissingFile> {
     let mut hashes = HashSet::new();
     index
-        .objects
-        .values()
-        .filter_map(|object| {
+        .objects()
+        .filter_map(|(_, object)| {
             let prefix = object.hash.get(..OBJECT_PREFIX_LEN)?;
             let hash = &object.hash;
             if !hashes.insert(hash) {
@@ -271,7 +277,7 @@ fn materialise_flat_at(
 ) -> Vec<String> {
     let mut failures = Vec::new();
 
-    for (name, object) in &index.objects {
+    for (name, object) in index.objects() {
         let Some(source) = game_root.asset_object(&object.hash) else {
             continue;
         };
@@ -296,7 +302,7 @@ pub(crate) fn missing_flat_asset(
     index: &AssetIndexDocument,
 ) -> Option<PathBuf> {
     let root = index.flat_root(game_root, index_id)?;
-    index.objects.iter().find_map(|(name, object)| {
+    index.objects().find_map(|(name, object)| {
         let path = root.join(name.replace('/', std::path::MAIN_SEPARATOR_STR));
         needs_download(&path, Some(object.size)).then_some(path)
     })

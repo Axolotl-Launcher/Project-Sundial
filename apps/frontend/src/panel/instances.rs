@@ -14,9 +14,11 @@ use axlauncher_ui::{
     v_flex,
 };
 
-use crate::instance_row;
+use super::{RootView, java::InstancePicker};
 
-use super::{RootView, java::InstancePicker, launch};
+mod actions;
+mod instance_row;
+pub(super) mod launch;
 
 pub(super) struct InstancesState {
     discovered: ProfileDiscovery,
@@ -99,7 +101,7 @@ impl RootView {
             return;
         }
         self.instances.selected = Some(directory);
-        self.inspection = launch::Inspection::default();
+        self.invalidate_inspection();
         cx.notify();
     }
 

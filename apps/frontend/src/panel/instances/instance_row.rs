@@ -14,10 +14,10 @@ use axlauncher_ui::{
     div,
 };
 
-use crate::RootView;
 use crate::installations::Installation;
 use crate::launches::Launch;
 
+use super::super::RootView;
 /// What one row's buttons need to know about its profile.
 struct ActionState<'a> {
     directory: PathBuf,

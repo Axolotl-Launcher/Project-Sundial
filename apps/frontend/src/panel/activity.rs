@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, AnyElement, Button, ButtonVariants, Context, ElementId, GroupBox, IntoElement,
-    Label, ScrollableElement, div, h_flex, px, v_flex,
+    ActiveTheme, AnyElement, App, Button, ButtonVariants, Context, Div, ElementId, GroupBox,
+    IntoElement, Label, ScrollableElement, div, h_flex, px, v_flex,
 };
 
 use super::RootView;
@@ -60,20 +60,16 @@ impl ActivityLog {
         self.entries.truncate(MAX_ENTRIES);
     }
 
-    pub(super) fn clear(&mut self) {
+    fn clear(&mut self) {
         self.entries.clear();
     }
-}
 
-impl RootView {
-    pub(super) fn render_activity(&mut self, cx: &mut Context<'_, Self>) -> AnyElement {
+    fn rows(&self, cx: &App) -> Vec<Div> {
         let muted = cx.theme().muted_foreground;
         let success = cx.theme().success;
         let danger = cx.theme().danger;
 
-        let rows = self
-            .activity
-            .entries
+        self.entries
             .iter()
             .enumerate()
             .map(|(index, entry)| {
@@ -97,8 +93,14 @@ impl RootView {
                             .text_color(color),
                     )
             })
-            .collect::<Vec<_>>();
+            .collect()
+    }
+}
 
+impl RootView {
+    pub(super) fn render_activity(&self, cx: &Context<'_, Self>) -> AnyElement {
+        let muted = cx.theme().muted_foreground;
+        let rows = self.activity.rows(cx);
         GroupBox::new()
             .id("activity")
             .title(Label::new("Activity").text_sm().text_color(muted))
@@ -120,8 +122,8 @@ impl RootView {
                             Button::new("activity-clear")
                                 .label("Clear")
                                 .ghost()
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.activity.clear();
+                                .on_click(cx.listener(|view, _, _, cx| {
+                                    view.activity.clear();
                                     cx.notify();
                                 })),
                         ),

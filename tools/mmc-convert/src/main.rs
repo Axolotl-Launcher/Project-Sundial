@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use axlauncher_core::install::{loader, prepare};
-use axlauncher_core::launch::{Target, version};
+use axlauncher_core::launch::{Target, chain, version};
 use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::state::profile::{Game, Profile, StagedProfile};
 use axlauncher_core::storage::{AtomicFile, DataDir, GameDir, write_atomic};
@@ -65,7 +65,7 @@ async fn convert(input: &Path, data: &DataDir) -> Result<PathBuf> {
     let target = Target::host();
     let network = ReqwestNetwork::desktop()?;
     let base_id = base::prepare(&network, data, &game_root, &requirements, &target).await?;
-    let mut effective = version::load_resolved(&game_root.versions(), &base_id)?;
+    let mut effective = chain::load_resolved(&game_root.versions(), &base_id)?;
     let mut game = Game::new(requirements.minecraft()).with_isolated_runtime();
     if let Some((kind, build)) = requirements.loader() {
         game = game.with_loader(kind.as_str(), Some(build.into()));

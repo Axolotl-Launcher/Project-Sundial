@@ -7,18 +7,18 @@ use std::path::Path;
 
 use axlauncher_core::desktop::{
     installation::{InstallTarget, install_key},
-    launching::Player,
+    launching::{LaunchFailure, Player},
     sources::DownloadOptions,
 };
 use axlauncher_core::install::prepare::Progress;
-use axlauncher_core::state::profile::{self, Game};
+use axlauncher_core::state::profile::Game;
 use axlauncher_core::storage::DataDir;
-use axlauncher_ui::Context;
+use axlauncher_ui::{AsyncApp, Context, WeakEntity};
 
 use crate::installations::{self, Installation};
 use crate::launches::{self, Launch};
 
-use super::RootView;
+use super::super::RootView;
 
 impl RootView {
     /// A vanilla profile installs its Minecraft version; a loader profile
@@ -61,7 +61,50 @@ impl RootView {
         );
         self.monitor_downloads(cx);
 
-        installations::start(paths, directory.to_path_buf(), target, options, cx);
+        let job = installations::start(paths, directory.to_path_buf(), target, options, cx);
+        cx.spawn(async move |view, cx| {
+            let _ = Self::watch_installation(job, view, cx).await;
+        })
+        .detach();
+    }
+
+    /// Follows a started install until it settles, reporting as the row expects.
+    async fn watch_installation(
+        job: installations::InstallationJob,
+        view: WeakEntity<Self>,
+        cx: &mut AsyncApp,
+    ) -> Option<()> {
+        let installations::InstallationJob {
+            key,
+            directory,
+            is_loader,
+            paths,
+            game_root,
+            mut updates,
+            task,
+        } = job;
+        while updates.changed().await.is_ok() {
+            let progress = *updates.borrow_and_update();
+            Self::show_installation_progress(&view, &game_root, &key, progress, cx)?;
+        }
+        let outcome = task.await;
+        view.update(cx, |view, cx| {
+            view.finish_installation(&paths, &directory, &key, is_loader, outcome, cx)
+        })
+        .ok()
+    }
+
+    fn show_installation_progress(
+        view: &WeakEntity<Self>,
+        game_root: &Path,
+        key: &str,
+        progress: Progress,
+        cx: &mut AsyncApp,
+    ) -> Option<()> {
+        view.update(cx, |view, cx| {
+            view.set_installation(game_root, key, Installation::Running(progress), cx)
+        })
+        .ok()
     }
 
     /// Whether this profile already has an install the button must not repeat.
@@ -100,7 +143,7 @@ impl RootView {
                 .instances
                 .refresh_after_install(self.paths.as_ref(), paths)
         {
-            self.inspection = super::launch::Inspection::default();
+            self.invalidate_inspection();
         }
         self.set_installation(paths.game().root(), key, installation, cx);
         self.refresh_java_after_install(paths, cx);
@@ -178,7 +221,53 @@ impl RootView {
         };
         self.set_launch(directory, job.version_id(), Launch::Starting, cx);
         let options = DownloadOptions::from_settings(self.settings.as_ref());
-        launches::start(job, player, options, cx);
+        let launch = launches::start(job, player, options, cx);
+        cx.spawn(async move |view, cx| Self::watch_launch(launch, view, cx).await)
+            .detach();
+    }
+
+    /// Follows a started launch until it settles, reporting as the row expects.
+    async fn watch_launch(launch: launches::LaunchTask, view: WeakEntity<Self>, cx: &mut AsyncApp) {
+        let launches::LaunchTask {
+            game_root,
+            directory,
+            version,
+            mut started,
+            account,
+            task,
+        } = launch;
+        if let Ok(service) = account.await {
+            let _ = view.update(cx, |view, cx| view.sync_launch_accounts(&service, cx));
+        }
+        let show_running = |view: &mut Self, cx: &mut Context<'_, Self>| {
+            view.set_launch(&directory, &version, Launch::Running, cx);
+        };
+        if started.changed().await.is_ok() {
+            let _ = view.update(cx, show_running);
+        }
+        let outcome = task.await;
+        let _ = view.update(cx, |view, cx| {
+            view.finish_launch(&game_root, &directory, &version, outcome, cx)
+        });
+    }
+
+    fn finish_launch(
+        &mut self,
+        root: &Path,
+        directory: &Path,
+        version: &str,
+        outcome: Result<(), LaunchFailure>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let launch = match outcome {
+            Ok(()) => Launch::Exited,
+            Err(LaunchFailure::NeedsInstall(reason)) => {
+                self.clear_completed_installation(root, directory);
+                Launch::NeedsInstall(reason)
+            }
+            Err(LaunchFailure::Failed(reason)) => Launch::Failed(reason),
+        };
+        self.set_launch(directory, version, launch, cx);
     }
 
     pub(crate) fn set_launch(
@@ -215,29 +304,5 @@ impl RootView {
         {
             states.remove(&key);
         }
-    }
-}
-
-impl RootView {
-    /// A profile from the desktop form, selected once its marker is on disk.
-    pub(crate) fn create_profile(&mut self, cx: &mut Context<'_, Self>) {
-        let Some(paths) = self.paths.as_ref() else {
-            return;
-        };
-        let Some((name, game)) = self.profile_creation.profile(cx) else {
-            return;
-        };
-
-        let instances = paths.instances();
-        match profile::create(&instances, &name, game) {
-            Ok(directory) => {
-                self.activity
-                    .success(format!("Created {name} at {}", directory.display()));
-                self.instances.replace(profile::discover(&instances), true);
-                self.instances.select(&directory);
-            }
-            Err(error) => self.activity.error(error.to_string()),
-        }
-        cx.notify();
     }
 }

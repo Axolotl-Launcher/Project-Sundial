@@ -17,13 +17,11 @@ use crate::modpacks::{ImportEvent, ModpackImport};
 use crate::{Loaded, Startup, load_at, palette_for};
 
 pub(crate) mod accounts;
-mod actions;
 mod activity;
 mod download_debug;
 mod environment;
 mod instances;
 mod java;
-mod launch;
 mod profile_creation;
 mod shell;
 
@@ -45,7 +43,7 @@ pub(crate) struct RootView {
     java: Entity<java::JavaPanel>,
     modpack: Entity<ModpackImport>,
     download_debug: download_debug::DownloadDebug,
-    inspection: launch::Inspection,
+    inspection: instances::launch::Inspection,
     installations: HashMap<PathBuf, HashMap<String, Installation>>,
     launches: HashMap<PathBuf, (String, Launch)>,
     environment: environment::EnvironmentState,
@@ -100,7 +98,7 @@ impl RootView {
             java,
             modpack,
             download_debug,
-            inspection: launch::Inspection::default(),
+            inspection: instances::launch::Inspection::default(),
             installations: HashMap::new(),
             launches: HashMap::new(),
             environment,
@@ -152,7 +150,7 @@ impl RootView {
                     .as_deref()
                     .is_none_or(|owner| Some(owner) == selected) =>
             {
-                self.inspection = launch::Inspection::default();
+                self.invalidate_inspection();
             }
             java::JavaEvent::SelectionChanged(_) => return,
         }
@@ -176,7 +174,7 @@ impl RootView {
         cx: &mut Context<'_, Self>,
     ) {
         if matches!(event, InputEvent::Change) {
-            self.inspection = launch::Inspection::default();
+            self.invalidate_inspection();
             cx.notify();
         }
     }
@@ -189,6 +187,34 @@ impl RootView {
         } else {
             name.to_owned()
         }
+    }
+
+    /// Drops the diagnostics preview, because what it described has changed.
+    fn invalidate_inspection(&mut self) {
+        self.inspection = instances::launch::Inspection::default();
+    }
+
+    /// The profile the creation form describes, once its marker is on disk.
+    pub(super) fn submit_profile_form(&mut self, cx: &mut Context<'_, Self>) {
+        let Some(paths) = self.paths.as_ref() else {
+            return;
+        };
+        let Some((name, game)) = self.profile_creation.profile(cx) else {
+            return;
+        };
+
+        let instances = paths.instances();
+        match axlauncher_core::state::profile::create(&instances, &name, game) {
+            Ok(directory) => {
+                self.activity
+                    .success(format!("Created {name} at {}", directory.display()));
+                self.instances
+                    .replace(axlauncher_core::state::profile::discover(&instances), true);
+                self.instances.select(&directory);
+            }
+            Err(error) => self.activity.error(error.to_string()),
+        }
+        cx.notify();
     }
 
     pub(super) fn reload(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
@@ -236,7 +262,7 @@ impl RootView {
         self.environment
             .set_game_language(game_language, window, cx);
         self.instances.replace(loaded.profiles, same_instances);
-        self.inspection = launch::Inspection::default();
+        self.invalidate_inspection();
 
         let root_text = self
             .paths
