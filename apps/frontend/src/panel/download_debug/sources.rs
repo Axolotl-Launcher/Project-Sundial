@@ -8,8 +8,8 @@ use axlauncher_core::state::{
 };
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, AnyElement, Context, Disableable, Entity, IndexPath, IntoElement, Label, Select,
-    SelectEvent, SelectItem, SelectState, SharedString, Switch, Window, h_flex, v_flex,
+    ActiveTheme, AnyElement, Context, Disableable, Entity, GroupBox, IndexPath, IntoElement, Label,
+    Select, SelectEvent, SelectItem, SelectState, SharedString, Switch, Window, h_flex, v_flex,
 };
 
 use super::RootView;
@@ -200,43 +200,55 @@ impl RootView {
         cx.notify();
     }
 
-    pub(super) fn render_download_sources(&self, cx: &mut Context<'_, Self>) -> AnyElement {
+    pub(in crate::panel) fn render_service_sources(
+        &self,
+        cx: &mut Context<'_, Self>,
+    ) -> AnyElement {
         let sources = &self.download_debug.sources;
         let disabled = self.settings_readonly();
-        v_flex()
-            .gap_1()
-            .child(
-                h_flex()
-                    .flex_wrap()
-                    .gap_4()
-                    .child(source_select(
-                        "Minecraft metadata source",
-                        "download-metadata-source",
-                        &sources.metadata,
-                        disabled,
-                    ))
-                    .child(source_select(
-                        "Minecraft file source",
-                        "download-file-source",
-                        &sources.files,
-                        disabled,
-                    ))
-                    .child(source_select(
-                        "Maven Central source",
-                        "maven-central-source",
-                        &sources.maven_central,
-                        disabled,
-                    )),
+        GroupBox::new()
+            .id("service-sources")
+            .title(
+                Label::new("Service sources")
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground),
             )
-            .child(self.render_fallen_proxy(cx, disabled))
-            .when_some(sources.error.clone(), |column, error| {
-                column.child(
-                    Label::new(error)
-                        .id("download-source-error")
-                        .text_xs()
-                        .text_color(cx.theme().danger),
-                )
-            })
+            .child(
+                v_flex()
+                    .gap_1()
+                    .child(
+                        h_flex()
+                            .flex_wrap()
+                            .gap_4()
+                            .child(source_select(
+                                "Minecraft metadata source",
+                                "download-metadata-source",
+                                &sources.metadata,
+                                disabled,
+                            ))
+                            .child(source_select(
+                                "Minecraft file source",
+                                "download-file-source",
+                                &sources.files,
+                                disabled,
+                            ))
+                            .child(source_select(
+                                "Maven Central source",
+                                "maven-central-source",
+                                &sources.maven_central,
+                                disabled,
+                            )),
+                    )
+                    .child(self.render_fallen_proxy(cx, disabled))
+                    .when_some(sources.error.clone(), |column, error| {
+                        column.child(
+                            Label::new(error)
+                                .id("download-source-error")
+                                .text_xs()
+                                .text_color(cx.theme().danger),
+                        )
+                    }),
+            )
             .into_any_element()
     }
 

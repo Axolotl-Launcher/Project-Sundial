@@ -64,17 +64,21 @@ impl EnvironmentState {
 
 fn path_row(index: usize, label: &str, path: &std::path::Path, muted: Hsla) -> AnyElement {
     h_flex()
-        .justify_between()
+        .items_start()
         .gap_4()
         .child(
             Label::new(label)
                 .id(ElementId::named_usize("environment-label", index))
+                .w_32()
+                .flex_shrink_0()
                 .text_xs()
                 .text_color(muted),
         )
         .child(
             Label::new(path.display().to_string())
                 .id(ElementId::named_usize("environment-value", index))
+                .flex_1()
+                .min_w_0()
                 .text_xs()
                 .text_color(muted),
         )
@@ -150,6 +154,7 @@ impl RootView {
                 Input::new(&self.root_input)
                     .id("environment-root-input")
                     .aria_label("Data directory")
+                    .min_w_0()
                     .flex_1(),
             )
             .child(
@@ -191,12 +196,11 @@ impl RootView {
         read_only: bool,
         save_disabled: bool,
     ) -> AnyElement {
-        h_flex()
-            .gap_4()
-            .flex_wrap()
-            .items_end()
+        v_flex()
+            .gap_3()
             .child(
                 Switch::new("theme-switch")
+                    .self_start()
                     .checked(self.theme == ThemeChoice::Light)
                     .label("Light theme")
                     .on_change(cx.listener(|this, light, _window, cx| {
@@ -204,24 +208,30 @@ impl RootView {
                     })),
             )
             .child(
-                v_flex()
-                    .gap_1()
-                    .w_48()
-                    .child(Label::new("Default game language").text_sm())
+                h_flex()
+                    .gap_3()
+                    .flex_wrap()
+                    .items_end()
                     .child(
-                        Input::new(&self.environment.game_language)
-                            .id("default-game-language")
-                            .aria_label("Default game language for new instances")
-                            .disabled(read_only),
+                        v_flex()
+                            .gap_1()
+                            .w_48()
+                            .child(Label::new("Default game language").text_sm())
+                            .child(
+                                Input::new(&self.environment.game_language)
+                                    .id("default-game-language")
+                                    .aria_label("Default game language for new instances")
+                                    .disabled(read_only),
+                            ),
+                    )
+                    .child(
+                        Button::new("settings-save")
+                            .label("Save settings")
+                            .disabled(save_disabled)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.save_settings(window, cx);
+                            })),
                     ),
-            )
-            .child(
-                Button::new("settings-save")
-                    .label("Save settings")
-                    .disabled(save_disabled)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.save_settings(window, cx);
-                    })),
             )
             .into_any_element()
     }

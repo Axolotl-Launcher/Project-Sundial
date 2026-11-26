@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Axolotl Launcher frontend: the development panel and its window wiring.
+//! Axolotl Launcher desktop views and window wiring.
 //!
 //! This crate owns the root view platform shells open, and is the only crate
 //! that combines `axlauncher_core` with `axlauncher_ui`. State lives here in
@@ -11,11 +11,12 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::thread::JoinHandle;
 
+use axlauncher_core::BRAND_NAME;
 use axlauncher_core::state::profile::{ProfileDiscovery, discover};
 use axlauncher_core::state::{SettingsData, SettingsOrigin, ThemeChoice, load_settings};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
-use axlauncher_ui::{Bounds, Palette, WindowBounds, WindowOptions, kit, px, size};
+use axlauncher_ui::{Bounds, Palette, TitlebarOptions, WindowBounds, WindowOptions, kit, px, size};
 
 mod file_picker;
 mod installation_progress;
@@ -31,6 +32,7 @@ const WINDOW_WIDTH: f32 = 1080.;
 const WINDOW_HEIGHT: f32 = 820.;
 const WINDOW_MIN_WIDTH: f32 = 720.;
 const WINDOW_MIN_HEIGHT: f32 = 560.;
+const APP_ID: &str = "com.axolotl.axlauncher";
 
 /// What the panel reads once at startup and again on every reload.
 pub(crate) struct Loaded {
@@ -120,6 +122,13 @@ fn open_main_window(cx: &mut kit::App, startup: Startup) {
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(WINDOW_MIN_WIDTH), px(WINDOW_MIN_HEIGHT))),
+            titlebar: Some(TitlebarOptions {
+                title: Some(BRAND_NAME.into()),
+                ..Default::default()
+            }),
+            app_id: Some(APP_ID.to_owned()),
+            #[cfg(target_os = "linux")]
+            icon: Some(axlauncher_ui::application_icon()),
             ..Default::default()
         },
         cx,

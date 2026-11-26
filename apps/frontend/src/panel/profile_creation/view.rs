@@ -74,6 +74,7 @@ impl RootView {
             "Enter versions manually"
         };
         Button::new("new-profile-version-mode")
+            .self_start()
             .label(label)
             .ghost()
             .disabled(disabled)

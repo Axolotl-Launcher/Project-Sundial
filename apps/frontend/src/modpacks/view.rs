@@ -41,6 +41,7 @@ impl EventEmitter<ImportEvent> for ModpackImport {}
 const OPTIONAL_PAGE_SIZE: usize = 10;
 
 pub(crate) struct ModpackImport {
+    focus_scope: FocusHandle,
     trigger: FocusHandle,
     preview_focus: FocusHandle,
     state: State,
@@ -81,6 +82,7 @@ impl Preview {
 impl ModpackImport {
     pub(crate) fn new(cx: &mut Context<'_, Self>) -> Self {
         Self {
+            focus_scope: cx.focus_handle(),
             trigger: cx.focus_handle(),
             preview_focus: cx.focus_handle(),
             state: State::Idle,
@@ -96,6 +98,7 @@ impl Render for ModpackImport {
         let state = &self.state;
         let danger = cx.theme().danger;
         v_flex()
+            .track_focus(&self.focus_scope)
             .gap_2()
             .child(
                 h_flex().child(
@@ -357,7 +360,9 @@ impl ModpackImport {
         } else {
             &self.trigger
         };
-        focus.focus(window, cx);
+        if self.focus_scope.contains_focused(window, cx) {
+            focus.focus(window, cx);
+        }
         cx.notify();
     }
     pub(crate) fn set_enabled(&mut self, enabled: bool, cx: &mut Context<'_, Self>) {

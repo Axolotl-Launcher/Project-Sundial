@@ -13,5 +13,8 @@ license.workspace = true
 [dependencies]
 gpui-kit = { workspace = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+image = { workspace = true }
+
 [lints]
 workspace = true

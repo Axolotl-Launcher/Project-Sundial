@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 Axolotl Team
+# SPDX-License-Identifier: GPL-3.0-only
+
+[Desktop Entry]
+Type=Application
+Name=Axolotl Launcher
+Exec=axlauncher
+Icon=axolotl-launcher
+Terminal=false
+Categories=Game;

@@ -266,7 +266,6 @@ impl RootView {
                                 .text_sm(),
                             ),
                     )
-                    .child(self.render_download_sources(cx))
                     .child(self.render_download_probe(cx))
                     .when_some(state.status.message(), |column, message| {
                         column.child(Label::new(message).text_sm().text_color(status_color))

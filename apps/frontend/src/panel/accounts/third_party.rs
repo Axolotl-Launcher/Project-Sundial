@@ -39,6 +39,7 @@ pub(super) struct Form {
     url: Entity<InputState>,
     username: Entity<InputState>,
     password: Entity<InputState>,
+    focus_scope: FocusHandle,
     trigger: FocusHandle,
     open: bool,
     request: Option<Attempt>,
@@ -60,6 +61,7 @@ impl Form {
             url,
             username,
             password,
+            focus_scope: cx.focus_handle(),
             trigger: cx.focus_handle(),
             open: false,
             request: None,
@@ -108,6 +110,7 @@ impl Form {
             None => self.render_fields(cx),
         };
         v_flex()
+            .track_focus(&self.focus_scope)
             .gap_2()
             .child(fields)
             .when(self.is_working(), |column| {
@@ -188,6 +191,16 @@ impl Form {
         self.password
             .update(cx, |input, cx| input.set_value("", window, cx));
     }
+
+    fn retain_focus_when_replacing_fields(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<'_, RootView>,
+    ) {
+        if self.focus_scope.contains_focused(window, cx) {
+            self.focus_scope.focus(window, cx);
+        }
+    }
 }
 
 fn profile_button(profile: Profile, disabled: bool, cx: &Context<'_, RootView>) -> Button {
@@ -237,7 +250,9 @@ impl RootView {
             service.discard_choice(choice.id);
         }
         form.reset(window, cx);
-        form.trigger.focus(window, cx);
+        if form.focus_scope.contains_focused(window, cx) {
+            form.trigger.focus(window, cx);
+        }
         self.accounts.error = None;
         cx.notify();
     }
@@ -292,9 +307,11 @@ impl RootView {
         if self.accounts.is_busy() {
             return;
         }
-        let Some(choice) = self.accounts.third_party.choice.take() else {
+        let form = &mut self.accounts.third_party;
+        let Some(choice) = form.choice.take() else {
             return;
         };
+        form.retain_focus_when_replacing_fields(window, cx);
         self.run_third_party(
             Request::Choose {
                 choice: choice.id,
@@ -342,9 +359,13 @@ impl RootView {
         if !self.accounts.is_current(service) {
             return;
         }
-        self.accounts.third_party.request = None;
+        let form = &mut self.accounts.third_party;
+        form.request = None;
         match result {
-            Ok(Outcome::Profiles(choice)) => self.accounts.third_party.choice = Some(choice),
+            Ok(Outcome::Profiles(choice)) => {
+                form.retain_focus_when_replacing_fields(window, cx);
+                form.choice = Some(choice);
+            }
             Ok(Outcome::Cancelled) => self.close_third_party(window, cx),
             Ok(Outcome::Saved(snapshot)) => {
                 self.close_third_party(window, cx);

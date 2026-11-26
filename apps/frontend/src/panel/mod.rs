@@ -1,20 +1,15 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! The development panel: one scrollable page for manual verification.
+//! The desktop workspace and state shared across its pages.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use axlauncher_core::BRAND_NAME;
 use axlauncher_core::state::{SettingsData, SettingsOrigin, ThemeChoice};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
-use axlauncher_ui::{
-    ActiveTheme, AnyElement, Button, ButtonVariants, Context, Disableable, Entity, InputEvent,
-    InputState, IntoElement, Label, Render, ScrollableElement, StyledExt, Window, div, h_flex,
-    v_flex,
-};
+use axlauncher_ui::{Context, Entity, InputEvent, InputState, Window};
 
 use crate::installations::Installation;
 use crate::launches::Launch;
@@ -30,10 +25,13 @@ mod instances;
 mod java;
 mod launch;
 mod profile_creation;
+mod shell;
 
 const DEFAULT_PLAYER: &str = "Player";
 
 pub(crate) struct RootView {
+    page: shell::Page,
+    sidebar_collapsed: bool,
     paths: Option<DataDir>,
     notice: Option<String>,
     settings: Option<SettingsData>,
@@ -87,6 +85,8 @@ impl RootView {
         let environment = environment::EnvironmentState::new(game_language, window, cx);
         let java = Self::new_java_panel(loaded.paths.clone(), cx);
         let mut view = Self {
+            page: shell::Page::Home,
+            sidebar_collapsed: false,
             paths: loaded.paths,
             notice: loaded.notice,
             settings: loaded.settings,
@@ -319,66 +319,5 @@ impl RootView {
 
     fn fallen_proxy(&self) -> Option<axlauncher_core::spi::ServiceHost> {
         axlauncher_core::desktop::sources::fallen_proxy(self.settings.as_ref())
-    }
-
-    fn render_header(&mut self, cx: &mut Context<'_, Self>) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
-        let disabled = self.paths.is_none();
-
-        v_flex()
-            .gap_2()
-            .child(
-                h_flex()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .gap_3()
-                            .child(Label::new(BRAND_NAME).text_xl())
-                            .child(Label::new("Development").text_sm().text_color(muted)),
-                    )
-                    .child(
-                        Button::new("reload-all")
-                            .label("Reload")
-                            .ghost()
-                            .disabled(disabled)
-                            .on_click(cx.listener(|this, _, window, cx| this.reload(window, cx))),
-                    ),
-            )
-            .when_some(self.notice.clone(), |header, notice| {
-                header.child(Label::new(notice).text_xs().text_color(muted))
-            })
-            .into_any_element()
-    }
-}
-
-impl Render for RootView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
-        let background = cx.theme().background;
-
-        div()
-            .v_flex()
-            .size_full()
-            .bg(background)
-            .p_6()
-            .gap_4()
-            .child(self.render_header(cx))
-            .child(
-                div()
-                    .id("panel-scroll")
-                    .v_flex()
-                    .flex_1()
-                    .min_h_0()
-                    .gap_5()
-                    .overflow_y_scrollbar()
-                    .child(self.render_accounts(cx))
-                    .child(self.render_instances(cx))
-                    .child(self.java.clone())
-                    .child(self.render_download_debug(cx))
-                    .child(self.render_launch(cx))
-                    .child(self.render_environment(cx))
-                    .child(self.render_activity(cx)),
-            )
     }
 }
