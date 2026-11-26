@@ -12,6 +12,7 @@ use axlauncher_storage::runtime_record;
 
 use crate::platform::{executable_in_home, java_bin, managed_executable, managed_home, search_all};
 
+mod application;
 mod discovery;
 mod release;
 mod runtime;
@@ -104,11 +105,7 @@ impl SystemJava {
     }
 
     /// Resolves the saved choice or the newest available runtime for a major.
-    pub fn default_for<'a>(
-        &self,
-        major: u32,
-        runtimes: &'a [JavaRuntime],
-    ) -> Option<&'a JavaRuntime> {
+    fn default_for<'a>(&self, major: u32, runtimes: &'a [JavaRuntime]) -> Option<&'a JavaRuntime> {
         let pinned = self.pinned(major).and_then(|chosen| {
             runtimes
                 .iter()

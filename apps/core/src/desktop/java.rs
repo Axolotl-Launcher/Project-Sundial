@@ -197,18 +197,12 @@ fn register(inspector: &SystemJava, saved: &mut Javas, found: &[JavaRuntime]) {
         saved.add(runtime.path().to_owned(), runtime.major());
     }
     for &major in new_majors.difference(&existing) {
-        decide_preferred(inspector, saved, major, found);
+        decide_preferred(saved, major, found);
     }
 }
 
-fn decide_preferred(
-    inspector: &SystemJava,
-    saved: &mut Javas,
-    major: u32,
-    candidates: &[JavaRuntime],
-) {
-    let selected = inspector
-        .default_for(major, candidates)
+fn decide_preferred(saved: &mut Javas, major: u32, candidates: &[JavaRuntime]) {
+    let selected = JavaRuntime::preferred_candidate(major, candidates)
         .map(|runtime| runtime.path().to_owned());
     saved.set_preferred(major, selected);
 }
@@ -234,7 +228,7 @@ pub fn remove(data: &DataDir, path: &Path) -> Result<bool, JavaCatalogError> {
         if let Some(major) = affected {
             let inspector = inspector(data);
             let remaining = inspect_registered(&inspector, saved);
-            decide_preferred(&inspector, saved, major, &remaining);
+            decide_preferred(saved, major, &remaining);
         }
         true
     })?)

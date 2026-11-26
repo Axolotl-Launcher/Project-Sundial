@@ -16,6 +16,11 @@ const EXCEPTIONS: &[(&str, &str, &[&str])] = &[
         "read_release",
         &["release"],
     ),
+    (
+        "apps/core/launch/src/java/application.rs",
+        "matches_runtime",
+        &["product-info.json", "Resources/product-info.json"],
+    ),
     ("apps/core/launch/src/platform.rs", "java_bin", &["bin"]),
     (
         "apps/core/launch/src/platform.rs",

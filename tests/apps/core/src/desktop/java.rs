@@ -296,3 +296,42 @@ fn an_unavailable_registration_still_counts_toward_its_major() {
         Some(added.path())
     );
 }
+
+#[test]
+fn bundled_java_is_a_fallback_for_new_preferences_and_can_be_pinned() {
+    let root = tempfile::tempdir().unwrap();
+    let data = DataDir::isolated(root.path()).unwrap();
+    let product = root.path().join("IDE");
+    let bundled_home = product.join("jbr");
+    let bundled = test_runtime(&bundled_home, 25);
+    let standalone = test_runtime(&root.path().join("standalone"), 25);
+    std::fs::write(
+        bundled_home.join("release"),
+        "JAVA_VERSION=\"25.0.9\"\nOS_ARCH=\"fixture\"\n",
+    )
+    .unwrap();
+    let executable = bundled.file_name().unwrap().to_str().unwrap();
+    std::fs::write(
+        product.join("product-info.json"),
+        format!(r#"{{"launch":[{{"javaExecutablePath":"jbr/bin/{executable}"}}]}}"#),
+    )
+    .unwrap();
+    let [bundled, standalone] =
+        [bundled, standalone].map(|path| JavaRuntime::inspect(&path).unwrap());
+    let catalog = discover_with(&data, true, || vec![bundled.clone(), standalone.clone()]).unwrap();
+    assert_eq!(catalog.preferred().next(), Some((25, standalone.path())));
+
+    set_preferred(&data, 25, bundled.path()).unwrap();
+    assert_eq!(
+        managed(&data)
+            .executable_for(25, JavaMode::Console)
+            .as_deref(),
+        Some(bundled.path())
+    );
+    set_preferred(&data, 25, standalone.path()).unwrap();
+    assert!(remove(&data, standalone.path()).unwrap());
+    assert_eq!(
+        list(&data).unwrap().preferred().next(),
+        Some((25, bundled.path()))
+    );
+}

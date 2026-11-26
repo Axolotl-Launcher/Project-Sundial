@@ -48,9 +48,11 @@ asynchronously for the per-runtime writer lock and withdraw a damaged runtime's
 record before repairing it.
 
 Adding the first runtimes for a major or removing its preferred entry selects
-and saves a preference. The selection favors host architecture, then the newest
-available release and build. Launch can fall back to another available listed
-runtime without changing the saved preference.
+and saves a preference. The selection favors host architecture, then standalone
+or launcher-managed runtimes over runtimes declared by an enclosing application's
+`product-info.json`. It compares releases and builds within each priority group.
+Launch can fall back to another available listed runtime without changing the
+saved preference.
 
 On Windows, exploratory discovery follows PCL-CE's bounded breadth-first
 search from fixed drives, Program Files and user directories. Registry and
