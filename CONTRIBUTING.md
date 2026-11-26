@@ -73,11 +73,13 @@ backs `packages.axlauncher` and the AppImage, `legacy` links against glibc 2.35
 and replaces the store interpreter and rpath for native packages. The
 `legacy-elf` check fails when that ELF references the store or needs glibc newer
 than 2.35 (Ubuntu 22.04). Only `newest` and the wrapper are pushed to the cache;
-`legacy` exists for CI packaging.
+`legacy` exists for CI packaging. `packages.axlauncher-portable` bundles
+`newest` with the loader, the libraries it links and the keymap data, which is
+what an AppImage or a tarball ships.
 
-Builds of `main` are pushed to the public `axlmc` cache, so `nix run` downloads
-instead of compiling. A user who trusts flake configuration gets the substituter
-from `flake.nix`; otherwise pass the settings explicitly:
+A release pushes the wrapper and `newest` to the public `axlmc` cache, so
+`nix run` downloads instead of compiling. A user who trusts flake configuration
+gets the substituter from `flake.nix`; otherwise pass the settings explicitly:
 
 ```bash
 nix run --extra-substituters https://axlmc.cachix.org \

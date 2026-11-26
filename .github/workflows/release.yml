@@ -1,0 +1,117 @@
+# SPDX-FileCopyrightText: 2026 Axolotl Team
+# SPDX-License-Identifier: GPL-3.0-only
+
+# Publishes the two Linux binaries on a tag. Both jobs run in parallel and only
+# the follow-up job touches the artifacts.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # nix users: the wrapper and the gzip-style tree that an AppImage ships.
+  newest:
+    name: Newest binary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out workspace
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877 # v32.1.0
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+
+      - name: Set up the binary cache
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: axlmc
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: true
+
+      - name: Build and publish
+        run: |
+          nix build --print-out-paths .#axlauncher .#axlauncher-newest |
+            cachix push axlmc
+
+      - name: Build the portable tree
+        run: nix build --out-link portable .#axlauncher-portable
+
+      - name: Archive the portable tree
+        run: |
+          tar --zstd -cf axlauncher-portable-linux-x86_64.tar.zst -C portable .
+
+      - name: Upload the portable tree
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: axlauncher-portable-linux-x86_64
+          path: axlauncher-portable-linux-x86_64.tar.zst
+
+  # Traditional distributions: a native ELF linked against glibc 2.35.
+  legacy:
+    name: Legacy binary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out workspace
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877 # v32.1.0
+
+      - name: Build
+        run: nix build --out-link legacy .#axlauncher-legacy
+
+      - name: Collect the packaging input
+        # TODO: deb, rpm and tarball packaging goes here; the ELF and the layout
+        # contract are what a packager needs.
+        run: |
+          mkdir -p dist/bin
+          cp legacy/bin/axlauncher dist/bin/
+          printf 'TODO: deb and rpm packaging are not implemented yet.\n' > dist/README
+
+      - name: Upload the packaging input
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: axlauncher-linux-x86_64
+          path: dist/
+
+  # Follow-up: one place for checksums and the release entry.
+  publish:
+    name: Publish
+    needs: [newest, legacy]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download the artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: Checksum the artifacts
+        run: |
+          cd out
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload the release files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-files
+          path: out/

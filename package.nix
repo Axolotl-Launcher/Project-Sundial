@@ -25,6 +25,8 @@ let
     fileset = lib.fileset.unions [
       ./Cargo.lock
       ./.cargo/config.toml
+      # apps/ui embeds the window icon with include_bytes!.
+      ./packaging/icons
       (lib.fileset.fileFilter (file: file.name == "Cargo.toml") ./.)
       (lib.fileset.fileFilter (file: file.hasExt "rs") ./.)
     ];
@@ -208,11 +210,73 @@ let
     '';
   };
 
+  # Self-contained tree for distributions that have no nix: the binary plus the
+  # loader, the libraries it links and the keymap data libxkbcommon reads.
+  # Fonts, drivers and D-Bus stay on the host.
+  portable =
+    pkgs.runCommand "axlauncher-portable-${version}"
+      {
+        nativeBuildInputs = [
+          pkgs.binutils
+          pkgs.patchelf
+        ];
+        inherit meta;
+      }
+      ''
+        mkdir -p "$out/bin" "$out/libexec" "$out/lib" "$out/share"
+
+        install -Dm755 ${newest}/bin/axlauncher "$out/libexec/axlauncher"
+        install -Dm755 ${./packaging/linux/portable-launcher.sh} "$out/bin/axlauncher"
+
+        libdirs="${pkgs.glibc}/lib:${pkgs.gcc-unwrapped.lib}/lib:${pkgs.libxkbcommon}/lib:${pkgs.libxcb}/lib"
+        loader=$(readlink -f ${pkgs.glibc}/lib/ld-linux-x86-64.so.2)
+
+        # Copy exactly what the binary links, resolved against the store.
+        "$loader" --library-path "$libdirs" --list "$out/libexec/axlauncher" >store.txt
+        if grep -q 'not found' store.txt; then
+          cat store.txt >&2
+          exit 1
+        fi
+        sed -n 's/^ *[^ ]* => \([^ ]*\) (0x[0-9a-f]*)$/\1/p' store.txt |
+          while read -r file; do
+            cp -L "$file" "$out/lib/$(basename "$file")"
+          done
+        cp -L "$loader" "$out/lib/ld-linux-x86-64.so.2"
+
+        # Loaded by name at runtime, so the loader never lists them.
+        for module in ${pkgs.glibc}/lib/libnss_*.so.*; do
+          cp -L "$module" "$out/lib/"
+        done
+        cp -a ${pkgs.xkeyboard-config}/share/X11/xkb "$out/share/xkb"
+
+        # The copied libraries keep the store paths they were linked against;
+        # the bundled loader finds everything through --library-path.
+        for library in "$out"/lib/*.so*; do
+          chmod u+w "$library"
+          patchelf --remove-rpath "$library"
+        done
+
+        patchelf --set-rpath '$ORIGIN/../lib' "$out/libexec/axlauncher"
+
+        # The tree is self-contained when the bundled loader resolves every
+        # dependency from inside it.
+        "$out/lib/ld-linux-x86-64.so.2" --library-path "$out/lib" \
+          --list "$out/libexec/axlauncher" >resolved.txt
+        if grep ' => ' resolved.txt | grep -qv "$out/lib/"; then
+          cat resolved.txt >&2
+          exit 1
+        fi
+
+        install -Dm644 resolved.txt "$out/share/doc/linked-libraries.txt"
+      '';
+
   wrapper = pkgs.runCommand "axlauncher-${version}" { inherit meta; } ''
-    mkdir -p "$out/bin" "$out/share/applications"
+    mkdir -p "$out/bin"
     ln -s ${newest}/bin/axlauncher "$out/bin/axlauncher"
-    install -Dm644 ${./packaging/linux/axlauncher.desktop} \
-      "$out/share/applications/axlauncher.desktop"
+    install -Dm644 ${./packaging/linux/com.axolotl.axlauncher.desktop} \
+      "$out/share/applications/com.axolotl.axlauncher.desktop"
+    install -Dm644 ${./packaging/icons/axolotl-launcher.png} \
+      "$out/share/icons/hicolor/512x512/apps/axolotl-launcher.png"
   '';
 
   legacy-elf =
@@ -249,10 +313,12 @@ in
     axlauncher = wrapper;
     axlauncher-legacy = legacy;
     axlauncher-newest = newest;
+    axlauncher-portable = portable;
   };
 
   checks = {
     axlauncher = wrapper;
     legacy-elf = legacy-elf;
+    portable = portable;
   };
 }
