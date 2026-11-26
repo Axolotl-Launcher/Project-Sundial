@@ -49,7 +49,9 @@ the unwritten interval and validates the returned interval, total and any
 established representation identity. Unsupported or inconsistent ranges
 trigger a whole-file transfer from a clean stage. Whole-file transfers read
 to EOF and check the manifest digest, or the expected size when only size is
-supplied, before atomically publishing the staging file.
+supplied, before atomically publishing the staging file. A verification
+mismatch allows one clean whole-file retry per source within the shared
+request budget, after trying ready alternate sources.
 
 Each file has three recovery requests per source across probes, ranges and
 whole-file transfers. A recovery uses its budget when dispatched. Adjacent

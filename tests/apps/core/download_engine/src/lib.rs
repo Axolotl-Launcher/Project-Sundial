@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use axlauncher_spi::{DownloadMirror, FetchError};
 use futures::executor::block_on;
 
+use crate::retry_tests::paused;
 use crate::test_tempfile as tempfile;
 
 /// SHA-1 of `abc`, as `sha1sum` reports it.
@@ -70,7 +71,7 @@ fn download_all_rejects_a_sha1_mismatch() {
         responses: BTreeMap::from([(file.url.clone(), Ok(WORD.to_vec()))]),
     };
 
-    let outcomes = block_on(download_all(&network, std::slice::from_ref(&file), 1));
+    let outcomes = paused(download_all(&network, std::slice::from_ref(&file), 1));
 
     assert_eq!(outcomes.len(), 1);
     assert_eq!(outcomes[0].path, file.path);
@@ -215,7 +216,7 @@ fn download_all_continues_after_a_mismatch() {
     };
     let files = [first.clone(), bad.clone(), second.clone()];
 
-    let outcomes = block_on(download_all(&network, &files, files.len()));
+    let outcomes = paused(download_all(&network, &files, files.len()));
 
     assert_eq!(outcomes.len(), files.len());
     let failures = outcomes

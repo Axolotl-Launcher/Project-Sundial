@@ -220,7 +220,7 @@ struct Source<'a> {
     error: Option<TransferError>,
     mode: TransferMode,
     staging: Option<AtomicFile>,
-    retry_integrity: bool,
+    integrity_retry_used: bool,
     exhausted: bool,
     done: bool,
 }
@@ -240,7 +240,7 @@ impl<'a> Source<'a> {
             error: None,
             mode: TransferMode::default(),
             staging: None,
-            retry_integrity: false,
+            integrity_retry_used: false,
             exhausted: false,
             done: false,
         }
@@ -315,10 +315,7 @@ impl<'a> Source<'a> {
         check: Option<&Verification>,
     ) -> Result<(), TransferError> {
         let result = verify(staging, job, check).await;
-        if matches!(result, Err(TransferError::Invalid(_)))
-            && !matches!(self.mode, TransferMode::Whole)
-        {
-            self.retry_integrity = true;
+        if matches!(result, Err(TransferError::IntegrityMismatch(_))) {
             self.mode = TransferMode::Whole;
         }
         result
@@ -362,7 +359,9 @@ impl<'a> Source<'a> {
 
     fn failed(&mut self, error: TransferError) {
         let cooling = matches!(error, TransferError::CoolingDown(_));
-        if error.retryable() || self.retry_integrity || cooling {
+        let retry_integrity = matches!(error, TransferError::IntegrityMismatch(_))
+            && !std::mem::replace(&mut self.integrity_retry_used, true);
+        if error.retryable() || retry_integrity || cooling {
             self.exhausted = !self.attempts.can_recover();
             self.delay = (!self.exhausted && !error.origin_throttle())
                 .then(|| self.attempts.backoff(error.retry_hint()));
@@ -376,7 +375,6 @@ impl<'a> Source<'a> {
             );
         }
         self.done |= self.exhausted;
-        self.retry_integrity = false;
         if !cooling || self.error.is_none() {
             self.error = Some(error);
         }
@@ -384,7 +382,7 @@ impl<'a> Source<'a> {
 
     fn failure_rank(&self) -> Option<u8> {
         Some(match self.error.as_ref()? {
-            TransferError::Invalid(_) => 4,
+            TransferError::IntegrityMismatch(_) | TransferError::Invalid(_) => 4,
             TransferError::RecoveryExhausted
             | TransferError::RangeRecoveryExhausted(_)
             | TransferError::RangeWaitExceeded(_)

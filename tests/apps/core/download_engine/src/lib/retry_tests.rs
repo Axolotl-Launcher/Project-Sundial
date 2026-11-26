@@ -418,3 +418,40 @@ fn batch_response(url: &str, calls: &Cell<usize>) -> Result<DownloadResponse<Bod
     }
     Ok(whole(b"ok".as_slice(), false))
 }
+
+#[test]
+fn a_whole_file_integrity_failure_allows_exactly_one_clean_retry() {
+    paused(check_whole_integrity_retry(true));
+    paused(check_whole_integrity_retry(false));
+}
+
+async fn check_whole_integrity_retry(recovers: bool) {
+    let root = test_tempfile::tempdir().unwrap();
+    let destination = root.path().join("file");
+    fs::write(&destination, b"old").unwrap();
+    let calls = Cell::new(0);
+    let network = Script(|_: &str, range: Option<RangeRequest<'_>>| {
+        assert!(range.is_none());
+        let number = calls.get() + 1;
+        calls.set(number);
+        let bytes = if recovers && number == 2 {
+            b"abc"
+        } else {
+            b"bad"
+        };
+        Ok(whole(bytes.as_slice(), false))
+    });
+    let engine = DownloadEngine::default();
+    let mut file = job(&destination, &[PRIMARY], 3);
+    file.sha1 = Some("a9993e364706816aba3e25717850c26c9cd0d89d");
+    let result = engine.download(&network, file).await;
+    assert_eq!(calls.get(), 2);
+    if recovers {
+        result.unwrap();
+        assert_eq!(fs::read(destination).unwrap(), b"abc");
+    } else {
+        assert!(result.unwrap_err().contains("SHA-1 mismatch"));
+        assert_eq!(fs::read(destination).unwrap(), b"old");
+    }
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+}

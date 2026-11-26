@@ -81,6 +81,7 @@ pub(crate) enum TransferError {
     Body(FetchError),
     Disk(io::Error),
     Invalid(String),
+    IntegrityMismatch(String),
     RangeUnavailable,
     CoolingDown(u16),
     RetryWaitExceeded,
@@ -139,7 +140,7 @@ impl fmt::Display for TransferError {
             }
             Self::Open(error) => write!(formatter, "opening download: {error}"),
             Self::Body(error) => write!(formatter, "reading download body: {error}"),
-            Self::Invalid(reason) => formatter.write_str(reason),
+            Self::Invalid(reason) | Self::IntegrityMismatch(reason) => formatter.write_str(reason),
             Self::Disk(error) => write!(formatter, "cannot write download: {error}"),
             Self::RangeUnavailable => formatter.write_str("source did not honor the byte range"),
             Self::CoolingDown(status) => write!(formatter, "HTTP {status}: origin is cooling down"),

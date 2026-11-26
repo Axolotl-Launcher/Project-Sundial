@@ -50,7 +50,7 @@ pub(crate) async fn verify(
     }
     let length = staging.file().metadata()?.len();
     if job.size.is_some_and(|expected| expected != length) {
-        return Err(TransferError::Invalid(format!(
+        return Err(TransferError::IntegrityMismatch(format!(
             "size mismatch for {}",
             job.destination.display()
         )));
@@ -60,7 +60,7 @@ pub(crate) async fn verify(
 
 fn verification_error(error: io::Error, destination: &Path) -> TransferError {
     if error.kind() == io::ErrorKind::InvalidData {
-        return TransferError::Invalid(format!("{error} for {}", destination.display()));
+        return TransferError::IntegrityMismatch(format!("{error} for {}", destination.display()));
     }
     TransferError::Disk(error)
 }

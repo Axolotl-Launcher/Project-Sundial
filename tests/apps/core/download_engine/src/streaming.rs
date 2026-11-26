@@ -313,7 +313,8 @@ fn a_whole_download_uses_the_expected_size_even_when_the_response_length_is_wron
     }
 
     job.size = Some(6);
-    let error = block_on(engine.download(&IncorrectLengthNetwork(6), job)).unwrap_err();
+    let error =
+        crate::retry_tests::paused(engine.download(&IncorrectLengthNetwork(6), job)).unwrap_err();
     assert!(error.contains("size mismatch"));
     assert_eq!(fs::read(destination).unwrap(), b"pack");
 }
