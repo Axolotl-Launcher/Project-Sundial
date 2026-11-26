@@ -5,10 +5,12 @@ use super::*;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use axlauncher_spi::downloads::{DownloadOutcome, MissingFile};
 use axlauncher_spi::{DownloadMirror, FetchError};
+use futures::StreamExt;
 use futures::executor::block_on;
 
 use crate::retry_tests::paused;
@@ -22,6 +24,14 @@ const ABC: &[u8] = b"abc";
 const WORD: &[u8] = b"axlauncher";
 const LIMIT: usize = 2;
 const FILE_COUNT: usize = 8;
+
+async fn download_all(
+    network: &impl Network,
+    files: &[MissingFile],
+    concurrency: usize,
+) -> Vec<DownloadOutcome> {
+    Direct(network).batch(files, concurrency).collect().await
+}
 
 fn missing_file(root: &Path, name: &str, sha1: &str, size: u64) -> MissingFile {
     MissingFile {

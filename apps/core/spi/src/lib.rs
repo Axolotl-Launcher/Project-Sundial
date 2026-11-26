@@ -13,6 +13,7 @@
 
 pub mod auth;
 pub mod desktop;
+pub mod downloads;
 pub mod mc_version;
 mod sources;
 mod transfer;

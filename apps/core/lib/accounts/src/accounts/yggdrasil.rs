@@ -14,32 +14,16 @@ use url::Url;
 use uuid::Uuid;
 
 use super::AccountId;
+use axlauncher_worker::accounts::Server;
 
 const USER_AGENT: &str = "Axolotl Launcher";
 pub(super) const SESSION_TTL: Duration = Duration::from_secs(300);
-const CHOICE_TTL: Duration = Duration::from_secs(300);
+pub(crate) const CHOICE_TTL: Duration = Duration::from_secs(300);
 
-/// A normalized HTTPS authentication server and its display name.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Server {
-    url: String,
-    name: String,
-}
-
-impl Server {
-    pub fn url(&self) -> &str {
-        &self.url
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub(super) fn account_id(&self, profile: Uuid) -> AccountId {
-        let digest = Sha256::digest(&self.url);
-        let server = Uuid::from_bytes(digest[..16].try_into().expect("UUID-sized hash prefix"));
-        AccountId::Yggdrasil { profile, server }
-    }
+pub(super) fn account_id(server: &Server, profile: Uuid) -> AccountId {
+    let digest = Sha256::digest(server.url());
+    let server = Uuid::from_bytes(digest[..16].try_into().expect("UUID-sized hash prefix"));
+    AccountId::Yggdrasil { profile, server }
 }
 
 /// A player profile offered by the authentication server.
@@ -305,10 +289,7 @@ async fn metadata(
         .filter(|character| !character.is_control())
         .take(80)
         .collect();
-    let server = Server {
-        url: url.as_str().trim_end_matches('/').to_owned(),
-        name,
-    };
+    let server = Server::new(url.as_str().trim_end_matches('/').to_owned(), name);
     Ok((server, response.body))
 }
 
@@ -371,5 +352,5 @@ fn check_status(status: u16) -> Result<(), YggdrasilError> {
 }
 
 #[cfg(test)]
-#[path = "../../../../../tests/apps/core/state/src/accounts/yggdrasil.rs"]
+#[path = "../../../../../../tests/apps/core/lib/accounts/src/accounts/yggdrasil.rs"]
 mod tests;

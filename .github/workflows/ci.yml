@@ -49,11 +49,19 @@ jobs:
         with:
           tool: cargo-nextest@0.9.150
 
+      - name: Install Node.js for embedded desktop builds
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+
       - name: Lint the Rust workspace
-        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+        run: node scripts/desktop.ts exec cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
       - name: Run desktop workspace tests
-        run: cargo nextest run --workspace --profile ci --locked --no-tests=fail
+        run: node scripts/desktop.ts exec cargo nextest run --workspace --profile ci --locked --no-tests=fail
+
+      - name: Exercise both embedded worker libraries
+        run: node scripts/desktop.ts smoke
 
   # The architecture gate covers the Linux host target with default features.
   architecture:

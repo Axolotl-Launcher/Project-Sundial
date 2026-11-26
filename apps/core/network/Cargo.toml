@@ -21,6 +21,7 @@ httpdate = { workspace = true }
 hyper = { workspace = true, features = ["http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }
 reqwest = { workspace = true }
+serde = { workspace = true }
 sha1_smol = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net"] }
 url = { workspace = true }

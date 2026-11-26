@@ -12,7 +12,7 @@ three things around it; this directory holds the ones that live in the repo.
 Axolotl Launcher.app/
   Contents/
     Info.plist
-    MacOS/axlauncher        <- cargo build --release -p axlauncher_platform_macos
+    MacOS/axlauncher        <- node scripts/desktop.ts build
     Resources/AppIcon.icns
 ```
 
@@ -42,7 +42,7 @@ Axolotl Launcher.app/
 ## Building
 
 ```bash
-cargo build --release -p axlauncher_platform_macos
+node scripts/desktop.ts build
 mkdir -p "Axolotl Launcher.app/Contents/MacOS" "Axolotl Launcher.app/Contents/Resources"
 cp target/release/axlauncher "Axolotl Launcher.app/Contents/MacOS/"
 cp packaging/macos/Info.plist "Axolotl Launcher.app/Contents/"
@@ -51,10 +51,13 @@ cp packaging/macos/Info.plist "Axolotl Launcher.app/Contents/"
 
 ## Signing and notarising
 
-Unsigned bundles run only when macOS is told to allow them. Distribution needs:
+For distribution, set `AXLAUNCHER_MACOS_SIGN_IDENTITY` to the same Developer ID
+Application identity you will use for the bundle before building. The build
+signs both libraries before embedding them so the process can load them with
+hardened runtime library validation enabled. Then sign and notarize the bundle:
 
 ```bash
-codesign --force --deep --sign "Developer ID Application: <TEAM>" "Axolotl Launcher.app"
+codesign --force --options runtime --sign "$AXLAUNCHER_MACOS_SIGN_IDENTITY" "Axolotl Launcher.app"
 xcrun notarytool submit "Axolotl Launcher.app" --keychain-profile <profile> --wait
 xcrun stapler staple "Axolotl Launcher.app"
 ```

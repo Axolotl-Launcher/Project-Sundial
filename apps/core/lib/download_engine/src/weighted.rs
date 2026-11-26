@@ -220,5 +220,5 @@ impl Drop for ShareLease<'_> {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/core/download_engine/src/weighted.rs"]
+#[path = "../../../../../tests/apps/core/lib/download_engine/src/weighted.rs"]
 mod tests;

@@ -41,6 +41,8 @@ pub(crate) struct Startup {
     pub(crate) loaded: Loaded,
 }
 
+pub use axlauncher_core::WorkerImages;
+
 impl Startup {
     pub(crate) fn load() -> Self {
         let loaded = match DataDir::from_environment() {
@@ -64,16 +66,22 @@ impl Startup {
 
 /// Opens the Axolotl Launcher window and runs the GPUI event loop.
 ///
-/// A platform shell calls this once from `main`; it never returns.
-pub fn run() {
+/// A platform shell calls this after ruling out worker mode.
+pub fn run(images: WorkerImages) {
+    images.configure();
     let startup = Startup::load();
 
     kit::application()
         .with_assets(kit::assets::Assets)
         .run(move |cx| {
+            cx.on_app_quit(|_| async {
+                WorkerImages::close_workers();
+            })
+            .detach();
             startup.palette.install(cx);
             open_main_window(cx, startup);
         });
+    WorkerImages::close_workers();
 }
 
 fn open_main_window(cx: &mut kit::App, startup: Startup) {

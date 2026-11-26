@@ -20,8 +20,17 @@ pub struct DownloadMirror {
 }
 
 /// A DNS hostname supplied for an HTTPS mirror or proxy.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "String")]
 pub struct ServiceHost(String);
+
+impl TryFrom<String> for ServiceHost {
+    type Error = &'static str;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::parse(&value).ok_or("invalid service hostname")
+    }
+}
 
 impl ServiceHost {
     /// Accepts a bare, qualified ASCII hostname with no URL components.

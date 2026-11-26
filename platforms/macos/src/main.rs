@@ -6,6 +6,9 @@
 //! The macOS bundle layout (Info.plist, icon, code signing) is produced around
 //! this binary; see `packaging/macos`.
 
-fn main() {
-    axlauncher_frontend::run();
+#[path = "../../entry.rs"]
+mod entry;
+
+fn main() -> std::process::ExitCode {
+    entry::run()
 }

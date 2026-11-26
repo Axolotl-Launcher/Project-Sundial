@@ -6,6 +6,9 @@
 use axlauncher_network::{MirrorHosts, MirrorPreference, MirrorSettings, ReqwestNetwork};
 use axlauncher_spi::{Network, ServiceHost};
 use axlauncher_state::{SettingsData, SourcePreference};
+use axlauncher_storage::DataDir;
+
+use super::downloads::{DownloadRoute, Downloads};
 
 pub struct DownloadOptions {
     concurrency: usize,
@@ -38,8 +41,13 @@ impl DownloadOptions {
         self.concurrency
     }
 
-    pub fn network(self) -> Result<impl Network + Clone, String> {
-        ReqwestNetwork::desktop_with_mirrors(self.mirrors).map_err(|error| error.to_string())
+    pub(super) fn network(&self) -> Result<impl Network + Clone + use<>, String> {
+        ReqwestNetwork::desktop_with_mirrors(self.mirrors.clone())
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn downloader(&self, data: &DataDir) -> Downloads {
+        Downloads::new(data.clone(), DownloadRoute::Mirrors(self.mirrors.clone()))
     }
 }
 

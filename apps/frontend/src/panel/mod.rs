@@ -157,6 +157,8 @@ impl RootView {
             .update(cx, |view, cx| view.set_enabled(self.paths.is_some(), cx));
         if !same_data {
             self.accounts.reset(self.paths.as_ref(), window, cx);
+        } else {
+            self.accounts.update_paths(self.paths.as_ref());
         }
         self.refresh_accounts(cx);
         self.settings = loaded.settings;

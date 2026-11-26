@@ -6,9 +6,9 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
+use super::test_sha2::{Digest, Sha512};
 use axlauncher_spi::auth::{AuthNetwork, Request, Response, TransportError};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha512};
 use zip::{ZipWriter, write::SimpleFileOptions};
 
 use super::test_futures::executor::block_on;

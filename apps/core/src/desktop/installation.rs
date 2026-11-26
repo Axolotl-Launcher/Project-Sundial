@@ -11,6 +11,7 @@ use axlauncher_install::{
     vanilla,
 };
 use axlauncher_launch::Target;
+use axlauncher_spi::downloads::FileDownloader;
 use axlauncher_spi::{LoaderKind, LoaderRequest, ModLoader, Network};
 use axlauncher_state::profile::{self, Game};
 use axlauncher_storage::DataDir;
@@ -140,6 +141,7 @@ async fn download_vanilla(
     let network = options.network()?;
     let prepared = vanilla::install(
         &network,
+        &options.downloader(data),
         &data.game(),
         id,
         &Target::host(),
@@ -166,7 +168,16 @@ async fn download_loader(
         game_version,
         loader_version: selection.version,
     };
-    let installed = install_loader(data, &network, &provider, request, concurrency, report).await?;
+    let installed = install_loader(
+        data,
+        &network,
+        &options.downloader(data),
+        &provider,
+        request,
+        concurrency,
+        report,
+    )
+    .await?;
     ensure_complete(&installed.prepared)?;
     Ok(installed.version_id)
 }
@@ -174,6 +185,7 @@ async fn download_loader(
 async fn install_loader(
     data: &DataDir,
     network: &impl Network,
+    downloader: &impl FileDownloader,
     provider: &impl ModLoader,
     request: LoaderRequest,
     concurrency: usize,
@@ -182,6 +194,7 @@ async fn install_loader(
     let initial_java = java::managed(data);
     let operation = loader::InstallRequest {
         network,
+        downloader,
         loader: provider,
         java: &initial_java,
         game_root: &data.game(),

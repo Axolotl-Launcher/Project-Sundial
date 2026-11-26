@@ -5,7 +5,8 @@ layout of files the launcher itself places. Applications call it through
 `axlauncher_core::storage`. The crate resolves locations; document owners
 still read, validate, and write their own documents. In particular, use
 `state::load_settings` and `state::update_settings` for existing preferences,
-and the account and Java-selection APIs in `state` for their respective data.
+`core::desktop::accounts` for account operations, and the Java-selection APIs
+in `state` for Java preferences.
 
 ## Roots and overrides
 
@@ -57,6 +58,9 @@ isolated mode; otherwise they keep their platform defaults.
   download staging, and profile publication beside the destination when they
   rely on a rename. The application scratch root is not a substitute for
   same-filesystem staging.
+- Extract bundled worker libraries into `DataDir::scratch()` and use
+  `WorkerLibrary::path` for their filenames. Retain the scratch handle until
+  the process has exited and the operating system has released the library.
 - A user-selected file and a validated path supplied by a manifest, Maven
   coordinate, or archive are inputs, not launcher defaults. Their readers
   retain responsibility for validation. Fixed paths in a JDK, Minecraft

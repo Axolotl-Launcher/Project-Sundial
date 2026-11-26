@@ -55,13 +55,18 @@ fn permitted_edge(owner: &str, dependency: &str, target_dir: &Path) -> bool {
     match owner {
         "axlauncher_domain" | "axlauncher_ui" | "axlauncher_policy_tests" => false,
         "axlauncher_spi" => dependency == "axlauncher_domain",
-        "axlauncher_core" => target_dir.parent() == Some(Path::new("apps/core")),
+        "axlauncher_core" => {
+            dependency == "axlauncher_worker" || target_dir.parent() == Some(Path::new("apps/core"))
+        }
         "axlauncher_frontend" => matches!(
             dependency,
             "axlauncher_ui" | "axlauncher_core" | "axlauncher_modpack"
         ),
         "axlauncher_modpack" => dependency == "axlauncher_spi",
-        "axlauncher_mmc_convert" => matches!(dependency, "axlauncher_core" | "axlauncher_modpack"),
+        "axlauncher_mmc_convert" => matches!(
+            dependency,
+            "axlauncher_core" | "axlauncher_modpack" | "axlauncher_download_engine"
+        ),
         "axlauncher_platform_windows"
         | "axlauncher_platform_linux"
         | "axlauncher_platform_macos" => dependency == "axlauncher_frontend",
@@ -70,14 +75,25 @@ fn permitted_edge(owner: &str, dependency: &str, target_dir: &Path) -> bool {
             "axlauncher_storage" => matches!(
                 owner,
                 "axlauncher_download_engine"
+                    | "axlauncher_accounts"
+                    | "axlauncher_worker"
                     | "axlauncher_install"
                     | "axlauncher_state"
                     | "axlauncher_launch"
             ),
-            "axlauncher_launch" | "axlauncher_download_engine" => owner == "axlauncher_install",
+            "axlauncher_launch" => owner == "axlauncher_install",
+            "axlauncher_worker" => {
+                matches!(owner, "axlauncher_accounts" | "axlauncher_download_engine")
+            }
             "axlauncher_mc_version" => owner == "axlauncher_loader",
             "axlauncher_network" => {
-                matches!(owner, "axlauncher_download_engine" | "axlauncher_install")
+                matches!(
+                    owner,
+                    "axlauncher_download_engine"
+                        | "axlauncher_install"
+                        | "axlauncher_accounts"
+                        | "axlauncher_worker"
+                )
             }
             _ => false,
         },
@@ -87,6 +103,7 @@ fn permitted_edge(owner: &str, dependency: &str, target_dir: &Path) -> bool {
 fn resource_owner(dependency: &str) -> Option<&'static str> {
     match dependency {
         "reqwest" => Some("axlauncher_network"),
+        "libloading" => Some("axlauncher_worker"),
         "keyring" | "dirs" | "dirs-next" | "directories" | "directories-next" => {
             Some("axlauncher_storage")
         }

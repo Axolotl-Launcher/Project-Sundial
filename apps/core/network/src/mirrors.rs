@@ -20,7 +20,7 @@ static MCIM_BUFFERED: Semaphore = Semaphore::const_new(MCIM_CONNECTIONS);
 static ALIYUN_BUFFERED: Semaphore = Semaphore::const_new(ALIYUN_CONNECTIONS);
 
 /// The user's order for public sources. MCIM always follows its upstream.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MirrorPreference {
     #[default]
     Auto,
@@ -29,7 +29,7 @@ pub enum MirrorPreference {
 }
 
 /// Endpoints supplied by the application for the supported public mirrors.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MirrorHosts {
     pub bmclapi: Option<ServiceHost>,
     pub mcim: Option<ServiceHost>,
@@ -62,7 +62,7 @@ impl Mirror {
 }
 
 /// Source preferences and configured endpoints for downloads.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MirrorSettings {
     pub metadata: MirrorPreference,
     pub files: MirrorPreference,

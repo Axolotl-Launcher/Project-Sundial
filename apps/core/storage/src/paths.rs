@@ -9,6 +9,27 @@ use crate::game_dir::GameDir;
 const APP_DIRECTORY: &str = "AXLauncher";
 const DATA_DIR_ENV: &str = "AXLAUNCHER_DATA_DIR";
 
+#[derive(Clone, Copy)]
+pub enum WorkerLibrary {
+    Downloads,
+    Accounts,
+}
+
+impl WorkerLibrary {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Downloads => "downloads",
+            Self::Accounts => "accounts",
+        }
+    }
+
+    pub fn path(self, scratch: &Path) -> PathBuf {
+        scratch.join(
+            std::env::consts::DLL_PREFIX.to_owned() + self.name() + std::env::consts::DLL_SUFFIX,
+        )
+    }
+}
+
 /// The system's per-user application data directory.
 pub fn user_data_dir() -> Option<PathBuf> {
     dirs::data_dir()
@@ -165,9 +186,14 @@ impl DataDir {
             builder.mode(0o700);
         }
         builder.create(&root)?;
-        tempfile::Builder::new()
-            .prefix("AXLauncher-")
-            .tempdir_in(root)
+        let mut scratch = tempfile::Builder::new();
+        scratch.prefix("AXLauncher-");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            scratch.permissions(fs::Permissions::from_mode(0o700));
+        }
+        scratch.tempdir_in(root)
     }
 
     /// The same game files and native archive cache serve installation and launch.

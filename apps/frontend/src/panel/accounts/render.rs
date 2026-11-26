@@ -3,7 +3,7 @@
 
 //! The Accounts section of the development panel.
 
-use axlauncher_core::state::accounts::{Account, AccountId, Persistence};
+use axlauncher_core::desktop::accounts::{Account, AccountId, Persistence};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, Button, ButtonVariants, ClipboardItem, Context, Disableable,
@@ -181,7 +181,6 @@ fn account_rows(
 ) -> Vec<AnyElement> {
     let selected = snapshot.selected();
     snapshot
-        .list()
         .iter()
         .map(|account| {
             account_row(

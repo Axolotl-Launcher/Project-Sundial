@@ -6,8 +6,7 @@
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-use axlauncher_download_engine::{MissingFile, download_all};
-use axlauncher_spi::Network;
+use axlauncher_spi::downloads::{DownloadJob, FileDownloader};
 use axlauncher_storage::{DataDir, open_for_read};
 use sha2::{Digest, Sha256};
 
@@ -17,7 +16,7 @@ const SHA1: &str = "0e0e66d8a4f91a26f33b9c09f5cdffce4a11f0b8";
 const SIZE: u64 = 349_681;
 
 /// A verified Java agent in the shared game directory.
-pub async fn prepare(network: &impl Network, data: &DataDir) -> Result<PathBuf, String> {
+pub async fn prepare(downloader: &impl FileDownloader, data: &DataDir) -> Result<PathBuf, String> {
     let path = std::path::absolute(data.auth_agent()).map_err(|error| error.to_string())?;
     if path.to_string_lossy().contains('=') {
         return Err(
@@ -27,22 +26,19 @@ pub async fn prepare(network: &impl Network, data: &DataDir) -> Result<PathBuf, 
     if matches!(is_verified(&path), Ok(true)) {
         return Ok(path);
     }
-    let mut results = download_all(
-        network,
-        &[MissingFile {
-            url: URL.to_owned(),
-            path: path.clone(),
-            sha1: Some(SHA1.to_owned()),
-            sha1_alternatives: Vec::new(),
-            size: Some(SIZE),
-        }],
-        1,
-    )
-    .await;
-    results
-        .pop()
-        .expect("one authentication agent download")
-        .result
+    downloader
+        .download(
+            DownloadJob {
+                sources: &[URL],
+                destination: &path,
+                sha1: Some(SHA1),
+                sha1_alternatives: &[],
+                size: Some(SIZE),
+                batch: true,
+            },
+            None,
+        )
+        .await
         .map_err(|error| {
             format!("Could not download the third-party authentication agent: {error}")
         })?;

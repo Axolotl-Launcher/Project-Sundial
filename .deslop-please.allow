@@ -12,7 +12,6 @@ field-leak axlauncher_launch::version::Library::downloads @ axlauncher_launch::n
 field-leak axlauncher_launch::version::Library::name @ axlauncher_launch::classpath
 field-leak axlauncher_launch::version::Library::natives @ axlauncher_launch::natives
 field-leak axlauncher_launch::version::Library::rules @ axlauncher_launch::rules
-field-leak axlauncher_state::accounts::sessions::AccountService::data @ axlauncher_core::launch_accounts,axlauncher_frontend::panel::accounts
 shallow-module axlauncher_frontend::panel::accounts
 shallow-module axlauncher_frontend::panel::download_debug
 shallow-module axlauncher_frontend::panel::profile_creation

@@ -112,8 +112,8 @@ Report any check that failed or could not run and give the reason.
 
 ```sh
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-cargo nextest run --workspace --locked
+node scripts/desktop.ts exec cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+node scripts/desktop.ts exec cargo nextest run --workspace --locked
 cargo shear
 cargo deny check
 typos

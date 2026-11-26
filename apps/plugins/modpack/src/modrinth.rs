@@ -151,7 +151,7 @@ impl Files {
             .collect();
         PlannedDownloads {
             files,
-            redirect_policy: |url| allows_target(url, true),
+            origins: axlauncher_spi::downloads::PackOrigins::Modrinth,
             cdn_key: None,
         }
     }
@@ -214,20 +214,7 @@ impl File {
 }
 
 fn allows_target(url: &Url, redirect: bool) -> bool {
-    if url.scheme() != "https"
-        || url.port().is_some()
-        || !url.username().is_empty()
-        || url.password().is_some()
-    {
-        return false;
-    }
-    match url.host_str() {
-        Some("cdn.modrinth.com" | "github.com" | "raw.githubusercontent.com" | "gitlab.com") => {
-            true
-        }
-        Some("release-assets.githubusercontent.com" | "objects.githubusercontent.com") => redirect,
-        _ => false,
-    }
+    axlauncher_spi::downloads::PackOrigins::Modrinth.allows(url, redirect)
 }
 
 fn versions(

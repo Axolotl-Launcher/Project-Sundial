@@ -8,9 +8,10 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::time::Duration;
 
+use axlauncher_spi::downloads::MissingFile;
 use axlauncher_spi::{DownloadBody, DownloadResponse, FetchError, RangeRequest, ResponseRange};
 use bytes::Bytes;
-use futures::{FutureExt, poll};
+use futures::{FutureExt, StreamExt, poll};
 use tokio::time::Instant;
 
 use super::range_identity::representation;
@@ -399,8 +400,11 @@ fn a_batch_reports_one_completion_after_each_file_resolves() {
             size: Some(2),
         });
         let mut processed = Vec::new();
-        let results =
-            download_all_reporting(&network, &files, 2, |count| processed.push(count)).await;
+        let results = Direct(&network)
+            .batch(&files, 2)
+            .inspect(|_| processed.push(processed.len() + 1))
+            .collect::<Vec<_>>()
+            .await;
         assert_eq!(processed, [1, 2]);
         assert_eq!(results[0].path, files[1].path);
         assert_eq!(results[1].path, files[0].path);

@@ -14,19 +14,10 @@ license.workspace = true
 axlauncher_domain = { workspace = true }
 axlauncher_spi = { workspace = true }
 axlauncher_storage = { workspace = true }
-base64 = { workspace = true }
-md-5 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
 tempfile = { workspace = true }
-thiserror = { workspace = true }
-tokio = { workspace = true }
-url = { workspace = true }
 uuid = { workspace = true }
-
-[dev-dependencies]
-tokio = { workspace = true, features = ["macros"] }
 
 [lints]
 workspace = true

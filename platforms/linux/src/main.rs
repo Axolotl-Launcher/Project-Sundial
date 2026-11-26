@@ -3,6 +3,9 @@
 
 //! Linux entry point. All UI construction lives in `axlauncher_frontend`.
 
-fn main() {
-    axlauncher_frontend::run();
+#[path = "../../entry.rs"]
+mod entry;
+
+fn main() -> std::process::ExitCode {
+    entry::run()
 }

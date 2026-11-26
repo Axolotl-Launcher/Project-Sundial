@@ -1,0 +1,29 @@
+[package]
+name = "axlauncher_accounts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Minecraft identity persistence and sign-in for the embedded account worker"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+axlauncher_network = { workspace = true }
+axlauncher_spi = { workspace = true }
+axlauncher_storage = { workspace = true }
+axlauncher_worker = { workspace = true }
+base64 = { workspace = true }
+md-5 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+url = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

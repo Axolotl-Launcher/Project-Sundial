@@ -10,12 +10,13 @@
 
 use std::path::PathBuf;
 
-use axlauncher_download_engine::{DownloadOutcome, MissingFile, download_all_reporting};
 use axlauncher_launch::Target;
 use axlauncher_launch::version::{AssetIndex, Version};
 use axlauncher_network::verify;
+use axlauncher_spi::downloads::{DownloadOutcome, FileDownloader, MissingFile};
 use axlauncher_spi::{FetchError, FetchKind, Network};
 use axlauncher_storage::GameDir;
+use futures::StreamExt;
 
 use crate::assets::{AssetIndexDocument, missing_assets};
 
@@ -155,16 +156,27 @@ fn index_error(index: &AssetIndex, reason: impl ToString) -> PrepareError {
 /// Downloads everything `version` needs that is not on disk.
 pub async fn prepare(
     network: &impl Network,
+    downloader: &impl FileDownloader,
     game_root: &GameDir,
     version: &Version,
     target: &Target,
     concurrency: usize,
 ) -> Result<Prepared, PrepareError> {
-    prepare_reporting(network, game_root, version, target, concurrency, |_| {}).await
+    prepare_reporting(
+        network,
+        downloader,
+        game_root,
+        version,
+        target,
+        concurrency,
+        |_| {},
+    )
+    .await
 }
 
 pub(crate) async fn prepare_reporting(
     network: &impl Network,
+    downloader: &impl FileDownloader,
     game_root: &GameDir,
     version: &Version,
     target: &Target,
@@ -181,10 +193,15 @@ pub(crate) async fn prepare_reporting(
             total,
         });
     }
-    let outcomes = download_all_reporting(network, &files, concurrency, |processed| {
-        report(Progress::Downloading { processed, total });
-    })
-    .await;
+    let mut processed = 0;
+    let outcomes = downloader
+        .batch(&files, concurrency)
+        .inspect(|_| {
+            processed += 1;
+            report(Progress::Downloading { processed, total });
+        })
+        .collect::<Vec<_>>()
+        .await;
     report(Progress::Finishing);
     let mut prepared = summarise(&outcomes);
 

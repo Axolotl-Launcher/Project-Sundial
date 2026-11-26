@@ -9,6 +9,7 @@ use std::io;
 use axlauncher_launch::Target;
 use axlauncher_launch::version::{self, Version, VersionError};
 use axlauncher_network::verify;
+use axlauncher_spi::downloads::FileDownloader;
 use axlauncher_spi::{FetchKind, Network};
 use axlauncher_storage::{GameDir, write_atomic};
 
@@ -24,6 +25,7 @@ pub use catalog::{MinecraftCatalog, MinecraftVersion, versions};
 /// and assets. The caller owns the profile and any UI progress state.
 pub async fn install(
     network: &impl Network,
+    downloader: &impl FileDownloader,
     game_root: &GameDir,
     id: &str,
     target: &Target,
@@ -34,9 +36,17 @@ pub async fn install(
     let _lock = installation_lock(game_root)?;
     report(Progress::Version);
     let version = ensure_version(network, game_root, id).await?;
-    prepare_reporting(network, game_root, &version, target, concurrency, report)
-        .await
-        .map_err(|error| error.to_string())
+    prepare_reporting(
+        network,
+        downloader,
+        game_root,
+        &version,
+        target,
+        concurrency,
+        report,
+    )
+    .await
+    .map_err(|error| error.to_string())
 }
 
 /// A local installation check that works without a network connection.

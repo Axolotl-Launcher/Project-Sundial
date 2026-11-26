@@ -5,9 +5,9 @@
 
 use std::sync::Arc;
 
-use axlauncher_core::network::auth::AuthHttp;
-use axlauncher_core::state::accounts::yggdrasil::{self, Profile, ProfileChoice, SignIn};
-use axlauncher_core::state::accounts::{AccountError, AccountId, AccountSnapshot, SignInCommit};
+use axlauncher_core::desktop::accounts::{
+    AccountId, AccountSnapshot, Action, ChoiceId, Profile, Reply, SignInCommit,
+};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, AsyncWindowContext, Button, ButtonVariants, Context, Disableable,
@@ -23,6 +23,11 @@ enum Outcome {
     Profiles(ProfileChoice),
     Saved(AccountSnapshot),
     Cancelled,
+}
+
+struct ProfileChoice {
+    id: ChoiceId,
+    profiles: Vec<Profile>,
 }
 
 struct Attempt {
@@ -168,7 +173,7 @@ impl Form {
 
     fn render_profiles(&self, choice: &ProfileChoice, cx: &Context<'_, RootView>) -> AnyElement {
         let buttons = choice
-            .profiles()
+            .profiles
             .iter()
             .cloned()
             .map(|profile| profile_button(profile, self.is_working(), cx));
@@ -228,6 +233,9 @@ impl RootView {
 
     fn close_third_party(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
         let form = &mut self.accounts.third_party;
+        if let (Some(service), Some(choice)) = (&self.accounts.service, form.choice.take()) {
+            service.discard_choice(choice.id);
+        }
         form.reset(window, cx);
         form.trigger.focus(window, cx);
         self.accounts.error = None;
@@ -287,7 +295,14 @@ impl RootView {
         let Some(choice) = self.accounts.third_party.choice.take() else {
             return;
         };
-        self.run_third_party(Request::Choose { choice, profile }, window, cx);
+        self.run_third_party(
+            Request::Choose {
+                choice: choice.id,
+                profile,
+            },
+            window,
+            cx,
+        );
     }
 
     fn run_third_party(
@@ -305,7 +320,8 @@ impl RootView {
         let cancellation = SignInCancellation::default();
         let commit = cancellation.0.clone();
         self.observe_sign_in_commit(commit.clone(), cx);
-        let task = cx.background_spawn(async move { run(request, &worker, expected, &commit) });
+        let task =
+            cx.background_spawn(async move { run(request, &worker, expected, &commit).await });
         let task = cx.spawn_in(window, async move |view, cx| {
             show_result(view, cx, service, task).await;
         });
@@ -326,18 +342,7 @@ impl RootView {
         if !self.accounts.is_current(service) {
             return;
         }
-        let cancelled = self
-            .accounts
-            .third_party
-            .request
-            .take()
-            .is_some_and(|attempt| {
-                !attempt.cancellation.0.is_pending() && !attempt.cancellation.0.is_saving()
-            });
-        if cancelled {
-            self.close_third_party(window, cx);
-            return;
-        }
+        self.accounts.third_party.request = None;
         match result {
             Ok(Outcome::Profiles(choice)) => self.accounts.third_party.choice = Some(choice),
             Ok(Outcome::Cancelled) => self.close_third_party(window, cx),
@@ -358,22 +363,56 @@ enum Request {
         password: String,
     },
     Choose {
-        choice: ProfileChoice,
+        choice: ChoiceId,
         profile: Profile,
     },
 }
 
-fn run(
+async fn run(
     request: Request,
     service: &DesktopAccounts,
     expected: Option<AccountId>,
     commit: &SignInCommit,
 ) -> ResultState {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|_| "Could not start third-party sign-in.".to_owned())?;
-    runtime.block_on(sign_in(request, service, expected, commit))
+    let action = match request {
+        Request::SignIn {
+            url,
+            username,
+            password,
+        } => Action::Yggdrasil {
+            url,
+            username,
+            password,
+            expected,
+        },
+        Request::Choose { choice, profile } => Action::Choose {
+            choice,
+            profile,
+            expected,
+        },
+    };
+    match service
+        .sign_in(action, commit, |reply| {
+            if matches!(reply, Reply::Saving) {
+                commit.confirm_commit();
+            }
+        })
+        .await?
+    {
+        Some(Reply::Snapshot { snapshot, .. }) => Ok(Outcome::Saved(snapshot)),
+        Some(Reply::Profiles { choice, profiles }) if commit.is_pending() => {
+            Ok(Outcome::Profiles(ProfileChoice {
+                id: choice,
+                profiles,
+            }))
+        }
+        Some(Reply::Profiles { choice, .. }) => {
+            service.discard_choice(choice);
+            Ok(Outcome::Cancelled)
+        }
+        None => Ok(Outcome::Cancelled),
+        _ => Err("The account worker sent an invalid sign-in result.".into()),
+    }
 }
 
 async fn show_result(
@@ -386,54 +425,6 @@ async fn show_result(
     let _ = view.update_in(cx, |view, window, cx| {
         view.finish_third_party(&service, result, window, cx)
     });
-}
-
-async fn sign_in(
-    request: Request,
-    service: &DesktopAccounts,
-    expected: Option<AccountId>,
-    commit: &SignInCommit,
-) -> ResultState {
-    let outcome = tokio::select! {
-        biased;
-        _ = commit.cancelled() => return Ok(Outcome::Cancelled),
-        result = authenticate(request) => result?,
-    };
-    let verified = match outcome {
-        SignIn::Choose(choice) if commit.is_pending() => return Ok(Outcome::Profiles(choice)),
-        SignIn::Choose(_) => return Ok(Outcome::Cancelled),
-        SignIn::Complete(verified) => verified,
-    };
-    match service
-        .remember_yggdrasil_with_commit(verified, expected, commit)
-        .await
-    {
-        Ok(()) => (),
-        Err(AccountError::Cancelled) => return Ok(Outcome::Cancelled),
-        Err(error) => return Err(error.to_string()),
-    }
-    service
-        .snapshot()
-        .await
-        .map(Outcome::Saved)
-        .map_err(|error| error.to_string())
-}
-
-async fn authenticate(request: Request) -> Result<SignIn, String> {
-    let network =
-        AuthHttp::desktop().map_err(|_| "Could not initialize third-party sign-in.".to_owned())?;
-    match request {
-        Request::SignIn {
-            url,
-            username,
-            password,
-        } => yggdrasil::sign_in(&network, &url, &username, &password).await,
-        Request::Choose { choice, profile } => choice
-            .finish(&network, profile.id())
-            .await
-            .map(SignIn::Complete),
-    }
-    .map_err(|error| error.to_string())
 }
 
 fn field(

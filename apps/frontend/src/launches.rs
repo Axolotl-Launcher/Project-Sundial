@@ -9,7 +9,6 @@ use axlauncher_core::desktop::{
     launching::{LaunchFailure, LaunchJob, Player},
     sources::DownloadOptions,
 };
-use axlauncher_core::storage::SystemCredentials;
 use axlauncher_ui::{AppContext, AsyncApp, Context, WeakEntity};
 use tokio::sync::{oneshot, watch};
 
@@ -40,7 +39,7 @@ impl Launch {
 
 pub(crate) fn start(
     job: LaunchJob,
-    player: Player<SystemCredentials>,
+    player: Player,
     options: DownloadOptions,
     cx: &mut Context<'_, RootView>,
 ) {

@@ -6,10 +6,10 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use axlauncher_core::desktop::downloads;
 use axlauncher_core::desktop::sources::DownloadOptions;
-use axlauncher_core::download_engine::{
-    DownloadEngine, DownloadJob, DownloadProtocol, TransferStats,
-};
+use axlauncher_core::spi::DownloadProtocol;
+use axlauncher_core::spi::downloads::{DownloadJob, FileDownloader, TransferStats};
 use axlauncher_core::state::SettingsData;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
@@ -85,7 +85,7 @@ impl DownloadDebug {
             url,
             batch: batch::BatchDebug::new(window, cx),
             sources: sources::DownloadSources::new(settings, window, cx),
-            stats: DownloadEngine::shared().stats(),
+            stats: downloads::stats(),
             sampled_at: Instant::now(),
             bytes_per_second: 0.,
             status: ProbeStatus::Idle,
@@ -106,7 +106,7 @@ impl DownloadDebug {
 
     fn sample(&mut self) {
         let now = Instant::now();
-        let new = DownloadEngine::shared().stats();
+        let new = downloads::stats();
         let delta = new.bytes_received.saturating_sub(self.stats.bytes_received);
         let elapsed = (now - self.sampled_at).as_secs_f64();
         if elapsed > 0. {
@@ -192,10 +192,11 @@ impl RootView {
         let (cancel, cancellation) = oneshot::channel();
         self.download_debug.status = ProbeStatus::Running;
         self.download_debug.cancel = Some(cancel);
-        self.monitor_downloads(cx);
         let options = DownloadOptions::from_settings(self.settings.as_ref());
-        let task =
-            cx.background_spawn(async move { run_probe(url, destination, options, cancellation) });
+        let downloader = options.downloader(paths);
+        self.monitor_downloads(cx);
+        let task = cx
+            .background_spawn(async move { run_probe(url, destination, downloader, cancellation) });
         cx.spawn(async move |view, cx| {
             let status = task.await;
             let _ = view.update(cx, |view, cx| view.finish_download_probe(status, cx));
@@ -377,7 +378,7 @@ fn protocol_label(protocol: DownloadProtocol) -> &'static str {
 fn run_probe(
     url: String,
     destination: PathBuf,
-    options: DownloadOptions,
+    downloader: impl FileDownloader,
     cancel: oneshot::Receiver<()>,
 ) -> ProbeStatus {
     let runtime = match tokio::runtime::Builder::new_current_thread()
@@ -390,10 +391,6 @@ fn run_probe(
         }
     };
     runtime.block_on(async {
-        let network = match options.network() {
-            Ok(network) => network,
-            Err(error) => return ProbeStatus::Failed(error),
-        };
         let job = DownloadJob {
             sources: &[&url],
             destination: &destination,
@@ -402,7 +399,7 @@ fn run_probe(
             size: None,
             batch: false,
         };
-        let transfer = std::pin::pin!(DownloadEngine::shared().download(&network, job));
+        let transfer = std::pin::pin!(downloader.download(job, None));
         match select(cancel, transfer).await {
             Either::Left(_) => ProbeStatus::Cancelled,
             Either::Right((Ok(()), _)) => ProbeStatus::Complete(destination.clone()),

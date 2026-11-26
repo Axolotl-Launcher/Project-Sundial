@@ -7,6 +7,7 @@ use axlauncher_core::loader::provider;
 use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::spi::{LoaderRequest, ModLoader};
 use axlauncher_core::storage::{DataDir, GameDir};
+use axlauncher_download_engine::Direct;
 use axlauncher_modpack::GameRequirements;
 
 use crate::Result;
@@ -20,7 +21,18 @@ pub(super) async fn prepare(
 ) -> Result<String> {
     let minecraft = game.minecraft();
     let Some((kind, build)) = game.loader() else {
-        complete(vanilla::install(network, root, minecraft, target, 0, |_| {}).await?)?;
+        complete(
+            vanilla::install(
+                network,
+                &Direct(network),
+                root,
+                minecraft,
+                target,
+                0,
+                |_| {},
+            )
+            .await?,
+        )?;
         return Ok(minecraft.into());
     };
     let request = LoaderRequest {
@@ -57,6 +69,7 @@ impl LoaderInstall<'_> {
             SystemJava::from_environment().with_runtime_roots(vec![self.data.java_versions()]);
         let install = loader::InstallRequest {
             network: self.network,
+            downloader: &Direct(self.network),
             loader: provider,
             java: &java,
             game_root: self.root,

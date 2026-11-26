@@ -260,6 +260,7 @@ fn install_once(
     block_on(
         InstallRequest {
             network,
+            downloader: &axlauncher_download_engine::Direct(network),
             loader,
             java,
             game_root: &GameDir::standalone(root),
