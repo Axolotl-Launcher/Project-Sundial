@@ -20,7 +20,7 @@ use axlauncher_state::{
     accounts::{AccountId, AccountService},
     profile::DiscoveredProfile,
 };
-use axlauncher_storage::DataDir;
+use axlauncher_storage::{DataDir, GameDir};
 
 use crate::launch_accounts;
 
@@ -52,14 +52,13 @@ pub struct LaunchJob {
 
 impl LaunchJob {
     pub fn for_profile(
-        data_root: &Path,
+        data: &DataDir,
         profile: &DiscoveredProfile,
         player_name: String,
         settings: Option<&SettingsData>,
     ) -> Option<Self> {
         let game = profile.profile.game()?;
         let version = game.effective_version()?;
-        let data = DataDir::new(data_root);
         let language = settings
             .and_then(|settings| normalize_game_language(&settings.default_game_language))
             .filter(|language| !language.is_empty())
@@ -67,9 +66,9 @@ impl LaunchJob {
         Some(Self {
             request: LaunchRequest {
                 game_root: if game.is_runtime_isolated() {
-                    axlauncher_storage::instance_runtime(&profile.directory)
+                    GameDir::isolated(&profile.directory)
                 } else {
-                    data.meta()
+                    data.game()
                 },
                 instance_directory: profile.directory.clone(),
                 version_id: version.to_owned(),
@@ -77,13 +76,13 @@ impl LaunchJob {
                 player_name,
                 game_language: Some(GameLanguage::new(&game.minecraft, &language)),
             },
-            data,
+            data: data.clone(),
             vanilla: game.is_vanilla() && version == game.minecraft,
         })
     }
 
     pub fn game_root(&self) -> &Path {
-        &self.request.game_root
+        self.request.game_root.root()
     }
 
     pub fn instance_directory(&self) -> &Path {
@@ -124,7 +123,7 @@ impl LaunchJob {
         let session = resolve_session(player, options, account_resolved)
             .await
             .map_err(LaunchFailure::Failed)?;
-        let lock = vanilla::launch_lock(self.game_root()).map_err(LaunchFailure::Failed)?;
+        let lock = vanilla::launch_lock(&self.request.game_root).map_err(LaunchFailure::Failed)?;
         self.check_files()?;
 
         // Keep installers out until the child has opened the prepared files,
@@ -151,7 +150,7 @@ impl LaunchJob {
         } else {
             loader::check_files
         };
-        check(self.game_root(), self.version_id(), &Target::host()).map_err(|error| {
+        check(&self.request.game_root, self.version_id(), &Target::host()).map_err(|error| {
             LaunchFailure::NeedsInstall(format!("Install game files to continue. {error}"))
         })
     }

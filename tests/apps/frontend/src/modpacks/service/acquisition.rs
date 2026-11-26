@@ -98,7 +98,7 @@ impl Network for FileServer<'_> {
 fn retry_only_requests_failed_pack_downloads() {
     let temp = tempfile::tempdir().unwrap();
     let plan = fixture(temp.path(), &["first.jar", "second.jar"]);
-    let data = DataDir::new(temp.path());
+    let data = DataDir::isolated(temp.path()).unwrap();
     let mut pack = StagedPack::new(plan, &data).unwrap();
     let first = FileServer {
         unreachable: Some("first.jar"),

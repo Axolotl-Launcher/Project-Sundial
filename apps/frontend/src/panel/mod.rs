@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use axlauncher_core::BRAND_NAME;
-use axlauncher_core::state::profile::discover;
 use axlauncher_core::state::{SettingsData, SettingsOrigin, ThemeChoice};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
@@ -34,7 +33,7 @@ mod profile_creation;
 const DEFAULT_PLAYER: &str = "Player";
 
 pub(crate) struct RootView {
-    root: Option<PathBuf>,
+    paths: Option<DataDir>,
     notice: Option<String>,
     settings: Option<SettingsData>,
     origin: Option<SettingsOrigin>,
@@ -57,8 +56,9 @@ impl RootView {
     pub(crate) fn new(startup: Startup, window: &mut Window, cx: &mut Context<'_, Self>) -> Self {
         let Startup { palette: _, loaded } = startup;
         let root_text = loaded
-            .root
-            .as_deref()
+            .paths
+            .as_ref()
+            .map(DataDir::root)
             .map(|root| root.display().to_string())
             .unwrap_or_default();
         let root_input = cx.new(|cx| {
@@ -75,22 +75,22 @@ impl RootView {
             .map(|settings| settings.theme)
             .unwrap_or_default();
         let modpack = cx.new(ModpackImport::new);
-        modpack.update(cx, |view, cx| view.set_enabled(loaded.root.is_some(), cx));
+        modpack.update(cx, |view, cx| view.set_enabled(loaded.paths.is_some(), cx));
         cx.subscribe_in(&modpack, window, Self::modpack_event)
             .detach();
         cx.observe(&modpack, Self::modpack_download_changed)
             .detach();
         let download_debug =
             download_debug::DownloadDebug::new(loaded.settings.as_ref(), window, cx);
-        let accounts = accounts::AccountsPanel::new(loaded.root.as_deref(), window, cx);
+        let accounts = accounts::AccountsPanel::new(loaded.paths.as_ref(), window, cx);
         let game_language = loaded
             .settings
             .as_ref()
             .map_or("", |settings| settings.default_game_language.as_str());
         let environment =
-            environment::EnvironmentState::new(loaded.root.as_deref(), game_language, window, cx);
+            environment::EnvironmentState::new(loaded.paths.as_ref(), game_language, window, cx);
         let mut view = Self {
-            root: loaded.root,
+            paths: loaded.paths,
             notice: loaded.notice,
             settings: loaded.settings,
             origin: loaded.origin,
@@ -138,19 +138,25 @@ impl RootView {
     }
 
     pub(super) fn reload(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        let loaded = load_at(self.root.clone());
+        let Some(paths) = self.paths.clone() else {
+            return;
+        };
+        let loaded = load_at(paths);
         self.apply_loaded(loaded, window, cx);
         self.activity.info("Reloaded settings and instances");
         cx.notify();
     }
 
     fn apply_loaded(&mut self, loaded: Loaded, window: &mut Window, cx: &mut Context<'_, Self>) {
-        let same_root = self.root == loaded.root;
-        self.root = loaded.root;
+        let previous = self.paths.as_ref();
+        let current = loaded.paths.as_ref();
+        let same_data = previous.map(DataDir::root) == current.map(DataDir::root);
+        let same_instances = previous.map(DataDir::instances) == current.map(DataDir::instances);
+        self.paths = loaded.paths;
         self.modpack
-            .update(cx, |view, cx| view.set_enabled(self.root.is_some(), cx));
-        if !same_root {
-            self.accounts.reset(self.root.as_deref(), window, cx);
+            .update(cx, |view, cx| view.set_enabled(self.paths.is_some(), cx));
+        if !same_data {
+            self.accounts.reset(self.paths.as_ref(), window, cx);
         }
         self.refresh_accounts(cx);
         self.settings = loaded.settings;
@@ -163,7 +169,7 @@ impl RootView {
             .as_ref()
             .map(|settings| settings.theme)
             .unwrap_or_default();
-        self.environment.refresh(self.root.as_deref());
+        self.environment.refresh(self.paths.as_ref());
         let game_language = self
             .settings
             .as_ref()
@@ -171,12 +177,13 @@ impl RootView {
             .unwrap_or_default();
         self.environment
             .set_game_language(game_language, window, cx);
-        self.instances.replace(loaded.profiles, same_root);
+        self.instances.replace(loaded.profiles, same_instances);
         self.inspection = launch::Inspection::default();
 
         let root_text = self
-            .root
-            .as_deref()
+            .paths
+            .as_ref()
+            .map(DataDir::root)
             .map(|root| root.display().to_string())
             .unwrap_or_default();
         self.root_input
@@ -194,10 +201,10 @@ impl RootView {
         match event {
             ImportEvent::InstallRequested => self.install_modpack(view, window, cx),
             ImportEvent::Installed {
-                root,
+                paths,
                 directory,
                 name,
-            } => self.record_modpack(root, directory, name, cx),
+            } => self.record_modpack(paths, directory, name, cx),
         }
     }
 
@@ -207,41 +214,44 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(root) = self.root.clone() else {
+        let Some(paths) = self.paths.clone() else {
             return;
         };
         let options = axlauncher_core::desktop::sources::DownloadOptions::from_settings(
             self.settings.as_ref(),
         );
-        view.update(cx, |view, cx| view.install(root, options, window, cx));
+        view.update(cx, |view, cx| view.install(paths, options, window, cx));
     }
 
     fn record_modpack(
         &mut self,
-        root: &Path,
+        paths: &DataDir,
         directory: &Path,
         name: &str,
         cx: &mut Context<'_, Self>,
     ) {
         self.activity.success(format!("Installed {name}"));
-        if self.root.as_deref() == Some(root) {
-            self.instances
-                .replace(discover(&DataDir::new(root).instances()), true);
+        if self
+            .instances
+            .refresh_after_install(self.paths.as_ref(), paths)
+        {
             self.select_instance(directory.to_path_buf(), cx);
         }
         cx.notify();
     }
 
     fn record_data_root(&mut self) {
-        match &self.root {
-            Some(root) => self.activity.info(format!("Data root: {}", root.display())),
+        match &self.paths {
+            Some(paths) => self
+                .activity
+                .info(format!("Data root: {}", paths.root().display())),
             None => self.activity.error("Data root unknown"),
         }
     }
 
     fn settings_readonly(&self) -> bool {
         self.settings.is_none()
-            || self.root.is_none()
+            || self.paths.is_none()
             || matches!(
                 self.origin,
                 Some(SettingsOrigin::ReadOnlyOtherSchema { .. })
@@ -254,7 +264,7 @@ impl RootView {
 
     fn render_header(&mut self, cx: &mut Context<'_, Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
-        let disabled = self.root.is_none();
+        let disabled = self.paths.is_none();
 
         v_flex()
             .gap_2()

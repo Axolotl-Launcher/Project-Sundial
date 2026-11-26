@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::Path;
 
-use super::super::{FILE_NAME, SCHEMA_VERSION};
+use super::super::SCHEMA_VERSION;
 use super::{DiscoveryError, discover};
 use crate::test_support::TempRoot;
 
@@ -24,7 +24,7 @@ fn profile_bytes(id: &str, name: &str) -> Vec<u8> {
 fn put(root: &Path, directory: &str, bytes: &[u8]) {
     let instance = root.join(directory);
     fs::create_dir_all(&instance).expect("instance directory");
-    fs::write(instance.join(FILE_NAME), bytes).expect("profile");
+    fs::write(instance.join(".axlprofile"), bytes).expect("profile");
 }
 
 #[test]
@@ -92,7 +92,7 @@ fn a_malformed_profile_is_reported_rather_than_dropped() {
             &temp
                 .path()
                 .join("broken")
-                .join(FILE_NAME)
+                .join(".axlprofile")
                 .display()
                 .to_string()
         )

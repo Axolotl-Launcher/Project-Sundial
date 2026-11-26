@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use axlauncher_core::desktop::launching::LaunchJob;
-use axlauncher_core::state::profile::{DiscoveredProfile, ProfileDiscovery};
+use axlauncher_core::state::profile::{DiscoveredProfile, ProfileDiscovery, discover};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
@@ -35,13 +35,26 @@ impl InstancesState {
         }
     }
 
-    pub(super) fn replace(&mut self, discovered: ProfileDiscovery, same_root: bool) {
-        let previous = self.selected().filter(|_| same_root);
+    pub(super) fn replace(&mut self, discovered: ProfileDiscovery, preserve_selection: bool) {
+        let previous = self.selected().filter(|_| preserve_selection);
         let selected = previous.and_then(|entry| find_previous(&discovered.instances, entry));
         self.selected = selected
             .or_else(|| discovered.instances.first())
             .map(|entry| entry.directory.clone());
         self.discovered = discovered;
+    }
+
+    pub(super) fn refresh_after_install(
+        &mut self,
+        current: Option<&DataDir>,
+        job: &DataDir,
+    ) -> bool {
+        let instances = job.instances();
+        if current.map(DataDir::instances).as_ref() != Some(&instances) {
+            return false;
+        }
+        self.replace(discover(&instances), true);
+        true
     }
 
     pub(super) fn selected(&self) -> Option<&DiscoveredProfile> {
@@ -61,6 +74,10 @@ impl InstancesState {
             .find(|entry| entry.directory == directory)
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/apps/frontend/src/panel/instances.rs"]
+mod tests;
 
 fn find_previous<'a>(
     entries: &'a [DiscoveredProfile],
@@ -92,7 +109,7 @@ impl RootView {
         player_name: String,
     ) -> Option<LaunchJob> {
         LaunchJob::for_profile(
-            self.root.as_deref()?,
+            self.paths.as_ref()?,
             entry,
             player_name,
             self.settings.as_ref(),
@@ -103,10 +120,10 @@ impl RootView {
         let muted = cx.theme().muted_foreground;
         let danger = cx.theme().danger;
         let profiles = &self.instances.discovered;
-        let data = self.root.as_ref().map(DataDir::new);
-        let installations = data
+        let installations = self
+            .paths
             .as_ref()
-            .and_then(|data| self.installations.get(&data.meta()));
+            .and_then(|data| self.installations.get(data.game().root()));
 
         GroupBox::new()
             .id("instances")

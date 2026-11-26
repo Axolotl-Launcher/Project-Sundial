@@ -162,7 +162,11 @@ fn profile_metadata_includes_playtime_and_download_information() {
         "source":{"provider":"modrinth","project_id":"project","version_id":"version"},
         "download_cache":{"url":"https://cdn.example.org/example.jar"}
     }}});
-    put(temp.path(), FILE_NAME, &serde_json::to_vec(&body).unwrap());
+    put(
+        temp.path(),
+        ".axlprofile",
+        &serde_json::to_vec(&body).unwrap(),
+    );
 
     let profile = read(temp.path()).unwrap().unwrap();
     assert_eq!(profile.install.status, InstallStatus::Ready);
@@ -189,7 +193,11 @@ fn content_paths_cannot_escape_the_profile_or_record_a_disabled_suffix() {
     ] {
         let mut body: serde_json::Value = serde_json::from_slice(MINIMAL).unwrap();
         body["content"] = serde_json::json!({"files":{(path):{"size_bytes":3,"hashes":{}}}});
-        put(temp.path(), FILE_NAME, &serde_json::to_vec(&body).unwrap());
+        put(
+            temp.path(),
+            ".axlprofile",
+            &serde_json::to_vec(&body).unwrap(),
+        );
         assert!(
             matches!(
                 read(temp.path()),
@@ -207,7 +215,7 @@ fn hand_edited_duplicate_content_keys_are_reported() {
     let file = r#"{"size_bytes":3,"hashes":{}}"#;
     let body =
         format!(r#"{header},"content":{{"files":{{"mods/a.jar":{file},"mods/a.jar":{file}}}}}}}"#);
-    put(temp.path(), FILE_NAME, body.as_bytes());
+    put(temp.path(), ".axlprofile", body.as_bytes());
 
     let error = read(temp.path()).expect_err("duplicate key");
     assert!(matches!(error, DiscoveryError::Parse { .. }));
@@ -263,7 +271,7 @@ fn local_resources_follow_old_directory_rules_and_the_actual_file_name() {
             .iter()
             .any(|file| file.relative_path == "saves/World" && file.kind == ResourceKind::World)
     );
-    assert!(!root.join(FILE_NAME).exists());
+    assert!(!root.join(".axlprofile").exists());
 }
 
 #[test]

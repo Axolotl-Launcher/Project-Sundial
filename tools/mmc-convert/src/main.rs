@@ -16,7 +16,7 @@ use axlauncher_core::install::{loader, prepare};
 use axlauncher_core::launch::{Target, version};
 use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::state::profile::{Game, Profile, StagedProfile};
-use axlauncher_core::storage::{AtomicFile, DataDir, instance_runtime, write_atomic};
+use axlauncher_core::storage::{AtomicFile, DataDir, GameDir, write_atomic};
 use axlauncher_modpack::MultiMcExport;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -42,7 +42,7 @@ fn run() -> Result<PathBuf> {
         );
     };
     let input = PathBuf::from(input);
-    let data = DataDir::new(std::path::absolute(data)?);
+    let data = DataDir::isolated(data)?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
@@ -60,22 +60,22 @@ async fn convert(input: &Path, data: &DataDir) -> Result<PathBuf> {
         io::copy(input, file.file())?;
         file.commit(&destination)
     })?;
-    let game_root = instance_runtime(staging.directory());
+    let game_root = GameDir::isolated(staging.directory());
     let target = Target::host();
     let network = ReqwestNetwork::desktop()?;
     let base_id = base::prepare(&network, data, &game_root, &requirements, &target).await?;
-    let mut effective = version::load_resolved(&game_root.join("versions"), &base_id)?;
+    let mut effective = version::load_resolved(&game_root.versions(), &base_id)?;
     let mut game = Game::new(requirements.minecraft()).with_isolated_runtime();
     if let Some((kind, build)) = requirements.loader() {
         game = game.with_loader(kind.as_str(), Some(build.into()));
     }
     let profile = Profile::new(export.name(), Some(game));
     set_converted_id(&mut effective)?;
-    patches::apply(patch_set, &mut export, &game_root, &mut effective)?;
+    patches::apply(patch_set, &mut export, data, &game_root, &mut effective)?;
     let checked = prepare::prepare(&network, &game_root, &effective, &target, 0).await?;
     base::complete(checked)?;
     write_atomic(
-        &loader::document_path(&game_root, &effective.id),
+        &game_root.version_document(&effective.id),
         &serde_json::to_vec_pretty(&effective)?,
     )?;
     loader::check_files(&game_root, &effective.id, &target)?;

@@ -83,14 +83,14 @@ pub fn install_key(game: &Game) -> Option<String> {
 /// A completed loader install returns its recorded version; vanilla files are shared.
 /// Call from a worker so downloads and profile writes stay off the UI thread.
 pub fn install(
-    data_root: &Path,
+    data: &DataDir,
     directory: &Path,
     target: InstallTarget,
     options: DownloadOptions,
     report: impl FnMut(Progress),
 ) -> Result<Option<String>, String> {
     let is_loader = target.is_loader();
-    let installed = prepare(&DataDir::new(data_root), target, options, report);
+    let installed = prepare(data, target, options, report);
     if is_loader {
         persist_loader_result(directory, installed).map(Some)
     } else {
@@ -140,7 +140,7 @@ async fn download_vanilla(
     let network = options.network()?;
     let prepared = vanilla::install(
         &network,
-        &data.meta(),
+        &data.game(),
         id,
         &Target::host(),
         concurrency,
@@ -184,7 +184,7 @@ async fn install_loader(
         network,
         loader: provider,
         java: &initial_java,
-        game_root: &data.meta(),
+        game_root: &data.game(),
         request,
         target: &Target::host(),
         concurrency,

@@ -8,13 +8,14 @@
 //! landed. Starting the game is a separate call, so a caller can show progress
 //! between the two.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use axlauncher_download_engine::{DownloadOutcome, MissingFile, download_all_reporting};
 use axlauncher_launch::Target;
 use axlauncher_launch::version::{AssetIndex, Version};
 use axlauncher_network::verify;
 use axlauncher_spi::{FetchError, FetchKind, Network};
+use axlauncher_storage::GameDir;
 
 use crate::assets::{AssetIndexDocument, missing_assets};
 
@@ -27,14 +28,6 @@ pub enum Progress {
     CheckingFiles,
     Downloading { processed: usize, total: usize },
     Finishing,
-}
-
-/// Where the asset index for a version is stored, under `game_root`.
-pub fn asset_index_path(game_root: &Path, index: &AssetIndex) -> PathBuf {
-    game_root
-        .join("assets")
-        .join("indexes")
-        .join(format!("{}.json", index.id))
 }
 
 /// A version's files that were absent and are now on disk.
@@ -114,14 +107,14 @@ impl std::error::Error for PrepareError {
 /// version document, so a second copy could only be the same bytes.
 pub async fn ensure_asset_index(
     network: &impl Network,
-    game_root: &Path,
+    game_root: &GameDir,
     version: &Version,
 ) -> Result<AssetIndexDocument, PrepareError> {
     let Some(index) = version.asset_index.clone() else {
         return Ok(AssetIndexDocument::default());
     };
 
-    let path = asset_index_path(game_root, &index);
+    let path = game_root.asset_index(&index.id);
     match std::fs::read(&path) {
         Ok(bytes) => return parse_index(&index, &bytes),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
@@ -162,7 +155,7 @@ fn index_error(index: &AssetIndex, reason: impl ToString) -> PrepareError {
 /// Downloads everything `version` needs that is not on disk.
 pub async fn prepare(
     network: &impl Network,
-    game_root: &Path,
+    game_root: &GameDir,
     version: &Version,
     target: &Target,
     concurrency: usize,
@@ -172,7 +165,7 @@ pub async fn prepare(
 
 pub(crate) async fn prepare_reporting(
     network: &impl Network,
-    game_root: &Path,
+    game_root: &GameDir,
     version: &Version,
     target: &Target,
     concurrency: usize,
@@ -230,7 +223,7 @@ pub fn summarise(outcomes: &[DownloadOutcome]) -> Prepared {
 /// separate pass: a version whose libraries are complete but whose jar is
 /// absent fails at launch with an error the game never gets to print.
 pub fn outstanding(
-    game_root: &Path,
+    game_root: &GameDir,
     version: &Version,
     index: &AssetIndexDocument,
     target: &Target,
@@ -239,7 +232,7 @@ pub fn outstanding(
 }
 
 fn missing_files(
-    game_root: &Path,
+    game_root: &GameDir,
     version: &Version,
     index: &AssetIndexDocument,
     target: &Target,
@@ -264,7 +257,7 @@ fn missing_files(
 
 /// Readiness requires the downloaded files and any flat asset copies.
 pub(crate) fn check_local_files(
-    game_root: &Path,
+    game_root: &GameDir,
     version: &Version,
     target: &Target,
 ) -> Result<(), String> {
@@ -288,11 +281,14 @@ pub(crate) fn check_local_files(
     Ok(())
 }
 
-fn local_index(game_root: &Path, index: Option<&AssetIndex>) -> Result<AssetIndexDocument, String> {
+fn local_index(
+    game_root: &GameDir,
+    index: Option<&AssetIndex>,
+) -> Result<AssetIndexDocument, String> {
     let Some(index) = index else {
         return Ok(AssetIndexDocument::default());
     };
-    let path = asset_index_path(game_root, index);
+    let path = game_root.asset_index(&index.id);
     let bytes =
         std::fs::read(&path).map_err(|error| format!("Cannot read {}: {error}", path.display()))?;
     parse_index(index, &bytes).map_err(|error| error.to_string())

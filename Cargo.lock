@@ -621,7 +621,6 @@ dependencies = [
  "axlauncher_core",
  "axlauncher_modpack",
  "axlauncher_ui",
- "dirs 6.0.0",
  "futures",
  "tempfile",
  "tokio",
@@ -769,8 +768,11 @@ dependencies = [
  "axlauncher_launch",
  "axlauncher_spi",
  "axlauncher_state",
+ "axlauncher_storage",
+ "proc-macro2",
  "serde",
  "serde_json",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -816,6 +818,7 @@ name = "axlauncher_storage"
 version = "0.1.0"
 dependencies = [
  "axlauncher_spi",
+ "dirs 6.0.0",
  "keyring",
  "tempfile",
 ]

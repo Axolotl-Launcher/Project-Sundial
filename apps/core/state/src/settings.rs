@@ -19,15 +19,13 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use axlauncher_storage::write_atomic;
+use axlauncher_storage::{invalid_settings_path, settings_lock_path, settings_path, write_atomic};
 use serde::{Deserialize, Serialize};
 
 use crate::document::{self, Existing};
 
 /// The only settings schema this build writes.
 pub const SETTINGS_SCHEMA_VERSION: u32 = 1;
-
-pub const SETTINGS_FILE: &str = "settings.json";
 
 /// Which palette the user prefers.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -197,7 +195,7 @@ impl std::error::Error for SettingsError {
 /// belongs to another build, and rewriting it would destroy that build's data.
 pub fn load_settings(root: &Path) -> Result<LoadedSettings, SettingsError> {
     let _guard = lock_settings(root)?;
-    let path = root.join(SETTINGS_FILE);
+    let path = settings_path(root);
 
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
@@ -214,7 +212,7 @@ pub fn load_settings(root: &Path) -> Result<LoadedSettings, SettingsError> {
 
     let document = match serde_json::from_slice::<SettingsDocument>(&bytes) {
         Ok(document) => document,
-        Err(_) => return quarantine(path),
+        Err(_) => return quarantine(path, invalid_settings_path(root)),
     };
 
     if document.schema_version != SETTINGS_SCHEMA_VERSION {
@@ -232,8 +230,7 @@ pub fn load_settings(root: &Path) -> Result<LoadedSettings, SettingsError> {
     })
 }
 
-fn quarantine(path: PathBuf) -> Result<LoadedSettings, SettingsError> {
-    let invalid = path.with_file_name(format!("{SETTINGS_FILE}.invalid"));
+fn quarantine(path: PathBuf, invalid: PathBuf) -> Result<LoadedSettings, SettingsError> {
     fs::rename(&path, &invalid).map_err(|source| SettingsError::Quarantine {
         path: path.clone(),
         source,
@@ -258,7 +255,7 @@ pub fn update_settings(
     update: impl FnOnce(&mut SettingsData),
 ) -> Result<SettingsData, SettingsError> {
     let _guard = lock_settings(root)?;
-    let path = root.join(SETTINGS_FILE);
+    let path = settings_path(root);
     let existing = document::inspect(&path).map_err(|source| SettingsError::Read {
         path: path.clone(),
         source,
@@ -297,7 +294,7 @@ fn write_settings(path: &Path, data: &SettingsData) -> Result<(), SettingsError>
 }
 
 fn lock_settings(root: &Path) -> Result<fs::File, SettingsError> {
-    let path = root.join("settings.lock");
+    let path = settings_lock_path(root);
     let failure = |source| SettingsError::Write {
         path: path.clone(),
         source,

@@ -227,7 +227,7 @@ fn a_runtime_without_the_record_is_downloaded_again() {
 
     assert_eq!(fs::read(&installed.java).expect("java"), RAW_BODY);
     assert!(
-        record::marker_path(&directory).is_file(),
+        axlauncher_storage::runtime_record(&directory).is_file(),
         "the record is written"
     );
     let _ = fs::remove_dir_all(&root);

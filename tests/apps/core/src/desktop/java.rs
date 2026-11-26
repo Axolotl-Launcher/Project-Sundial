@@ -7,11 +7,11 @@ use super::*;
 
 fn installed_document(json: &str) -> Version {
     let root = tempfile::tempdir().unwrap();
-    let data = DataDir::new(root.path());
-    let directory = data.version("1.21");
-    std::fs::create_dir_all(&directory).unwrap();
-    std::fs::write(directory.join("1.21.json"), json).unwrap();
-    version::load(&data.versions(), "1.21").unwrap()
+    let data = DataDir::isolated(root.path()).unwrap();
+    let document = data.game().version_document("1.21");
+    std::fs::create_dir_all(document.parent().unwrap()).unwrap();
+    std::fs::write(document, json).unwrap();
+    version::load(&data.game().versions(), "1.21").unwrap()
 }
 
 #[test]
@@ -59,6 +59,6 @@ fn managed_java_and_environment_share_the_recorded_choice() {
 
     let environment = JavaEnvironment::load(Some(root.path()));
     assert_eq!(environment.chosen(), &[(21, java.clone())]);
-    let provider = managed(&DataDir::new(root.path()));
+    let provider = managed(&DataDir::isolated(root.path()).unwrap());
     assert_eq!(provider.executable_for(21, JavaMode::Console), Some(java));
 }

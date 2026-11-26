@@ -12,11 +12,11 @@ fn a_historical_id_with_spaces_previews_and_reaches_the_launcher() {
     request.version_id = id.to_owned();
     let document = fixture
         .game_root()
-        .join(VERSIONS)
+        .join("versions")
         .join(id)
         .join(format!("{id}.json"));
     write_file(&document, VERSION_JSON.replace(VERSION_ID, id).as_bytes());
-    let jar = plan::client_jar(&fixture.game_root(), id);
+    let jar = axlauncher_storage::GameDir::standalone(fixture.game_root()).client_jar(id);
     write_file(&jar, b"client jar");
 
     let command = preview(&java, &request).expect("preview keeps the catalog ID");

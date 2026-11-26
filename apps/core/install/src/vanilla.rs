@@ -5,13 +5,12 @@
 
 use std::fs::{self, File};
 use std::io;
-use std::path::Path;
 
 use axlauncher_launch::Target;
 use axlauncher_launch::version::{self, Version, VersionError};
 use axlauncher_network::verify;
 use axlauncher_spi::{FetchKind, Network};
-use axlauncher_storage::write_atomic;
+use axlauncher_storage::{GameDir, write_atomic};
 
 use crate::prepare::{Prepared, Progress, check_local_files, prepare_reporting};
 
@@ -25,7 +24,7 @@ pub use catalog::{MinecraftCatalog, MinecraftVersion, versions};
 /// and assets. The caller owns the profile and any UI progress state.
 pub async fn install(
     network: &impl Network,
-    game_root: &Path,
+    game_root: &GameDir,
     id: &str,
     target: &Target,
     concurrency: usize,
@@ -41,10 +40,9 @@ pub async fn install(
 }
 
 /// A local installation check that works without a network connection.
-pub fn check_files(game_root: &Path, id: &str, target: &Target) -> Result<(), String> {
+pub fn check_files(game_root: &GameDir, id: &str, target: &Target) -> Result<(), String> {
     check_id(id)?;
-    let version =
-        version::load(&game_root.join("versions"), id).map_err(|error| error.to_string())?;
+    let version = version::load(&game_root.versions(), id).map_err(|error| error.to_string())?;
     let version = vanilla_client(version, id)?;
     check_local_files(game_root, &version, target)
 }
@@ -57,7 +55,7 @@ fn check_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn installation_lock(game_root: &Path) -> Result<File, String> {
+pub(crate) fn installation_lock(game_root: &GameDir) -> Result<File, String> {
     let lock = open_install_lock(game_root)?;
     lock.try_lock()
         .map_err(|error| format!("Cannot lock shared game files: {error}"))?;
@@ -65,17 +63,17 @@ pub(crate) fn installation_lock(game_root: &Path) -> Result<File, String> {
 }
 
 /// A shared guard keeps an installation stable while Minecraft starts.
-pub fn launch_lock(game_root: &Path) -> Result<File, String> {
+pub fn launch_lock(game_root: &GameDir) -> Result<File, String> {
     let lock = open_install_lock(game_root)?;
     lock.try_lock_shared()
         .map_err(|error| format!("Cannot lock shared game files for launch: {error}"))?;
     Ok(lock)
 }
 
-fn open_install_lock(game_root: &Path) -> Result<File, String> {
-    fs::create_dir_all(game_root)
-        .map_err(|error| format!("Cannot create {}: {error}", game_root.display()))?;
-    let path = game_root.join(".install.lock");
+fn open_install_lock(game_root: &GameDir) -> Result<File, String> {
+    fs::create_dir_all(game_root.root())
+        .map_err(|error| format!("Cannot create {}: {error}", game_root.root().display()))?;
+    let path = game_root.install_lock();
     File::options()
         .read(true)
         .write(true)
@@ -87,10 +85,10 @@ fn open_install_lock(game_root: &Path) -> Result<File, String> {
 
 pub(crate) async fn ensure_version(
     network: &impl Network,
-    game_root: &Path,
+    game_root: &GameDir,
     id: &str,
 ) -> Result<Version, String> {
-    let version_root = game_root.join("versions");
+    let version_root = game_root.versions();
     match version::load(&version_root, id) {
         Ok(version) => return vanilla_client(version, id),
         Err(VersionError::Read { source, .. }) if source.kind() == io::ErrorKind::NotFound => (),
@@ -112,7 +110,7 @@ pub(crate) async fn ensure_version(
             Ok((vanilla_client(version, id)?, bytes))
         })
         .await?;
-    let path = crate::loader::document_path(game_root, id);
+    let path = game_root.version_document(id);
     write_atomic(&path, &bytes)
         .map_err(|error| format!("Cannot write {}: {error}", path.display()))?;
     Ok(version)

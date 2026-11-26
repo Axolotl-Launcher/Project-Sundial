@@ -97,7 +97,7 @@ fn a_cache_entry_whose_file_changed_is_not_usable() {
 fn another_schema_is_read_free_and_never_replaced() {
     let root = TempRoot::new();
     let document = br#"{"schema_version": 9}"#;
-    fs::write(root.path().join(JAVAS_FILE), document).expect("seed");
+    fs::write(root.path().join("javas.json"), document).expect("seed");
 
     let loaded = load(root.path()).expect("load");
     assert_eq!(loaded.origin, JavasOrigin::ReadOnlyOtherSchema { found: 9 });

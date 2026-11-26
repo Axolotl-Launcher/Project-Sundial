@@ -17,9 +17,6 @@ use std::path::Path;
 
 use super::{RuntimeFile, safe_join};
 
-/// The file a finished install writes, and the only proof a runtime is complete.
-const MARKER: &str = ".axlauncher-complete";
-
 /// What a finished install recorded: every file it wrote and that file's digest.
 pub(super) type Record = BTreeMap<String, String>;
 
@@ -28,7 +25,7 @@ pub(super) type Record = BTreeMap<String, String>;
 /// An unreadable or unparsable marker is no record at all: treating it as one
 /// would mean trusting a file whose contents could not be checked.
 pub(super) fn read(directory: &Path) -> Option<Record> {
-    let bytes = fs::read(directory.join(MARKER)).ok()?;
+    let bytes = fs::read(axlauncher_storage::runtime_record(directory)).ok()?;
     serde_json::from_slice(&bytes).ok()
 }
 
@@ -60,11 +57,6 @@ pub(super) fn matches(directory: &Path, recorded: &Record) -> bool {
             .and_then(|source| axlauncher_network::verify_reader(source, digest).ok())
             .is_some_and(|matches| matches)
     })
-}
-
-/// The path the marker occupies inside a runtime's directory.
-pub(super) fn marker_path(directory: &Path) -> std::path::PathBuf {
-    directory.join(MARKER)
 }
 
 #[cfg(test)]

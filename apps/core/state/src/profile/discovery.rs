@@ -9,7 +9,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::{FILE_NAME, Profile, SCHEMA_VERSION, invalid, is_link, read};
+use super::{Profile, SCHEMA_VERSION, invalid, is_link, profile_document, read};
 
 #[derive(Debug)]
 pub enum DiscoveryError {
@@ -136,7 +136,7 @@ fn report_duplicate_ids(instances: &[DiscoveredProfile], issues: &mut Vec<Discov
             .or_insert(&entry.directory);
         if *first != &entry.directory {
             issues.push(invalid(
-                &entry.directory.join(FILE_NAME),
+                &profile_document(&entry.directory),
                 format!("profile ID also used by {}", first.display()),
             ));
         }

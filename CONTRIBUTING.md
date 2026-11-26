@@ -47,8 +47,11 @@ The workspace enables incremental Cargo builds in
 [`.cargo/config.toml`](.cargo/config.toml).
 
 The launcher stores settings and instances in `AXLauncher` under the system
-application data directory by default. Set `AXLAUNCHER_DATA_DIR` to use a
-different directory or reuse an existing data directory.
+data directory, and rebuildable files in `AXLauncher` under the system cache
+directory. Set `AXLAUNCHER_DATA_DIR` to keep data, instances, cache, and scratch
+files under one directory for development. The
+[filesystem path policy](.agents/docs/filesystem-paths.md) documents directory
+selection and session overrides.
 
 ### Cargo registry mirrors
 

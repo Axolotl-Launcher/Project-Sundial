@@ -154,13 +154,13 @@ impl Fixture {
 
     fn version_document(&self) -> PathBuf {
         self.game_root()
-            .join(VERSIONS)
+            .join("versions")
             .join(VERSION_ID)
             .join(format!("{VERSION_ID}.json"))
     }
 
     fn client_jar(&self) -> PathBuf {
-        plan::client_jar(&self.game_root(), VERSION_ID)
+        GameDir::standalone(self.game_root()).client_jar(VERSION_ID)
     }
 
     fn request(&self) -> LaunchRequest {
@@ -169,7 +169,7 @@ impl Fixture {
 
     fn request_with_java(&self, java_preference: Option<PathBuf>) -> LaunchRequest {
         LaunchRequest {
-            game_root: self.game_root(),
+            game_root: GameDir::standalone(self.game_root()),
             instance_directory: self.instance_directory(),
             version_id: VERSION_ID.to_owned(),
             java_preference,

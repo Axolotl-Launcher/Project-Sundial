@@ -31,15 +31,16 @@ fn installation_keys_follow_the_profile_not_its_resolved_version() {
 #[test]
 fn preparing_shared_game_files_does_not_publish_a_staged_profile() {
     let temporary = tempfile::tempdir().unwrap();
-    let data = DataDir::new(temporary.path());
+    let data = DataDir::isolated(temporary.path()).unwrap();
     let id = "1.21.11";
-    let version = data.version(id);
-    std::fs::create_dir_all(&version).unwrap();
-    std::fs::write(version.join(format!("{id}.jar")), b"jar").unwrap();
+    let game_paths = data.game();
+    let client = game_paths.client_jar(id);
+    std::fs::create_dir_all(client.parent().unwrap()).unwrap();
+    std::fs::write(client, b"jar").unwrap();
     let manifest = format!(
         r#"{{"id":"{id}","downloads":{{"client":{{"size":3,"url":"https://example.invalid/client.jar"}}}}}}"#
     );
-    std::fs::write(version.join(format!("{id}.json")), manifest).unwrap();
+    std::fs::write(game_paths.version_document(id), manifest).unwrap();
     let staged = profile::StagedProfile::new(&data.instances()).unwrap();
     let game = Game::new(id);
     let target = InstallTarget::for_game(&game).unwrap();

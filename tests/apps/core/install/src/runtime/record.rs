@@ -6,7 +6,9 @@ use std::fs;
 use std::path::Path;
 
 use super::super::RuntimeFile;
-use super::{Record, from_manifest, marker_path, matches, read};
+use axlauncher_storage::runtime_record;
+
+use super::{Record, from_manifest, matches, read};
 use crate::test_tempfile as tempfile;
 
 const JAVA: &[u8] = b"java binary";
@@ -46,7 +48,7 @@ fn a_written_record_reads_back_unchanged() {
     let runtime = tempfile::tempdir().expect("tempdir");
     let recorded = record_of(&[("bin/java", JAVA), ("lib/plain.txt", PLAIN)]);
     let bytes = serde_json::to_vec(&recorded).expect("encode");
-    fs::write(marker_path(runtime.path()), bytes).expect("marker");
+    fs::write(runtime_record(runtime.path()), bytes).expect("marker");
 
     assert_eq!(read(runtime.path()), Some(recorded));
 }
@@ -56,7 +58,7 @@ fn the_marker_sits_at_the_completion_name_inside_the_runtime() {
     let directory = Path::new("runtimes").join("java-runtime-gamma");
 
     assert_eq!(
-        marker_path(&directory),
+        runtime_record(&directory),
         directory.join(".axlauncher-complete")
     );
 }
@@ -71,7 +73,7 @@ fn a_runtime_without_a_marker_has_no_record() {
 #[test]
 fn a_marker_that_cannot_be_read_is_no_record() {
     let runtime = tempfile::tempdir().expect("tempdir");
-    fs::create_dir(marker_path(runtime.path())).expect("directory at the marker path");
+    fs::create_dir(runtime_record(runtime.path())).expect("directory at the marker path");
 
     assert_eq!(read(runtime.path()), None);
 }
@@ -79,7 +81,7 @@ fn a_marker_that_cannot_be_read_is_no_record() {
 #[test]
 fn a_marker_that_is_not_a_record_is_no_record() {
     let runtime = tempfile::tempdir().expect("tempdir");
-    fs::write(marker_path(runtime.path()), b"not a record").expect("marker");
+    fs::write(runtime_record(runtime.path()), b"not a record").expect("marker");
 
     assert_eq!(read(runtime.path()), None);
 }
@@ -87,7 +89,7 @@ fn a_marker_that_is_not_a_record_is_no_record() {
 #[test]
 fn a_marker_that_is_json_but_not_a_map_is_no_record() {
     let runtime = tempfile::tempdir().expect("tempdir");
-    fs::write(marker_path(runtime.path()), b"[1, 2, 3]").expect("marker");
+    fs::write(runtime_record(runtime.path()), b"[1, 2, 3]").expect("marker");
 
     assert_eq!(read(runtime.path()), None);
 }

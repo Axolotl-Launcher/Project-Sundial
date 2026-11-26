@@ -84,10 +84,15 @@ fn an_absent_index_is_fetched_and_written() {
     };
     let version = version_with_index("34", "https://example.test/34.json");
 
-    let index = block_on(ensure_asset_index(&network, &temp.0, &version)).expect("index");
+    let index = block_on(ensure_asset_index(
+        &network,
+        &GameDir::standalone(&temp.0),
+        &version,
+    ))
+    .expect("index");
 
     assert!(index.objects.is_empty());
-    let path = asset_index_path(&temp.0, version.asset_index.as_ref().expect("index"));
+    let path = temp.0.join("assets/indexes/34.json");
     assert_eq!(fs::read(path).expect("written index"), body);
 }
 
@@ -115,8 +120,14 @@ fn a_virtual_index_does_not_overwrite_a_pre_1_6_resource() {
     fs::create_dir_all(existing.parent().unwrap()).unwrap();
     fs::write(&existing, b"older sound").unwrap();
 
-    let result =
-        block_on(prepare(&network, &game_root, &version, &Target::host(), 1)).expect("prepare");
+    let result = block_on(prepare(
+        &network,
+        &GameDir::standalone(&game_root),
+        &version,
+        &Target::host(),
+        1,
+    ))
+    .expect("prepare");
 
     assert!(result.is_complete(), "{result:?}");
     assert_eq!(result.requested, 1);
@@ -133,7 +144,7 @@ fn a_virtual_index_does_not_overwrite_a_pre_1_6_resource() {
 fn an_index_already_on_disk_is_not_fetched_again() {
     let temp = TempDir::new();
     let version = version_with_index("34", "https://example.test/unreachable.json");
-    let path = asset_index_path(&temp.0, version.asset_index.as_ref().expect("index"));
+    let path = temp.0.join("assets/indexes/34.json");
     fs::create_dir_all(path.parent().expect("parent")).expect("index directory");
     fs::write(&path, br#"{"objects":{}}"#).expect("seed");
 
@@ -141,7 +152,12 @@ fn an_index_already_on_disk_is_not_fetched_again() {
     let network = FakeNetwork {
         bodies: BTreeMap::new(),
     };
-    let index = block_on(ensure_asset_index(&network, &temp.0, &version)).expect("index");
+    let index = block_on(ensure_asset_index(
+        &network,
+        &GameDir::standalone(&temp.0),
+        &version,
+    ))
+    .expect("index");
 
     assert!(index.objects.is_empty());
 }
@@ -154,7 +170,12 @@ fn a_failed_fetch_names_the_index() {
     };
     let version = version_with_index("34", "https://example.test/34.json");
 
-    let error = block_on(ensure_asset_index(&network, &temp.0, &version)).expect_err("must fail");
+    let error = block_on(ensure_asset_index(
+        &network,
+        &GameDir::standalone(&temp.0),
+        &version,
+    ))
+    .expect_err("must fail");
 
     assert!(matches!(error, PrepareError::AssetIndex { .. }));
     assert!(error.to_string().contains("34"));
@@ -171,7 +192,12 @@ fn an_unparsable_index_reports_the_index_id() {
     };
     let version = version_with_index("34", "https://example.test/34.json");
 
-    let error = block_on(ensure_asset_index(&network, &temp.0, &version)).expect_err("must fail");
+    let error = block_on(ensure_asset_index(
+        &network,
+        &GameDir::standalone(&temp.0),
+        &version,
+    ))
+    .expect_err("must fail");
 
     assert!(matches!(error, PrepareError::AssetIndexUnreadable { .. }));
 }
@@ -185,7 +211,12 @@ fn a_version_without_an_index_prepares_nothing_from_assets() {
         bodies: BTreeMap::new(),
     };
 
-    let index = block_on(ensure_asset_index(&network, &temp.0, &version)).expect("index");
+    let index = block_on(ensure_asset_index(
+        &network,
+        &GameDir::standalone(&temp.0),
+        &version,
+    ))
+    .expect("index");
 
     assert!(index.objects.is_empty());
 }

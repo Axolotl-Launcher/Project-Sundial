@@ -24,7 +24,8 @@ fn temp() -> PathBuf {
 #[test]
 fn a_profile_lands_where_a_launch_looks_for_it() {
     let root = temp();
-    let parent = document_path(&root, "1.21.11");
+    let game = GameDir::standalone(&root);
+    let parent = game.version_document("1.21.11");
     write(
         &parent,
         br#"{"id":"1.21.11","downloads":{"client":{"url":"https://example.com/client.jar"}}}"#,
@@ -32,7 +33,7 @@ fn a_profile_lands_where_a_launch_looks_for_it() {
     .expect("parent");
     let mut profile = profile("1.21.11-0.20.1");
     profile.document = br#"{"id":"fabric-loader-0.20.1-1.21.11","inheritsFrom":"1.21.11","mainClass":"net.example.Fabric"}"#.to_vec();
-    let placed = place(&root, &profile).expect("place");
+    let placed = place(&game, &profile).expect("place");
 
     assert_eq!(
         placed.document,
@@ -47,7 +48,7 @@ fn a_profile_lands_where_a_launch_looks_for_it() {
         "1.21.11",
         "the parent's client jar runs"
     );
-    let client = crate::assets::client_jar(&root, &installed).expect("client download");
+    let client = crate::assets::client_jar(&game, &installed).expect("client download");
     assert_eq!(client.path, root.join("versions/1.21.11/1.21.11.jar"));
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -61,7 +62,7 @@ fn the_files_a_loader_brings_are_written_under_the_root() {
         bytes: b"jar".to_vec(),
     }];
 
-    let placed = place(&root, &profile).expect("place");
+    let placed = place(&GameDir::standalone(&root), &profile).expect("place");
 
     assert_eq!(placed.files, 1);
     assert_eq!(
@@ -89,7 +90,7 @@ fn a_file_path_that_leaves_the_root_is_refused() {
             bytes: Vec::new(),
         }];
 
-        let error = place(&root, &profile).expect_err(path);
+        let error = place(&GameDir::standalone(&root), &profile).expect_err(path);
         assert!(matches!(error, PlaceError::InvalidPath { .. }), "{path}");
     }
     let _ = std::fs::remove_dir_all(&root);
@@ -101,7 +102,7 @@ fn an_id_that_would_replace_the_vanilla_document_is_refused() {
     let mut inherited = profile("1.20.1");
     inherited.document = br#"{"id":"1.20.1","inheritsFrom":"1.20.1"}"#.to_vec();
 
-    let error = place(&root, &inherited).expect_err("would replace vanilla");
+    let error = place(&GameDir::standalone(&root), &inherited).expect_err("would replace vanilla");
 
     assert!(matches!(error, PlaceError::InvalidId { .. }), "{error}");
     let _ = std::fs::remove_dir_all(&root);
@@ -119,7 +120,7 @@ fn an_id_that_cannot_be_a_directory_is_refused() {
         "../x",
         &"x".repeat(MAX_ID_LEN + 1),
     ] {
-        let error = place(&root, &profile(id)).expect_err(id);
+        let error = place(&GameDir::standalone(&root), &profile(id)).expect_err(id);
         assert!(matches!(error, PlaceError::InvalidId { .. }), "{id:?}");
     }
     let _ = std::fs::remove_dir_all(&root);
@@ -240,7 +241,11 @@ fn vanilla_root() -> PathBuf {
         r#"{{"id":"1.21.11","type":"release","mainClass":"net.minecraft.client.main.Main","assets":"34","downloads":{{"client":{{"url":"{CLIENT_URL}","sha1":"{CLIENT_SHA1}","size":{}}}}}}}"#,
         CLIENT_JAR.len()
     );
-    write(&document_path(&root, "1.21.11"), document.as_bytes()).expect("vanilla document");
+    write(
+        &GameDir::standalone(&root).version_document("1.21.11"),
+        document.as_bytes(),
+    )
+    .expect("vanilla document");
     root
 }
 
@@ -257,7 +262,7 @@ fn install_once(
             network,
             loader,
             java,
-            game_root: root,
+            game_root: &GameDir::standalone(root),
             request: request(),
             target: &target,
             concurrency: 1,
@@ -293,12 +298,13 @@ fn installing_a_loader_writes_the_profile_and_its_files() {
 
     assert_eq!(installed.version_id, "fabric-loader-0.20.1-1.21.11");
     assert!(installed.prepared.is_complete(), "{:?}", installed.prepared);
-    assert!(document_path(&root, &installed.version_id).is_file());
+    let game = GameDir::standalone(&root);
+    assert!(game.version_document(&installed.version_id).is_file());
     assert!(root.join("libraries/example/loader.jar").is_file());
     let target = axlauncher_launch::Target::host();
-    check_files(&root, &installed.version_id, &target).expect("installed loader files");
+    check_files(&game, &installed.version_id, &target).expect("installed loader files");
     std::fs::remove_file(root.join("versions/1.21.11/1.21.11.jar")).expect("remove inherited jar");
-    let error = check_files(&root, &installed.version_id, &target).expect_err("missing client");
+    let error = check_files(&game, &installed.version_id, &target).expect_err("missing client");
     assert!(error.contains("1.21.11.jar"), "{error}");
     let _ = std::fs::remove_dir_all(&root);
 }

@@ -5,6 +5,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use axlauncher_storage::stage_instance;
+
 use super::{Profile, ProfileWriteError, installation::set_ready, save, validate};
 
 /// A new instance that becomes discoverable only when it is published.
@@ -16,12 +18,7 @@ pub struct StagedProfile {
 impl StagedProfile {
     /// Places the staging tree on the same filesystem as the managed profiles.
     pub fn new(instances: &Path) -> io::Result<Self> {
-        fs::create_dir_all(instances)?;
-        let staging = tempfile::Builder::new()
-            .prefix(".staging-")
-            .tempdir_in(instances)?;
-        let directory = staging.path().join("instance");
-        fs::create_dir(&directory)?;
+        let (staging, directory) = stage_instance(instances)?;
         Ok(Self { staging, directory })
     }
 

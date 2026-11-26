@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use axlauncher_core::desktop::{java::JavaEnvironment, launching::LAUNCHER_LANGUAGE};
 use axlauncher_core::domain::normalize_game_language;
 use axlauncher_core::state::{SettingsOrigin, ThemeChoice, update_settings};
-use axlauncher_core::storage::DataDir;
+use axlauncher_core::storage::{DataDir, Directory, settings_path};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, Button, ButtonVariants, Context, Disableable, ElementId, Entity,
@@ -29,7 +29,7 @@ pub(super) struct EnvironmentState {
 
 impl EnvironmentState {
     pub(super) fn new(
-        root: Option<&Path>,
+        paths: Option<&DataDir>,
         game_language: &str,
         window: &mut Window,
         cx: &mut Context<'_, RootView>,
@@ -42,7 +42,7 @@ impl EnvironmentState {
         cx.subscribe(&game_language, RootView::game_language_changed)
             .detach();
         Self {
-            java: JavaEnvironment::load(root),
+            java: JavaEnvironment::load(paths.map(DataDir::root)),
             game_language,
             error: None,
             notice: None,
@@ -64,8 +64,8 @@ impl EnvironmentState {
     /// The root comes from the caller rather than a copy kept here: the panel
     /// has one root, and a second one would drift from it as soon as the user
     /// applies a different directory.
-    pub(super) fn refresh(&mut self, root: Option<&Path>) {
-        self.java = JavaEnvironment::load(root);
+    pub(super) fn refresh(&mut self, paths: Option<&DataDir>) {
+        self.java = JavaEnvironment::load(paths.map(DataDir::root));
         self.error = None;
         self.notice = None;
     }
@@ -163,7 +163,7 @@ impl RootView {
                     .when_some(self.environment.error.clone(), |column, error| {
                         column.child(Label::new(error).text_xs().text_color(danger))
                     })
-                    .when(self.root.is_none(), |column| {
+                    .when(self.paths.is_none(), |column| {
                         column.child(
                             Label::new("Choose a data directory to enable the other sections.")
                                 .text_xs()
@@ -195,18 +195,18 @@ impl RootView {
     }
 
     fn environment_paths(&self, muted: Hsla) -> Vec<AnyElement> {
-        self.root
+        self.paths
             .as_ref()
-            .map(|root| {
-                let data = DataDir::new(root);
+            .map(|data| {
+                let game = data.game();
                 vec![
                     ("Data root", data.root().to_path_buf()),
                     ("Profiles", data.instances()),
-                    ("Shared game files", data.meta()),
-                    ("Versions", data.versions()),
-                    ("Libraries", data.libraries()),
-                    ("Assets", data.assets()),
-                    ("Settings", data.settings()),
+                    ("Shared game files", game.root().to_path_buf()),
+                    ("Versions", game.versions()),
+                    ("Libraries", game.libraries()),
+                    ("Assets", game.assets()),
+                    ("Settings", settings_path(data.root())),
                 ]
             })
             .unwrap_or_default()
@@ -297,28 +297,38 @@ impl RootView {
 
     pub(super) fn apply_root(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
         let text = self.root_input.read(cx).value().trim().to_string();
-        if text.is_empty() {
-            self.environment.error = Some("Enter a data directory.".to_string());
-            cx.notify();
-            return;
-        }
-
-        let path = match std::path::absolute(&text) {
-            Ok(path) => path,
+        let loaded = match self.load_selected_root(Path::new(&text)) {
+            Ok(loaded) => loaded,
             Err(error) => {
-                self.environment.error = Some(error.to_string());
+                self.environment.error = Some(error);
                 cx.notify();
                 return;
             }
         };
-        let loaded = load_at(Some(path));
         self.apply_loaded(loaded, window, cx);
         self.record_data_root();
         cx.notify();
     }
 
+    fn load_selected_root(&self, root: &Path) -> Result<crate::Loaded, String> {
+        let paths = match self.paths.clone() {
+            Some(mut paths) => paths
+                .set_directory(Directory::AppData, Some(root))
+                .map(|()| paths),
+            None => DataDir::isolated(root),
+        }
+        .map_err(|error| error.to_string())?;
+        let loaded = load_at(paths);
+        if loaded.settings.is_none() {
+            return Err(loaded
+                .notice
+                .expect("failed settings load reports an error"));
+        }
+        Ok(loaded)
+    }
+
     pub(super) fn save_settings(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        let Some(root) = self.root.clone() else {
+        let Some(paths) = self.paths.as_ref() else {
             self.environment.error = Some("Choose a data directory first.".to_string());
             cx.notify();
             return;
@@ -340,7 +350,7 @@ impl RootView {
         }
         let theme = (settings.theme != self.theme).then_some(self.theme);
         let language = language.filter(|_| language_changed);
-        let saved = update_settings(&root, |data| {
+        let saved = update_settings(paths.root(), |data| {
             data.theme = theme.unwrap_or(data.theme);
             data.default_game_language =
                 language.unwrap_or_else(|| std::mem::take(&mut data.default_game_language));

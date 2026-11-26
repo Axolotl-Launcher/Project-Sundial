@@ -7,8 +7,6 @@
 //! that combines `axlauncher_core` with `axlauncher_ui`. State lives here in
 //! GPUI entities; components stay stateless recipes.
 
-use std::path::PathBuf;
-
 use axlauncher_core::state::profile::{ProfileDiscovery, discover};
 use axlauncher_core::state::{SettingsData, SettingsOrigin, ThemeChoice, load_settings};
 use axlauncher_core::storage::DataDir;
@@ -29,15 +27,9 @@ const WINDOW_HEIGHT: f32 = 820.;
 const WINDOW_MIN_WIDTH: f32 = 720.;
 const WINDOW_MIN_HEIGHT: f32 = 560.;
 
-/// Overrides the data directory; the platform data directory is used otherwise.
-const DATA_DIR_ENV: &str = "AXLAUNCHER_DATA_DIR";
-
-/// Directory name under the platform data directory.
-const APP_DIR: &str = "AXLauncher";
-
 /// What the panel reads once at startup and again on every reload.
 pub(crate) struct Loaded {
-    pub(crate) root: Option<PathBuf>,
+    pub(crate) paths: Option<DataDir>,
     pub(crate) settings: Option<SettingsData>,
     pub(crate) origin: Option<SettingsOrigin>,
     pub(crate) profiles: ProfileDiscovery,
@@ -51,7 +43,16 @@ pub(crate) struct Startup {
 
 impl Startup {
     pub(crate) fn load() -> Self {
-        let loaded = load_at(data_root());
+        let loaded = match DataDir::from_environment() {
+            Ok(paths) => load_at(paths),
+            Err(error) => Loaded {
+                paths: None,
+                settings: None,
+                origin: None,
+                profiles: ProfileDiscovery::default(),
+                notice: Some(error.to_string()),
+            },
+        };
         let palette = loaded
             .settings
             .as_ref()
@@ -90,33 +91,9 @@ fn open_main_window(cx: &mut kit::App, startup: Startup) {
     .expect("failed to open the Axolotl Launcher window");
 }
 
-/// The launcher's data root: the override when set, else the platform data
-/// directory plus the application name.
-fn data_root() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os(DATA_DIR_ENV)
-        && !path.is_empty()
-    {
-        return Some(PathBuf::from(path));
-    }
-    dirs::data_dir().map(|base| base.join(APP_DIR))
-}
-
-/// Reads settings and instances for `root`; `None` means the platform could
-/// not name a data directory.
-pub(crate) fn load_at(root: Option<PathBuf>) -> Loaded {
-    let Some(root) = root else {
-        return Loaded {
-            root: None,
-            settings: None,
-            origin: None,
-            profiles: ProfileDiscovery::default(),
-            notice: Some(format!(
-                "Cannot determine the data directory. Set {DATA_DIR_ENV}, or choose one below."
-            )),
-        };
-    };
-
-    let (settings, origin, notice) = match load_settings(&root) {
+/// A coherent settings and instance view for the selected directories.
+pub(crate) fn load_at(paths: DataDir) -> Loaded {
+    let (settings, origin, notice) = match load_settings(paths.root()) {
         Ok(loaded) => {
             let notice = settings_notice(&loaded.origin);
             (Some(loaded.data), Some(loaded.origin), notice)
@@ -124,10 +101,10 @@ pub(crate) fn load_at(root: Option<PathBuf>) -> Loaded {
         Err(error) => (None, None, Some(error.to_string())),
     };
 
-    let profiles = discover(&DataDir::new(&root).instances());
+    let profiles = discover(&paths.instances());
 
     Loaded {
-        root: Some(root),
+        paths: Some(paths),
         settings,
         origin,
         profiles,

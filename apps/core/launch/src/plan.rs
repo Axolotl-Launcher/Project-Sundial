@@ -9,6 +9,7 @@
 use std::path::{Path, PathBuf};
 
 use axlauncher_spi::{LaunchCommand, ServiceHost};
+use axlauncher_storage::GameDir;
 
 use crate::arguments::{self, Values};
 use crate::classpath;
@@ -19,7 +20,7 @@ use crate::version::{Library, Version};
 #[derive(Debug, Clone)]
 pub struct Layout {
     /// The directory holding `versions/`, `libraries/` and `assets/`.
-    pub game_root: PathBuf,
+    pub game_root: GameDir,
     /// The instance's own directory, which the game writes its files into.
     pub game_directory: PathBuf,
     pub natives_directory: PathBuf,
@@ -224,13 +225,13 @@ pub fn build(
     session: &Session,
     target: &Target,
 ) -> Result<LaunchCommand, PlanError> {
-    let client_jar = client_jar(&layout.game_root, version.jar_id());
+    let client_jar = layout.game_root.client_jar(version.jar_id());
     if !client_jar.is_file() {
         return Err(PlanError::NoClientJar { path: client_jar });
     }
 
     let classpath = classpath::build(
-        &layout.game_root.join("libraries"),
+        &layout.game_root.libraries(),
         &version.libraries,
         &client_jar,
         target,
@@ -282,14 +283,6 @@ fn append_fallen_proxy_arguments(args: &mut Vec<String>, host: &str) {
     ));
 }
 
-/// The client jar the game runs from.
-pub fn client_jar(game_root: &Path, version_id: &str) -> PathBuf {
-    game_root
-        .join("versions")
-        .join(version_id)
-        .join(format!("{version_id}.jar"))
-}
-
 fn jvm_arguments(
     arguments: &crate::version::Arguments,
     target: &Target,
@@ -314,7 +307,7 @@ fn version_values(version: &Version, layout: &Layout, classpath: &str, target: &
         .map(|index| index.id.clone())
         .or_else(|| version.assets.clone())
         .unwrap_or_else(|| version.id.clone());
-    let assets_root = layout.game_root.join("assets");
+    let assets_root = layout.game_root.assets();
     let game_assets =
         flat_assets(&layout.game_root, &assets_index).unwrap_or_else(|| assets_root.clone());
 
@@ -330,7 +323,7 @@ fn version_values(version: &Version, layout: &Layout, classpath: &str, target: &
         )
         .with(
             "library_directory",
-            layout.game_root.join("libraries").display().to_string(),
+            layout.game_root.libraries().display().to_string(),
         )
         .with("launcher_name", layout.launcher_name.clone())
         .with("launcher_version", layout.launcher_version.clone())
@@ -373,13 +366,7 @@ fn account_values(mut values: Values, session: &Session) -> Values {
 /// file.
 fn logging_argument(version: &Version, layout: &Layout) -> Option<String> {
     let client = version.logging.as_ref()?.client.as_ref()?;
-    let mut path = axlauncher_storage::game_log_configs(&layout.game_root).join(&client.file.id);
-    if !path.is_file() {
-        path = layout
-            .game_root
-            .join("assets/log_configs")
-            .join(&client.file.id);
-    }
+    let path = layout.game_root.log_config(&client.file.id);
     // An install downloads this file; a launch that runs before one did keeps
     // the game's own default logging rather than naming a file that is not
     // there, which log4j reports as a configuration error.
@@ -398,23 +385,20 @@ fn logging_argument(version: &Version, layout: &Layout) -> Option<String> {
 ///
 /// The index's `virtual` flag selects `assets/virtual/<id>`. The
 /// `map_to_resources` flag selects the shared `resources/` tree.
-fn flat_assets(game_root: &Path, index_id: &str) -> Option<PathBuf> {
-    let path = game_root
-        .join("assets")
-        .join("indexes")
-        .join(format!("{index_id}.json"));
+fn flat_assets(game_root: &GameDir, index_id: &str) -> Option<PathBuf> {
+    let path = game_root.asset_index(index_id);
     let bytes = std::fs::read(path).ok()?;
     let document: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
 
     if document.get("virtual").and_then(serde_json::Value::as_bool) == Some(true) {
-        return Some(game_root.join("assets").join("virtual").join(index_id));
+        return Some(game_root.virtual_assets(index_id));
     }
     if document
         .get("map_to_resources")
         .and_then(serde_json::Value::as_bool)
         == Some(true)
     {
-        return Some(game_root.join("resources"));
+        return Some(game_root.legacy_resources());
     }
     None
 }

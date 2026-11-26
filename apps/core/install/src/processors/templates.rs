@@ -41,7 +41,7 @@ pub(super) fn launcher_data(
     game_version: &str,
     libraries: &Path,
 ) -> Vec<(&'static str, String)> {
-    let jar = axlauncher_launch::plan::client_jar(game_root, version.jar_id());
+    let jar = axlauncher_storage::GameDir::standalone(game_root).client_jar(version.jar_id());
     vec![
         (SIDE, CLIENT.to_string()),
         (MINECRAFT_JAR, jar.display().to_string()),

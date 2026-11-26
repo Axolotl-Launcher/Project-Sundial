@@ -9,7 +9,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use axlauncher_storage::write_atomic;
+use axlauncher_storage::{profile_document, write_atomic};
 
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -27,7 +27,6 @@ pub use installation::{InstallUpdateError, mark_failed, mark_installed};
 pub use resources::{Resource, ResourceKind, scan_resources};
 pub use staged::StagedProfile;
 
-pub const FILE_NAME: &str = ".axlprofile";
 const SCHEMA_VERSION: u32 = 1;
 
 /// A portable snapshot of the instance and its recorded content.
@@ -151,7 +150,7 @@ impl<'de> Visitor<'de> for ContentFiles {
 
 /// A missing marker means the directory is not an `.axlprofile` instance.
 pub fn read(directory: &Path) -> Result<Option<Profile>, DiscoveryError> {
-    let path = directory.join(FILE_NAME);
+    let path = profile_document(directory);
     let metadata = match fs::symlink_metadata(&path) {
         Ok(metadata) => metadata,
         Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -355,7 +354,7 @@ impl std::error::Error for ProfileWriteError {
 pub fn save(directory: &Path, profile: &Profile) -> Result<(), ProfileWriteError> {
     validate(profile).map_err(|reason| ProfileWriteError::Invalid { reason })?;
 
-    let path = directory.join(FILE_NAME);
+    let path = profile_document(directory);
     let existing = match fs::symlink_metadata(&path) {
         Ok(metadata) => {
             if !metadata.is_file() || is_link(&metadata) {

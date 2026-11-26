@@ -19,9 +19,11 @@ axlauncher_core.workspace = true
 axlauncher_modpack.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tempfile.workspace = true
 tokio.workspace = true
 zip = { workspace = true, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

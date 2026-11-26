@@ -103,40 +103,81 @@ impl Drop for TempDir {
     }
 }
 
+const CLASSIFIER_PATH: &str =
+    "org/lwjgl/lwjgl-platform/2.9.4/lwjgl-platform-2.9.4-natives-windows.jar";
+const CLASSIFIER_HASH: &str = "a9993e364706816aba3e25717850c26c9cd0d89d";
+
+fn windows_classifier() -> Library {
+    serde_json::from_value(serde_json::json!({
+        "name": "org.lwjgl:lwjgl-platform:2.9.4",
+        "natives": {"windows": "natives-windows"},
+        "downloads": {"classifiers": {"natives-windows": {
+            "path": CLASSIFIER_PATH,
+            "sha1": CLASSIFIER_HASH,
+            "size": 3,
+        }}},
+    }))
+    .expect("library")
+}
+
 #[test]
 fn a_cached_classifier_extracts_into_the_shared_version_directory() {
+    use axlauncher_storage::{DataDir, Directory};
+
     let temp = TempDir::new("cached-classifier");
-    let game_root = temp.0.join("meta");
-    let hash = "a9993e364706816aba3e25717850c26c9cd0d89d";
-    let archive = axlauncher_storage::native_archive(&game_root, hash).expect("archive path");
+    let mut paths = DataDir::isolated(&temp.0).unwrap();
+    let cache = temp.0.join("custom-cache");
+    paths
+        .set_directory(Directory::AppCache, Some(&cache))
+        .unwrap();
+    let game_root = paths.game();
+    let archive = cache
+        .join("minecraft-natives")
+        .join(format!("{CLASSIFIER_HASH}.jar"));
     fs::create_dir_all(archive.parent().expect("parent")).expect("cache directory");
     fs::write(&archive, b"abc").expect("cached jar");
     let reader =
         MemoryReader::default().with_jar(archive, vec![("lwjgl.dll".into(), b"native".to_vec())]);
 
-    let library = serde_json::from_value(serde_json::json!({
-        "name": "org.lwjgl:lwjgl-platform:2.9.4",
-        "natives": {"windows": "natives-windows"},
-        "downloads": {"classifiers": {"natives-windows": {
-            "path": "org/lwjgl/lwjgl-platform/2.9.4/lwjgl-platform-2.9.4-natives-windows.jar",
-            "sha1": hash,
-            "size": 3,
-        }}},
-    }))
-    .expect("library");
     let extracted = extract_version(
         &reader,
         &game_root,
         "1.12.2",
-        &[library],
+        &[windows_classifier()],
         &target("windows", "x86_64"),
     )
     .expect("extract cached jar");
 
     assert_eq!(
         extracted.files,
-        [game_root.join("natives/1.12.2/lwjgl.dll")]
+        [game_root.root().join("natives/1.12.2/lwjgl.dll")]
     );
+}
+
+#[test]
+fn shared_extraction_does_not_read_a_maven_copy_of_a_cached_classifier() {
+    let temp = TempDir::new("classifier-maven-copy");
+    let paths = axlauncher_storage::DataDir::isolated(&temp.0).unwrap();
+    let game_root = paths.game();
+    let reader = MemoryReader::default().with_jar(
+        game_root.libraries().join(CLASSIFIER_PATH),
+        vec![("lwjgl.dll".into(), b"native".to_vec())],
+    );
+
+    let error = extract_version(
+        &reader,
+        &game_root,
+        "1.12.2",
+        &[windows_classifier()],
+        &target("windows", "x86_64"),
+    )
+    .expect_err("only the shared cache can supply the classifier");
+
+    let cache_path = paths
+        .caches()
+        .join("minecraft-natives")
+        .join(format!("{CLASSIFIER_HASH}.jar"));
+    assert!(matches!(error, NativeError::NotAJar { path } if path == cache_path));
 }
 
 #[test]

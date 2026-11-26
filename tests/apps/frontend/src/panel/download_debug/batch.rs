@@ -49,7 +49,7 @@ fn pasted_links_keep_original_line_numbers_and_duplicate_urls() {
 #[test]
 fn a_failed_link_does_not_prevent_other_outputs() {
     let root = test_tempfile::tempdir().unwrap();
-    let data = DataDir::new(root.path());
+    let data = DataDir::isolated(root.path()).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || serve_http1(listener));
@@ -79,7 +79,7 @@ fn a_failed_link_does_not_prevent_other_outputs() {
 #[test]
 fn cancelling_a_batch_preserves_the_files_already_saved() {
     let root = test_tempfile::tempdir().unwrap();
-    let data = DataDir::new(root.path());
+    let data = DataDir::isolated(root.path()).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let stall = TcpListener::bind("127.0.0.1:0").unwrap();
     let links = parse_links(&format!(

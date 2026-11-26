@@ -56,7 +56,7 @@ impl CredentialStore for &CredentialMemory {
 fn cancelling_during_a_keyring_write_never_saves_or_selects_the_account() {
     runtime().block_on(async {
         let directory = TempRoot::new();
-        let data = DataDir::new(directory.path());
+        let data = DataDir::isolated(directory.path()).unwrap();
         let keyring = CredentialMemory::default();
         let service = AccountService::new(data.clone(), &keyring);
         service.add_offline("Previous", None).unwrap();
@@ -86,7 +86,7 @@ fn cancelling_during_a_keyring_write_never_saves_or_selects_the_account() {
 fn failed_reauthentication_keeps_the_saved_key_and_removal_retries_after_restart() {
     runtime().block_on(async {
         let directory = TempRoot::new();
-        let data = DataDir::new(directory.path());
+        let data = DataDir::isolated(directory.path()).unwrap();
         let keyring = CredentialMemory::default();
         let service = AccountService::new(data.clone(), &keyring);
         service.remember(verify().await, None).await.unwrap();
@@ -138,7 +138,7 @@ fn missing_credentials_and_keyring_read_failures_have_distinct_statuses() {
     runtime().block_on(async {
         let root = TempRoot::new();
         let keyring = CredentialMemory::default();
-        let service = AccountService::new(DataDir::new(root.path()), &keyring);
+        let service = AccountService::new(DataDir::isolated(root.path()).unwrap(), &keyring);
         service.remember(verify().await, None).await.unwrap();
         let id = service.snapshot().await.unwrap().selected().unwrap().id();
         keyring.fail_read.store(true, Ordering::Relaxed);
@@ -166,7 +166,7 @@ async fn verify() -> VerifiedAccount {
 fn cancellation_while_waiting_for_the_session_lock_prevents_persistence() {
     runtime().block_on(async {
         let directory = TempRoot::new();
-        let data = DataDir::new(directory.path());
+        let data = DataDir::isolated(directory.path()).unwrap();
         let keyring = CredentialMemory::default();
         let service = AccountService::new(data.clone(), &keyring);
         let commit = SignInCommit::default();
@@ -280,7 +280,7 @@ impl AuthNetwork for Exchange {
 fn saves_offline_identity_and_protects_an_unknown_schema() {
     runtime().block_on(async {
         let directory = TempRoot::new();
-        let data = DataDir::new(directory.path());
+        let data = DataDir::isolated(directory.path()).unwrap();
         let keyring = CredentialMemory::default();
         let service = AccountService::new(data.clone(), &keyring);
         service.add_offline(" Notch ", None).unwrap();
@@ -315,7 +315,7 @@ fn saves_offline_identity_and_protects_an_unknown_schema() {
 fn saves_only_identity_in_json_and_coalesces_refresh_after_restart() {
     runtime().block_on(async {
         let directory = TempRoot::new();
-        let data = DataDir::new(directory.path());
+        let data = DataDir::isolated(directory.path()).unwrap();
         let keyring = CredentialMemory::default();
         let service = AccountService::new(data.clone(), &keyring);
         let sign_in = Exchange::new(false, true);
@@ -381,7 +381,7 @@ fn unlicensed_sign_in_stops_and_failed_keyring_keeps_verified_session_only() {
         ));
         no_license.all_requests_sent();
         let directory = TempRoot::new();
-        let data = DataDir::new(directory.path());
+        let data = DataDir::isolated(directory.path()).unwrap();
         let keyring = CredentialMemory {
             unavailable: true,
             ..CredentialMemory::default()

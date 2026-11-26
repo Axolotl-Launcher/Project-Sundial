@@ -169,7 +169,7 @@ async fn verified(provider: &Provider) -> yggdrasil::VerifiedAccount {
 #[tokio::test]
 async fn binds_a_profile_persists_only_tokens_and_refreshes_after_restart() {
     let temp = TempRoot::new();
-    let data = DataDir::new(temp.path());
+    let data = DataDir::isolated(temp.path()).unwrap();
     std::fs::write(
         data.accounts(),
         br#"{"schema_version":1,"accounts":[],"selected":null}"#,
@@ -209,7 +209,7 @@ async fn binds_a_profile_persists_only_tokens_and_refreshes_after_restart() {
 #[tokio::test]
 async fn separates_servers_and_reports_revoked_sessions() {
     let temp = TempRoot::new();
-    let data = DataDir::new(temp.path());
+    let data = DataDir::isolated(temp.path()).unwrap();
     let keyring = CredentialMemory::default();
     let service = AccountService::new(data.clone(), &keyring);
     let first = Provider::new(ROOT, [Step::Metadata, Step::Authenticate, Step::Bind]);

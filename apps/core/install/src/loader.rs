@@ -5,8 +5,8 @@
 //!
 //! A [`ModLoader`] provider answers with a version document and, for a loader
 //! that needs them, the files its installer would place. Neither touches the
-//! filesystem: which directory a version document lives in, and what a safe
-//! relative path is, belong to the layout this system owns.
+//! filesystem. Storage supplies the game tree; installation validates the
+//! document and the paths a provider supplies.
 //!
 //! The id and the paths come from a network answer, so both are checked here
 //! rather than trusted: a version id becomes a directory name and a file path
@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use axlauncher_launch::{ChainError, Version, resolve};
 use axlauncher_spi::LoaderProfile;
-use axlauncher_storage::write_atomic;
+use axlauncher_storage::{GameDir, write_atomic};
 
 /// Longest version id accepted; long enough for any loader's own scheme.
 const MAX_ID_LEN: usize = 120;
@@ -86,23 +86,14 @@ impl std::error::Error for PlaceError {
     }
 }
 
-/// Where a version document lives under `game_root`.
-pub fn document_path(game_root: &Path, version_id: &str) -> PathBuf {
-    game_root
-        .join("versions")
-        .join(version_id)
-        .join(format!("{version_id}.json"))
-}
-
 /// Readiness uses the version profile written by the loader installation.
 pub fn check_files(
-    game_root: &Path,
+    game_root: &GameDir,
     version_id: &str,
     target: &axlauncher_launch::Target,
 ) -> Result<(), String> {
-    let version =
-        axlauncher_launch::version::load_resolved(&game_root.join("versions"), version_id)
-            .map_err(|error| error.to_string())?;
+    let version = axlauncher_launch::version::load_resolved(&game_root.versions(), version_id)
+        .map_err(|error| error.to_string())?;
     crate::prepare::check_local_files(game_root, &version, target)
 }
 
@@ -110,9 +101,9 @@ pub fn check_files(
 ///
 /// The parent version document must already exist. The returned id names the
 /// resolved profile and the client JAR that installation will prepare for it.
-pub fn place(game_root: &Path, profile: &LoaderProfile) -> Result<Placed, PlaceError> {
+pub fn place(game_root: &GameDir, profile: &LoaderProfile) -> Result<Placed, PlaceError> {
     check_id(&profile.version_id)?;
-    let document = document_path(game_root, &profile.version_id);
+    let document = game_root.version_document(&profile.version_id);
     let files = profile
         .files
         .iter()
@@ -126,7 +117,7 @@ pub fn place(game_root: &Path, profile: &LoaderProfile) -> Result<Placed, PlaceE
         .collect::<Result<Vec<_>, _>>()?;
     let bytes = resolve_document(game_root, profile)?;
     for (relative, bytes) in files {
-        write(&game_root.join(relative), bytes)?;
+        write(&game_root.root().join(relative), bytes)?;
     }
     write(&document, &bytes)?;
 
@@ -137,7 +128,7 @@ pub fn place(game_root: &Path, profile: &LoaderProfile) -> Result<Placed, PlaceE
     })
 }
 
-fn resolve_document(game_root: &Path, profile: &LoaderProfile) -> Result<Vec<u8>, PlaceError> {
+fn resolve_document(game_root: &GameDir, profile: &LoaderProfile) -> Result<Vec<u8>, PlaceError> {
     let document_error = |source| PlaceError::Document {
         id: profile.version_id.clone(),
         source,
@@ -170,7 +161,7 @@ fn resolve_document(game_root: &Path, profile: &LoaderProfile) -> Result<Vec<u8>
     // and the parent's otherwise, defaulting to the profile's own id last.
     // Overwriting `jar` here would discard the parent's, which is the jar a
     // Fabric or Quilt profile must run.
-    let resolved = resolve(&game_root.join("versions"), version)
+    let resolved = resolve(&game_root.versions(), version)
         .map_err(|source| PlaceError::Inheritance { source })?;
     serde_json::to_vec(&resolved).map_err(document_error)
 }
@@ -305,7 +296,7 @@ pub struct InstallRequest<
     pub network: &'a N,
     pub loader: &'a L,
     pub java: &'a J,
-    pub game_root: &'a Path,
+    pub game_root: &'a GameDir,
     pub request: axlauncher_spi::LoaderRequest,
     pub target: &'a axlauncher_launch::Target,
     pub concurrency: usize,
@@ -337,7 +328,7 @@ impl<N: axlauncher_spi::Network, L: axlauncher_spi::ModLoader, J: axlauncher_spi
         let placed = place(self.game_root, &profile).map_err(LoaderInstallError::Place)?;
 
         let version =
-            axlauncher_launch::version::load(&self.game_root.join("versions"), &placed.version_id)
+            axlauncher_launch::version::load(&self.game_root.versions(), &placed.version_id)
                 .map_err(|source| LoaderInstallError::Document {
                     id: placed.version_id.clone(),
                     source,
@@ -403,7 +394,7 @@ impl<N: axlauncher_spi::Network, L: axlauncher_spi::ModLoader, J: axlauncher_spi
 /// will need.
 fn run_processors(
     java: &impl axlauncher_spi::Java,
-    game_root: &Path,
+    game_root: &GameDir,
     game_version: &str,
     version: &axlauncher_launch::Version,
     target: &axlauncher_launch::Target,
@@ -421,9 +412,9 @@ fn run_processors(
         .ok_or(LoaderInstallError::Java { required })?;
     crate::processors::run(
         &executable,
-        &game_root.join("libraries"),
-        game_root,
-        game_root,
+        &game_root.libraries(),
+        game_root.root(),
+        game_root.root(),
         game_version,
         version,
         target,

@@ -1,14 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::path::Path;
-
 use axlauncher_core::install::{loader, prepare::Prepared, runtime, vanilla};
 use axlauncher_core::launch::{SystemJava, Target};
 use axlauncher_core::loader::provider;
 use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::spi::{LoaderRequest, ModLoader};
-use axlauncher_core::storage::DataDir;
+use axlauncher_core::storage::{DataDir, GameDir};
 use axlauncher_modpack::GameRequirements;
 
 use crate::Result;
@@ -16,7 +14,7 @@ use crate::Result;
 pub(super) async fn prepare(
     network: &ReqwestNetwork,
     data: &DataDir,
-    root: &Path,
+    root: &GameDir,
     game: &GameRequirements,
     target: &Target,
 ) -> Result<String> {
@@ -49,7 +47,7 @@ pub(super) fn complete(result: Prepared) -> Result<()> {
 struct LoaderInstall<'a> {
     network: &'a ReqwestNetwork,
     data: &'a DataDir,
-    root: &'a Path,
+    root: &'a GameDir,
     target: &'a Target,
 }
 
