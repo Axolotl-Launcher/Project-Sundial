@@ -4,6 +4,7 @@
 //! Domain types shared by every system.
 
 pub mod maven;
+pub mod memory;
 
 /// A portable directory name for a Minecraft version. The official catalog
 /// includes IDs with internal spaces, including historical pre-releases.

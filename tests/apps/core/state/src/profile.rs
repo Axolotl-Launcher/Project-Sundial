@@ -52,6 +52,38 @@ fn a_historical_catalog_version_keeps_its_spaces_in_the_profile() {
 }
 
 #[test]
+fn a_memory_override_roundtrips_and_following_global_removes_it() {
+    let temp = TempRoot::new();
+    let directory = create(temp.path(), "Survival", Game::new("1.21.11")).unwrap();
+    let profile = read(&directory).unwrap().unwrap();
+    let heap = MaximumHeap::new(6144).unwrap();
+    let start = std::sync::Barrier::new(2);
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            start.wait();
+            set_memory(&directory, profile.id(), Some(heap)).unwrap();
+        });
+        scope.spawn(|| {
+            start.wait();
+            mark_installed(&directory, "1.21.11").unwrap();
+        });
+    });
+    let saved = read(&directory).unwrap().unwrap();
+    assert_eq!(saved.memory(), Some(heap));
+    assert_eq!(saved.install.status, InstallStatus::Ready);
+    let raw = fs::read(profile_document(&directory)).unwrap();
+    let document: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+    assert_eq!(document["memory"], serde_json::json!({"maximum_mib": 6144}));
+    assert!(set_memory(&directory, "other-id", None).is_err());
+    assert_eq!(read(&directory).unwrap().unwrap().memory(), Some(heap));
+    set_memory(&directory, profile.id(), None).unwrap();
+    let raw = fs::read(profile_document(&directory)).unwrap();
+    let document: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+    assert!(document.get("memory").is_none());
+    assert_eq!(read(&directory).unwrap().unwrap().memory(), None);
+}
+
+#[test]
 fn invalid_input_never_creates_an_instance_directory() {
     let temp = TempRoot::new();
     let instances = temp.path().join("instances");

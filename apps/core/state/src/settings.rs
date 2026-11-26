@@ -19,6 +19,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use axlauncher_domain::memory::MemoryAllocation;
 use axlauncher_storage::{invalid_settings_path, settings_lock_path, settings_path, write_atomic};
 use serde::{Deserialize, Serialize};
 
@@ -53,6 +54,8 @@ pub enum SourcePreference {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SettingsData {
     #[serde(default)]
+    memory: MemoryAllocation,
+    #[serde(default)]
     pub theme: ThemeChoice,
     /// The initial Minecraft language, with an empty value following the launcher.
     #[serde(default)]
@@ -86,6 +89,16 @@ pub struct SettingsData {
     pub extra: BTreeMap<String, serde_json::Value>,
 }
 
+impl SettingsData {
+    pub const fn memory(&self) -> MemoryAllocation {
+        self.memory
+    }
+
+    pub fn set_memory(&mut self, memory: MemoryAllocation) {
+        self.memory = memory;
+    }
+}
+
 const fn default_download_concurrency() -> u32 {
     256
 }
@@ -98,6 +111,7 @@ fn default_concurrency() -> u32 {
 impl Default for SettingsData {
     fn default() -> Self {
         Self {
+            memory: MemoryAllocation::default(),
             theme: ThemeChoice::default(),
             default_game_language: String::new(),
             max_concurrent_downloads: default_download_concurrency(),

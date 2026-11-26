@@ -10,5 +10,8 @@ description = "Domain types shared by every system: identifiers, versions, and t
 repository.workspace = true
 license.workspace = true
 
+[dependencies]
+serde = { workspace = true }
+
 [lints]
 workspace = true

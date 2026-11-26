@@ -297,14 +297,21 @@ pub fn lock_javas(data: &Path) -> io::Result<fs::File> {
     lock_document(data, "javas.lock")
 }
 
+/// Serializes updates to an existing instance marker across processes.
+pub fn lock_profile(directory: &Path) -> io::Result<fs::File> {
+    let file = open_lock_file(directory, ".axlprofile.lock")?;
+    file.lock()?;
+    Ok(file)
+}
+
 fn lock_document(root: &Path, name: &str) -> io::Result<fs::File> {
+    fs::create_dir_all(root)?;
     let file = open_lock_file(root, name)?;
     file.lock()?;
     Ok(file)
 }
 
 fn open_lock_file(root: &Path, name: &str) -> io::Result<fs::File> {
-    fs::create_dir_all(root)?;
     fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -315,6 +322,7 @@ fn open_lock_file(root: &Path, name: &str) -> io::Result<fs::File> {
 
 /// Managed runtime installers hold an exclusive, nonblocking writer lock.
 pub fn try_lock_runtime(runtime: &Path) -> io::Result<fs::File> {
+    fs::create_dir_all(runtime)?;
     let file = open_lock_file(runtime, ".axlauncher-install.lock")?;
     file.try_lock()?;
     Ok(file)

@@ -9,6 +9,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use axlauncher_domain::memory::MaximumHeap;
 use axlauncher_storage::{profile_document, write_atomic};
 
 use serde::de::{self, MapAccess, Visitor};
@@ -20,12 +21,14 @@ mod game;
 mod installation;
 mod resources;
 mod staged;
+mod update;
 pub use create::create;
 pub use discovery::{DiscoveredProfile, DiscoveryError, ProfileDiscovery, discover};
 pub use game::{Game, Loader};
-pub use installation::{InstallUpdateError, mark_failed, mark_installed};
-pub use resources::{Resource, ResourceKind, scan_resources};
+pub use installation::{mark_failed, mark_installed};
+pub use resources::{Resource, ResourceKind, count_enabled_mods, scan_resources};
 pub use staged::StagedProfile;
+pub use update::{ProfileUpdateError, set_memory};
 
 const SCHEMA_VERSION: u32 = 1;
 
@@ -37,6 +40,8 @@ pub struct Profile {
     id: String,
     pub instance: ProfileInfo,
     game: Option<Game>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    memory: Option<MaximumHeap>,
     #[serde(default)]
     pub install: Install,
     #[serde(default)]
@@ -287,6 +292,7 @@ impl Profile {
                 updated_at: None,
             },
             game,
+            memory: None,
             install: Install::default(),
             playtime: Playtime::default(),
             source: None,
@@ -300,6 +306,10 @@ impl Profile {
 
     pub fn game(&self) -> Option<&Game> {
         self.game.as_ref()
+    }
+
+    pub fn memory(&self) -> Option<MaximumHeap> {
+        self.memory
     }
 }
 
@@ -392,7 +402,7 @@ pub fn save(directory: &Path, profile: &Profile) -> Result<(), ProfileWriteError
         source: io::Error::other(error),
     })?;
     if let Some(previous) = existing {
-        merge_unknown(previous, &mut document);
+        merge_profile_fields(previous, &mut document);
     }
     // The merge can add entries that this build's rules reject, and a marker
     // that reads back as invalid would make the instance vanish from discovery.
@@ -409,6 +419,14 @@ pub fn save(directory: &Path, profile: &Profile) -> Result<(), ProfileWriteError
         source: io::Error::other(error),
     })?;
     write_atomic(&path, &bytes).map_err(|source| ProfileWriteError::Write { path, source })
+}
+
+fn merge_profile_fields(mut previous: serde_json::Value, document: &mut serde_json::Value) {
+    // The override is one value. Removing it must restore inheritance.
+    if let Some(fields) = previous.as_object_mut() {
+        fields.remove("memory");
+    }
+    merge_unknown(previous, document);
 }
 
 /// Fields whose members are data entries rather than document fields.
