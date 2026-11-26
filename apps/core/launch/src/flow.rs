@@ -94,11 +94,6 @@ pub enum FlowError {
         /// The major version the version document names.
         required: u32,
     },
-    /// The selected runtime is missing or incompatible with the version.
-    InvalidJavaPreference {
-        path: PathBuf,
-        required: Option<u32>,
-    },
     /// The caller could not read the configured Java selection.
     JavaConfiguration { source: std::io::Error },
     /// The native jars could not be unpacked.
@@ -140,22 +135,6 @@ impl std::fmt::Display for FlowError {
             Self::NoMatchingJava { required } => {
                 write!(formatter, "no Java {required} runtime found on this system")
             }
-            Self::InvalidJavaPreference {
-                path,
-                required: Some(required),
-            } => write!(
-                formatter,
-                "the selected runtime at {} is unavailable or does not provide Java {required}. Choose another installation or switch to automatic selection",
-                path.display()
-            ),
-            Self::InvalidJavaPreference {
-                path,
-                required: None,
-            } => write!(
-                formatter,
-                "the selected Java runtime at {} is unavailable. Choose another installation or switch to automatic selection",
-                path.display()
-            ),
             Self::JavaConfiguration { source } => {
                 write!(formatter, "cannot load the Java configuration: {source}")
             }
@@ -190,7 +169,7 @@ impl std::error::Error for FlowError {
             Self::Plan { source } => Some(source),
             Self::GameOptions { source, .. } | Self::JavaConfiguration { source } => Some(source),
             Self::Launch { source, .. } => Some(source),
-            Self::NoJava | Self::NoMatchingJava { .. } | Self::InvalidJavaPreference { .. } => None,
+            Self::NoJava | Self::NoMatchingJava { .. } => None,
         }
     }
 }
@@ -275,11 +254,7 @@ pub fn inspect_version(
     request: &LaunchRequest,
 ) -> Result<VersionInspection, FlowError> {
     let (version, parent) = load_version(request)?;
-    let java = match java_executable(java, &version, request) {
-        Ok(java) => Some(java),
-        Err(error) if request.java_preference.is_some() => return Err(error),
-        Err(_) => None,
-    };
+    let java = java_executable(java, &version, request).ok();
     Ok(VersionInspection {
         version,
         parent,
@@ -308,22 +283,19 @@ fn load_version(request: &LaunchRequest) -> Result<(Version, Option<String>), Fl
 ///
 /// The version document states the major version its classes were built for. A
 /// document with flat arguments and no Java requirement prefers Java 8 when it
-/// is installed. An explicit runtime choice still takes precedence.
+/// is installed. An available explicit choice takes precedence regardless of
+/// the manifest's requirement.
 fn java_executable(
     java: &impl Java,
     version: &Version,
     request: &LaunchRequest,
 ) -> Result<PathBuf, FlowError> {
-    let required = version.java_version.as_ref().map(|java| java.major);
-    if let Some(path) = &request.java_preference {
-        return java
-            .executable_at(path, required, JavaMode::Windowed)
-            .ok_or_else(|| FlowError::InvalidJavaPreference {
-                path: path.clone(),
-                required,
-            });
+    if let Some(path) = &request.java_preference
+        && let Some(executable) = java.executable_at(path, None, JavaMode::Windowed)
+    {
+        return Ok(executable);
     }
-    if let Some(required) = required {
+    if let Some(required) = version.java_version.as_ref().map(|java| java.major) {
         return java
             .executable_for(required, JavaMode::Windowed)
             .ok_or(FlowError::NoMatchingJava { required });

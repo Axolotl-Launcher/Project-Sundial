@@ -92,63 +92,37 @@ fn a_profile_without_game_files_needs_install_and_starts_nothing() {
 }
 
 #[test]
-fn a_profile_override_is_used_and_checked_against_the_version_requirement() {
+fn a_profile_override_takes_precedence_even_with_a_different_java_major() {
     let root = tempfile::tempdir().unwrap();
     let data = DataDir::isolated(root.path()).unwrap();
     let job = java_profile_job(&data);
     let id = &job.profile_id;
-    let selected = java::test_runtime(&root.path().join("selected"), 42);
-    let other = java::test_runtime(&root.path().join("other"), 43);
+    let selected = java::test_runtime(&root.path().join("selected"), 43);
     let automatic = java::test_runtime(&root.path().join("automatic"), 42);
     java::set_preferred(&data, 42, Some(&automatic)).unwrap();
     java::set_profile_preference(&data, id, Some(&selected)).unwrap();
-    let inspection = job.inspect().unwrap();
-    assert!(
-        inspection
-            .java()
-            .unwrap()
-            .ends_with(selected.strip_prefix(root.path()).unwrap())
-    );
-
-    java::set_profile_preference(&data, id, Some(&other)).unwrap();
-    let error = job.preview(&Session::offline("Player")).unwrap_err();
-    assert!(matches!(
-        error,
-        FlowError::InvalidJavaPreference {
-            required: Some(42),
-            ..
-        }
-    ));
+    assert_selected_java(&job, &selected);
 
     java::set_profile_preference(&data, id, None).unwrap();
-    let inspection = job.inspect().unwrap();
-    assert!(
-        inspection
-            .java()
-            .unwrap()
-            .ends_with(automatic.strip_prefix(root.path()).unwrap())
-    );
+    assert_selected_java(&job, &automatic);
 }
 
 #[test]
-fn a_removed_explicit_java_is_reported_even_when_automatic_java_is_available() {
+fn a_missing_profile_java_uses_automatic_selection_until_it_returns() {
     let root = tempfile::tempdir().unwrap();
     let data = DataDir::isolated(root.path()).unwrap();
     let job = java_profile_job(&data);
-    let chosen = java::test_runtime(&root.path().join("chosen"), 42);
+    let home = root.path().join("chosen");
+    let chosen = java::test_runtime(&home, 42);
     let fallback = java::test_runtime(&root.path().join("fallback"), 42);
     java::set_preferred(&data, 42, Some(&fallback)).unwrap();
     java::set_profile_preference(&data, &job.profile_id, Some(&chosen)).unwrap();
-    std::fs::remove_file(chosen).unwrap();
+    std::fs::remove_file(&chosen).unwrap();
 
-    assert!(matches!(
-        job.inspect(),
-        Err(FlowError::InvalidJavaPreference { .. })
-    ));
-    assert!(matches!(
-        job.preview(&Session::offline("Player")),
-        Err(FlowError::InvalidJavaPreference { .. })
-    ));
+    assert_selected_java(&job, &fallback);
+
+    java::test_runtime(&home, 42);
+    assert_selected_java(&job, &chosen);
 }
 
 #[test]
@@ -182,5 +156,19 @@ fn java_profile_job(data: &DataDir) -> LaunchJob {
         r#"{"id":"1.21.11","javaVersion":{"majorVersion":42}}"#,
     )
     .unwrap();
+    std::fs::write(data.game().client_jar(version), b"client").unwrap();
     LaunchJob::for_profile(data, &profiles.instances[0], "Player".into(), None).unwrap()
+}
+
+fn assert_selected_java(job: &LaunchJob, expected: &Path) {
+    use axlauncher_launch::JavaRuntime;
+
+    let inspection = job.inspect().unwrap();
+    let executable = inspection.java().unwrap();
+    assert_eq!(
+        JavaRuntime::inspect(executable).unwrap(),
+        JavaRuntime::inspect(expected).unwrap()
+    );
+    let command = job.preview(&Session::offline("Player")).unwrap();
+    assert_eq!(Path::new(&command.program), executable);
 }
