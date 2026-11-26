@@ -14,11 +14,12 @@ before editing for code ownership and verification.
 | Rust | 1.100.0 | pinned by `rust-toolchain.toml`; `rustup` installs it automatically |
 | Node | >= 24.22.0 | runs pnpm, Turbo, and the TypeScript scripts |
 | pnpm | 12.18.0 | pinned by `packageManager` in `package.json` |
+| nix | flakes enabled | optional; builds the artifact CI publishes for Linux |
 
 | Platform | Build requirements | Desktop binary |
 |---|---|---|
 | Windows | MSVC toolchain for Win32, DirectWrite, and DirectX | `axlauncher.exe` |
-| Linux | Fontconfig, FreeType, X11 and Wayland headers, Vulkan, D-Bus, and pkg-config. See the [CI setup](.github/actions/setup-desktop-rust/action.yml) for the Ubuntu package list. | ELF `axlauncher` |
+| Linux | Fontconfig, FreeType, X11 and Wayland headers, Vulkan, D-Bus, and pkg-config. See the [CI setup](.github/actions/setup-desktop-rust/action.yml) for the Ubuntu package list. The flake declares the same set for `nix develop`. | ELF `axlauncher` |
 | macOS | Xcode Command Line Tools for Metal. See the [packaging guide](packaging/macos/README.md) for the app bundle, signing, and notarisation. | Mach-O `axlauncher` |
 
 Install the Cargo extensions used by the checks once:
@@ -55,6 +56,38 @@ directory. Set `AXLAUNCHER_DATA_DIR` to keep data, instances, cache, and scratch
 files under one directory for development. The
 [filesystem path policy](.agents/docs/filesystem-paths.md) documents directory
 selection and session overrides.
+
+### Nix
+
+On Linux the flake builds the published artifact from a pinned toolchain:
+
+```bash
+nix develop                    # rust 1.100.0, node, and the native libraries
+nix build .#axlauncher         # bin/axlauncher plus the desktop entry
+nix run                        # build and launch
+nix build .#axlauncher-legacy  # ELF for traditional distributions, see packaging/linux
+```
+
+Both binaries live under `__axlbin`: `newest` links against nixpkgs' glibc and
+backs `packages.axlauncher` and the AppImage, `legacy` links against glibc 2.35
+and replaces the store interpreter and rpath for native packages. The
+`legacy-elf` check fails when that ELF references the store or needs glibc newer
+than 2.35 (Ubuntu 22.04). Only `newest` and the wrapper are pushed to the cache;
+`legacy` exists for CI packaging.
+
+Builds of `main` are pushed to the public `axlmc` cache, so `nix run` downloads
+instead of compiling. A user who trusts flake configuration gets the substituter
+from `flake.nix`; otherwise pass the settings explicitly:
+
+```bash
+nix run --extra-substituters https://axlmc.cachix.org \
+  --extra-trusted-public-keys 'axlmc.cachix.org-1:dmsRJqFQqLMfvRveerHV3DxDCW1wq1N+TX1+dryYWZU='
+```
+
+The nix build repeats the three cargo invocations that
+[`scripts/desktop.ts`](scripts/desktop.ts) performs; changing the embedded worker
+libraries means changing both, and [the Linux packaging
+notes](packaging/linux/README.md) record why.
 
 ### Cargo registry mirrors
 
