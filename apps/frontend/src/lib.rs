@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Axolotl Launcher frontend: the development panel and its window wiring.
+//! Axolotl Launcher desktop views and window wiring.
 //!
 //! This crate owns the root view platform shells open, and is the only crate
 //! that combines `axlauncher_core` with `axlauncher_ui`. State lives here in

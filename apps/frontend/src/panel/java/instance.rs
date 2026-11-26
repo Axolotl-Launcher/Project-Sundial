@@ -11,7 +11,7 @@ use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, App, Button, Context, Disableable, DropdownMenu, ElementId, Entity,
     IconName, IntoElement, Label, PopupMenu, PopupMenuItem, RenderOnce, Sizable, WeakEntity,
-    Window, v_flex,
+    Window, h_flex, v_flex,
 };
 
 use super::{JavaPanel, Operation, java_feedback, java_id, java_path_label, runtime_title};
@@ -69,7 +69,7 @@ impl RenderOnce for InstancePicker {
         v_flex()
             .gap_1()
             .child(Label::new(label.clone()).text_sm().truncate())
-            .child(self.render_control(panel, label, cx))
+            .child(h_flex().child(self.render_control(panel, label, cx)))
             .children(java_feedback(panel, Some(&self.profile), cx))
     }
 }

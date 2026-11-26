@@ -39,6 +39,7 @@ pub(super) struct Form {
     url: Entity<InputState>,
     username: Entity<InputState>,
     password: Entity<InputState>,
+    focus_scope: FocusHandle,
     trigger: FocusHandle,
     open: bool,
     request: Option<Attempt>,
@@ -60,6 +61,7 @@ impl Form {
             url,
             username,
             password,
+            focus_scope: cx.focus_handle(),
             trigger: cx.focus_handle(),
             open: false,
             request: None,
@@ -108,6 +110,7 @@ impl Form {
             None => self.render_fields(cx),
         };
         v_flex()
+            .track_focus(&self.focus_scope)
             .gap_2()
             .child(fields)
             .when(self.is_working(), |column| {
@@ -237,7 +240,9 @@ impl RootView {
             service.discard_choice(choice.id);
         }
         form.reset(window, cx);
-        form.trigger.focus(window, cx);
+        if form.focus_scope.contains_focused(window, cx) {
+            form.trigger.focus(window, cx);
+        }
         self.accounts.error = None;
         cx.notify();
     }
