@@ -405,6 +405,7 @@ impl<Net: Network> Transfer<'_, Net> {
 pub(crate) struct RangeValidator {
     resource: String,
     tag: Bytes,
+    has_digest: bool,
 }
 
 impl RangeValidator {
@@ -412,7 +413,10 @@ impl RangeValidator {
         &self.tag
     }
 
-    pub(crate) fn from_response(response: &DownloadResponse<impl DownloadBody>) -> Option<Self> {
+    pub(crate) fn from_response(
+        response: &DownloadResponse<impl DownloadBody>,
+        has_digest: bool,
+    ) -> Option<Self> {
         let representation = response.representation.as_ref()?;
         let DownloadEtag::Strong(tag) = representation.etag.as_ref()? else {
             return None;
@@ -420,12 +424,13 @@ impl RangeValidator {
         Some(Self {
             resource: representation.resource.clone(),
             tag: tag.clone(),
+            has_digest,
         })
     }
 
     fn matches(&self, actual: Option<&DownloadRepresentation>) -> bool {
         actual.is_some_and(|actual| {
-            actual.resource == self.resource
+            (self.has_digest || actual.resource == self.resource)
                 && actual.etag.as_ref().is_none_or(
                     |etag| matches!(etag, DownloadEtag::Strong(tag) if *tag == self.tag),
                 )

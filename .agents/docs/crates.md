@@ -46,7 +46,9 @@ HTTP/2 retains its 4 MiB range threshold and 8 MiB initial range. Only
 standalone jobs probe for an unknown size. A ranged transfer uses a strong
 ETag with `If-Range`, or a trusted whole-file digest. A range retry requests
 the unwritten interval and validates the returned interval, total and any
-established representation identity. Unsupported or inconsistent ranges
+established ETag. A conditional partial response may omit its ETag.
+Without a trusted whole-file digest, the effective resource must also remain
+the same across requests. Unsupported or inconsistent ranges
 trigger a whole-file transfer from a clean stage. Whole-file transfers read
 to EOF and check the manifest digest, or the expected size when only size is
 supplied, before atomically publishing the staging file. A verification

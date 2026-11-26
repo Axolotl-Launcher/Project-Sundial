@@ -39,7 +39,11 @@ fn partial(
 
 #[test]
 fn a_changed_tag_or_redirect_target_restarts_with_clean_bytes() {
-    for (resource, tag) in [(PRIMARY, NEW_TAG), (ALTERNATE, OLD_TAG)] {
+    for (resource, tag) in [
+        (PRIMARY, NEW_TAG),
+        (ALTERNATE, OLD_TAG),
+        ("https://primary.invalid/file?signature=renewed", OLD_TAG),
+    ] {
         assert_representation_restart(resource, tag);
     }
 }
@@ -243,6 +247,30 @@ fn a_conditional_partial_response_can_omit_its_etag() {
         });
         DownloadEngine::default()
             .download(&network, job(&destination, &[PRIMARY], SIZE))
+            .await
+            .unwrap();
+        assert_eq!(fs::read(destination).unwrap(), vec![b'a'; SIZE as usize]);
+    });
+}
+
+#[test]
+fn a_whole_file_digest_allows_rotating_redirect_signatures() {
+    paused(async {
+        let root = test_tempfile::tempdir().unwrap();
+        let destination = root.path().join("file");
+        let network = Script(|_: &str, range: Option<RangeRequest<'_>>| {
+            let range = range.expect("digest-verified range");
+            let signature = range.interval.start;
+            assert_eq!(range.if_range, (signature != 0).then_some(OLD_TAG));
+            let resource = format!("https://primary.invalid/file?signature={signature}");
+            Ok(partial(range, representation(&resource, Some(OLD_TAG))))
+        });
+        DownloadEngine::default()
+            .download_verified(
+                &network,
+                job(&destination, &[PRIMARY], SIZE),
+                verify_pattern,
+            )
             .await
             .unwrap();
         assert_eq!(fs::read(destination).unwrap(), vec![b'a'; SIZE as usize]);

@@ -109,7 +109,8 @@ impl<Net: Network> FileTransfer<'_, '_, Net> {
         };
         if range.interval != PROBE
             || range.total < self.range_threshold()
-            || (!self.has_digest && RangeValidator::from_response(&connection.response).is_none())
+            || (!self.has_digest
+                && RangeValidator::from_response(&connection.response, false).is_none())
         {
             return Err(TransferError::RangeUnavailable);
         }
@@ -140,7 +141,7 @@ impl<Net: Network> FileTransfer<'_, '_, Net> {
             *mode = TransferMode::Whole;
             return self.transfer.whole(connection, stage).await;
         };
-        let validator = RangeValidator::from_response(&connection.response);
+        let validator = RangeValidator::from_response(&connection.response, self.has_digest);
         if range.interval != interval
             || range.total != total
             || (!self.has_digest && validator.is_none())
