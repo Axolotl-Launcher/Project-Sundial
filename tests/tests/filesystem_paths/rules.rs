@@ -38,6 +38,11 @@ const EXCEPTIONS: &[(&str, &str, &[&str])] = &[
         &["{folder}/{name}"],
     ),
     ("apps/plugins/modpack/build.rs", "main", &["../../../.env"]),
+    (
+        "apps/core/lib/src/bootstrap.rs",
+        "worker_executable",
+        &["/proc/self/exe"],
+    ),
     ("tools/mmc-convert/src/jars.rs", "add", &["layer-{}.jar"]),
     (
         "tools/mmc-convert/src/jars.rs",

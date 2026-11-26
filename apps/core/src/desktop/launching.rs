@@ -13,25 +13,24 @@ use axlauncher_launch::{
     flow::{self, VersionInspection},
     plan::Session,
 };
-use axlauncher_network::auth::AuthHttp;
-use axlauncher_spi::{ServiceHost, auth::CredentialStore};
-use axlauncher_state::{
-    SettingsData,
-    accounts::{AccountId, AccountService},
-    profile::DiscoveredProfile,
-};
+use axlauncher_spi::ServiceHost;
+use axlauncher_state::{SettingsData, profile::DiscoveredProfile};
 use axlauncher_storage::{DataDir, GameDir};
 
 use crate::launch_accounts;
 
-use super::{java, on_worker, sources::DownloadOptions};
+use super::{
+    accounts::{AccountId, DesktopAccounts},
+    java, on_worker,
+    sources::DownloadOptions,
+};
 
 pub const LAUNCHER_LANGUAGE: &str = "en_us";
 
-pub enum Player<S: CredentialStore> {
+pub enum Player {
     Offline(Session),
     Online {
-        service: Arc<AccountService<S>>,
+        service: Arc<DesktopAccounts>,
         id: AccountId,
         fallen_proxy: Option<ServiceHost>,
     },
@@ -102,22 +101,22 @@ impl LaunchJob {
     }
 
     /// A desktop worker reports account resolution and the actual child spawn.
-    pub fn run<S: CredentialStore>(
+    pub fn run(
         self,
-        player: Player<S>,
+        player: Player,
         options: DownloadOptions,
-        account_resolved: impl FnOnce(Arc<AccountService<S>>),
+        account_resolved: impl FnOnce(Arc<DesktopAccounts>),
         started: impl Fn() + Send + Sync + 'static,
     ) -> Result<(), LaunchFailure> {
         on_worker(self.launch(player, options, account_resolved, started))
             .map_err(|error| LaunchFailure::Failed(error.to_string()))?
     }
 
-    async fn launch<S: CredentialStore>(
+    async fn launch(
         self,
-        player: Player<S>,
+        player: Player,
         options: DownloadOptions,
-        account_resolved: impl FnOnce(Arc<AccountService<S>>),
+        account_resolved: impl FnOnce(Arc<DesktopAccounts>),
         started: impl Fn() + Send + Sync + 'static,
     ) -> Result<(), LaunchFailure> {
         let session = resolve_session(player, options, account_resolved)
@@ -156,10 +155,10 @@ impl LaunchJob {
     }
 }
 
-async fn resolve_session<S: CredentialStore>(
-    player: Player<S>,
+async fn resolve_session(
+    player: Player,
     options: DownloadOptions,
-    account_resolved: impl FnOnce(Arc<AccountService<S>>),
+    account_resolved: impl FnOnce(Arc<DesktopAccounts>),
 ) -> Result<Session, String> {
     let (service, id, fallen_proxy) = match player {
         Player::Offline(session) => return Ok(session),
@@ -174,22 +173,17 @@ async fn resolve_session<S: CredentialStore>(
     session
 }
 
-async fn online_session<S: CredentialStore>(
-    service: &AccountService<S>,
+async fn online_session(
+    service: &DesktopAccounts,
     id: AccountId,
     options: DownloadOptions,
     fallen_proxy: Option<ServiceHost>,
 ) -> Result<Session, String> {
-    let auth = AuthHttp::desktop()
-        .map_err(|_| "Could not initialize online sign-in.".to_owned())?
-        .with_fallen_proxy(fallen_proxy.clone());
-    launch_accounts::prepare(service, id, &auth, || {
-        options
-            .network()
-            .map_err(|_| "Could not initialize the authentication agent download.".to_owned())
-    })
-    .await
-    .map(|session| session.with_fallen_proxy(fallen_proxy))
+    let identity = service.resolve(id, fallen_proxy.clone()).await?;
+    let data = service.data_dir();
+    launch_accounts::prepare(identity, id, &data, &options.downloader(&data))
+        .await
+        .map(|session| session.with_fallen_proxy(fallen_proxy))
 }
 
 fn launch_error(error: FlowError) -> LaunchFailure {

@@ -21,7 +21,7 @@
     "reuse": "reuse lint",
     "deny": "cargo deny check",
     "shear": "cargo shear",
-    "nextest": "cargo nextest run --workspace",
+    "nextest": "node scripts/desktop.ts exec cargo nextest run --workspace --locked",
     "tsc": "tsc -p tsconfig.json",
     "nojs": "node scripts/check-language.ts",
     "file-length": "node scripts/check-file-length.ts",

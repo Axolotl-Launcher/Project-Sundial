@@ -15,33 +15,13 @@ mod sessions;
 mod sign_in;
 pub use sign_in::SignInCommit;
 pub mod yggdrasil;
-pub use sessions::{AccountService, AccountSnapshot, LaunchIdentity, Persistence};
+pub use axlauncher_worker::accounts::AccountId;
+#[cfg(test)]
+pub use sessions::Persistence;
+pub use sessions::{AccountService, LaunchIdentity};
 
 // Older writers must leave the durable credential cleanup queue intact.
 const SCHEMA_VERSION: u32 = 3;
-
-/// A Minecraft profile identified within its account type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "uuid", rename_all = "snake_case")]
-pub enum AccountId {
-    Offline(Uuid),
-    Microsoft(Uuid),
-    Yggdrasil { profile: Uuid, server: Uuid },
-}
-
-impl AccountId {
-    pub fn uuid(self) -> Uuid {
-        match self {
-            Self::Offline(uuid) | Self::Microsoft(uuid) | Self::Yggdrasil { profile: uuid, .. } => {
-                uuid
-            }
-        }
-    }
-
-    pub fn is_online(self) -> bool {
-        !matches!(self, Self::Offline(_))
-    }
-}
 
 /// A saved Minecraft identity with its local credential reference.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,7 +31,7 @@ pub struct Account {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     credential: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    server: Option<yggdrasil::Server>,
+    server: Option<axlauncher_worker::accounts::Server>,
 }
 
 impl Account {
@@ -77,6 +57,7 @@ impl Account {
         })
     }
 
+    #[cfg(test)]
     pub fn id(&self) -> AccountId {
         self.id
     }
@@ -85,7 +66,7 @@ impl Account {
         &self.name
     }
 
-    pub fn server(&self) -> Option<&yggdrasil::Server> {
+    pub fn server(&self) -> Option<&axlauncher_worker::accounts::Server> {
         self.server.as_ref()
     }
 }
@@ -234,7 +215,7 @@ fn account_has_expected_server(account: &Account) -> bool {
     match account.id {
         AccountId::Yggdrasil { .. } => account
             .server()
-            .is_some_and(|server| server.account_id(account.id.uuid()) == account.id),
+            .is_some_and(|server| yggdrasil::account_id(server, account.id.uuid()) == account.id),
         _ => account.server().is_none(),
     }
 }

@@ -9,7 +9,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-use axlauncher_spi::{DownloadProtocol, FetchError, Network};
+use axlauncher_spi::{
+    DownloadProtocol, FetchError, Network,
+    downloads::{DEFAULT_FILE_CONNECTIONS, TransferStats},
+};
 use axlauncher_storage::AtomicFile;
 use url::{Origin, Url};
 
@@ -21,7 +24,6 @@ use crate::verify::{Verification, already_verified, has_digest, verify};
 use crate::weighted::WeightedConnections;
 use crate::{DEFAULT_CONCURRENCY, DownloadJob};
 
-const DEFAULT_FILE_CONNECTIONS: NonZeroUsize = NonZeroUsize::new(16).unwrap();
 const DEFAULT_BUFFER_BUDGET: NonZeroUsize = NonZeroUsize::new(16 * 1024 * 1024).unwrap();
 
 /// Limits shared by all transfers performed by one engine.
@@ -40,23 +42,12 @@ impl Default for DownloadPolicy {
         Self {
             connections: NonZeroUsize::new(DEFAULT_CONCURRENCY).unwrap(),
             connections_per_host: NonZeroUsize::MAX,
-            connections_per_file: DEFAULT_FILE_CONNECTIONS,
+            connections_per_file: NonZeroUsize::new(DEFAULT_FILE_CONNECTIONS).unwrap(),
             buffer_bytes: DEFAULT_BUFFER_BUDGET,
             bytes_per_second: None,
             protocol: DownloadProtocol::default(),
         }
     }
-}
-
-/// Usage across all current and completed jobs of an engine.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TransferStats {
-    pub active_connections: usize,
-    pub connection_limit: usize,
-    pub connections_per_file: usize,
-    pub protocol: DownloadProtocol,
-    /// Body bytes received, including data that an attempt discarded.
-    pub bytes_received: u64,
 }
 
 /// The scheduler and shared resources for full and ranged file transfers.
@@ -90,7 +81,7 @@ impl DownloadEngine {
         }
     }
 
-    /// The scheduler used by [`crate::download_all`] and the launcher installer.
+    /// The shared scheduler used by the worker and the standalone converter.
     pub fn shared() -> &'static Self {
         static SHARED_ENGINE: LazyLock<DownloadEngine> = LazyLock::new(DownloadEngine::default);
         &SHARED_ENGINE

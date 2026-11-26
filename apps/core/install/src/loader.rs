@@ -290,10 +290,12 @@ impl std::error::Error for LoaderInstallError {
 pub struct InstallRequest<
     'a,
     N: axlauncher_spi::Network,
+    D: axlauncher_spi::downloads::FileDownloader,
     L: axlauncher_spi::ModLoader,
     J: axlauncher_spi::Java,
 > {
     pub network: &'a N,
+    pub downloader: &'a D,
     pub loader: &'a L,
     pub java: &'a J,
     pub game_root: &'a GameDir,
@@ -302,8 +304,12 @@ pub struct InstallRequest<
     pub concurrency: usize,
 }
 
-impl<N: axlauncher_spi::Network, L: axlauncher_spi::ModLoader, J: axlauncher_spi::Java>
-    InstallRequest<'_, N, L, J>
+impl<N, D, L, J> InstallRequest<'_, N, D, L, J>
+where
+    N: axlauncher_spi::Network,
+    D: axlauncher_spi::downloads::FileDownloader,
+    L: axlauncher_spi::ModLoader,
+    J: axlauncher_spi::Java,
 {
     pub async fn install(
         &self,
@@ -336,6 +342,7 @@ impl<N: axlauncher_spi::Network, L: axlauncher_spi::ModLoader, J: axlauncher_spi
 
         let prepared = crate::prepare::prepare_reporting(
             self.network,
+            self.downloader,
             self.game_root,
             &version,
             self.target,

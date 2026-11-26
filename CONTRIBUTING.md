@@ -42,7 +42,10 @@ pnpm dev
 The root `build`, `dev`, `test`, and `lint` scripts use
 [`scripts/turbo.ts`](scripts/turbo.ts) to limit Turbo to `apps/*` and the
 current OS's platform shell. To target a shell directly, use a command such as
-`pnpm dev:windows` or `cargo build -p axlauncher_platform_windows`.
+`pnpm dev:windows` or `node scripts/desktop.ts build`. The desktop build
+compiles and embeds both worker libraries for the host. To invoke Cargo
+directly for a desktop package, run it through `node scripts/desktop.ts exec`
+so the artifacts are available. The standalone converter does not need this step.
 The workspace enables incremental Cargo builds in
 [`.cargo/config.toml`](.cargo/config.toml).
 
@@ -138,8 +141,8 @@ permitted dependencies, and shared helpers.
 
 ```bash
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-cargo nextest run --workspace --locked
+node scripts/desktop.ts exec cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+node scripts/desktop.ts exec cargo nextest run --workspace --locked
 cargo shear
 cargo deny check
 typos

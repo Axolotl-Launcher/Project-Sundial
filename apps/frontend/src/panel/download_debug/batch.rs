@@ -6,7 +6,7 @@
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
-use axlauncher_core::download_engine::{DownloadOutcome, MissingFile, download_batch};
+use axlauncher_core::spi::downloads::{DownloadOutcome, FileDownloader, MissingFile};
 use axlauncher_core::storage::{DataDir, download_debug_batch_file};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
@@ -149,16 +149,24 @@ impl RootView {
             return;
         }
         let options = DownloadOptions::from_settings(self.settings.as_ref());
+        let downloader = options.downloader(&paths);
+        let concurrency = options.concurrency();
         let (cancel, cancellation) = oneshot::channel();
         let (report, outcomes) = mpsc::unbounded_channel();
         batch.phase = Phase::Running;
         batch.cancel = Some(cancel);
         batch.outcomes = Some(outcomes);
         self.monitor_downloads(cx);
-        let task =
-            cx.background_spawn(
-                async move { run_batch(&paths, links, options, cancellation, report) },
-            );
+        let task = cx.background_spawn(async move {
+            run_batch(
+                &paths,
+                links,
+                &downloader,
+                concurrency,
+                cancellation,
+                report,
+            )
+        });
         cx.spawn(async move |view, cx| {
             let result = task.await;
             let _ = view.update(cx, |view, cx| view.finish_batch_probe(result, cx));
@@ -393,7 +401,8 @@ fn output_line(path: &Path) -> usize {
 fn run_batch(
     data: &DataDir,
     links: Vec<Link>,
-    options: DownloadOptions,
+    downloader: &impl FileDownloader,
+    concurrency: usize,
     cancellation: oneshot::Receiver<()>,
     report: mpsc::UnboundedSender<DownloadOutcome>,
 ) -> Result<BatchReport, String> {
@@ -414,7 +423,13 @@ fn run_batch(
             size: None,
         })
         .collect();
-    let cancelled = runtime.block_on(transfer_batch(&files, options, cancellation, report))?;
+    let cancelled = runtime.block_on(transfer_batch(
+        &files,
+        downloader,
+        concurrency,
+        cancellation,
+        report,
+    ))?;
     Ok(BatchReport {
         directory,
         cancelled,
@@ -423,14 +438,14 @@ fn run_batch(
 
 async fn transfer_batch(
     files: &[MissingFile],
-    options: DownloadOptions,
+    downloader: &impl FileDownloader,
+    concurrency: usize,
     cancellation: oneshot::Receiver<()>,
     report: mpsc::UnboundedSender<DownloadOutcome>,
 ) -> Result<bool, String> {
-    let concurrency = options.concurrency();
-    let network = options.network()?;
-    let downloads =
-        download_batch(&network, files, concurrency).take_until(cancellation.map(|_| ()));
+    let downloads = downloader
+        .batch(files, concurrency)
+        .take_until(cancellation.map(|_| ()));
     let mut downloads = std::pin::pin!(downloads);
     let mut processed = 0;
     while let Some(outcome) = downloads.next().await {

@@ -29,8 +29,9 @@ mod instance_paths;
 pub use instance_paths::{instance_file_index, instance_options, profile_document, stage_instance};
 mod paths;
 pub use paths::{
-    DataDir, Directory, download_debug_batch_file, invalid_settings_path, javas_path, job_document,
-    runtime_record, settings_lock_path, settings_path, user_data_dir, user_temp_dir,
+    DataDir, Directory, WorkerLibrary, download_debug_batch_file, invalid_settings_path,
+    javas_path, job_document, runtime_record, settings_lock_path, settings_path, user_data_dir,
+    user_temp_dir,
 };
 
 /// Replaces `path` with `bytes` by writing a sibling temporary file and renaming

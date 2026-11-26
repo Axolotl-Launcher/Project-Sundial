@@ -1,0 +1,24 @@
+[package]
+name = "axlauncher_worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Private process transport and native loading for embedded launcher services"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+axlauncher_network = { workspace = true }
+axlauncher_spi = { workspace = true }
+axlauncher_storage = { workspace = true }
+futures = { workspace = true }
+libloading = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+url = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true

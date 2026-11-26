@@ -1,0 +1,93 @@
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+use std::sync::Arc;
+use std::thread::JoinHandle;
+
+use axlauncher_storage::WorkerLibrary;
+
+use crate::account_client;
+use crate::accounts::Reply;
+use crate::client::Service;
+use crate::native::{self, Image, WORKER_ARGUMENT};
+
+#[derive(Clone, Copy)]
+pub struct Images {
+    pub downloads: Image,
+    pub accounts: Image,
+}
+
+impl Images {
+    pub const fn new(downloads: &'static [u8], accounts: &'static [u8]) -> Self {
+        Self {
+            downloads: Image::new(WorkerLibrary::Downloads, downloads),
+            accounts: Image::new(WorkerLibrary::Accounts, accounts),
+        }
+    }
+
+    /// Registers bundled images without starting workers.
+    pub fn configure(self) {
+        let executable =
+            worker_executable().map_err(|error| format!("Could not locate the launcher: {error}"));
+        crate::downloads::configure(self.downloads, executable.clone());
+        account_client::configure(self.accounts, executable);
+    }
+
+    /// Drains download and account workers off-thread, including ones already closing.
+    pub fn begin_shutdown() -> JoinHandle<()> {
+        let accounts = account_client::take_workers();
+        std::thread::spawn(move || drain_workers(accounts))
+    }
+
+    /// Recognizes worker mode before opening a GUI or reading user settings.
+    pub fn dispatch(self) -> Option<ExitCode> {
+        let mut arguments = std::env::args_os().skip(1);
+        if arguments.next().as_deref() != Some(OsStr::new(WORKER_ARGUMENT)) {
+            return None;
+        }
+        let result = self.run_worker(arguments);
+        Some(if result == 0 {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        })
+    }
+
+    fn run_worker(self, mut arguments: impl Iterator<Item = std::ffi::OsString>) -> i32 {
+        let (Some(kind), Some(path), None) = (arguments.next(), arguments.next(), arguments.next())
+        else {
+            return crate::server::startup_failed("invalid worker arguments");
+        };
+        let Some(image) = [self.downloads, self.accounts]
+            .into_iter()
+            .find(|image| image.matches(&kind))
+        else {
+            return crate::server::startup_failed("unknown embedded worker");
+        };
+        native::run(image, Path::new(&path)).unwrap_or_else(crate::server::startup_failed)
+    }
+}
+
+fn drain_workers(accounts: Vec<Arc<Service<Reply>>>) {
+    crate::downloads::close();
+    for worker in &accounts {
+        worker.close();
+    }
+    for worker in accounts {
+        worker.close_and_wait();
+    }
+    crate::downloads::wait_closed();
+}
+
+/// Linux must exec the running image, even if the package has replaced its path.
+fn worker_executable() -> io::Result<PathBuf> {
+    if cfg!(target_os = "linux") {
+        return Ok(PathBuf::from("/proc/self/exe"));
+    }
+    std::env::current_exe()
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "../../../../tests/apps/core/lib/src/bootstrap.rs"]
+mod tests;
+use std::io;

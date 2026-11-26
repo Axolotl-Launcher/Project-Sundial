@@ -6,9 +6,9 @@ use std::io::{self, Seek};
 use std::path::{Path, PathBuf};
 
 use super::{PackState, install_runtime};
-use axlauncher_core::download_engine::{DEFAULT_CONCURRENCY, DownloadEngine, DownloadJob};
-use axlauncher_core::network::{ReqwestNetwork, verify_reader};
-use axlauncher_core::spi::Network;
+use axlauncher_core::desktop::downloads::{DownloadRoute, Downloads};
+use axlauncher_core::network::verify_reader;
+use axlauncher_core::spi::downloads::{DEFAULT_CONCURRENCY, DownloadJob, FileDownloader};
 use axlauncher_core::state::profile::{Game, Profile, StagedProfile};
 use axlauncher_core::storage::{AtomicFile, DataDir, open_for_read};
 use axlauncher_modpack::{Download, InstallPlan};
@@ -16,6 +16,7 @@ use futures::{StreamExt, stream};
 
 pub(super) struct StagedPack {
     plan: InstallPlan,
+    downloads: Downloads,
     staging: StagedProfile,
     remaining: Vec<usize>,
     manual: Vec<ManualFile>,
@@ -25,8 +26,16 @@ pub(super) struct StagedPack {
 impl StagedPack {
     pub(super) fn new(plan: InstallPlan, data: &DataDir) -> Result<Self, String> {
         let remaining = (0..plan.downloads().len()).collect();
+        let downloads = Downloads::new(
+            data.clone(),
+            DownloadRoute::Pack {
+                origins: plan.download_origins(),
+                key: plan.download_key().map(str::to_owned),
+            },
+        );
         Ok(Self {
             plan,
+            downloads,
             staging: StagedProfile::new(&data.instances()).map_err(|error| error.to_string())?,
             remaining,
             manual: Vec::new(),
@@ -70,12 +79,14 @@ impl StagedPack {
             );
         }
         if !self.remaining.is_empty() {
-            let network = ReqwestNetwork::desktop_with_download_policy(
-                self.plan.redirect_policy(),
-                self.plan.download_key(),
-            )
-            .map_err(|error| error.to_string())?;
-            install_runtime()?.block_on(download_remaining(self, &network, concurrency, report))?;
+            let downloads = self.downloads.clone();
+            let _lease = downloads.hold();
+            install_runtime()?.block_on(download_remaining(
+                self,
+                &downloads,
+                concurrency,
+                report,
+            ))?;
         }
         if !self.manual.is_empty() {
             report(PackState::ManualFiles);
@@ -115,7 +126,7 @@ impl StagedPack {
 
 async fn download_remaining(
     pack: &mut StagedPack,
-    network: &impl Network,
+    downloader: &impl FileDownloader,
     concurrency: usize,
     report: &impl Fn(PackState),
 ) -> Result<(), String> {
@@ -128,12 +139,11 @@ async fn download_remaining(
     };
     let directory = pack.staging.directory();
     let files = pack.plan.downloads();
-    let mut jobs = stream::iter(
-        remaining
-            .into_iter()
-            .map(|index| async move { (index, acquire(network, directory, &files[index]).await) }),
-    )
-    .buffer_unordered(limit);
+    let mut jobs =
+        stream::iter(remaining.into_iter().map(|index| async move {
+            (index, acquire(downloader, directory, &files[index]).await)
+        }))
+        .buffer_unordered(limit);
     let report_count = |processed| report(PackState::Downloading { processed, total });
     report_count(0);
     let mut processed = 0;
@@ -174,7 +184,7 @@ impl ManualFile {
 }
 
 async fn acquire(
-    network: &impl Network,
+    downloader: &impl FileDownloader,
     directory: &Path,
     file: &Download,
 ) -> Result<Option<ManualFile>, String> {
@@ -182,7 +192,7 @@ async fn acquire(
     if file.urls().is_empty() {
         return offer_manual(file, None);
     }
-    match download(network, &destination, file).await {
+    match download(downloader, &destination, file).await {
         Ok(()) => Ok(None),
         Err(error) => offer_manual(file, Some(error)),
     }
@@ -239,12 +249,11 @@ fn offer_manual(file: &Download, reason: Option<String>) -> Result<Option<Manual
 }
 
 async fn download(
-    network: &impl Network,
+    downloader: &impl FileDownloader,
     destination: &Path,
     file: &Download,
 ) -> Result<(), String> {
     let sources: Vec<_> = file.urls().iter().map(String::as_str).collect();
-    let engine = DownloadEngine::shared();
     let job = DownloadJob {
         sources: &sources,
         destination,
@@ -253,13 +262,7 @@ async fn download(
         size: file.size_hint(),
         batch: true,
     };
-    if file.has_additional_digest() {
-        let digests = file.clone();
-        return engine
-            .download_verified(network, job, move |input| digests.verify(input))
-            .await;
-    }
-    engine.download(network, job).await
+    downloader.download(job, file.extra_digest()).await
 }
 
 fn copy_verified(source: &Path, destination: &Path, download: &Download) -> io::Result<()> {

@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "cargo build --release -p axlauncher_platform_windows",
-    "dev": "cargo run -p axlauncher_platform_windows",
-    "lint": "cargo clippy -p axlauncher_platform_windows --all-targets -- -D warnings",
-    "test": "cargo test -p axlauncher_platform_windows"
+    "build": "node ../../scripts/desktop.ts build",
+    "dev": "node ../../scripts/desktop.ts dev",
+    "lint": "node ../../scripts/desktop.ts lint",
+    "test": "node ../../scripts/desktop.ts test"
   },
   "dependencies": {
     "@axlauncher/frontend": "workspace:*"

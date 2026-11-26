@@ -122,6 +122,7 @@ fn a_virtual_index_does_not_overwrite_a_pre_1_6_resource() {
 
     let result = block_on(prepare(
         &network,
+        &axlauncher_download_engine::Direct(&network),
         &GameDir::standalone(&game_root),
         &version,
         &Target::host(),
@@ -223,7 +224,7 @@ fn a_version_without_an_index_prepares_nothing_from_assets() {
 
 #[test]
 fn summarise_counts_written_files_and_names_failures() {
-    use crate::assets::DownloadOutcome;
+    use axlauncher_spi::downloads::DownloadOutcome;
 
     let outcomes = vec![
         DownloadOutcome {
@@ -246,7 +247,7 @@ fn summarise_counts_written_files_and_names_failures() {
 
 #[test]
 fn a_complete_pass_reports_complete() {
-    use crate::assets::DownloadOutcome;
+    use axlauncher_spi::downloads::DownloadOutcome;
 
     let prepared = summarise(&[DownloadOutcome {
         path: PathBuf::from("a.jar"),

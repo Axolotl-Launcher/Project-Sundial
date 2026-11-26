@@ -5,7 +5,8 @@ layout of files the launcher itself places. Applications call it through
 `axlauncher_core::storage`. The crate resolves locations; document owners
 still read, validate, and write their own documents. In particular, use
 `state::load_settings` and `state::update_settings` for existing preferences,
-and the account and Java-selection APIs in `state` for their respective data.
+`core::desktop::accounts` for account operations, and the Java-selection APIs
+in `state` for Java preferences.
 
 ## Roots and overrides
 
@@ -17,6 +18,7 @@ and the account and Java-selection APIs in `state` for their respective data.
 | Launcher cache | `AXLauncher` under the system cache directory | `DataDir::caches()` |
 | Launcher user data (instances) | `profiles` under the application data directory | `DataDir::instances()` |
 | Launcher temporary directory | A private `AXLauncher-*` directory per operation in the system temporary directory | `DataDir::scratch()` (`DataDir::temp()` gives its parent) |
+| Worker library temporary directory | A private `AXLauncher-*` directory per worker under the launcher cache's `workers` directory | `DataDir::worker_scratch()` |
 
 `DataDir::from_environment()` resolves startup defaults once. A nonempty
 `AXLAUNCHER_DATA_DIR` takes precedence over the platform defaults and keeps
@@ -57,6 +59,12 @@ isolated mode; otherwise they keep their platform defaults.
   download staging, and profile publication beside the destination when they
   rely on a rename. The application scratch root is not a substitute for
   same-filesystem staging.
+- Extract bundled worker libraries into `DataDir::worker_scratch()` and use
+  `WorkerLibrary::path` for their filenames. Native libraries require
+  executable mappings; the worker cache is independent of the temporary
+  location, which may use `noexec`. Report a load failure if the cache itself
+  disallows those mappings. Retain the scratch handle until the process has
+  exited and the operating system has released the library.
 - A user-selected file and a validated path supplied by a manifest, Maven
   coordinate, or archive are inputs, not launcher defaults. Their readers
   retain responsibility for validation. Fixed paths in a JDK, Minecraft
@@ -74,7 +82,8 @@ in the workspace CI test matrix. Fixtures in `tests/` may use literal paths.
 
 Keep exceptions local to a source file, function, and literal, and explain
 why the path cannot use a storage API. The current exceptions cover JDK and
-Minecraft save formats, the modpack build script's repository `.env`, and
-filenames private to the standalone converter's generated scratch directory.
+Minecraft save formats, the modpack build script's repository `.env`,
+filenames private to the standalone converter's generated scratch directory,
+and Linux's `/proc/self/exe` process reference for spawning embedded workers.
 The check is not a dataflow analyzer; review indirect path assembly against
 the same contract.

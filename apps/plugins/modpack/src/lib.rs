@@ -13,14 +13,13 @@ mod paths;
 pub use multimc::MultiMcExport;
 
 use std::collections::BTreeSet;
-use std::io::{self, BufRead, BufReader, Read};
+use std::io::{self, Read};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use axlauncher_spi::LoaderKind;
 use axlauncher_spi::auth::AuthNetwork;
-use md5::{Digest as _, Md5};
-use sha2::{Digest, Sha512};
+use axlauncher_spi::downloads::{ExtraDigest, PackOrigins};
 
 use archive::{Archive, Entry};
 
@@ -204,12 +203,10 @@ impl PlanOptions {
     }
 }
 
-type RedirectPolicy = fn(&url::Url) -> bool;
-
 struct PlannedDownloads {
     files: Vec<Download>,
-    redirect_policy: RedirectPolicy,
-    cdn_key: Option<(&'static str, String)>,
+    origins: PackOrigins,
+    cdn_key: Option<String>,
 }
 
 impl Pack {
@@ -253,7 +250,7 @@ impl Pack {
             PackFiles::CurseForge(files) => files.plan(selected, options, network).await?,
             PackFiles::Bundled => PlannedDownloads {
                 files: Vec::new(),
-                redirect_policy: |_| false,
+                origins: PackOrigins::None,
                 cdn_key: None,
             },
         };
@@ -330,14 +327,13 @@ impl InstallPlan {
     }
 
     /// A transport can apply the reader's redirect policy without inspecting the source.
-    pub fn redirect_policy(&self) -> RedirectPolicy {
-        self.downloads.redirect_policy
+    pub fn download_origins(&self) -> PackOrigins {
+        self.downloads.origins
     }
 
     /// Credentials for direct file requests to the authenticated CDN origin.
-    pub fn download_key(&self) -> Option<(&'static str, &str)> {
-        let (host, key) = self.downloads.cdn_key.as_ref()?;
-        Some((*host, key.as_str()))
+    pub fn download_key(&self) -> Option<&str> {
+        self.downloads.cdn_key.as_deref()
     }
 
     /// Bundled payloads stream through a host-supplied writer at their final relative paths.
@@ -387,8 +383,10 @@ impl Download {
         self.sha1.as_deref()
     }
 
-    pub fn has_additional_digest(&self) -> bool {
-        self.sha512.is_some() || self.md5.is_some()
+    pub fn extra_digest(&self) -> Option<ExtraDigest> {
+        self.sha512
+            .map(ExtraDigest::sha512)
+            .or_else(|| self.md5.map(ExtraDigest::Md5))
     }
 
     /// An official page where a user can obtain an unavailable download.
@@ -398,46 +396,16 @@ impl Download {
 
     /// Extra digests complement the transfer engine's SHA-1 check.
     pub fn verify(&self, input: impl Read) -> io::Result<()> {
-        if let Some(expected) = self.sha512 {
-            let mut digest = Sha512::new();
-            hash(input, |bytes| digest.update(bytes))?;
-            return check_hash(digest.finalize().as_slice() == expected, "SHA-512");
-        }
-        if let Some(expected) = self.md5 {
-            let mut digest = Md5::new();
-            hash(input, |bytes| digest.update(bytes))?;
-            return check_hash(digest.finalize().as_slice() == expected, "MD5");
-        }
-        Ok(())
-    }
-}
-
-fn check_hash(matches: bool, algorithm: &str) -> io::Result<()> {
-    if matches {
-        return Ok(());
-    }
-    Err(io::Error::new(
-        io::ErrorKind::InvalidData,
-        format!("{algorithm} mismatch"),
-    ))
-}
-
-fn hash(input: impl Read, mut update: impl FnMut(&[u8])) -> io::Result<()> {
-    let mut input = BufReader::new(input);
-    loop {
-        let bytes = input.fill_buf()?;
-        if bytes.is_empty() {
-            return Ok(());
-        }
-        let count = bytes.len();
-        update(bytes);
-        input.consume(count);
+        self.extra_digest()
+            .map_or(Ok(()), |digest| digest.verify(input))
     }
 }
 
 // Cargo Shear scans imports inside the crate but misses the mirrored tests.
 #[cfg(test)]
 use futures as test_futures;
+#[cfg(test)]
+use sha2 as test_sha2;
 #[cfg(test)]
 use tempfile as test_tempfile;
 

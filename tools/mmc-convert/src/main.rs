@@ -17,6 +17,7 @@ use axlauncher_core::launch::{Target, version};
 use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::state::profile::{Game, Profile, StagedProfile};
 use axlauncher_core::storage::{AtomicFile, DataDir, GameDir, write_atomic};
+use axlauncher_download_engine::Direct;
 use axlauncher_modpack::MultiMcExport;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -72,7 +73,15 @@ async fn convert(input: &Path, data: &DataDir) -> Result<PathBuf> {
     let profile = Profile::new(export.name(), Some(game));
     set_converted_id(&mut effective)?;
     patches::apply(patch_set, &mut export, data, &game_root, &mut effective)?;
-    let checked = prepare::prepare(&network, &game_root, &effective, &target, 0).await?;
+    let checked = prepare::prepare(
+        &network,
+        &Direct(&network),
+        &game_root,
+        &effective,
+        &target,
+        0,
+    )
+    .await?;
     base::complete(checked)?;
     write_atomic(
         &game_root.version_document(&effective.id),

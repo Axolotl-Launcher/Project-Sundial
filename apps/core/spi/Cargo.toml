@@ -13,6 +13,11 @@ license.workspace = true
 [dependencies]
 axlauncher_domain = { workspace = true }
 bytes = { workspace = true }
+futures = { workspace = true }
+md-5 = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+url = { workspace = true }
 
 [lints]
 workspace = true

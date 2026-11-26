@@ -11,6 +11,18 @@ pub mod java;
 pub mod launching;
 pub mod sources;
 
+pub mod accounts {
+    pub use axlauncher_worker::DesktopAccounts;
+    pub use axlauncher_worker::accounts::{
+        Account, AccountId, AccountSnapshot, Action, Change, ChoiceId, Method, Persistence,
+        Profile, Reply, SignInCommit,
+    };
+}
+
+pub mod downloads {
+    pub use axlauncher_worker::downloads::{Downloads, Route as DownloadRoute, stats};
+}
+
 /// A desktop worker runs one operation with its own Tokio I/O driver.
 fn on_worker<T>(operation: impl Future<Output = T>) -> std::io::Result<T> {
     let runtime = tokio::runtime::Builder::new_current_thread()

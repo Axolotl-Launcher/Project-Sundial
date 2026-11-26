@@ -4,6 +4,9 @@
 //! Windows entry point. All UI construction lives in `axlauncher_frontend`.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
-fn main() {
-    axlauncher_frontend::run();
+#[path = "../../entry.rs"]
+mod entry;
+
+fn main() -> std::process::ExitCode {
+    entry::run()
 }

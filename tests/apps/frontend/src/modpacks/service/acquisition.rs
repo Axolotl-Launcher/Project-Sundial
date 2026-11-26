@@ -104,7 +104,12 @@ fn retry_only_requests_failed_pack_downloads() {
         unreachable: Some("first.jar"),
         calls: RefCell::default(),
     };
-    let result = futures::executor::block_on(download_remaining(&mut pack, &first, 1, &|_| {}));
+    let result = futures::executor::block_on(download_remaining(
+        &mut pack,
+        &axlauncher_download_engine::Direct(&first),
+        1,
+        &|_| {},
+    ));
     assert!(result.unwrap_err().contains("mods/first.jar"));
     assert_eq!(
         fs::read(pack.staging.directory().join("mods/second.jar")).unwrap(),
@@ -115,7 +120,13 @@ fn retry_only_requests_failed_pack_downloads() {
         unreachable: None,
         calls: RefCell::default(),
     };
-    futures::executor::block_on(download_remaining(&mut pack, &retry, 1, &|_| {})).unwrap();
+    futures::executor::block_on(download_remaining(
+        &mut pack,
+        &axlauncher_download_engine::Direct(&retry),
+        1,
+        &|_| {},
+    ))
+    .unwrap();
     assert_eq!(retry.calls.into_inner(), ["first.jar"]);
     assert!(pack.remaining.is_empty());
     assert!(discover(&data.instances()).instances.is_empty());

@@ -34,6 +34,19 @@ SPDX-License-Identifier = "GPL-3.0-only"
 
 [[annotations]]
 path = [
+  "apps/core/lib/**",
+  "apps/core/spi/src/downloads.rs",
+  "platforms/entry.rs",
+  "scripts/desktop.ts",
+  "tests/apps/core/lib/**",
+  "tests/tests/embedded_workers.rs",
+  "tests/tests/unsafe_boundaries.rs",
+]
+SPDX-FileCopyrightText = "2026 Axolotl Team"
+SPDX-License-Identifier = "GPL-3.0-only"
+
+[[annotations]]
+path = [
   ".agents/docs/filesystem-paths.md",
   "apps/core/storage/src/game_dir.rs",
   "apps/core/storage/src/instance_paths.rs",

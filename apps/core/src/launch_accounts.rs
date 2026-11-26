@@ -1,50 +1,37 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Account-based launch preparation across the state, install, and launch systems.
+//! Turns resolved accounts into launch sessions without handling sign-in or storage.
 
 use axlauncher_launch::plan::{Session, YggdrasilAgent};
-use axlauncher_spi::{
-    Network,
-    auth::{AuthNetwork, CredentialStore},
-};
-use axlauncher_state::accounts::{Account, AccountId, AccountService, LaunchIdentity, yggdrasil};
+use axlauncher_spi::downloads::FileDownloader;
 use axlauncher_storage::DataDir;
-use base64::{Engine as _, engine::general_purpose::STANDARD};
+use axlauncher_worker::accounts::{Account, AccountId, Identity};
 
-/// A session ready for Minecraft, with third-party files prepared under the account service's root.
-pub async fn prepare<S: CredentialStore, N: Network>(
-    service: &AccountService<S>,
+/// A session ready for Minecraft, with the verified third-party agent when needed.
+pub(crate) async fn prepare(
+    identity: Identity,
     id: AccountId,
-    auth: &impl AuthNetwork,
-    download: impl FnOnce() -> Result<N, String>,
+    data: &DataDir,
+    downloader: &impl FileDownloader,
 ) -> Result<Session, String> {
-    let identity = service
-        .resolve(id, auth)
-        .await
-        .map_err(|error| error.to_string())?;
     let uuid = id.uuid().simple().to_string();
     match identity {
-        LaunchIdentity::Offline(account) => Ok(Session::offline_profile(account.name(), uuid)),
-        LaunchIdentity::Microsoft {
-            account,
+        Identity::Offline { name } => Ok(Session::offline_profile(name, uuid)),
+        Identity::Microsoft {
+            name,
             access_token,
             xuid,
-        } => Ok(Session::microsoft(account.name(), uuid, access_token).with_xuid(xuid)),
-        LaunchIdentity::Yggdrasil {
-            account,
+        } => Ok(Session::microsoft(name, uuid, access_token).with_xuid(xuid)),
+        Identity::Yggdrasil {
+            name,
             access_token,
+            url,
+            metadata,
         } => {
-            let server = account
-                .server()
-                .ok_or("The third-party account is missing its server.")?;
-            let agent = agent(auth, &download()?, server, service.data_dir()).await?;
-            Ok(Session::yggdrasil(
-                account.name(),
-                uuid,
-                access_token,
-                agent,
-            ))
+            let path = axlauncher_install::auth_agent::prepare(downloader, data).await?;
+            let agent = YggdrasilAgent::new(path, url).with_metadata(metadata);
+            Ok(Session::yggdrasil(name, uuid, access_token, agent))
         }
     }
 }
@@ -67,18 +54,4 @@ pub fn preview(account: &Account, data: &DataDir) -> Session {
             )
         }
     }
-}
-
-async fn agent(
-    auth: &impl AuthNetwork,
-    download: &impl Network,
-    server: &yggdrasil::Server,
-    data: &DataDir,
-) -> Result<YggdrasilAgent, String> {
-    let (metadata, path) = tokio::join!(
-        yggdrasil::launch_metadata(auth, server),
-        axlauncher_install::auth_agent::prepare(download, data)
-    );
-    Ok(YggdrasilAgent::new(path?, server.url())
-        .with_metadata(STANDARD.encode(metadata.map_err(|error| error.to_string())?)))
 }
