@@ -8,7 +8,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use axlauncher_spi::{
-    ByteRange, DownloadBody, DownloadProtocol, DownloadResponse, FetchError, Network, ResponseRange,
+    ByteRange, DownloadBody, DownloadProtocol, DownloadResponse, FetchError, Network, RangeRequest,
+    ResponseRange,
 };
 use bytes::Bytes;
 use futures::executor::block_on;
@@ -48,9 +49,10 @@ impl Network for RangeNetwork {
         &self,
         _url: &str,
         protocol: DownloadProtocol,
-        range: Option<ByteRange>,
+        range: Option<RangeRequest<'_>>,
     ) -> Result<DownloadResponse<impl DownloadBody>, FetchError> {
         assert_eq!(protocol, self.protocol.unwrap_or_default());
+        let range = range.map(|request| request.interval);
         self.requests.borrow_mut().push(range);
         let total = self.length.unwrap_or(LENGTH);
         let interval = range.unwrap_or(ByteRange {
@@ -70,6 +72,7 @@ impl Network for RangeNetwork {
         Ok(DownloadResponse {
             length: Some(length),
             range,
+            representation: None,
             body: PatternBody {
                 offset: if ignored { 0 } else { interval.start },
                 end: if ignored { total } else { interval.end },
@@ -266,12 +269,13 @@ impl Network for IncorrectLengthNetwork {
         &self,
         _url: &str,
         _protocol: DownloadProtocol,
-        range: Option<ByteRange>,
+        range: Option<RangeRequest<'_>>,
     ) -> Result<DownloadResponse<impl DownloadBody>, FetchError> {
         assert!(range.is_none());
         Ok(DownloadResponse {
             length: Some(self.0),
             range: None,
+            representation: None,
             body: Some(Bytes::from_static(b"pack")),
         })
     }

@@ -21,6 +21,13 @@ pub struct ByteRange {
     pub end: u64,
 }
 
+/// An interval and an optional strong validator from a previous response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RangeRequest<'a> {
+    pub interval: ByteRange,
+    pub if_range: Option<&'a [u8]>,
+}
+
 /// The interval the server returned and the full size of the representation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResponseRange {
@@ -28,10 +35,24 @@ pub struct ResponseRange {
     pub total: u64,
 }
 
+/// The kind of entity tag the server supplied for a partial response.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DownloadEtag {
+    Strong(Bytes),
+    Unusable,
+}
+
+/// The effective resource and validator after following redirects.
+pub struct DownloadRepresentation {
+    pub resource: String,
+    pub etag: Option<DownloadEtag>,
+}
+
 /// Response metadata and the body to consume incrementally.
 pub struct DownloadResponse<Body> {
     pub length: Option<u64>,
     pub range: Option<ResponseRange>,
+    pub representation: Option<DownloadRepresentation>,
     pub body: Body,
 }
 

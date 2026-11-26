@@ -726,6 +726,7 @@ dependencies = [
  "hex",
  "hickory-proto",
  "http-body-util",
+ "httpdate",
  "hyper",
  "hyper-util",
  "reqwest",

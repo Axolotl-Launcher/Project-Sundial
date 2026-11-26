@@ -17,6 +17,7 @@ futures = { workspace = true }
 hex = { workspace = true }
 hickory-proto = { workspace = true }
 http-body-util = { workspace = true }
+httpdate = { workspace = true }
 hyper = { workspace = true, features = ["http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }
 reqwest = { workspace = true }

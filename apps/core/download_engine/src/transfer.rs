@@ -8,7 +8,7 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use axlauncher_spi::{
-    ByteRange, DownloadBody, DownloadResponse, FetchError, Network, ResponseRange,
+    ByteRange, DownloadBody, DownloadResponse, FetchError, Network, RangeRequest, ResponseRange,
 };
 use axlauncher_storage::AtomicFile;
 use bytes::Bytes;
@@ -45,6 +45,7 @@ impl TransferError {
             self,
             Self::Network(
                 FetchError::Retryable(_)
+                    | FetchError::HttpRetryable { .. }
                     | FetchError::Rejected {
                         status: 408 | 429,
                         ..
@@ -204,7 +205,7 @@ impl<Net: Network> Transfer<'_, Net> {
 
     async fn open(
         &self,
-        range: Option<ByteRange>,
+        range: Option<RangeRequest<'_>>,
     ) -> Result<Connection<'_, impl DownloadBody>, TransferError> {
         let share = match self.share {
             Some(share) => Some(share.acquire().await),
@@ -228,7 +229,12 @@ impl<Net: Network> Transfer<'_, Net> {
         &self,
         range: ByteRange,
     ) -> Result<Connection<'_, impl DownloadBody>, TransferError> {
-        self.open(Some(range)).await.map_err(|error| match error {
+        self.open(Some(RangeRequest {
+            interval: range,
+            if_range: None,
+        }))
+        .await
+        .map_err(|error| match error {
             TransferError::Network(FetchError::Rejected {
                 status: 206 | 416, ..
             }) => TransferError::RangeUnavailable,
