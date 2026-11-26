@@ -76,6 +76,43 @@ fn automatic_selection_prefers_native_java_and_keeps_explicit_choices() {
 }
 
 #[test]
+fn a_native_bundled_runtime_still_ranks_above_a_foreign_standalone_runtime() {
+    let root = TempDir::new();
+    let product = root.path().join("IDE");
+    let bundled_home = product.join("jbr");
+    let standalone_home = root.path().join("standalone");
+    let bundled = install_fixture(&bundled_home, "25.0.1");
+    let standalone = install_fixture(&standalone_home, "25.0.9");
+    let executable = bundled.file_name().unwrap().to_str().unwrap();
+    fs::write(
+        product.join("product-info.json"),
+        format!(r#"{{"launch":[{{"javaExecutablePath":"jbr/bin/{executable}"}}]}}"#),
+    )
+    .unwrap();
+    fs::write(
+        bundled_home.join("release"),
+        format!(
+            "JAVA_VERSION=\"25.0.1\"\nOS_ARCH=\"{}\"\n",
+            std::env::consts::ARCH
+        ),
+    )
+    .unwrap();
+    fs::write(
+        standalone_home.join("release"),
+        "JAVA_VERSION=\"25.0.9\"\nOS_ARCH=\"sparcv9\"\n",
+    )
+    .unwrap();
+    let runtimes = [standalone, bundled.clone()].map(|path| JavaRuntime::inspect(&path).unwrap());
+
+    assert_eq!(
+        JavaRuntime::preferred_candidate(25, &runtimes)
+            .unwrap()
+            .path(),
+        bundled
+    );
+}
+
+#[test]
 fn a_lookalike_does_not_hide_a_jdk_under_an_unrecognized_vendor() {
     let root = TempDir::new();
     let vendor = root.path().join("Example Vendor");

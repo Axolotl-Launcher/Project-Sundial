@@ -163,16 +163,6 @@ impl RootView {
         self.java.read(cx).write_pending(profile)
     }
 
-    fn selected_java_picker(&self) -> Option<java::InstancePicker> {
-        let entry = self.instances.selected()?;
-        entry.profile.game()?;
-        Some(java::InstancePicker::new(
-            self.java.clone(),
-            entry.profile.id(),
-            &entry.profile.instance.name,
-        ))
-    }
-
     fn refresh_java_after_install(&mut self, paths: &DataDir, cx: &mut Context<'_, Self>) {
         if self.paths.as_ref().map(DataDir::root) == Some(paths.root()) {
             self.java.update(cx, java::JavaPanel::refresh);

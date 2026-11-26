@@ -12,6 +12,7 @@ use axlauncher_storage::runtime_record;
 
 use crate::platform::{executable_in_home, java_bin, managed_executable, managed_home, search_all};
 
+mod application;
 mod discovery;
 mod release;
 mod runtime;
@@ -25,7 +26,7 @@ pub struct SystemJava {
     runtime_roots: Vec<PathBuf>,
     chosen: Vec<(u32, PathBuf)>,
     registered: Vec<PathBuf>,
-    system_discovery: bool,
+    registered_only: bool,
 }
 
 impl SystemJava {
@@ -58,45 +59,53 @@ impl SystemJava {
         self
     }
 
-    /// Includes manually registered installations in discovery and resolution.
+    /// Includes registered installations in discovery and resolution.
     pub fn with_registered(mut self, paths: Vec<PathBuf>) -> Self {
         self.registered = paths;
         self
     }
 
-    /// Includes conventional platform locations and registrations.
-    pub fn with_system_discovery(mut self) -> Self {
-        self.system_discovery = true;
-        self
+    /// Uses canonical registrations with completion checks for managed paths.
+    pub fn for_registered_paths(roots: Vec<PathBuf>) -> Self {
+        Self {
+            runtime_roots: roots,
+            registered_only: true,
+            ..Self::default()
+        }
     }
 
-    /// Refreshes system discovery and lists available runtimes once per executable.
+    /// Scans conventional platform locations in addition to configured paths.
+    pub fn discover_system(&self) -> Vec<JavaRuntime> {
+        self.catalog(discovery::system_executables())
+    }
+
+    /// Lists available runtimes from configured paths once per executable.
     pub fn discover(&self) -> Vec<JavaRuntime> {
-        self.catalog(true)
+        self.catalog([])
     }
 
-    fn catalog(&self, refresh: bool) -> Vec<JavaRuntime> {
+    fn catalog(&self, system_paths: impl IntoIterator<Item = PathBuf>) -> Vec<JavaRuntime> {
         let mut seen = HashSet::new();
         self.chosen
             .iter()
-            .filter_map(|(_, path)| self.inspect(path))
+            .filter_map(|(_, path)| self.inspect_registered(path))
             .chain(
                 self.managed_candidates()
                     .chain(self.environment_candidates())
                     .filter_map(|path| self.inspect_automatic(&path)),
             )
             .chain(self.registered_runtimes())
-            .chain(self.platform_runtimes(refresh))
+            .chain(
+                system_paths
+                    .into_iter()
+                    .filter_map(|path| self.inspect_automatic(&path)),
+            )
             .filter(|runtime| seen.insert(runtime.path().to_owned()))
             .collect()
     }
 
     /// Resolves the saved choice or the newest available runtime for a major.
-    pub fn default_for<'a>(
-        &self,
-        major: u32,
-        runtimes: &'a [JavaRuntime],
-    ) -> Option<&'a JavaRuntime> {
+    fn default_for<'a>(&self, major: u32, runtimes: &'a [JavaRuntime]) -> Option<&'a JavaRuntime> {
         let pinned = self.pinned(major).and_then(|chosen| {
             runtimes
                 .iter()
@@ -118,6 +127,12 @@ impl SystemJava {
         self.completed(path, &runtime).then_some(runtime)
     }
 
+    /// Rechecks an executable against the provider's registration rules.
+    pub fn inspect_registered(&self, path: &Path) -> Option<JavaRuntime> {
+        self.inspect(path)
+            .filter(|runtime| !self.registered_only || runtime.path() == path)
+    }
+
     fn inspect_automatic(&self, path: &Path) -> Option<JavaRuntime> {
         let runtime = discovery::inspect_automatic(path)?;
         self.completed(path, &runtime).then_some(runtime)
@@ -135,13 +150,15 @@ impl SystemJava {
         self.chosen
             .iter()
             .filter(|(chosen_major, _)| *chosen_major == major)
-            .filter_map(|(_, path)| self.inspect(path))
+            .filter_map(|(_, path)| self.inspect_registered(path))
             .find(|runtime| runtime.major() == major)
     }
 
     fn managed_candidates(&self) -> impl Iterator<Item = PathBuf> {
-        inventory(&self.runtime_roots)
+        (!self.registered_only)
+            .then(|| inventory(&self.runtime_roots))
             .into_iter()
+            .flatten()
             .filter(|root| runtime_record(root).is_file())
             .filter_map(|root| managed_executable(&root, JavaMode::Console))
     }
@@ -161,28 +178,27 @@ impl SystemJava {
     }
 
     fn registered_runtimes(&self) -> impl Iterator<Item = JavaRuntime> + '_ {
-        self.registered.iter().filter_map(|path| self.inspect(path))
-    }
-
-    fn platform_runtimes(&self, refresh: bool) -> Vec<JavaRuntime> {
-        if !self.system_discovery {
-            return Vec::new();
-        }
-        discovery::system_candidates(refresh)
+        self.registered
             .iter()
-            .filter_map(|path| self.inspect_automatic(path))
-            .collect()
+            .filter_map(|path| self.inspect_registered(path))
     }
 }
 
 impl Java for SystemJava {
     fn executable(&self, mode: JavaMode) -> Option<PathBuf> {
+        if self.registered_only {
+            let runtime = self.registered_runtimes().next()?;
+            return Some(
+                self.pinned(runtime.major())
+                    .unwrap_or(runtime)
+                    .executable(mode),
+            );
+        }
         self.environment_candidates()
             .chain(self.managed_candidates())
             .filter_map(|path| self.inspect_automatic(&path))
             .chain(self.registered_runtimes())
             .next()
-            .or_else(|| self.platform_runtimes(false).into_iter().next())
             .map(|runtime| runtime.executable(mode))
     }
 
@@ -190,12 +206,12 @@ impl Java for SystemJava {
         if let Some(runtime) = self.pinned(major) {
             return Some(runtime.executable(mode));
         }
-        self.default_for(major, &self.catalog(false))
+        self.default_for(major, &self.discover())
             .map(|runtime| runtime.executable(mode))
     }
 
     fn executable_at(&self, path: &Path, major: Option<u32>, mode: JavaMode) -> Option<PathBuf> {
-        let runtime = self.inspect(path)?;
+        let runtime = self.inspect_registered(path)?;
         if major.is_some_and(|major| runtime.major() != major) {
             return None;
         }

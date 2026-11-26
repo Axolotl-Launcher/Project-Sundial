@@ -9,7 +9,9 @@ use axlauncher_core::desktop::java::{self, JavaCatalog};
 use axlauncher_core::storage::DataDir;
 
 pub(super) enum Activity {
-    Scanning,
+    Loading,
+    Starting,
+    Discovering,
     ChoosingFile,
     SavingCatalog,
     SavingProfile(String),
@@ -25,24 +27,30 @@ impl Activity {
 
     pub(super) fn label(&self) -> &'static str {
         match self {
-            Self::Scanning => "Scanning for Java…",
+            Self::Loading | Self::Starting => "Loading Java list…",
+            Self::Discovering => "Discovering Java installations…",
             Self::ChoosingFile => "Choose a Java executable.",
             Self::SavingCatalog | Self::SavingProfile(_) => "Saving Java settings…",
         }
     }
 
     pub(super) fn writes(&self) -> bool {
-        matches!(self, Self::SavingCatalog | Self::SavingProfile(_))
+        matches!(
+            self,
+            Self::Discovering | Self::SavingCatalog | Self::SavingProfile(_)
+        )
     }
 }
 
 pub(super) enum Operation {
+    Startup,
     Refresh,
+    Discover,
     Add(PathBuf),
     Remove(PathBuf),
     Prefer {
         major: u32,
-        path: Option<PathBuf>,
+        path: PathBuf,
     },
     Select {
         profile: String,
@@ -59,7 +67,9 @@ pub(super) enum OperationError {
 impl Operation {
     pub(super) fn activity(&self) -> Activity {
         match self {
-            Self::Refresh => Activity::Scanning,
+            Self::Startup => Activity::Starting,
+            Self::Refresh => Activity::Loading,
+            Self::Discover => Activity::Discovering,
             Self::Select { profile, .. } => Activity::SavingProfile(profile.clone()),
             _ => Activity::SavingCatalog,
         }
@@ -67,22 +77,27 @@ impl Operation {
 
     pub(super) fn run(self, paths: &DataDir) -> Result<JavaCatalog, OperationError> {
         let change = match self {
+            Self::Startup => return java::startup(paths).map_err(load_error),
+            Self::Discover => return java::discover(paths).map_err(load_error),
             Self::Refresh => {
-                return java::list(paths)
-                    .map_err(|error| OperationError::LoadOrSave(error.to_string()));
+                return java::list(paths).map_err(load_error);
             }
             Self::Add(path) => java::add(paths, &path).map(|_| ()),
             Self::Remove(path) => java::remove(paths, &path).map(|_| ()),
-            Self::Prefer { major, path } => java::set_preferred(paths, major, path.as_deref()),
+            Self::Prefer { major, path } => java::set_preferred(paths, major, &path),
             Self::Select { profile, path } => {
                 java::set_profile_preference(paths, &profile, path.as_deref())
             }
         };
-        change.map_err(|error| OperationError::LoadOrSave(error.to_string()))?;
+        change.map_err(load_error)?;
         java::list(paths).map_err(|error| {
             OperationError::RefreshAfterSave(format!(
-                "Java settings were saved. Refresh the list to see them. {error}"
+                "Java settings were saved. Reload the launcher data to see them. {error}"
             ))
         })
     }
+}
+
+fn load_error(error: java::JavaCatalogError) -> OperationError {
+    OperationError::LoadOrSave(error.to_string())
 }

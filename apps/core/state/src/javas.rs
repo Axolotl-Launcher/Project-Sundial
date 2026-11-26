@@ -27,7 +27,8 @@ struct PreferredJava {
 pub struct Javas {
     // Older catalogs used `chosen` for entries recorded automatically at install time.
     preferred: Vec<PreferredJava>,
-    manual: BTreeSet<PathBuf>,
+    #[serde(alias = "manual", deserialize_with = "read_installations")]
+    installations: BTreeMap<PathBuf, Option<u32>>,
     profiles: BTreeMap<String, PathBuf>,
 }
 
@@ -50,17 +51,31 @@ impl Javas {
         }
     }
 
-    pub fn manual_paths(&self) -> impl Iterator<Item = &Path> {
-        self.manual.iter().map(PathBuf::as_path)
+    pub fn paths(&self) -> impl Iterator<Item = &Path> {
+        self.installations.keys().map(PathBuf::as_path)
     }
 
-    pub fn add_manual(&mut self, path: PathBuf) {
-        self.manual.insert(path);
+    pub fn installations(&self) -> impl Iterator<Item = (&Path, Option<u32>)> {
+        self.installations
+            .iter()
+            .map(|(path, major)| (path.as_path(), *major))
+    }
+
+    pub fn contains(&self, path: &Path) -> bool {
+        self.installations.contains_key(path)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.installations.is_empty()
+    }
+
+    pub fn add(&mut self, path: PathBuf, major: u32) {
+        self.installations.insert(path, Some(major));
     }
 
     /// Removes a registration and clears preferences that referred to it.
-    pub fn remove_manual(&mut self, path: &Path) -> bool {
-        if !self.manual.remove(path) {
+    pub fn remove(&mut self, path: &Path) -> bool {
+        if self.installations.remove(path).is_none() {
             return false;
         }
         self.preferred.retain(|entry| entry.path != path);
@@ -72,10 +87,6 @@ impl Javas {
         self.profiles.get(id).map(PathBuf::as_path)
     }
 
-    pub fn profile_paths(&self) -> impl Iterator<Item = &Path> {
-        self.profiles.values().map(PathBuf::as_path)
-    }
-
     /// Saves a machine-local override for a portable profile ID.
     pub fn set_profile_preference(&mut self, id: &str, path: Option<PathBuf>) {
         if let Some(path) = path {
@@ -84,6 +95,23 @@ impl Javas {
             self.profiles.remove(id);
         }
     }
+}
+
+fn read_installations<'de, D>(deserializer: D) -> Result<BTreeMap<PathBuf, Option<u32>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Entries {
+        Installations(BTreeMap<PathBuf, Option<u32>>),
+        Paths(BTreeSet<PathBuf>),
+    }
+
+    Ok(match Entries::deserialize(deserializer)? {
+        Entries::Installations(installations) => installations,
+        Entries::Paths(paths) => paths.into_iter().map(|path| (path, None)).collect(),
+    })
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -9,7 +9,7 @@ use axlauncher_spi::JavaMode;
 
 use crate::platform::{name, sibling};
 
-use super::release::JavaRelease;
+use super::{application, release::JavaRelease};
 
 /// A locally inspected Java installation identified by its executable.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +63,22 @@ impl JavaRuntime {
 
     pub fn architecture(&self) -> Option<&str> {
         self.architecture.as_deref()
+    }
+
+    /// Ranks a new per-major preference by host architecture, then application ownership and release.
+    pub fn preferred_candidate(major: u32, runtimes: &[Self]) -> Option<&Self> {
+        // Keep the original candidate order when all ranking keys tie.
+        runtimes
+            .iter()
+            .rev()
+            .filter(|runtime| runtime.major() == major)
+            .max_by_key(|runtime| {
+                (
+                    runtime.architecture_rank(),
+                    !application::owns_runtime(runtime.path()),
+                    &runtime.version,
+                )
+            })
     }
 
     pub(super) fn compare_default(&self, other: &Self) -> Ordering {
