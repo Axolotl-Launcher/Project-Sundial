@@ -48,7 +48,7 @@ impl SystemJava {
 
     /// Includes completed launcher-managed installations in the search.
     pub fn with_runtime_roots(mut self, roots: Vec<PathBuf>) -> Self {
-        self.runtime_roots = inventory(roots);
+        self.runtime_roots = roots;
         self
     }
 
@@ -70,19 +70,23 @@ impl SystemJava {
         self
     }
 
-    /// Lists available Java runtimes with metadata, once per executable.
+    /// Refreshes system discovery and lists available runtimes once per executable.
     pub fn discover(&self) -> Vec<JavaRuntime> {
+        self.catalog(true)
+    }
+
+    fn catalog(&self, refresh: bool) -> Vec<JavaRuntime> {
         let mut seen = HashSet::new();
         self.chosen
             .iter()
-            .filter_map(|(_, path)| JavaRuntime::inspect(path))
+            .filter_map(|(_, path)| self.inspect(path))
             .chain(
                 self.managed_candidates()
                     .chain(self.environment_candidates())
-                    .filter_map(discovery::inspect_automatic),
+                    .filter_map(|path| self.inspect_automatic(&path)),
             )
             .chain(self.registered_runtimes())
-            .chain(self.platform_runtimes())
+            .chain(self.platform_runtimes(refresh))
             .filter(|runtime| seen.insert(runtime.path().to_owned()))
             .collect()
     }
@@ -93,32 +97,53 @@ impl SystemJava {
         major: u32,
         runtimes: &'a [JavaRuntime],
     ) -> Option<&'a JavaRuntime> {
-        let pinned = self
-            .chosen
-            .iter()
-            .filter(|(chosen_major, _)| *chosen_major == major)
-            .filter_map(|(_, path)| JavaRuntime::inspect(path))
-            .filter(|runtime| runtime.major() == major)
-            .find_map(|chosen| {
-                runtimes
-                    .iter()
-                    .find(|runtime| runtime.major() == major && runtime.path() == chosen.path())
-            });
+        let pinned = self.pinned(major).and_then(|chosen| {
+            runtimes
+                .iter()
+                .find(|runtime| runtime.major() == major && runtime.path() == chosen.path())
+        });
         pinned.or_else(|| {
             // max_by keeps the last tie, so reverse the original discovery order.
             runtimes
                 .iter()
                 .rev()
                 .filter(|runtime| runtime.major() == major)
-                .max_by(|left, right| left.compare_release(right))
+                .max_by(|left, right| left.compare_default(right))
         })
     }
 
-    fn managed_candidates(&self) -> impl Iterator<Item = PathBuf> + '_ {
-        self.runtime_roots
+    /// Inspects a selected runtime, including the completion marker for managed paths.
+    pub fn inspect(&self, path: &Path) -> Option<JavaRuntime> {
+        let runtime = JavaRuntime::inspect(path)?;
+        self.completed(path, &runtime).then_some(runtime)
+    }
+
+    fn inspect_automatic(&self, path: &Path) -> Option<JavaRuntime> {
+        let runtime = discovery::inspect_automatic(path)?;
+        self.completed(path, &runtime).then_some(runtime)
+    }
+
+    fn completed(&self, path: &Path, runtime: &JavaRuntime) -> bool {
+        self.runtime_roots.iter().all(|root| {
+            let canonical = dunce::canonicalize(root).ok();
+            completed_component(root, path)
+                && canonical.is_none_or(|root| completed_component(&root, runtime.path()))
+        })
+    }
+
+    fn pinned(&self, major: u32) -> Option<JavaRuntime> {
+        self.chosen
             .iter()
+            .filter(|(chosen_major, _)| *chosen_major == major)
+            .filter_map(|(_, path)| self.inspect(path))
+            .find(|runtime| runtime.major() == major)
+    }
+
+    fn managed_candidates(&self) -> impl Iterator<Item = PathBuf> {
+        inventory(&self.runtime_roots)
+            .into_iter()
             .filter(|root| runtime_record(root).is_file())
-            .filter_map(|root| managed_executable(root, JavaMode::Console))
+            .filter_map(|root| managed_executable(&root, JavaMode::Console))
     }
 
     fn environment_candidates(&self) -> impl Iterator<Item = PathBuf> + '_ {
@@ -136,17 +161,17 @@ impl SystemJava {
     }
 
     fn registered_runtimes(&self) -> impl Iterator<Item = JavaRuntime> + '_ {
-        self.registered
-            .iter()
-            .filter_map(|path| JavaRuntime::inspect(path))
+        self.registered.iter().filter_map(|path| self.inspect(path))
     }
 
-    fn platform_runtimes(&self) -> impl Iterator<Item = JavaRuntime> {
-        self.system_discovery
-            .then_some(())
-            .into_iter()
-            .flat_map(|()| discovery::system_executables())
-            .filter_map(discovery::inspect_automatic)
+    fn platform_runtimes(&self, refresh: bool) -> Vec<JavaRuntime> {
+        if !self.system_discovery {
+            return Vec::new();
+        }
+        discovery::system_candidates(refresh)
+            .iter()
+            .filter_map(|path| self.inspect_automatic(path))
+            .collect()
     }
 }
 
@@ -154,20 +179,23 @@ impl Java for SystemJava {
     fn executable(&self, mode: JavaMode) -> Option<PathBuf> {
         self.environment_candidates()
             .chain(self.managed_candidates())
-            .filter_map(discovery::inspect_automatic)
+            .filter_map(|path| self.inspect_automatic(&path))
             .chain(self.registered_runtimes())
-            .chain(self.platform_runtimes())
             .next()
+            .or_else(|| self.platform_runtimes(false).into_iter().next())
             .map(|runtime| runtime.executable(mode))
     }
 
     fn executable_for(&self, major: u32, mode: JavaMode) -> Option<PathBuf> {
-        self.default_for(major, &self.discover())
+        if let Some(runtime) = self.pinned(major) {
+            return Some(runtime.executable(mode));
+        }
+        self.default_for(major, &self.catalog(false))
             .map(|runtime| runtime.executable(mode))
     }
 
     fn executable_at(&self, path: &Path, major: Option<u32>, mode: JavaMode) -> Option<PathBuf> {
-        let runtime = JavaRuntime::inspect(path)?;
+        let runtime = self.inspect(path)?;
         if major.is_some_and(|major| runtime.major() != major) {
             return None;
         }
@@ -175,15 +203,30 @@ impl Java for SystemJava {
     }
 }
 
+fn completed_component(root: &Path, executable: &Path) -> bool {
+    let Ok(relative) = executable.strip_prefix(root) else {
+        return true;
+    };
+    let Some(component) = relative.components().next() else {
+        return false;
+    };
+    let directory = if managed_home(root).join("bin").is_dir() {
+        root.to_owned()
+    } else {
+        root.join(component)
+    };
+    runtime_record(&directory).is_file()
+}
+
 /// The component directories installed by this launcher, in stable order.
-fn inventory(roots: Vec<PathBuf>) -> Vec<PathBuf> {
+fn inventory(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut found = Vec::new();
     for root in roots {
-        if managed_home(&root).join("bin").is_dir() {
-            found.push(root);
+        if managed_home(root).join("bin").is_dir() {
+            found.push(root.clone());
             continue;
         }
-        let Ok(entries) = std::fs::read_dir(&root) else {
+        let Ok(entries) = std::fs::read_dir(root) else {
             continue;
         };
         found.extend(
@@ -198,6 +241,9 @@ fn inventory(roots: Vec<PathBuf>) -> Vec<PathBuf> {
     found
 }
 
+#[cfg(test)]
+#[path = "../../../../../tests/apps/core/launch/src/java/selection.rs"]
+mod selection_tests;
 #[cfg(test)]
 #[path = "../../../../../tests/apps/core/launch/src/java/mod.rs"]
 mod tests;

@@ -65,8 +65,18 @@ impl JavaRuntime {
         self.architecture.as_deref()
     }
 
-    pub(super) fn compare_release(&self, other: &Self) -> Ordering {
-        self.version.cmp(&other.version)
+    pub(super) fn compare_default(&self, other: &Self) -> Ordering {
+        self.architecture_rank()
+            .cmp(&other.architecture_rank())
+            .then_with(|| self.version.cmp(&other.version))
+    }
+
+    fn architecture_rank(&self) -> u8 {
+        match self.architecture() {
+            Some(architecture) if is_native(architecture) => 2,
+            None | Some("") => 1,
+            Some(_) => 0,
+        }
     }
 
     pub(super) fn executable(&self, mode: JavaMode) -> PathBuf {
@@ -74,6 +84,18 @@ impl JavaRuntime {
             .filter(|path| is_executable(path))
             .unwrap_or_else(|| self.executable.clone())
     }
+}
+
+fn is_native(architecture: &str) -> bool {
+    let architecture = architecture.to_ascii_lowercase();
+    let canonical = match architecture.as_str() {
+        "amd64" | "x64" => "x86_64",
+        "arm64" => "aarch64",
+        "i386" | "i486" | "i586" | "i686" => "x86",
+        "arm32" | "armv7" | "armv7l" => "arm",
+        other => other,
+    };
+    canonical == std::env::consts::ARCH
 }
 
 fn read_release(executable: &Path) -> Option<String> {

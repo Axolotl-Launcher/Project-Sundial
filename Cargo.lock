@@ -680,7 +680,6 @@ dependencies = [
  "dunce",
  "serde",
  "serde_json",
- "windows-registry 0.6.1",
  "zip",
 ]
 
@@ -838,6 +837,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.21",
  "uuid",
 ]
 
@@ -850,6 +850,7 @@ dependencies = [
  "keyring",
  "sysinfo",
  "tempfile",
+ "windows-registry 0.6.1",
 ]
 
 [[package]]

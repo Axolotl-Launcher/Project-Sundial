@@ -33,6 +33,22 @@ fn fixed_drive_seeds_use_installation_keywords() {
 }
 
 #[test]
+fn program_files_searches_unrecognized_vendors_without_crossing_its_depth_limit() {
+    let root = TestTempDir::new();
+    let programs = dunce::canonicalize(root.path())
+        .unwrap()
+        .join("Program Files");
+    let java = fake_java(programs.join("Acme/Java/jdk-21/bin"));
+    fake_java(programs.join("Acme/Java/Deep/jdk-25/bin"));
+    fake_java(programs.join("WpSystem/Java/jdk-25/bin"));
+    let mut found = Vec::new();
+
+    scan_program_files(&[programs], &mut found);
+
+    assert_eq!(found, [java]);
+}
+
+#[test]
 fn the_store_layout_accepts_runtime_components_on_non_wpsystem_paths() {
     let root = TestTempDir::new();
     let found = fake_java(

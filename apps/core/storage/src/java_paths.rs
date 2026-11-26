@@ -22,25 +22,13 @@ pub fn java_search_roots() -> Vec<PathBuf> {
 
 #[cfg(windows)]
 fn platform_roots() -> Vec<PathBuf> {
-    const VENDORS: &[&str] = &[
-        "Java",
-        "Eclipse Adoptium",
-        "AdoptOpenJDK",
-        "Microsoft",
-        "Amazon Corretto",
-        "Azul Systems",
-        "BellSoft",
-        "Semeru",
-        "RedHat",
-    ];
     let mut roots = Vec::new();
     for key in ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"] {
         if let Some(path) = std::env::var_os(key)
             .map(PathBuf::from)
             .filter(|path| path.is_absolute())
         {
-            roots.extend(VENDORS.iter().map(|vendor| path.join(vendor)));
-            roots.push(path.join("Minecraft Launcher/runtime"));
+            roots.push(path);
         }
     }
     roots.extend(roaming_minecraft_runtime());
@@ -95,6 +83,50 @@ pub fn java_store_runtime_root() -> Option<PathBuf> {
         dirs::data_local_dir()?
             .join("Packages/Microsoft.4297127D64EC6_8wekyb3d8bbwe/LocalCache/Local/runtime"),
     )
+}
+
+/// Java homes registered by Windows installers.
+#[cfg(windows)]
+pub fn java_registry_homes() -> Vec<PathBuf> {
+    use windows_registry::{CURRENT_USER, LOCAL_MACHINE};
+
+    [LOCAL_MACHINE, CURRENT_USER]
+        .into_iter()
+        .flat_map(|hive| {
+            [r"SOFTWARE", r"SOFTWARE\WOW6432Node"]
+                .into_iter()
+                .filter_map(move |prefix| hive.open(prefix).ok())
+        })
+        .flat_map(|software| registry_vendor_homes(&software))
+        .collect()
+}
+
+#[cfg(windows)]
+fn registry_vendor_homes(software: &windows_registry::Key) -> Vec<PathBuf> {
+    const REGISTRY_KEYS: &[(&str, &str)] = &[
+        (r"JavaSoft\JDK", "JavaHome"),
+        (r"JavaSoft\JRE", "JavaHome"),
+        (r"JavaSoft\Java Development Kit", "JavaHome"),
+        (r"JavaSoft\Java Runtime Environment", "JavaHome"),
+        (r"Azul Systems\Zulu", "InstallationPath"),
+        (r"BellSoft\Liberica", "InstallationPath"),
+    ];
+    REGISTRY_KEYS
+        .iter()
+        .filter_map(|(key, value)| Some((software.open(key).ok()?, value)))
+        .flat_map(|(branch, value)| registry_installations(&branch, value))
+        .collect()
+}
+
+#[cfg(windows)]
+fn registry_installations(branch: &windows_registry::Key, value: &str) -> Vec<PathBuf> {
+    let Ok(keys) = branch.keys() else {
+        return Vec::new();
+    };
+    keys.filter_map(|key| branch.open(key).ok()?.get_string(value).ok())
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .collect()
 }
 
 /// The extra directory Windows' executable search checks before PATH.

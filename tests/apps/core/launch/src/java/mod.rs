@@ -8,18 +8,18 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 static COUNTER: AtomicU32 = AtomicU32::new(0);
 
-struct TempDir(PathBuf);
+pub(super) struct TempDir(PathBuf);
 
 impl TempDir {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
         let path =
-            std::env::temp_dir().join(format!("axlauncher-launch-{}-{unique}", std::process::id()));
+            std::env::temp_dir().join(format!("axlauncher-java-{}-{unique}", std::process::id()));
         fs::create_dir_all(&path).expect("temp directory");
         Self(dunce::canonicalize(path).expect("canonical temp directory"))
     }
 
-    fn path(&self) -> &Path {
+    pub(super) fn path(&self) -> &Path {
         &self.0
     }
 }
@@ -31,7 +31,7 @@ impl Drop for TempDir {
 }
 
 /// A fake Java executable named for `mode` under `directory`.
-fn java_in(directory: &Path, mode: JavaMode) -> PathBuf {
+pub(super) fn java_in(directory: &Path, mode: JavaMode) -> PathBuf {
     fs::create_dir_all(directory).expect("directory");
     let path = directory.join(executable_name(mode));
     fs::write(&path, b"fake").expect("java");
@@ -117,7 +117,8 @@ fn jdk_home(root: &Path, version: &str) -> PathBuf {
     home
 }
 
-fn install_fixture(home: &Path, version: &str) -> PathBuf {
+/// Installs the executable and its version metadata under an isolated JDK home.
+pub(super) fn install_fixture(home: &Path, version: &str) -> PathBuf {
     fs::create_dir_all(home.join("bin")).expect("bin");
     fs::write(
         home.join("release"),

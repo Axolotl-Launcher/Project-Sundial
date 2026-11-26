@@ -16,7 +16,7 @@ const SCHEMA_VERSION: u32 = 1;
 
 /// The user's preferred installation for a Java major.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ChosenJava {
+struct PreferredJava {
     major_version: u32,
     path: PathBuf,
 }
@@ -25,27 +25,28 @@ struct ChosenJava {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Javas {
-    chosen: Vec<ChosenJava>,
+    // Older catalogs used `chosen` for entries recorded automatically at install time.
+    preferred: Vec<PreferredJava>,
     manual: BTreeSet<PathBuf>,
     profiles: BTreeMap<String, PathBuf>,
 }
 
 impl Javas {
     pub fn preferred(&self) -> impl Iterator<Item = (u32, &Path)> {
-        self.chosen
+        self.preferred
             .iter()
             .map(|entry| (entry.major_version, entry.path.as_path()))
     }
 
     /// A major has at most one preferred installation.
-    pub fn set_chosen(&mut self, major: u32, path: Option<PathBuf>) {
-        self.chosen.retain(|entry| entry.major_version != major);
+    pub fn set_preferred(&mut self, major: u32, path: Option<PathBuf>) {
+        self.preferred.retain(|entry| entry.major_version != major);
         if let Some(path) = path {
-            self.chosen.push(ChosenJava {
+            self.preferred.push(PreferredJava {
                 major_version: major,
                 path,
             });
-            self.chosen.sort_by_key(|entry| entry.major_version);
+            self.preferred.sort_by_key(|entry| entry.major_version);
         }
     }
 
@@ -62,7 +63,7 @@ impl Javas {
         if !self.manual.remove(path) {
             return false;
         }
-        self.chosen.retain(|entry| entry.path != path);
+        self.preferred.retain(|entry| entry.path != path);
         self.profiles.retain(|_, selected| selected != path);
         true
     }

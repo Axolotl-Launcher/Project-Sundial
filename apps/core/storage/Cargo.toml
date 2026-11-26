@@ -18,6 +18,7 @@ tempfile = { workspace = true }
 
 [target."cfg(windows)".dependencies]
 sysinfo = { workspace = true }
+windows-registry = { workspace = true }
 
 [lints]
 workspace = true

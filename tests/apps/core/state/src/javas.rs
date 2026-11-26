@@ -11,8 +11,8 @@ fn registrations_and_preferences_round_trip_separately() {
     let other = root.path().join("other-jdk21/bin/java");
     update(root.path(), |javas| {
         javas.add_manual(manual.clone());
-        javas.set_chosen(21, Some(manual.clone()));
-        javas.set_chosen(21, Some(other.clone()));
+        javas.set_preferred(21, Some(manual.clone()));
+        javas.set_preferred(21, Some(other.clone()));
         javas.set_profile_preference("profile", Some(manual.clone()));
     })
     .unwrap();
@@ -36,8 +36,8 @@ fn removing_a_manual_entry_clears_preferences_for_that_path() {
     let other = root.path().join("jdk8/bin/java");
     update(root.path(), |javas| {
         javas.add_manual(manual.clone());
-        javas.set_chosen(21, Some(manual.clone()));
-        javas.set_chosen(8, Some(other.clone()));
+        javas.set_preferred(21, Some(manual.clone()));
+        javas.set_preferred(8, Some(other.clone()));
         javas.set_profile_preference("profile", Some(manual.clone()));
         assert!(javas.remove_manual(&manual));
     })
@@ -81,4 +81,16 @@ fn another_schema_is_never_replaced() {
     let error = update(root.path(), |_| ()).unwrap_err();
     assert!(matches!(error, JavasError::RefusedSchema { found: 9, .. }));
     assert_eq!(fs::read(path).unwrap(), document);
+}
+
+#[test]
+fn old_automatic_choices_do_not_become_preferred_runtimes() {
+    let root = TempRoot::new();
+    fs::write(
+        javas_path(root.path()),
+        br#"{"schema_version":1,"chosen":[{"major_version":21,"full_version":"21.0.7","architecture":"amd64","path":"managed/bin/java"}],"discovered":{}}"#,
+    )
+    .unwrap();
+
+    assert_eq!(load(root.path()).unwrap().preferred().count(), 0);
 }

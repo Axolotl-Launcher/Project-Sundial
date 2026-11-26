@@ -9,7 +9,8 @@ use std::path::{Path, PathBuf};
 
 use axlauncher_spi::JavaMode;
 use axlauncher_storage::{
-    java_exploration_roots, java_fixed_drives, java_store_runtime_root, java_working_directory,
+    java_exploration_roots, java_fixed_drives, java_registry_homes, java_store_runtime_root,
+    java_working_directory,
 };
 
 use crate::platform::{executable_in, executable_in_home};
@@ -57,14 +58,17 @@ const EXPLORATION_KEYWORDS: &[&str] = &[
 
 pub(super) fn executables() -> Vec<PathBuf> {
     let drives = java_fixed_drives();
-    let roots = java_exploration_roots(&drives).into_iter().chain(
+    let conventional = java_exploration_roots(&drives);
+    let mut found = Vec::new();
+    scan_program_files(&conventional, &mut found);
+    let roots = conventional.into_iter().chain(
         drives
             .iter()
             .flat_map(|drive| child_directories(drive).filter(|path| is_installation_root(path))),
     );
-    let mut found = explore(roots);
+    found.extend(explore(roots));
     found.extend(
-        registry_homes()
+        java_registry_homes()
             .iter()
             .filter_map(|home| executable_in_home(home, JavaMode::Console)),
     );
@@ -73,6 +77,17 @@ pub(super) fn executables() -> Vec<PathBuf> {
         found.extend(store_executables(&root));
     }
     found
+}
+
+fn scan_program_files(roots: &[PathBuf], found: &mut Vec<PathBuf>) {
+    for root in roots.iter().filter(|path| is_program_files(path)) {
+        super::scan(root, super::SEARCH_DEPTH, found);
+    }
+}
+
+fn is_program_files(path: &Path) -> bool {
+    directory_name(path)
+        .is_some_and(|name| matches!(name.as_str(), "program files" | "program files (x86)"))
 }
 
 pub(super) fn ignored(path: &Path) -> bool {
@@ -121,7 +136,8 @@ fn scan_children(
     for child in child_directories(directory).filter(|path| !ignored(path)) {
         if let Some(path) = executable_in(&child, JavaMode::Console) {
             found.push(path);
-        } else if depth < EXPLORATION_DEPTH
+        }
+        if depth < EXPLORATION_DEPTH
             && directory_name(&child).is_some_and(|name| may_descend(&name))
         {
             queue.push_back((child, depth + 1));
@@ -177,46 +193,6 @@ fn store_executables(root: &Path) -> Vec<PathBuf> {
         .flat_map(|component| child_directories(&component))
         .flat_map(|architecture| child_directories(&architecture))
         .filter_map(|home| executable_in_home(&home, JavaMode::Console))
-        .collect()
-}
-
-fn registry_homes() -> Vec<PathBuf> {
-    use windows_registry::{CURRENT_USER, LOCAL_MACHINE};
-
-    [LOCAL_MACHINE, CURRENT_USER]
-        .into_iter()
-        .flat_map(|hive| {
-            [r"SOFTWARE", r"SOFTWARE\WOW6432Node"]
-                .into_iter()
-                .filter_map(move |prefix| hive.open(prefix).ok())
-        })
-        .flat_map(|software| registry_vendor_homes(&software))
-        .collect()
-}
-
-fn registry_vendor_homes(software: &windows_registry::Key) -> Vec<PathBuf> {
-    const REGISTRY_KEYS: &[(&str, &str)] = &[
-        (r"JavaSoft\JDK", "JavaHome"),
-        (r"JavaSoft\JRE", "JavaHome"),
-        (r"JavaSoft\Java Development Kit", "JavaHome"),
-        (r"JavaSoft\Java Runtime Environment", "JavaHome"),
-        (r"Azul Systems\Zulu", "InstallationPath"),
-        (r"BellSoft\Liberica", "InstallationPath"),
-    ];
-    REGISTRY_KEYS
-        .iter()
-        .filter_map(|(key, value)| Some((software.open(key).ok()?, value)))
-        .flat_map(|(branch, value)| registry_installations(&branch, value))
-        .collect()
-}
-
-fn registry_installations(branch: &windows_registry::Key, value: &str) -> Vec<PathBuf> {
-    let Ok(keys) = branch.keys() else {
-        return Vec::new();
-    };
-    keys.filter_map(|key| branch.open(key).ok()?.get_string(value).ok())
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
         .collect()
 }
 

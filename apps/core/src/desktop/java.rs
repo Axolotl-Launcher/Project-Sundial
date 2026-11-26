@@ -154,7 +154,7 @@ pub fn list(data: &DataDir) -> Result<JavaCatalog, JavaCatalogError> {
         .collect::<BTreeSet<_>>()
         .into_iter()
         .filter(|path| !discovered.contains(path))
-        .filter_map(|path| Some((path.to_owned(), JavaRuntime::inspect(path)?)))
+        .filter_map(|path| Some((path.to_owned(), provider.inspect(path)?)))
         .collect();
     Ok(JavaCatalog {
         available,
@@ -166,7 +166,7 @@ pub fn list(data: &DataDir) -> Result<JavaCatalog, JavaCatalogError> {
 
 /// Registers a Java executable after checking its installation.
 pub fn add(data: &DataDir, path: &Path) -> Result<JavaRuntime, JavaCatalogError> {
-    let runtime = validate(path, None)?;
+    let runtime = validate(data, path, None)?;
     javas::update(data.root(), |javas| {
         javas.add_manual(runtime.path().to_owned())
     })?;
@@ -186,9 +186,9 @@ pub fn set_preferred(
     major: u32,
     path: Option<&Path>,
 ) -> Result<(), JavaCatalogError> {
-    let path = validated_path(path, Some(major))?;
+    let path = validated_path(data, path, Some(major))?;
     Ok(javas::update(data.root(), |javas| {
-        javas.set_chosen(major, path)
+        javas.set_preferred(major, path)
     })?)
 }
 
@@ -198,22 +198,29 @@ pub fn set_profile_preference(
     profile_id: &str,
     path: Option<&Path>,
 ) -> Result<(), JavaCatalogError> {
-    let path = validated_path(path, None)?;
+    let path = validated_path(data, path, None)?;
     Ok(javas::update(data.root(), |javas| {
         javas.set_profile_preference(profile_id, path)
     })?)
 }
 
 fn validated_path(
+    data: &DataDir,
     path: Option<&Path>,
     required: Option<u32>,
 ) -> Result<Option<PathBuf>, JavaCatalogError> {
-    path.map(|path| validate(path, required).map(|runtime| runtime.path().to_owned()))
+    path.map(|path| validate(data, path, required).map(|runtime| runtime.path().to_owned()))
         .transpose()
 }
 
-fn validate(path: &Path, required: Option<u32>) -> Result<JavaRuntime, JavaCatalogError> {
-    JavaRuntime::inspect(path)
+fn validate(
+    data: &DataDir,
+    path: &Path,
+    required: Option<u32>,
+) -> Result<JavaRuntime, JavaCatalogError> {
+    SystemJava::default()
+        .with_runtime_roots(vec![data.java_versions()])
+        .inspect(path)
         .filter(|runtime| required.is_none_or(|major| runtime.major() == major))
         .ok_or_else(|| JavaCatalogError::InvalidRuntime {
             path: path.to_owned(),
