@@ -4,104 +4,93 @@
 use super::*;
 use crate::test_support::TempRoot;
 
-fn chosen(major: u32, path: &str) -> ChosenJava {
-    ChosenJava {
-        major_version: major,
-        full_version: format!("{major}.0.1"),
-        architecture: "x86_64".into(),
-        path: path.into(),
-    }
-}
-
-fn discovered(major: u32) -> DiscoveredJava {
-    DiscoveredJava {
-        major_version: major,
-        full_version: format!("{major}.0.1"),
-        architecture: "x86_64".into(),
-        file_size: 0,
-        file_mtime_ms: 0,
-    }
-}
-
 #[test]
-fn a_choice_replaces_the_previous_one_for_its_major() {
-    let mut javas = Javas::new();
-    javas.choose(chosen(21, "/old/bin/java"));
-    javas.choose(chosen(21, "/new/bin/java"));
-
-    assert_eq!(javas.chosen().len(), 1);
-    assert_eq!(javas.chosen_for(21).expect("chosen").path, "/new/bin/java");
-}
-
-#[test]
-fn a_managed_runtime_cannot_replace_an_existing_choice() {
+fn registrations_and_preferences_round_trip_separately() {
     let root = TempRoot::new();
-    let user = chosen(21, "/user/jdk/bin/java");
-    let managed = chosen(17, "/managed/jdk17/bin/java");
-    choose_if_unset(root.path(), user.clone()).expect("record choice");
-    choose_if_unset(root.path(), chosen(21, "/managed/jdk21/bin/java")).expect("keep choice");
-    choose_if_unset(root.path(), managed.clone()).expect("record missing major");
+    let manual = root.path().join("jdk21/bin/java");
+    let other = root.path().join("other-jdk21/bin/java");
+    update(root.path(), |javas| {
+        javas.add_manual(manual.clone());
+        javas.set_preferred(21, Some(manual.clone()));
+        javas.set_preferred(21, Some(other.clone()));
+        javas.set_profile_preference("profile", Some(manual.clone()));
+    })
+    .unwrap();
 
-    let loaded = load(root.path()).expect("read choices").javas;
-    assert_eq!(loaded.chosen_for(21), Some(&user));
-    assert_eq!(loaded.chosen_for(17), Some(&managed));
-}
-
-#[test]
-fn choices_and_discovery_round_trip_independently() {
-    let root = TempRoot::new();
-    let mut javas = Javas::new();
-    javas.choose(chosen(21, "/opt/java21/bin/java"));
-    javas.discover("C:/java8/bin/java.exe", discovered(8));
-    save(root.path(), &javas).expect("save");
-
-    let loaded = load(root.path()).expect("load");
-    assert_eq!(loaded.origin, JavasOrigin::Stored);
+    let loaded = load(root.path()).unwrap();
     assert_eq!(
-        loaded.javas.chosen_for(21).expect("chosen").path,
-        "/opt/java21/bin/java"
+        loaded.manual_paths().collect::<Vec<_>>(),
+        [manual.as_path()]
     );
-    assert!(
-        loaded
-            .javas
-            .discovered()
-            .contains_key("C:/java8/bin/java.exe")
-    );
-}
-
-#[test]
-fn a_cache_entry_whose_file_changed_is_not_usable() {
-    let root = TempRoot::new();
-    let java = root.path().join("bin").join("java");
-    fs::create_dir_all(java.parent().expect("parent")).expect("dir");
-    fs::write(&java, b"binary").expect("java");
-
-    let metadata = fs::metadata(&java).expect("metadata");
-    let mut record = discovered(21);
-    record.file_size = metadata.len();
-    record.file_mtime_ms = modification_ms(&metadata).expect("mtime");
-
-    let mut javas = Javas::new();
-    javas.discover(&java.display().to_string(), record);
-    assert_eq!(javas.usable(21).count(), 1);
-
-    fs::write(&java, b"a different binary").expect("replace");
     assert_eq!(
-        javas.usable(21).count(),
-        0,
-        "a changed size invalidates the cache"
+        loaded.preferred().collect::<Vec<_>>(),
+        [(21, other.as_path())]
     );
+    assert_eq!(loaded.profile_preference("profile"), Some(manual.as_path()));
 }
 
 #[test]
-fn another_schema_is_read_free_and_never_replaced() {
+fn removing_a_manual_entry_clears_preferences_for_that_path() {
     let root = TempRoot::new();
+    let manual = root.path().join("jdk21/bin/java");
+    let other = root.path().join("jdk8/bin/java");
+    update(root.path(), |javas| {
+        javas.add_manual(manual.clone());
+        javas.set_preferred(21, Some(manual.clone()));
+        javas.set_preferred(8, Some(other.clone()));
+        javas.set_profile_preference("profile", Some(manual.clone()));
+        assert!(javas.remove_manual(&manual));
+    })
+    .unwrap();
+
+    let loaded = load(root.path()).unwrap();
+    assert_eq!(loaded.manual_paths().count(), 0);
+    assert_eq!(
+        loaded.preferred().collect::<Vec<_>>(),
+        [(8, other.as_path())]
+    );
+    assert_eq!(loaded.profile_preference("profile"), None);
+}
+
+#[test]
+fn concurrent_catalog_edits_preserve_each_registration() {
+    let root = TempRoot::new();
+    let edits: Vec<_> = (0..8)
+        .map(|index| {
+            let root = root.path().to_owned();
+            std::thread::spawn(move || register_fixture(&root, index))
+        })
+        .collect();
+    for edit in edits {
+        edit.join().unwrap();
+    }
+    assert_eq!(load(root.path()).unwrap().manual_paths().count(), 8);
+}
+
+fn register_fixture(root: &Path, index: u32) {
+    update(root, |javas| javas.add_manual(root.join(index.to_string()))).unwrap();
+}
+
+#[test]
+fn another_schema_is_never_replaced() {
+    let root = TempRoot::new();
+    let path = javas_path(root.path());
     let document = br#"{"schema_version": 9}"#;
-    fs::write(root.path().join("javas.json"), document).expect("seed");
+    fs::write(&path, document).unwrap();
 
-    let loaded = load(root.path()).expect("load");
-    assert_eq!(loaded.origin, JavasOrigin::ReadOnlyOtherSchema { found: 9 });
-
-    let error = save(root.path(), &Javas::new()).expect_err("refused");
+    let error = update(root.path(), |_| ()).unwrap_err();
     assert!(matches!(error, JavasError::RefusedSchema { found: 9, .. }));
+    assert_eq!(fs::read(path).unwrap(), document);
+}
+
+#[test]
+fn old_automatic_choices_do_not_become_preferred_runtimes() {
+    let root = TempRoot::new();
+    fs::write(
+        javas_path(root.path()),
+        br#"{"schema_version":1,"chosen":[{"major_version":21,"full_version":"21.0.7","architecture":"amd64","path":"managed/bin/java"}],"discovered":{}}"#,
+    )
+    .unwrap();
+
+    assert_eq!(load(root.path()).unwrap().preferred().count(), 0);
 }

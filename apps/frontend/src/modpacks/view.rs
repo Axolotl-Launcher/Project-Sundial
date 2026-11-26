@@ -15,15 +15,15 @@ use axlauncher_ui::{
     WeakEntity, Window, h_flex, v_flex,
 };
 
+use crate::file_picker::choose_file;
+
 use super::service::PendingInstall;
 
 mod controls;
 mod install;
 mod manual;
 mod progress;
-use controls::{
-    choose_file, inspect_path, option_checkbox, preview_title, restricted_download_option,
-};
+use controls::{inspect_path, option_checkbox, preview_title, restricted_download_option};
 use manual::ManualDownloads;
 use progress::Progress;
 

@@ -13,7 +13,7 @@
 //! Swapping the component system later means rewriting this crate alone.
 
 pub use gpui_kit::component::{
-    ActiveTheme, Disableable, IndexPath, Sizable, Size, StyledExt,
+    ActiveTheme, Disableable, IconName, IndexPath, Sizable, Size, StyledExt,
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
     group_box::{GroupBox, GroupBoxVariants},
@@ -21,11 +21,13 @@ pub use gpui_kit::component::{
     input::{Input, InputEvent, InputState, Textarea, TextareaState},
     label::Label,
     link::Link,
+    menu::{DropdownMenu, PopupMenu, PopupMenuItem},
     pagination::Pagination,
     scroll::ScrollableElement,
     select::{SearchableVec, Select, SelectDelegate, SelectEvent, SelectItem, SelectState},
     separator::Separator,
     switch::Switch,
+    tooltip::Tooltip,
     v_flex,
 };
 pub use gpui_kit::{self as kit, *};

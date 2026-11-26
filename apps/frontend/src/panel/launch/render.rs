@@ -10,14 +10,18 @@ use axlauncher_ui::{
     Label, ScrollableElement, div, h_flex, v_flex,
 };
 
-use super::{Output, RootView};
+use super::{Inspection, Output, RootView};
 
 impl RootView {
     pub(in crate::panel) fn render_launch(&self, cx: &mut Context<'_, Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let danger = cx.theme().danger;
-        let busy = self.inspection.task.is_some();
-        let disabled = busy || self.selected_version().is_none();
+        let busy = self.inspection.busy();
+        let java_pending = self
+            .instances
+            .selected()
+            .is_some_and(|entry| self.java_write_pending(entry.profile.id(), cx));
+        let disabled = busy || java_pending || self.selected_version().is_none();
 
         GroupBox::new()
             .id("launch-diagnostics")
@@ -55,16 +59,7 @@ impl RootView {
                                 .text_color(muted),
                         )
                     })
-                    .when_some(self.inspection.output.as_ref(), |column, output| {
-                        column.child(match output {
-                            Ok(Output::Version(version)) => version_details(version, muted),
-                            Ok(Output::Command(command)) => command_details(command, muted),
-                            Err(error) => Label::new(error.clone())
-                                .text_xs()
-                                .text_color(danger)
-                                .into_any_element(),
-                        })
-                    }),
+                    .children(self.inspection.render_output(muted, danger)),
             )
             .into_any_element()
     }
@@ -89,6 +84,19 @@ impl RootView {
                     .text_color(muted),
             )
             .into_any_element()
+    }
+}
+
+impl Inspection {
+    fn render_output(&self, muted: Hsla, danger: Hsla) -> Option<AnyElement> {
+        self.output.as_ref().map(|output| match output {
+            Ok(Output::Version(version)) => version_details(version, muted),
+            Ok(Output::Command(command)) => command_details(command, muted),
+            Err(error) => Label::new(error.clone())
+                .text_xs()
+                .text_color(danger)
+                .into_any_element(),
+        })
     }
 }
 

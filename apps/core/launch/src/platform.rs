@@ -47,7 +47,12 @@ pub(crate) fn executable_in(directory: &Path, mode: JavaMode) -> Option<PathBuf>
 
 /// The Java executable for `mode` inside a JDK home, which keeps it in `bin/`.
 pub(crate) fn executable_in_home(home: &Path, mode: JavaMode) -> Option<PathBuf> {
-    executable_in(&home.join("bin"), mode)
+    executable_in(&java_bin(home), mode)
+}
+
+/// The directory containing executables in a Java installation.
+pub(crate) fn java_bin(home: &Path) -> PathBuf {
+    home.join("bin")
 }
 
 /// The JDK home a launcher-managed runtime directory holds.
@@ -56,11 +61,15 @@ pub(crate) fn executable_in_home(home: &Path, mode: JavaMode) -> Option<PathBuf>
 /// the component directory is the home. Discovery and installation must agree
 /// on this, or a runtime this launcher fetched is never found again.
 pub(crate) fn managed_home(root: &Path) -> PathBuf {
-    let bundle = root.join("jre.bundle").join("Contents").join("Home");
+    let bundle = bundle_home(&root.join("jre.bundle"));
     if bundle.is_dir() {
         return bundle;
     }
     root.to_path_buf()
+}
+
+pub(crate) fn bundle_home(root: &Path) -> PathBuf {
+    root.join("Contents").join("Home")
 }
 
 /// The Java executable in a launcher-managed runtime directory.

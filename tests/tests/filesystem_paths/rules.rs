@@ -11,21 +11,21 @@ const EXCEPTIONS: &[(&str, &str, &[&str])] = &[
         "home_of",
         &["jre.bundle/Contents/Home"],
     ),
-    ("apps/core/launch/src/java.rs", "inventory", &["bin"]),
     (
-        "apps/core/launch/src/java.rs",
-        "runtime_major",
+        "apps/core/launch/src/java/runtime.rs",
+        "read_release",
         &["release"],
     ),
-    (
-        "apps/core/launch/src/platform.rs",
-        "executable_in_home",
-        &["bin"],
-    ),
+    ("apps/core/launch/src/platform.rs", "java_bin", &["bin"]),
     (
         "apps/core/launch/src/platform.rs",
         "managed_home",
-        &["jre.bundle", "Contents", "Home"],
+        &["jre.bundle"],
+    ),
+    (
+        "apps/core/launch/src/platform.rs",
+        "bundle_home",
+        &["Contents", "Home"],
     ),
     (
         "apps/core/state/src/profile/resources.rs",

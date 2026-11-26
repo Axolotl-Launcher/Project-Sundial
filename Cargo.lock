@@ -666,6 +666,7 @@ dependencies = [
  "sha1_smol",
  "sha2 0.11.1",
  "tempfile",
+ "tokio",
  "xz2",
  "zip",
 ]
@@ -677,6 +678,7 @@ dependencies = [
  "axlauncher_domain",
  "axlauncher_spi",
  "axlauncher_storage",
+ "dunce",
  "serde",
  "serde_json",
  "zip",
@@ -836,6 +838,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.21",
  "uuid",
 ]
 
@@ -846,7 +849,9 @@ dependencies = [
  "axlauncher_spi",
  "dirs 6.0.0",
  "keyring",
+ "sysinfo",
  "tempfile",
+ "windows-registry 0.6.1",
 ]
 
 [[package]]

@@ -145,16 +145,21 @@ const CLIENT_URL: &str = "https://example.test/client.jar";
 struct FixedJava(Option<PathBuf>);
 
 impl axlauncher_spi::Java for FixedJava {
-    fn executable(
-        &self,
-        _preferred: Option<&Path>,
-        _mode: axlauncher_spi::JavaMode,
-    ) -> Option<PathBuf> {
+    fn executable(&self, _mode: axlauncher_spi::JavaMode) -> Option<PathBuf> {
         self.0.clone()
     }
 
     fn executable_for(&self, _major: u32, _mode: axlauncher_spi::JavaMode) -> Option<PathBuf> {
         self.0.clone()
+    }
+
+    fn executable_at(
+        &self,
+        path: &Path,
+        _major: Option<u32>,
+        _mode: axlauncher_spi::JavaMode,
+    ) -> Option<PathBuf> {
+        self.0.clone().filter(|executable| executable == path)
     }
 }
 

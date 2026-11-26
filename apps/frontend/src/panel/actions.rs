@@ -103,6 +103,7 @@ impl RootView {
             self.inspection = super::launch::Inspection::default();
         }
         self.set_installation(paths.game().root(), key, installation, cx);
+        self.refresh_java_after_install(paths, cx);
     }
 
     fn installation(&self, root: &Path, version: &str) -> Option<&Installation> {
@@ -140,6 +141,9 @@ impl RootView {
         let Some(entry) = self.instances.find(directory) else {
             return;
         };
+        if self.java_write_pending(entry.profile.id(), cx) {
+            return;
+        }
         let Some(job) = self.launch_job(entry, self.player_name(cx)) else {
             return;
         };

@@ -9,12 +9,12 @@ use std::sync::{Arc, Mutex};
 use axlauncher_domain::normalize_game_language;
 use axlauncher_install::{loader, vanilla};
 use axlauncher_launch::{
-    FlowError, GameLanguage, LaunchCommand, LaunchRequest, ProcessLauncher, Target,
+    FlowError, GameLanguage, LaunchCommand, LaunchRequest, ProcessLauncher, SystemJava, Target,
     flow::{self, VersionInspection},
     plan::Session,
 };
 use axlauncher_spi::ServiceHost;
-use axlauncher_state::{SettingsData, profile::DiscoveredProfile};
+use axlauncher_state::{SettingsData, javas, profile::DiscoveredProfile};
 use axlauncher_storage::{DataDir, GameDir};
 
 use crate::launch_accounts;
@@ -45,6 +45,7 @@ pub enum LaunchFailure {
 /// The same profile and version selection for preview, inspection and launch.
 pub struct LaunchJob {
     request: LaunchRequest,
+    profile_id: String,
     data: DataDir,
     vanilla: bool,
 }
@@ -75,6 +76,7 @@ impl LaunchJob {
                 player_name,
                 game_language: Some(GameLanguage::new(&game.minecraft, &language)),
             },
+            profile_id: profile.profile.id().to_owned(),
             data: data.clone(),
             vanilla: game.is_vanilla() && version == game.minecraft,
         })
@@ -93,11 +95,25 @@ impl LaunchJob {
     }
 
     pub fn inspect(&self) -> Result<VersionInspection, FlowError> {
-        flow::inspect_version(&java::managed(&self.data), &self.request)
+        let (java, request) = self.configured_java()?;
+        flow::inspect_version(&java, &request)
     }
 
     pub fn preview(&self, session: &Session) -> Result<LaunchCommand, FlowError> {
-        flow::preview_with_session(&java::managed(&self.data), &self.request, session)
+        let (java, request) = self.configured_java()?;
+        flow::preview_with_session(&java, &request, session)
+    }
+
+    fn configured_java(&self) -> Result<(SystemJava, LaunchRequest), FlowError> {
+        let saved =
+            javas::load(self.data.root()).map_err(|error| FlowError::JavaConfiguration {
+                source: std::io::Error::other(error),
+            })?;
+        let mut request = self.request.clone();
+        request.java_preference = saved
+            .profile_preference(&self.profile_id)
+            .map(Path::to_path_buf);
+        Ok((java::provider(&self.data, &saved), request))
     }
 
     /// A desktop worker reports account resolution and the actual child spawn.
@@ -124,6 +140,7 @@ impl LaunchJob {
             .map_err(LaunchFailure::Failed)?;
         let lock = vanilla::launch_lock(&self.request.game_root).map_err(LaunchFailure::Failed)?;
         self.check_files()?;
+        let (java, request) = self.configured_java().map_err(launch_error)?;
 
         // Keep installers out until the child has opened the prepared files,
         // but do not hold the launch lock for the whole play session.
@@ -132,15 +149,10 @@ impl LaunchJob {
             drop(lock.lock().expect("launch guard").take());
             started();
         });
-        flow::launch_with_session(
-            &java::managed(&self.data),
-            &launcher,
-            self.request,
-            &session,
-        )
-        .await
-        .map(|_| ())
-        .map_err(launch_error)
+        flow::launch_with_session(&java, &launcher, request, &session)
+            .await
+            .map(|_| ())
+            .map_err(launch_error)
     }
 
     fn check_files(&self) -> Result<(), LaunchFailure> {
@@ -189,7 +201,7 @@ async fn online_session(
 fn launch_error(error: FlowError) -> LaunchFailure {
     let message = match error {
         FlowError::NoMatchingJava { required, .. } => format!(
-            "Java {required} is required. Set JAVA_HOME or PATH to a Java {required} installation and reopen the launcher."
+            "Java {required} is required. Add a Java {required} installation or install the managed runtime."
         ),
         error => error.to_string(),
     };

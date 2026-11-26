@@ -15,10 +15,11 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
+use std::time::Duration;
 
 use axlauncher_network::verify;
 use axlauncher_spi::{FetchError, FetchKind, Network};
-use axlauncher_storage::write_atomic;
+use axlauncher_storage::{try_lock_runtime, write_atomic};
 use futures::stream::{self, StreamExt};
 use serde::Deserialize;
 
@@ -31,6 +32,7 @@ const RUNTIME_INDEX: &str = "https://launchermeta.mojang.com/v1/products/java-ru
 
 /// How many runtime files are fetched at once.
 const RUNTIME_CONCURRENCY: usize = 8;
+const LOCK_RETRY_DELAY: Duration = Duration::from_millis(100);
 
 /// The Java executable's file name on this platform.
 const JAVA_BIN: &str = if cfg!(windows) { "java.exe" } else { "java" };
@@ -201,24 +203,58 @@ pub async fn install(
 ) -> Result<InstalledRuntime, RuntimeError> {
     let component = component_for(major).ok_or(RuntimeError::Unsupported { major })?;
     let platform = platform().ok_or(RuntimeError::UnsupportedPlatform)?;
+    let directory = runtimes.join(component);
+    let _lock = wait_for_runtime(&directory).await?;
     report(Progress::Version);
 
     let entry = runtime_entry(network, platform, component, major).await?;
 
-    let directory = runtimes.join(component);
     let java = executable_in(&directory, platform);
-    // The record is checked before anything is fetched: a complete runtime is
-    // answered without a network round trip, which is what makes a launch work
-    // offline once its runtime is in place.
+    // A verified installation can be reused without fetching the file manifest.
     if let Some(recorded) = record::read(&directory)
+        && java.is_file()
         && record::matches(&directory, &recorded)
     {
         return Ok(installed(java, &entry.version.name, major, component));
     }
 
+    record::invalidate(&directory)?;
     let manifest = runtime_manifest(network, &entry.manifest).await?;
     let recorded = record::from_manifest(&manifest.files);
-    let files: Vec<(String, RuntimeFile)> = manifest.files.into_iter().collect();
+    place_files(network, &directory, manifest.files, &mut report).await?;
+    if !java.is_file() {
+        return Err(RuntimeError::Malformed {
+            reason: format!("the runtime has no {}", java.display()),
+        });
+    }
+    record::publish(&directory, &recorded)?;
+    report(Progress::Finishing);
+    Ok(installed(java, &entry.version.name, major, component))
+}
+
+async fn wait_for_runtime(directory: &Path) -> Result<fs::File, RuntimeError> {
+    loop {
+        match try_lock_runtime(directory) {
+            Ok(lock) => return Ok(lock),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                tokio::time::sleep(LOCK_RETRY_DELAY).await;
+            }
+            Err(source) => {
+                return Err(RuntimeError::Write {
+                    path: directory.to_owned(),
+                    source,
+                });
+            }
+        }
+    }
+}
+
+async fn place_files(
+    network: &impl Network,
+    directory: &Path,
+    files: BTreeMap<String, RuntimeFile>,
+    report: &mut impl FnMut(Progress),
+) -> Result<(), RuntimeError> {
     let total = files.len();
     report(Progress::Downloading {
         processed: 0,
@@ -226,10 +262,7 @@ pub async fn install(
     });
     let mut processed = 0;
     let mut results = stream::iter(files)
-        .map(|(name, file)| {
-            let directory = directory.clone();
-            async move { place(network, &directory, &name, &file).await }
-        })
+        .map(|(name, file)| async move { place(network, directory, &name, &file).await })
         .buffer_unordered(RUNTIME_CONCURRENCY);
     while let Some(result) = results.next().await {
         result?;
@@ -237,23 +270,7 @@ pub async fn install(
         report(Progress::Downloading { processed, total });
     }
 
-    if !java.is_file() {
-        return Err(RuntimeError::Malformed {
-            reason: format!("the runtime has no {}", java.display()),
-        });
-    }
-    // Written only now, after every file landed: an interrupted install leaves
-    // no record, so the next attempt downloads again instead of accepting it.
-    let recorded = serde_json::to_vec(&recorded).map_err(|error| RuntimeError::Malformed {
-        reason: error.to_string(),
-    })?;
-    let marker = axlauncher_storage::runtime_record(&directory);
-    write_atomic(&marker, &recorded).map_err(|source| RuntimeError::Write {
-        path: marker,
-        source,
-    })?;
-    report(Progress::Finishing);
-    Ok(installed(java, &entry.version.name, major, component))
+    Ok(())
 }
 
 /// Fetches and verifies the manifest a runtime entry names.

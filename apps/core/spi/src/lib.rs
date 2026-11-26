@@ -241,12 +241,8 @@ pub enum JavaMode {
 /// not shared — so callers ask this port instead of inspecting the environment
 /// themselves.
 pub trait Java {
-    /// Resolves the executable to run.
-    ///
-    /// `preferred` is the user's configured path and wins when it exists.
-    /// Otherwise the provider falls back to what this platform offers, and
-    /// `None` means nothing was found. The result suits `mode`.
-    fn executable(&self, preferred: Option<&Path>, mode: JavaMode) -> Option<PathBuf>;
+    /// Resolves the platform default when the caller has no version requirement.
+    fn executable(&self, mode: JavaMode) -> Option<PathBuf>;
 
     /// Resolves an executable whose runtime reports `major`.
     ///
@@ -257,6 +253,9 @@ pub trait Java {
     /// runtime, so the caller can say which version is missing rather than
     /// starting the game on the wrong one.
     fn executable_for(&self, major: u32, mode: JavaMode) -> Option<PathBuf>;
+
+    /// Validates the requested installation for this mode and optional major.
+    fn executable_at(&self, path: &Path, major: Option<u32>, mode: JavaMode) -> Option<PathBuf>;
 }
 
 #[derive(Clone, Default, PartialEq, Eq)]

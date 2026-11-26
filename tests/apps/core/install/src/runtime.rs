@@ -302,6 +302,51 @@ fn a_runtime_whose_file_changed_is_downloaded_again() {
 }
 
 #[test]
+fn a_failed_repair_removes_the_completion_record_until_retry_succeeds() {
+    let Some(platform) = platform() else {
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    let (directory, responses) = install_once(platform, root.path());
+    let receipt = axlauncher_storage::runtime_record(&directory);
+    let damaged = home_of(&directory, platform).join("lib/plain.txt");
+    fs::remove_file(&damaged).unwrap();
+
+    let failed = block_on(install(&index_only(&responses), root.path(), 21, |_| {}));
+    assert!(matches!(failed, Err(RuntimeError::Fetch { .. })));
+    assert!(!receipt.exists());
+
+    block_on(install(&FakeNetwork { responses }, root.path(), 21, |_| {})).unwrap();
+    assert_eq!(fs::read(damaged).unwrap(), PLAIN_BODY);
+    assert!(receipt.is_file());
+}
+
+#[test]
+fn a_second_installer_waits_and_reuses_the_published_runtime() {
+    let Some(platform) = platform() else {
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    let (directory, responses) = install_once(platform, root.path());
+    let active = axlauncher_storage::try_lock_runtime(&directory).unwrap();
+    let network = index_only(&responses);
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .unwrap();
+    executor.block_on(async {
+        let mut second = std::pin::pin!(install(&network, root.path(), 21, |_| {}));
+        assert!(futures::poll!(second.as_mut()).is_pending());
+        drop(active);
+        let result = tokio::time::timeout(Duration::from_secs(5), second)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(result.java.is_file());
+    });
+}
+
+#[test]
 fn an_unsupported_major_is_named() {
     let root = temp();
     let error = block_on(install(

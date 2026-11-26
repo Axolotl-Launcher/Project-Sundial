@@ -3,9 +3,9 @@
 
 //! Data root, paths and settings.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use axlauncher_core::desktop::{java::JavaEnvironment, launching::LAUNCHER_LANGUAGE};
+use axlauncher_core::desktop::launching::LAUNCHER_LANGUAGE;
 use axlauncher_core::domain::normalize_game_language;
 use axlauncher_core::state::{SettingsOrigin, ThemeChoice, update_settings};
 use axlauncher_core::storage::{DataDir, Directory, settings_path};
@@ -21,7 +21,6 @@ use crate::{describe_origin, load_at, palette_for};
 use super::RootView;
 
 pub(super) struct EnvironmentState {
-    java: JavaEnvironment,
     game_language: Entity<InputState>,
     error: Option<String>,
     notice: Option<String>,
@@ -29,7 +28,6 @@ pub(super) struct EnvironmentState {
 
 impl EnvironmentState {
     pub(super) fn new(
-        paths: Option<&DataDir>,
         game_language: &str,
         window: &mut Window,
         cx: &mut Context<'_, RootView>,
@@ -42,7 +40,6 @@ impl EnvironmentState {
         cx.subscribe(&game_language, RootView::game_language_changed)
             .detach();
         Self {
-            java: JavaEnvironment::load(paths.map(DataDir::root)),
             game_language,
             error: None,
             notice: None,
@@ -59,13 +56,7 @@ impl EnvironmentState {
             .update(cx, |input, cx| input.set_value(value, window, cx));
     }
 
-    /// Reads the environment and the choices recorded under the panel's root.
-    ///
-    /// The root comes from the caller rather than a copy kept here: the panel
-    /// has one root, and a second one would drift from it as soon as the user
-    /// applies a different directory.
-    pub(super) fn refresh(&mut self, paths: Option<&DataDir>) {
-        self.java = JavaEnvironment::load(paths.map(DataDir::root));
+    pub(super) fn clear_feedback(&mut self) {
         self.error = None;
         self.notice = None;
     }
@@ -88,27 +79,6 @@ fn path_row(index: usize, label: &str, path: &std::path::Path, muted: Hsla) -> A
                 .text_color(muted),
         )
         .into_any_element()
-}
-
-/// One line per major the user recorded, so a launch's runtime is visible.
-fn chosen_rows(chosen: &[(u32, PathBuf)], muted: Hsla) -> Vec<AnyElement> {
-    if chosen.is_empty() {
-        return vec![
-            Label::new("Chosen Java: none")
-                .text_xs()
-                .text_color(muted)
-                .into_any_element(),
-        ];
-    }
-    chosen
-        .iter()
-        .map(|(major, path)| {
-            Label::new(format!("Java {major}: {}", path.display()))
-                .text_xs()
-                .text_color(muted)
-                .into_any_element()
-        })
-        .collect()
 }
 
 impl RootView {
@@ -156,7 +126,6 @@ impl RootView {
                             .text_xs()
                             .text_color(muted),
                     )
-                    .children(self.java_rows(muted))
                     .when_some(self.environment.notice.clone(), |column, notice| {
                         column.child(Label::new(notice).text_xs().text_color(success))
                     })
@@ -255,37 +224,6 @@ impl RootView {
                     })),
             )
             .into_any_element()
-    }
-
-    fn java_rows(&self, muted: Hsla) -> Vec<AnyElement> {
-        let java_home = self
-            .environment
-            .java
-            .java_home()
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "not set".to_string());
-        let default_java = self
-            .environment
-            .java
-            .default_java()
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "not found".to_string());
-
-        let mut rows = vec![
-            Label::new(format!("JAVA_HOME: {java_home}"))
-                .text_xs()
-                .text_color(muted)
-                .into_any_element(),
-            Label::new(format!("Default Java: {default_java}"))
-                .text_xs()
-                .text_color(muted)
-                .into_any_element(),
-        ];
-        // A chosen runtime decides a launch, so the user must be able to see
-        // it here: the rows above describe the environment, which a choice
-        // overrides for its major.
-        rows.extend(chosen_rows(self.environment.java.chosen(), muted));
-        rows
     }
 
     fn settings_origin(&self) -> String {

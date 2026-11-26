@@ -5,33 +5,13 @@ use std::path::PathBuf;
 
 use axlauncher_modpack::{OptionId, OptionalFile, Pack};
 use axlauncher_ui::{
-    App, BackgroundExecutor, Checkbox, Disableable, ElementId, Label, PathPromptOptions,
-    SharedString, Window,
+    App, BackgroundExecutor, Checkbox, Disableable, ElementId, Label, SharedString, Window,
 };
 
 pub(super) fn data_pack_notice() -> Label {
     Label::new(
         "Data packs were saved in the instance’s datapacks folder. In vanilla Minecraft, add them when creating a world or copy them into an existing world’s datapacks folder.",
     )
-}
-
-pub(super) fn choose_file(
-    prompt: &'static str,
-    app: &App,
-) -> impl Future<Output = Result<Option<PathBuf>, String>> + use<> {
-    let selection = app.prompt_for_paths(PathPromptOptions {
-        files: true,
-        directories: false,
-        multiple: false,
-        prompt: Some(prompt.into()),
-    });
-    async move {
-        selection
-            .await
-            .map_err(|error| error.to_string())?
-            .map(|paths| paths.and_then(|paths| paths.into_iter().next()))
-            .map_err(|error| error.to_string())
-    }
 }
 
 pub(super) fn preview_title(pack: &Pack) -> String {

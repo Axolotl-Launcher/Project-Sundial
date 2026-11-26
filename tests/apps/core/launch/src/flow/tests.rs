@@ -97,7 +97,7 @@ impl TempDir {
         let path =
             std::env::temp_dir().join(format!("axlauncher-flow-{}-{unique}", std::process::id()));
         fs::create_dir_all(&path).expect("temp directory");
-        Self(path)
+        Self(dunce::canonicalize(path).expect("canonical temp directory"))
     }
 
     fn path(&self) -> &Path {
@@ -125,6 +125,15 @@ impl Fixture {
         write_file(&fixture.client_jar(), b"client jar");
         write_jar(&fixture.natives_jar(), &NATIVE_JAR_ENTRIES);
         write_file(&fixture.java(), b"fake java");
+        write_file(
+            &fixture.temp.path().join("release"),
+            b"JAVA_VERSION=\"21.0.5\"\n",
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(fixture.java(), fs::Permissions::from_mode(0o755)).unwrap();
+        }
         fixture
     }
 
@@ -137,7 +146,10 @@ impl Fixture {
     }
 
     fn java(&self) -> PathBuf {
-        self.temp.path().join("bin").join("java")
+        self.temp
+            .path()
+            .join("bin")
+            .join(crate::platform::executable_name(JavaMode::Console))
     }
 
     fn natives_directory(&self) -> PathBuf {
@@ -227,13 +239,17 @@ impl FakeJava {
 }
 
 impl Java for FakeJava {
-    fn executable(&self, _preferred: Option<&Path>, mode: JavaMode) -> Option<PathBuf> {
+    fn executable(&self, mode: JavaMode) -> Option<PathBuf> {
         self.modes.lock().expect("recorded modes").push(mode);
         self.executable.clone()
     }
 
     fn executable_for(&self, _major: u32, mode: JavaMode) -> Option<PathBuf> {
-        self.executable(None, mode)
+        self.executable(mode)
+    }
+
+    fn executable_at(&self, _path: &Path, _major: Option<u32>, mode: JavaMode) -> Option<PathBuf> {
+        self.executable(mode)
     }
 }
 
@@ -392,10 +408,7 @@ fn a_missing_java_reports_no_java() {
     ))
     .expect_err("no java");
 
-    assert!(
-        matches!(error, FlowError::NoJava { .. }),
-        "unexpected: {error:?}"
-    );
+    assert!(matches!(error, FlowError::NoJava), "unexpected: {error:?}");
 }
 
 #[test]
@@ -474,8 +487,5 @@ fn the_system_provider_reports_no_java_without_one_to_use() {
     ))
     .expect_err("nothing configured");
 
-    assert!(
-        matches!(error, FlowError::NoJava { .. }),
-        "unexpected: {error:?}"
-    );
+    assert!(matches!(error, FlowError::NoJava), "unexpected: {error:?}");
 }

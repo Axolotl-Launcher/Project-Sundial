@@ -88,17 +88,14 @@ pub enum FlowError {
         source: ChainError,
     },
     /// No Java runtime was found.
-    NoJava {
-        /// The executable the caller preferred, when one was given.
-        preferred: Option<PathBuf>,
-    },
+    NoJava,
     /// No runtime of the major version the game needs was found.
     NoMatchingJava {
         /// The major version the version document names.
         required: u32,
-        /// The executable the caller preferred, when one was given.
-        preferred: Option<PathBuf>,
     },
+    /// The caller could not read the configured Java selection.
+    JavaConfiguration { source: std::io::Error },
     /// The native jars could not be unpacked.
     Natives {
         /// The directory the natives were to be written into.
@@ -134,26 +131,13 @@ impl std::fmt::Display for FlowError {
             Self::Chain { source } => {
                 write!(formatter, "cannot resolve the version chain: {source}")
             }
-            Self::NoJava {
-                preferred: Some(path),
-            } => write!(
-                formatter,
-                "no Java found at {} or on this system",
-                path.display()
-            ),
-            Self::NoJava { preferred: None } => write!(formatter, "no Java found on this system"),
-            Self::NoMatchingJava {
-                required,
-                preferred: Some(path),
-            } => write!(
-                formatter,
-                "no Java {required} runtime found for {} or on this system",
-                path.display()
-            ),
-            Self::NoMatchingJava {
-                required,
-                preferred: None,
-            } => write!(formatter, "no Java {required} runtime found on this system"),
+            Self::NoJava => write!(formatter, "no Java found on this system"),
+            Self::NoMatchingJava { required } => {
+                write!(formatter, "no Java {required} runtime found on this system")
+            }
+            Self::JavaConfiguration { source } => {
+                write!(formatter, "cannot load the Java configuration: {source}")
+            }
             Self::Natives { directory, source } => write!(
                 formatter,
                 "cannot unpack natives into {}: {source}",
@@ -183,9 +167,9 @@ impl std::error::Error for FlowError {
             Self::Chain { source } => Some(source),
             Self::Natives { source, .. } => Some(source),
             Self::Plan { source } => Some(source),
-            Self::GameOptions { source, .. } => Some(source),
+            Self::GameOptions { source, .. } | Self::JavaConfiguration { source } => Some(source),
             Self::Launch { source, .. } => Some(source),
-            Self::NoJava { .. } | Self::NoMatchingJava { .. } => None,
+            Self::NoJava | Self::NoMatchingJava { .. } => None,
         }
     }
 }
@@ -299,40 +283,29 @@ fn load_version(request: &LaunchRequest) -> Result<(Version, Option<String>), Fl
 ///
 /// The version document states the major version its classes were built for. A
 /// document with flat arguments and no Java requirement prefers Java 8 when it
-/// is installed. An explicit runtime choice still takes precedence.
+/// is installed. An available explicit choice takes precedence regardless of
+/// the manifest's requirement.
 fn java_executable(
     java: &impl Java,
     version: &Version,
     request: &LaunchRequest,
 ) -> Result<PathBuf, FlowError> {
-    let preferred = request.java_preference.as_deref();
-
-    let Some(required) = version.java_version.as_ref().map(|java| java.major) else {
-        if preferred.is_none()
-            && version.minecraft_arguments.is_some()
-            && let Some(legacy) = java.executable_for(LEGACY_JAVA, JavaMode::Windowed)
-        {
-            return Ok(legacy);
-        }
-        return java
-            .executable(preferred, JavaMode::Windowed)
-            .ok_or_else(|| FlowError::NoJava {
-                preferred: request.java_preference.clone(),
-            });
-    };
-
-    // A caller's preferred executable is used as given when it exists: the
-    // user said which runtime to run, and second-guessing an explicit choice
-    // would hide their configuration from them. The major version is checked
-    // for the runtimes discovery finds, where nothing was stated.
-    if let Some(path) = preferred.filter(|path| path.is_file()) {
-        return Ok(path.to_path_buf());
+    if let Some(path) = &request.java_preference
+        && let Some(executable) = java.executable_at(path, None, JavaMode::Windowed)
+    {
+        return Ok(executable);
     }
-    java.executable_for(required, JavaMode::Windowed)
-        .ok_or_else(|| FlowError::NoMatchingJava {
-            required,
-            preferred: request.java_preference.clone(),
-        })
+    if let Some(required) = version.java_version.as_ref().map(|java| java.major) {
+        return java
+            .executable_for(required, JavaMode::Windowed)
+            .ok_or(FlowError::NoMatchingJava { required });
+    }
+    if version.minecraft_arguments.is_some()
+        && let Some(legacy) = java.executable_for(LEGACY_JAVA, JavaMode::Windowed)
+    {
+        return Ok(legacy);
+    }
+    java.executable(JavaMode::Windowed).ok_or(FlowError::NoJava)
 }
 
 /// The shared directory for this version's unpacked natives.

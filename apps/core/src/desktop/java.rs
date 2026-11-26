@@ -3,62 +3,229 @@
 
 //! Desktop policy for choosing and provisioning Java.
 
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use axlauncher_install::{prepare::Progress, runtime};
-use axlauncher_launch::{Java, JavaMode, SystemJava, Version, version};
+use axlauncher_launch::{Java, JavaMode, JavaRuntime, SystemJava, Version, version};
 use axlauncher_spi::Network;
-use axlauncher_state::javas::{self, ChosenJava};
+use axlauncher_state::javas::{self, Javas, JavasError};
 use axlauncher_storage::DataDir;
 
-/// The environment fallback and the choices recorded for the current data root.
-#[derive(Default)]
-pub struct JavaEnvironment {
-    java_home: Option<PathBuf>,
-    default_java: Option<PathBuf>,
-    chosen: Vec<(u32, PathBuf)>,
-}
-
-impl JavaEnvironment {
-    pub fn load(root: Option<&Path>) -> Self {
-        let provider = SystemJava::from_environment();
-        Self {
-            java_home: provider.java_home().map(Path::to_path_buf),
-            default_java: provider.executable(None, JavaMode::Windowed),
-            chosen: root.map(chosen).unwrap_or_default(),
-        }
-    }
-
-    pub fn java_home(&self) -> Option<&Path> {
-        self.java_home.as_deref()
-    }
-
-    pub fn default_java(&self) -> Option<&Path> {
-        self.default_java.as_deref()
-    }
-
-    pub fn chosen(&self) -> &[(u32, PathBuf)] {
-        &self.chosen
-    }
-}
-
-/// A recorded runtime outranks managed discovery and the environment for its major.
+/// A recorded runtime outranks the newest discovered runtime for its major.
 pub(super) fn managed(data: &DataDir) -> SystemJava {
+    provider(data, &preferences(data.root()))
+}
+
+fn preferences(root: &Path) -> Javas {
+    javas::load(root).unwrap_or_default()
+}
+
+pub(super) fn provider(data: &DataDir, javas: &Javas) -> SystemJava {
     SystemJava::from_environment()
         .with_runtime_roots(vec![data.java_versions()])
-        .with_chosen(chosen(data.root()))
+        .with_chosen(chosen(javas))
+        .with_registered(javas.manual_paths().map(Path::to_path_buf).collect())
+        .with_system_discovery()
 }
 
-fn chosen(root: &Path) -> Vec<(u32, PathBuf)> {
-    let Ok(loaded) = javas::load(root) else {
-        return Vec::new();
-    };
-    loaded
-        .javas
-        .chosen()
-        .iter()
-        .map(|runtime| (runtime.major_version, PathBuf::from(&runtime.path)))
+fn chosen(javas: &Javas) -> Vec<(u32, PathBuf)> {
+    javas
+        .preferred()
+        .map(|(major, path)| (major, path.to_owned()))
         .collect()
+}
+
+/// The available installations and the preferences saved on this machine.
+#[derive(PartialEq, Eq)]
+pub struct JavaCatalog {
+    available: Vec<JavaRuntime>,
+    defaults: BTreeMap<u32, PathBuf>,
+    saved: Javas,
+    profile_runtimes: BTreeMap<PathBuf, JavaRuntime>,
+}
+
+impl JavaCatalog {
+    pub fn available(&self) -> &[JavaRuntime] {
+        &self.available
+    }
+
+    /// The executable automatic selection would use for this major.
+    pub fn default_for(&self, major: u32) -> Option<&Path> {
+        self.defaults.get(&major).map(PathBuf::as_path)
+    }
+
+    /// Includes registrations whose files are currently unavailable.
+    pub fn manual_paths(&self) -> impl Iterator<Item = &Path> {
+        self.saved.manual_paths()
+    }
+
+    pub fn preferred(&self) -> impl Iterator<Item = (u32, &Path)> {
+        self.saved.preferred()
+    }
+
+    pub fn profile_preference(&self, profile_id: &str) -> Option<&Path> {
+        self.saved.profile_preference(profile_id)
+    }
+
+    /// Resolves a saved choice even when its path is no longer in the scan.
+    pub fn profile_runtime(&self, profile_id: &str) -> Option<&JavaRuntime> {
+        let path = self.profile_preference(profile_id)?;
+        self.available
+            .iter()
+            .find(|runtime| runtime.path() == path)
+            .or_else(|| self.profile_runtimes.get(path))
+    }
+}
+
+#[derive(Debug)]
+pub enum JavaCatalogError {
+    State(JavasError),
+    InvalidRuntime {
+        path: PathBuf,
+        required: Option<u32>,
+    },
+}
+
+impl fmt::Display for JavaCatalogError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::State(error) => error.fmt(formatter),
+            Self::InvalidRuntime {
+                path,
+                required: Some(major),
+            } => {
+                write!(
+                    formatter,
+                    "{} does not provide a usable Java {major}",
+                    path.display()
+                )
+            }
+            Self::InvalidRuntime {
+                path,
+                required: None,
+            } => {
+                write!(
+                    formatter,
+                    "{} is not a usable Java installation",
+                    path.display()
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for JavaCatalogError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::State(error) => Some(error),
+            Self::InvalidRuntime { .. } => None,
+        }
+    }
+}
+
+impl From<JavasError> for JavaCatalogError {
+    fn from(error: JavasError) -> Self {
+        Self::State(error)
+    }
+}
+
+/// Rescans local installations and includes saved manual entries and preferences.
+pub fn list(data: &DataDir) -> Result<JavaCatalog, JavaCatalogError> {
+    let saved = javas::load(data.root())?;
+    let provider = provider(data, &saved);
+    let available = provider.discover();
+    let defaults = available
+        .iter()
+        .map(JavaRuntime::major)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter_map(|major| {
+            Some((
+                major,
+                provider.default_for(major, &available)?.path().to_owned(),
+            ))
+        })
+        .collect();
+    let discovered: BTreeSet<_> = available.iter().map(JavaRuntime::path).collect();
+    let profile_runtimes = saved
+        .profile_paths()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|path| !discovered.contains(path))
+        .filter_map(|path| Some((path.to_owned(), provider.inspect(path)?)))
+        .collect();
+    Ok(JavaCatalog {
+        available,
+        defaults,
+        saved,
+        profile_runtimes,
+    })
+}
+
+/// Registers a Java executable after checking its installation.
+pub fn add(data: &DataDir, path: &Path) -> Result<JavaRuntime, JavaCatalogError> {
+    let runtime = validate(data, path, None)?;
+    javas::update(data.root(), |javas| {
+        javas.add_manual(runtime.path().to_owned())
+    })?;
+    Ok(runtime)
+}
+
+/// Removes a manual catalog entry using its listed path.
+pub fn remove(data: &DataDir, path: &Path) -> Result<bool, JavaCatalogError> {
+    Ok(javas::update(data.root(), |javas| {
+        javas.remove_manual(path)
+    })?)
+}
+
+/// Pins a runtime for a Java major, or restores automatic selection for it.
+pub fn set_preferred(
+    data: &DataDir,
+    major: u32,
+    path: Option<&Path>,
+) -> Result<(), JavaCatalogError> {
+    let path = validated_path(data, path, Some(major))?;
+    Ok(javas::update(data.root(), |javas| {
+        javas.set_preferred(major, path)
+    })?)
+}
+
+/// Pins a runtime for a local instance, or restores its automatic selection.
+pub fn set_profile_preference(
+    data: &DataDir,
+    profile_id: &str,
+    path: Option<&Path>,
+) -> Result<(), JavaCatalogError> {
+    let path = validated_path(data, path, None)?;
+    Ok(javas::update(data.root(), |javas| {
+        javas.set_profile_preference(profile_id, path)
+    })?)
+}
+
+fn validated_path(
+    data: &DataDir,
+    path: Option<&Path>,
+    required: Option<u32>,
+) -> Result<Option<PathBuf>, JavaCatalogError> {
+    path.map(|path| validate(data, path, required).map(|runtime| runtime.path().to_owned()))
+        .transpose()
+}
+
+fn validate(
+    data: &DataDir,
+    path: &Path,
+    required: Option<u32>,
+) -> Result<JavaRuntime, JavaCatalogError> {
+    SystemJava::default()
+        .with_runtime_roots(vec![data.java_versions()])
+        .inspect(path)
+        .filter(|runtime| required.is_none_or(|major| runtime.major() == major))
+        .ok_or_else(|| JavaCatalogError::InvalidRuntime {
+            path: path.to_owned(),
+            required,
+        })
 }
 
 /// A manifest with no Java requirement uses the system's default at launch.
@@ -99,7 +266,7 @@ pub(super) async fn provision(
     mut report: impl FnMut(Progress),
 ) -> Result<(), String> {
     report(Progress::Java);
-    let installed = runtime::install(network, &data.java_versions(), major, |stage| {
+    runtime::install(network, &data.java_versions(), major, |stage| {
         report(match stage {
             Progress::Downloading { .. } => stage,
             _ => Progress::Java,
@@ -107,18 +274,11 @@ pub(super) async fn provision(
     })
     .await
     .map_err(|error| error.to_string())?;
-    let _ = javas::choose_if_unset(
-        data.root(),
-        ChosenJava {
-            major_version: installed.major,
-            full_version: installed.full_version,
-            architecture: std::env::consts::ARCH.to_string(),
-            path: installed.java.display().to_string(),
-        },
-    );
     Ok(())
 }
 
 #[cfg(test)]
 #[path = "../../../../tests/apps/core/src/desktop/java.rs"]
 mod tests;
+#[cfg(test)]
+pub(super) use tests::test_runtime;

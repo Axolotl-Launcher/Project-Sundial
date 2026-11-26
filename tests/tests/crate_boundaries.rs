@@ -104,9 +104,8 @@ fn resource_owner(dependency: &str) -> Option<&'static str> {
     match dependency {
         "reqwest" => Some("axlauncher_network"),
         "libloading" => Some("axlauncher_worker"),
-        "keyring" | "dirs" | "dirs-next" | "directories" | "directories-next" => {
-            Some("axlauncher_storage")
-        }
+        "keyring" | "dirs" | "dirs-next" | "directories" | "directories-next" | "sysinfo"
+        | "windows-registry" => Some("axlauncher_storage"),
         "gpui-kit" => Some("axlauncher_ui"),
         _ => None,
     }

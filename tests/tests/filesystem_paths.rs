@@ -467,13 +467,13 @@ fn path_policy_leaves_external_inputs_and_non_path_strings_alone() {
         }
     "#;
     assert!(inspect("apps/example/src/lib.rs", source).is_empty());
-    let java = r#"fn executable_in_home(root: &Path) { root.join("bin"); }"#;
+    let java = r#"fn java_bin(root: &Path) { root.join("bin"); }"#;
     assert!(inspect("apps/core/launch/src/platform.rs", java).is_empty());
     assert_eq!(inspect("apps/example/src/lib.rs", java).len(), 1);
     assert_eq!(
         inspect(
             "apps/core/launch/src/platform.rs",
-            &java.replace("executable_in_home", "other")
+            &java.replace("java_bin", "other")
         )
         .len(),
         1

@@ -36,6 +36,27 @@ and sequences the owner calls, but does not implement loader protocols, file
 preparation, profile writes, or process execution. GPUI workers and channels,
 progress redraw throttling, and view state stay in `frontend`.
 
+The desktop Java catalog refreshes installed runtimes on demand through `launch`.
+Launch and installation reuse recent system search paths and recheck the files
+before use. Storage resolves conventional OS search roots, Windows registry
+locations and the catalog lock and document paths. State persists manual
+registrations, per-major preferences and machine-local preferences keyed by
+portable profile ID. Every managed-runtime selection requires its completion
+record. Installers wait asynchronously for the per-runtime writer lock and
+withdraw a damaged runtime's record before repairing it.
+
+Automatic selection prefers host-architecture runtimes, then the newest
+available release and build for each Java major. A valid saved preference
+overrides that default.
+
+On Windows, exploratory discovery follows PCL-CE's bounded breadth-first
+search from fixed drives, Program Files and user directories. Registry and
+Minecraft runtime locations supply additional candidates. Windows executable
+lookup covers the working directory and PATH without starting a subprocess.
+Automatic discovery excludes `WpSystem` and PCL-CE's excluded directories
+before or after resolving a path. Explicit registrations retain their own
+validation.
+
 ## Download protocol behavior
 
 File transfers use HTTP/1.1 by default, including range requests. HTTP/2 is
