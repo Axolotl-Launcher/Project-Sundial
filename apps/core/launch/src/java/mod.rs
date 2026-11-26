@@ -8,6 +8,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use axlauncher_spi::{Java, JavaMode};
+use axlauncher_storage::runtime_record;
 
 use crate::platform::{executable_in_home, managed_executable, managed_home, search_all};
 
@@ -94,6 +95,7 @@ impl SystemJava {
     fn managed_candidates(&self) -> impl Iterator<Item = PathBuf> + '_ {
         self.runtime_roots
             .iter()
+            .filter(|root| runtime_record(root).is_file())
             .filter_map(|root| managed_executable(root, JavaMode::Console))
     }
 

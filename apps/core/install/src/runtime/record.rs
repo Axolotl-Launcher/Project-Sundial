@@ -13,9 +13,12 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 
-use super::{RuntimeFile, safe_join};
+use axlauncher_storage::{runtime_record, write_atomic};
+
+use super::{RuntimeError, RuntimeFile, safe_join};
 
 /// What a finished install recorded: every file it wrote and that file's digest.
 pub(super) type Record = BTreeMap<String, String>;
@@ -25,8 +28,27 @@ pub(super) type Record = BTreeMap<String, String>;
 /// An unreadable or unparsable marker is no record at all: treating it as one
 /// would mean trusting a file whose contents could not be checked.
 pub(super) fn read(directory: &Path) -> Option<Record> {
-    let bytes = fs::read(axlauncher_storage::runtime_record(directory)).ok()?;
+    let bytes = fs::read(runtime_record(directory)).ok()?;
     serde_json::from_slice(&bytes).ok()
+}
+
+/// A runtime being repaired stays unpublished until its files verify again.
+pub(super) fn invalidate(directory: &Path) -> Result<(), RuntimeError> {
+    let path = runtime_record(directory);
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(source) => Err(RuntimeError::Write { path, source }),
+    }
+}
+
+/// Discovery can see the completion record only after every file lands.
+pub(super) fn publish(directory: &Path, record: &Record) -> Result<(), RuntimeError> {
+    let bytes = serde_json::to_vec(record).map_err(|error| RuntimeError::Malformed {
+        reason: error.to_string(),
+    })?;
+    let path = runtime_record(directory);
+    write_atomic(&path, &bytes).map_err(|source| RuntimeError::Write { path, source })
 }
 
 /// The record a completed download leaves, taken from what the manifest stated.

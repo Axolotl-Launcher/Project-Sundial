@@ -38,8 +38,10 @@ progress redraw throttling, and view state stay in `frontend`.
 The desktop Java catalog scans installed runtimes on demand through `launch`.
 Storage resolves conventional OS search roots and the catalog lock and document
 paths. State persists manual registrations, per-major preferences and
-machine-local preferences keyed by portable profile ID. Installation makes
-managed runtimes discoverable in their runtime directory.
+machine-local preferences keyed by portable profile ID. Managed runtimes become
+discoverable when installation publishes their completion record. An installer
+holds a per-runtime writer lock and withdraws a damaged runtime's record before
+repairing it.
 
 ## Download protocol behavior
 

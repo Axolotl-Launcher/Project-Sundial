@@ -195,7 +195,8 @@ fn a_major_nothing_offers_is_reported_as_absent() {
 fn an_installed_runtime_is_preferred_over_the_environment() {
     let temp = TempDir::new();
     let managed = jdk_home(&temp.path().join("managed"), "21.0.7");
-    let environment = jdk_home(&temp.path().join("env"), "17.0.2");
+    fs::write(runtime_record(&managed), b"{}").unwrap();
+    let environment = jdk_home(&temp.path().join("env"), "21.0.6");
     let search_path = std::env::join_paths([environment.join("bin")]).expect("path");
 
     let java = SystemJava::with_environment(None, Some(search_path))
@@ -209,6 +210,23 @@ fn an_installed_runtime_is_preferred_over_the_environment() {
         managed.display(),
         found.display()
     );
+}
+
+#[test]
+fn managed_discovery_only_selects_published_installations() {
+    let temp = TempDir::new();
+    let managed = jdk_home(temp.path(), "21.0.7");
+    let java = SystemJava::default().with_runtime_roots(vec![temp.path().to_owned()]);
+    let receipt = runtime_record(&managed);
+
+    assert!(java.discover().is_empty());
+    assert!(java.executable_for(21, JavaMode::Console).is_none());
+    assert!(java.executable(JavaMode::Console).is_none());
+
+    fs::write(&receipt, b"{}").unwrap();
+    assert!(java.executable_for(21, JavaMode::Console).is_some());
+    fs::remove_file(receipt).unwrap();
+    assert!(java.executable_for(21, JavaMode::Console).is_none());
 }
 
 #[test]
@@ -303,6 +321,7 @@ fn a_chosen_runtime_follows_the_requested_mode() {
 fn a_version_without_a_stated_major_prefers_the_environment() {
     let temp = TempDir::new();
     let managed = jdk_home(&temp.path().join("managed"), "21.0.7");
+    fs::write(runtime_record(&managed), b"{}").unwrap();
     let environment = jdk_home(&temp.path().join("env"), "8.0.392");
     let search_path = std::env::join_paths([environment.join("bin")]).expect("path");
 

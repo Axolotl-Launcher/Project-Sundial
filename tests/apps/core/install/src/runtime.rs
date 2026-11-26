@@ -302,6 +302,49 @@ fn a_runtime_whose_file_changed_is_downloaded_again() {
 }
 
 #[test]
+fn a_failed_repair_removes_the_completion_record_until_retry_succeeds() {
+    let Some(platform) = platform() else {
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    let (directory, responses) = install_once(platform, root.path());
+    let receipt = axlauncher_storage::runtime_record(&directory);
+    let damaged = home_of(&directory, platform).join("lib/plain.txt");
+    fs::remove_file(&damaged).unwrap();
+
+    let failed = block_on(install(&index_only(&responses), root.path(), 21, |_| {}));
+    assert!(matches!(failed, Err(RuntimeError::Fetch { .. })));
+    assert!(!receipt.exists());
+
+    block_on(install(&FakeNetwork { responses }, root.path(), 21, |_| {})).unwrap();
+    assert_eq!(fs::read(damaged).unwrap(), PLAIN_BODY);
+    assert!(receipt.is_file());
+}
+
+#[test]
+fn a_second_installer_cannot_modify_a_runtime_while_its_writer_is_active() {
+    let Some(platform) = platform() else {
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    let (_, responses) = fixture(platform);
+    let directory = root.path().join(component_for(21).unwrap());
+    let active = axlauncher_storage::try_lock_runtime(&directory).unwrap();
+    let network = FakeNetwork { responses };
+
+    let second = block_on(install(&network, root.path(), 21, |_| {}));
+    assert!(matches!(
+        second,
+        Err(RuntimeError::Write { source, .. }) if source.kind() == io::ErrorKind::WouldBlock
+    ));
+    assert!(!axlauncher_storage::runtime_record(&directory).exists());
+
+    drop(active);
+    block_on(install(&network, root.path(), 21, |_| {})).unwrap();
+    assert!(axlauncher_storage::runtime_record(&directory).is_file());
+}
+
+#[test]
 fn an_unsupported_major_is_named() {
     let root = temp();
     let error = block_on(install(
