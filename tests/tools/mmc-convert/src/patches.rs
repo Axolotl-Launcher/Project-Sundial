@@ -172,6 +172,7 @@ fn assert_launch_layout(directory: &Path, root: &Path, version: &Version) {
         &layout,
         &plan::Session::offline("Player"),
         &Target::host(),
+        None,
     )
     .unwrap();
     let library = root

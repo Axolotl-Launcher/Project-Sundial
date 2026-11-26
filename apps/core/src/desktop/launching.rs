@@ -6,15 +6,19 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use axlauncher_domain::normalize_game_language;
+use axlauncher_domain::{memory::MemoryAllocation, normalize_game_language};
 use axlauncher_install::{loader, vanilla};
 use axlauncher_launch::{
-    FlowError, GameLanguage, LaunchCommand, LaunchRequest, ProcessLauncher, SystemJava, Target,
+    FlowError, GameLanguage, HeapPolicy, LaunchCommand, LaunchRequest, ProcessLauncher, SystemJava,
+    Target,
     flow::{self, VersionInspection},
     plan::Session,
 };
 use axlauncher_spi::ServiceHost;
-use axlauncher_state::{SettingsData, javas, profile::DiscoveredProfile};
+use axlauncher_state::{
+    SettingsData, javas,
+    profile::{DiscoveredProfile, count_enabled_mods},
+};
 use axlauncher_storage::{DataDir, GameDir};
 
 use crate::launch_accounts;
@@ -75,6 +79,7 @@ impl LaunchJob {
                 java_preference: None,
                 player_name,
                 game_language: Some(GameLanguage::new(&game.minecraft, &language)),
+                heap: Some(heap_policy(profile, settings, !game.is_vanilla())),
             },
             profile_id: profile.profile.id().to_owned(),
             data: data.clone(),
@@ -100,8 +105,19 @@ impl LaunchJob {
     }
 
     pub fn preview(&self, session: &Session) -> Result<LaunchCommand, FlowError> {
-        let (java, request) = self.configured_java()?;
+        let (java, request) = self.configured_launch()?;
         flow::preview_with_session(&java, &request, session)
+    }
+
+    fn configured_launch(&self) -> Result<(SystemJava, LaunchRequest), FlowError> {
+        let (java, mut request) = self.configured_java()?;
+        if let Some(HeapPolicy::Automatic {
+            enabled_mods: Some(count),
+        }) = &mut request.heap
+        {
+            *count = count_enabled_mods(&request.instance_directory).unwrap_or_default();
+        }
+        Ok((java, request))
     }
 
     fn configured_java(&self) -> Result<(SystemJava, LaunchRequest), FlowError> {
@@ -141,7 +157,7 @@ impl LaunchJob {
             .map_err(LaunchFailure::Failed)?;
         let lock = vanilla::launch_lock(&self.request.game_root).map_err(LaunchFailure::Failed)?;
         self.check_files()?;
-        let (java, request) = self.configured_java().map_err(launch_error)?;
+        let (java, request) = self.configured_launch().map_err(launch_error)?;
 
         // Keep installers out until the child has opened the prepared files,
         // but do not hold the launch lock for the whole play session.
@@ -165,6 +181,23 @@ impl LaunchJob {
         check(&self.request.game_root, self.version_id(), &Target::host()).map_err(|error| {
             LaunchFailure::NeedsInstall(format!("Install game files to continue. {error}"))
         })
+    }
+}
+
+fn heap_policy(
+    profile: &DiscoveredProfile,
+    settings: Option<&SettingsData>,
+    mod_capable: bool,
+) -> HeapPolicy {
+    let preference = profile.profile.memory().map_or_else(
+        || settings.map(SettingsData::memory).unwrap_or_default(),
+        MemoryAllocation::Manual,
+    );
+    match preference {
+        MemoryAllocation::Automatic => HeapPolicy::Automatic {
+            enabled_mods: mod_capable.then_some(0),
+        },
+        MemoryAllocation::Manual(heap) => HeapPolicy::Manual(heap),
     }
 }
 

@@ -224,6 +224,7 @@ pub fn build(
     layout: &Layout,
     session: &Session,
     target: &Target,
+    heap: Option<crate::HeapDefaults>,
 ) -> Result<LaunchCommand, PlanError> {
     let client_jar = layout.game_root.client_jar(version.jar_id());
     if !client_jar.is_file() {
@@ -241,6 +242,10 @@ pub fn build(
     let arguments = version.arguments.clone().unwrap_or_default();
 
     let mut args = jvm_arguments(&arguments, target, &values);
+    if let Some(heap) = heap {
+        let defaults = crate::java::memory::jvm_defaults(&args, heap);
+        args.splice(..0, defaults.into_iter().flatten());
+    }
     args.extend(session.agent.iter().flat_map(YggdrasilAgent::arguments));
     if let Some(host) = &session.fallen_proxy {
         append_fallen_proxy_arguments(&mut args, host.as_str());
