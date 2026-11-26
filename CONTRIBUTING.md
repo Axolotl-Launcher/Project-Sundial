@@ -5,7 +5,7 @@
 
 This desktop Minecraft launcher uses Rust and [GPUI Kit](https://gpui-kit.com).
 pnpm and Turbo orchestrate development tasks. Read [AGENTS.md](AGENTS.md)
-before editing for code ownership, impact analysis, and verification.
+before editing for code ownership and verification.
 
 ## Requirements
 

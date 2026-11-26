@@ -21,9 +21,7 @@ See [.agents/AGENTS.md](.agents/AGENTS.md) for agent documentation and temporary
    [rust-toolchain.toml](rust-toolchain.toml). Node and pnpm requirements are in
    [package.json](package.json).
 3. Before editing, search for the target's callers with `rg` and read the
-   surrounding code. For a pull request, the `PR impact analysis` workflow
-   posts the symbol- and process-level impact report; use it as review context,
-   not as a substitute for reading the changed code.
+   surrounding code.
 
 ## Where changes belong
 
