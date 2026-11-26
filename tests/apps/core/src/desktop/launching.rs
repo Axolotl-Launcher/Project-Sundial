@@ -27,7 +27,12 @@ fn a_launch_job_retains_the_directory_snapshot_used_for_installation() {
         .set_directory(Directory::AppCache, Some(&root.path().join("second-cache")))
         .unwrap();
 
-    assert_eq!(job.request.game_root.native_archive(hash), Some(expected));
+    assert_eq!(
+        job.request
+            .game_root
+            .native_classifier_archive(Path::new("native.jar"), Some(hash)),
+        expected
+    );
     assert_ne!(job.request.game_root, paths.game());
 }
 

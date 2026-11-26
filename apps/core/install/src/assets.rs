@@ -98,18 +98,15 @@ pub(crate) fn missing_library_files(
         .iter()
         .filter(|library| rules::library_applies(library, target))
         .flat_map(|library| {
-            let regular = library
-                .download()
-                .and_then(|artifact| contained_artifact(&root, artifact));
+            let regular = library.download().and_then(|artifact| {
+                let relative = library_path(&artifact.path)?;
+                Some((root.join(relative), artifact))
+            });
             let classifier = classifier_download(library, target).and_then(|artifact| {
-                let (maven_path, artifact) = contained_artifact(&root, artifact.clone())?;
-                let path = artifact
-                    .sha1
-                    .as_deref()
-                    .and_then(|sha1| game_root.native_archive(sha1))
-                    .filter(|_| needs_download(&maven_path, artifact.size))
-                    .unwrap_or(maven_path);
-                Some((path, artifact))
+                let relative = library_path(&artifact.path)?;
+                let archive =
+                    game_root.native_classifier_archive(relative, artifact.sha1.as_deref());
+                Some((archive, artifact.clone()))
             });
             regular.into_iter().chain(classifier)
         })
@@ -153,21 +150,16 @@ fn missing_artifact(path: &Path, artifact: &Artifact) -> bool {
         .unwrap_or(false)
 }
 
-/// The artifact's destination under `root`, or `None` when its stated path
-/// would leave it.
+/// A manifest path that stays inside the libraries root.
 ///
 /// A library path comes from a network answer — a loader document can write
 /// anywhere it likes — so a path with a parent component or a root is dropped
 /// rather than joined into the game tree.
-fn contained_artifact(root: &Path, artifact: Artifact) -> Option<(PathBuf, Artifact)> {
-    let path = Path::new(&artifact.path);
-    if path
-        .components()
+fn library_path(relative: &str) -> Option<&Path> {
+    let path = Path::new(relative);
+    path.components()
         .all(|part| matches!(part, Component::Normal(_)))
-    {
-        return Some((root.join(path), artifact));
-    }
-    None
+        .then_some(path)
 }
 
 /// The client jar a version downloads, when its document names one.

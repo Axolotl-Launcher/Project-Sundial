@@ -11,7 +11,7 @@ field-leak axlauncher_frontend::panel::profile_creation::LoaderCatalog::status @
 field-leak axlauncher_install::assets::AssetIndexDocument::objects @ axlauncher_install::assets
 field-leak axlauncher_install::vanilla::catalog::MinecraftCatalog::versions @ axlauncher_frontend::panel::profile_creation,axlauncher_install::vanilla::catalog
 field-leak axlauncher_launch::version::Library::downloads @ axlauncher_launch::natives,axlauncher_launch::plan
-field-leak axlauncher_launch::version::Library::name @ axlauncher_launch::classpath,axlauncher_launch::natives
+field-leak axlauncher_launch::version::Library::name @ axlauncher_launch::classpath
 field-leak axlauncher_launch::version::Library::natives @ axlauncher_launch::natives
 field-leak axlauncher_launch::version::Library::rules @ axlauncher_launch::rules
 field-leak axlauncher_state::accounts::sessions::AccountService::data @ axlauncher_core::launch_accounts,axlauncher_frontend::panel::accounts

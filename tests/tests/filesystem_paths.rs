@@ -17,6 +17,7 @@ use rules::{
 
 const SOURCE_ROOTS: [&str; 3] = ["apps", "platforms", "tools"];
 const STORAGE: &str = "apps/core/storage/src/";
+const MAX_LITERAL_RESOLUTION_DEPTH: usize = 16;
 
 #[test]
 fn launcher_paths_are_not_rebuilt_by_consumers() {
@@ -214,7 +215,7 @@ impl<'ast> Scanner<'ast, '_> {
 
     fn path_arg(&mut self, argument: &'ast Expr, push: bool) {
         let literal = self
-            .literal(argument, 16)
+            .literal(argument, MAX_LITERAL_RESOLUTION_DEPTH)
             .or_else(|| constant_name(argument));
         let Some(literal) = literal else { return };
         if (push
@@ -247,7 +248,7 @@ impl<'ast> Scanner<'ast, '_> {
         };
         if reads_environment(&segments)
             && self
-                .literal(argument, 16)
+                .literal(argument, MAX_LITERAL_RESOLUTION_DEPTH)
                 .is_some_and(|key| directory_key(&key))
         {
             self.report(

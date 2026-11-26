@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use axlauncher_core::BRAND_NAME;
-use axlauncher_core::state::profile::discover;
 use axlauncher_core::state::{SettingsData, SettingsOrigin, ThemeChoice};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
@@ -149,11 +148,14 @@ impl RootView {
     }
 
     fn apply_loaded(&mut self, loaded: Loaded, window: &mut Window, cx: &mut Context<'_, Self>) {
-        let same_root = self.paths == loaded.paths;
+        let previous = self.paths.as_ref();
+        let current = loaded.paths.as_ref();
+        let same_data = previous.map(DataDir::root) == current.map(DataDir::root);
+        let same_instances = previous.map(DataDir::instances) == current.map(DataDir::instances);
         self.paths = loaded.paths;
         self.modpack
             .update(cx, |view, cx| view.set_enabled(self.paths.is_some(), cx));
-        if !same_root {
+        if !same_data {
             self.accounts.reset(self.paths.as_ref(), window, cx);
         }
         self.refresh_accounts(cx);
@@ -175,7 +177,7 @@ impl RootView {
             .unwrap_or_default();
         self.environment
             .set_game_language(game_language, window, cx);
-        self.instances.replace(loaded.profiles, same_root);
+        self.instances.replace(loaded.profiles, same_instances);
         self.inspection = launch::Inspection::default();
 
         let root_text = self
@@ -229,8 +231,10 @@ impl RootView {
         cx: &mut Context<'_, Self>,
     ) {
         self.activity.success(format!("Installed {name}"));
-        if self.paths.as_ref() == Some(paths) {
-            self.instances.replace(discover(&paths.instances()), true);
+        if self
+            .instances
+            .refresh_after_install(self.paths.as_ref(), paths)
+        {
             self.select_instance(directory.to_path_buf(), cx);
         }
         cx.notify();

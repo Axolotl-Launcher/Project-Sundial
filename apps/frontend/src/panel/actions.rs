@@ -95,9 +95,11 @@ impl RootView {
             Ok(None) => Installation::Complete,
             Err(error) => Installation::Failed(error),
         };
-        if recorded_profile && self.paths.as_ref() == Some(paths) {
-            self.instances
-                .replace(profile::discover(&paths.instances()), true);
+        if recorded_profile
+            && self
+                .instances
+                .refresh_after_install(self.paths.as_ref(), paths)
+        {
             self.inspection = super::launch::Inspection::default();
         }
         self.set_installation(paths.game().root(), key, installation, cx);

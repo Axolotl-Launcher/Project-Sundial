@@ -107,19 +107,31 @@ fn profiles_and_runtime_files_use_the_managed_layout() {
         game.log_config("client.xml"),
         root.0.join("meta/log_configs/client.xml")
     );
+}
+
+#[test]
+fn classifier_archives_use_the_shared_cache_only_with_a_usable_hash() {
+    let root = TempDir::new();
+    let layout = DataDir::isolated(&root.0).unwrap();
+    let game = layout.game();
     let hash = "0123456789012345678901234567890123456789";
+    let relative = Path::new("org/example/native.jar");
+    let maven_path = game.libraries().join(relative);
     assert_eq!(
-        game.native_archive(hash),
-        Some(
-            layout
-                .caches()
-                .join("minecraft-natives")
-                .join(format!("{hash}.jar"))
-        )
+        game.native_classifier_archive(relative, Some(hash)),
+        layout
+            .caches()
+            .join("minecraft-natives")
+            .join(format!("{hash}.jar"))
     );
-    assert_eq!(game.native_archive("../escape"), None);
     assert_eq!(
-        GameDir::isolated(&layout.instances()).native_archive(hash),
-        None
+        game.native_classifier_archive(relative, Some("../escape")),
+        maven_path
+    );
+    assert_eq!(game.native_classifier_archive(relative, None), maven_path);
+    let isolated = GameDir::isolated(&layout.instances());
+    assert_eq!(
+        isolated.native_classifier_archive(relative, Some(hash)),
+        isolated.libraries().join(relative)
     );
 }

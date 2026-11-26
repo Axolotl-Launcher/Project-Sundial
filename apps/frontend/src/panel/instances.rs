@@ -6,7 +6,8 @@
 use std::path::{Path, PathBuf};
 
 use axlauncher_core::desktop::launching::LaunchJob;
-use axlauncher_core::state::profile::{DiscoveredProfile, ProfileDiscovery};
+use axlauncher_core::state::profile::{DiscoveredProfile, ProfileDiscovery, discover};
+use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, Context, ElementId, GroupBox, Input, IntoElement, Label, h_flex,
@@ -34,13 +35,26 @@ impl InstancesState {
         }
     }
 
-    pub(super) fn replace(&mut self, discovered: ProfileDiscovery, same_root: bool) {
-        let previous = self.selected().filter(|_| same_root);
+    pub(super) fn replace(&mut self, discovered: ProfileDiscovery, preserve_selection: bool) {
+        let previous = self.selected().filter(|_| preserve_selection);
         let selected = previous.and_then(|entry| find_previous(&discovered.instances, entry));
         self.selected = selected
             .or_else(|| discovered.instances.first())
             .map(|entry| entry.directory.clone());
         self.discovered = discovered;
+    }
+
+    pub(super) fn refresh_after_install(
+        &mut self,
+        current: Option<&DataDir>,
+        job: &DataDir,
+    ) -> bool {
+        let instances = job.instances();
+        if current.map(DataDir::instances).as_ref() != Some(&instances) {
+            return false;
+        }
+        self.replace(discover(&instances), true);
+        true
     }
 
     pub(super) fn selected(&self) -> Option<&DiscoveredProfile> {
@@ -60,6 +74,10 @@ impl InstancesState {
             .find(|entry| entry.directory == directory)
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/apps/frontend/src/panel/instances.rs"]
+mod tests;
 
 fn find_previous<'a>(
     entries: &'a [DiscoveredProfile],

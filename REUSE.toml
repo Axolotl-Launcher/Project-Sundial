@@ -39,6 +39,7 @@ path = [
   "apps/core/storage/src/instance_paths.rs",
   "apps/core/storage/src/paths.rs",
   "tests/apps/core/storage/src/paths.rs",
+  "tests/apps/frontend/src/panel/instances.rs",
   "tests/tests/filesystem_paths.rs",
   "tests/tests/filesystem_paths/rules.rs",
 ]

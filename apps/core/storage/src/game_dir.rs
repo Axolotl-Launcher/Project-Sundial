@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+const SHA1_HEX_LENGTH: usize = 40;
+
 /// An installed game tree, with a native archive cache only for shared installs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GameDir {
@@ -91,11 +93,18 @@ impl GameDir {
         self.root.join(".install.lock")
     }
 
-    pub fn native_archive(&self, sha1: &str) -> Option<PathBuf> {
-        if sha1.len() != 40 || !sha1.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return None;
+    /// The single location of an archive from a manifest's native-classifier map.
+    ///
+    /// A shared tree caches it by SHA-1 when the hash is usable. Other trees
+    /// and classifiers without a usable hash use the manifest's Maven layout.
+    pub fn native_classifier_archive(&self, maven_relative: &Path, sha1: Option<&str>) -> PathBuf {
+        if let (Some(cache), Some(sha1)) = (&self.native_cache, sha1)
+            && sha1.len() == SHA1_HEX_LENGTH
+            && sha1.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return cache.join(format!("{sha1}.jar"));
         }
-        Some(self.native_cache.as_ref()?.join(format!("{sha1}.jar")))
+        self.libraries().join(maven_relative)
     }
 }
 

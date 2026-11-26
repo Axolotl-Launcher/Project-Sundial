@@ -20,9 +20,6 @@ use axlauncher_storage::GameDir;
 use crate::rules::{self, Target};
 use crate::version::{Artifact, Library};
 
-/// The marker that distinguishes a native library from a classpath library.
-const NATIVES_MARKER: &str = ":natives-";
-
 /// The placeholder older documents use inside a classifier key.
 const ARCH_PLACEHOLDER: &str = "${arch}";
 
@@ -122,8 +119,12 @@ pub trait NativeReader {
 pub fn entries(libraries: &[Library], target: &Target) -> Vec<NativeEntry> {
     libraries
         .iter()
-        .filter_map(|library| native_jar(library, target))
-        .map(|path| NativeEntry { path })
+        .filter_map(|library| {
+            classpath_native(library, target).or_else(|| classifier_download(library, target))
+        })
+        .map(|artifact| NativeEntry {
+            path: artifact.path.clone(),
+        })
         .collect()
 }
 
@@ -175,14 +176,13 @@ pub(crate) fn extract_version(
     })?;
 
     let archives = libraries.iter().filter_map(|library| {
-        let path = native_jar(library, target)?;
-        let cached = classifier_download(library, target).and_then(|artifact| {
-            let cached = game_root.native_archive(artifact.sha1.as_deref()?)?;
-            let metadata = fs::metadata(&cached).ok()?;
-            (metadata.is_file() && artifact.size.is_none_or(|size| metadata.len() == size))
-                .then_some(cached)
-        });
-        Some(cached.unwrap_or_else(|| library_root.join(path)))
+        if let Some(artifact) = classifier_download(library, target) {
+            return Some(
+                game_root
+                    .native_classifier_archive(Path::new(&artifact.path), artifact.sha1.as_deref()),
+            );
+        }
+        classpath_native(library, target).map(|artifact| library_root.join(&artifact.path))
     });
     let extracted = extract_archives(reader, archives, &game_root.version_natives(version_id));
     drop(lock);
@@ -216,25 +216,17 @@ fn extract_archives(
     })
 }
 
-/// The jar of one library that holds natives, when it names one for `target`.
-fn native_jar(library: &Library, target: &Target) -> Option<String> {
-    if !rules::library_applies(library, target) {
+/// The artifact of a native coordinate that goes on the classpath.
+fn classpath_native<'a>(library: &'a Library, target: &Target) -> Option<&'a Artifact> {
+    if !library.is_classified_native() || !rules::library_applies(library, target) {
         return None;
     }
-    if library.name.contains(NATIVES_MARKER) {
-        return library
-            .downloads
-            .as_ref()
-            .and_then(|downloads| downloads.artifact.as_ref())
-            .map(|artifact| artifact.path.clone());
-    }
-
-    classifier_download(library, target).map(|artifact| artifact.path.clone())
+    library.downloads.as_ref()?.artifact.as_ref()
 }
 
 /// The artifact selected from the older platform-to-classifier map.
 pub fn classifier_download<'a>(library: &'a Library, target: &Target) -> Option<&'a Artifact> {
-    if library.name.contains(NATIVES_MARKER) || !rules::library_applies(library, target) {
+    if library.is_classified_native() || !rules::library_applies(library, target) {
         return None;
     }
     let classifier = library.natives.as_ref()?.get(target.os.as_str())?;

@@ -110,7 +110,7 @@ fn missing_libraries_reports_an_absent_artifact() {
 }
 
 #[test]
-fn missing_classifiers_go_to_the_hash_cache() {
+fn a_maven_copy_does_not_satisfy_a_shared_classifier_download() {
     use axlauncher_storage::{DataDir, Directory};
 
     let data = tempfile::tempdir().unwrap();
@@ -126,6 +126,7 @@ fn missing_classifiers_go_to_the_hash_cache() {
         "natives-windows".into(),
     )]));
     let classifier = artifact("org/example/example-1.0-natives-windows.jar");
+    write_file(&game_root.libraries(), &classifier.path, ABC);
     library.downloads.as_mut().unwrap().classifiers =
         Some(BTreeMap::from([("natives-windows".into(), classifier)]));
 

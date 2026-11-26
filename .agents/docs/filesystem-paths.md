@@ -45,6 +45,11 @@ isolated mode; otherwise they keep their platform defaults.
   `GameDir::isolated()` for an isolated instance and `GameDir::standalone()`
   for a supplied game tree that has no shared cache. Never infer the cache
   policy from a directory's name or parent.
+- Use `GameDir::native_classifier_archive()` for archives selected from the
+  manifest's `downloads.classifiers` map. In a shared tree, a classifier
+  with a usable SHA-1 lives only in the cache. Trees without a shared cache
+  and classifiers without a usable hash use the manifest's Maven path.
+  Do not look for a copy in another location.
 - Put new launcher-defined path components in storage and expose an operation
   named for the caller's intent. Data documents, managed runtimes, instance
   markers, locks, caches, and download diagnostic outputs follow this rule.

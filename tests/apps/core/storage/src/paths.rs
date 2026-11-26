@@ -69,7 +69,10 @@ fn session_overrides_do_not_change_snapshots_already_held_by_workers() {
     ] {
         paths.set_directory(kind, None).unwrap();
     }
-    assert_eq!(paths, worker_paths);
+    assert_eq!(paths.root(), worker_paths.root());
+    assert_eq!(paths.caches(), worker_paths.caches());
+    assert_eq!(paths.instances(), worker_paths.instances());
+    assert_eq!(paths.temp(), worker_paths.temp());
 }
 
 #[test]

@@ -7,8 +7,6 @@ use std::sync::Arc;
 use crate::game_dir::GameDir;
 
 const APP_DIRECTORY: &str = "AXLauncher";
-
-/// An isolated launcher root for development or testing.
 const DATA_DIR_ENV: &str = "AXLAUNCHER_DATA_DIR";
 
 /// The system's per-user application data directory.
@@ -31,25 +29,25 @@ pub enum Directory {
 }
 
 /// Resolved launcher directories that a worker can keep for its entire operation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct DataDir {
     config: Arc<DirectoryConfig>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 struct DirectoryConfig {
     defaults: Defaults,
     overrides: Overrides,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 struct Defaults {
     data: PathBuf,
     cache: Option<PathBuf>,
     temp: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default)]
 struct Overrides {
     data: Option<PathBuf>,
     cache: Option<PathBuf>,
