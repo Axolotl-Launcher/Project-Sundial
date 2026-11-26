@@ -15,7 +15,7 @@ use url::{Origin, Url};
 
 use crate::ranges::{FileTransfer, TransferMode};
 use crate::resources::Quotas;
-use crate::retry::{Attempts, Delay, Recovery, WaitBudget, cooldown_jitter};
+use crate::retry::{Attempts, Delay, WaitBudget, cooldown_jitter};
 use crate::transfer::{Transfer, TransferError, TransferResources};
 use crate::verify::{Verification, already_verified, has_digest, verify};
 use crate::weighted::WeightedConnections;
@@ -219,6 +219,7 @@ struct Source<'a> {
     cooldown_jitter: Duration,
     error: Option<TransferError>,
     mode: TransferMode,
+    staging: Option<AtomicFile>,
     retry_integrity: bool,
     exhausted: bool,
     done: bool,
@@ -238,6 +239,7 @@ impl<'a> Source<'a> {
             cooldown_jitter: cooldown_jitter(),
             error: None,
             mode: TransferMode::default(),
+            staging: None,
             retry_integrity: false,
             exhausted: false,
             done: false,
@@ -257,13 +259,6 @@ impl<'a> Source<'a> {
                 "invalid download URL".into(),
             )));
         };
-        let previous = self.attempts.request_count();
-        let recovery = if previous == 0 {
-            None
-        } else {
-            self.attempts.reserve()
-        };
-        debug_assert!(previous == 0 || recovery.is_some());
         let limit = engine
             .policy
             .connections_per_host
@@ -284,7 +279,10 @@ impl<'a> Source<'a> {
             host: &host,
             share: share.as_ref(),
         };
-        let mut staging = AtomicFile::new(job.destination)?;
+        let mut staging = match self.staging.take() {
+            Some(staging) => staging,
+            None => AtomicFile::new(job.destination)?,
+        };
         let result = FileTransfer {
             transfer: &transfer,
             parallelism: engine.policy.connections_per_file.get(),
@@ -299,20 +297,15 @@ impl<'a> Source<'a> {
             wait,
         )
         .await;
-        self.finish_recovery(recovery, previous);
         drop(share);
+        if matches!(self.mode, TransferMode::Paused(_)) && result.is_err() {
+            self.staging = Some(staging);
+            return result;
+        }
         result?;
         self.verify_stage(&mut staging, job, check).await?;
         staging.commit(job.destination)?;
         Ok(())
-    }
-
-    fn finish_recovery(&self, recovery: Option<Recovery<'_>>, previous: usize) {
-        if self.attempts.request_count() != previous
-            && let Some(recovery) = recovery
-        {
-            recovery.dispatch();
-        }
     }
 
     async fn verify_stage(
@@ -323,7 +316,7 @@ impl<'a> Source<'a> {
     ) -> Result<(), TransferError> {
         let result = verify(staging, job, check).await;
         if matches!(result, Err(TransferError::Invalid(_)))
-            && matches!(self.mode, TransferMode::Ranged(_))
+            && !matches!(self.mode, TransferMode::Whole)
         {
             self.retry_integrity = true;
             self.mode = TransferMode::Whole;
@@ -375,7 +368,12 @@ impl<'a> Source<'a> {
                 .then(|| self.attempts.backoff(error.retry_hint()));
         } else {
             self.done = true;
-            self.exhausted = matches!(error, TransferError::RangeWaitExceeded(_));
+            self.exhausted = matches!(
+                error,
+                TransferError::RangeWaitExceeded(_)
+                    | TransferError::RecoveryExhausted
+                    | TransferError::RangeRecoveryExhausted(_)
+            );
         }
         self.done |= self.exhausted;
         self.retry_integrity = false;
@@ -387,7 +385,8 @@ impl<'a> Source<'a> {
     fn failure_rank(&self) -> Option<u8> {
         Some(match self.error.as_ref()? {
             TransferError::Invalid(_) => 4,
-            TransferError::RangeRetriesExhausted { .. }
+            TransferError::RecoveryExhausted
+            | TransferError::RangeRecoveryExhausted(_)
             | TransferError::RangeWaitExceeded(_)
             | TransferError::Body(_) => 3,
             TransferError::Open(FetchError::HttpRetryable { .. }) => 2,
@@ -403,7 +402,11 @@ impl<'a> Source<'a> {
             .as_ref()
             .map_or_else(|| "invalid source".into(), Origin::ascii_serialization);
         let requests = self.attempts.request_count();
-        let exhausted = if self.exhausted {
+        let exhausted = if self.exhausted
+            && !matches!(
+                error,
+                TransferError::RecoveryExhausted | TransferError::RangeRecoveryExhausted(_)
+            ) {
             ", retry budget exhausted"
         } else {
             ""

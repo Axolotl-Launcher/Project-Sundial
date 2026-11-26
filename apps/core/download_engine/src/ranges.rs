@@ -8,15 +8,19 @@ use std::time::{Duration, Instant};
 use axlauncher_spi::{ByteRange, DownloadBody, Network, ResponseRange};
 use axlauncher_storage::AtomicFile;
 use futures::{StreamExt, future::Either, stream::FuturesUnordered};
+use tokio::sync::watch;
 
-use crate::retry::{Attempts, Delay, Recovery, WaitBudget};
-use crate::transfer::{Connection, CopyResult, RangeValidator, Transfer, TransferError};
+use crate::retry::WaitBudget;
+use crate::transfer::{
+    Connection, CopyResult, RangeValidator, SegmentActivity, Transfer, TransferError,
+};
 use crate::weighted::{MIN_RANGE_BYTES, range_width};
+
+mod schedule;
+use schedule::{Schedule, Work};
 
 const MIN_SEGMENT: u64 = 256 * 1024;
 const INITIAL_SEGMENT: u64 = 8 * 1024 * 1024;
-const MAX_SEGMENT: u64 = 32 * 1024 * 1024;
-const SEGMENT_TIME: Duration = Duration::from_secs(2);
 
 const RANGE_THRESHOLD: u64 = 4 * 1024 * 1024;
 const PROBE: ByteRange = ByteRange { start: 0, end: 1 };
@@ -26,6 +30,7 @@ pub(crate) enum TransferMode {
     #[default]
     Discover,
     Ranged(u64),
+    Paused(Box<RangeProgress>),
     Whole,
 }
 
@@ -47,7 +52,7 @@ impl<Net: Network> FileTransfer<'_, '_, Net> {
     ) -> Result<(), TransferError> {
         let stage = Mutex::new(staging);
         if matches!(mode, TransferMode::Whole) {
-            return self.transfer.open_whole(&stage).await;
+            return self.transfer.open_whole(&stage, self.is_recovery()).await;
         }
         let attempt = self.run_ranges(size, &stage, mode, wait).await;
         if !matches!(attempt, Err(TransferError::RangeUnavailable)) {
@@ -55,7 +60,7 @@ impl<Net: Network> FileTransfer<'_, '_, Net> {
         }
         *mode = TransferMode::Whole;
         **stage.lock().expect("staged download lock") = AtomicFile::new(destination)?;
-        self.transfer.open_whole(&stage).await
+        self.transfer.open_whole(&stage, false).await
     }
 
     async fn run_ranges(
@@ -65,18 +70,27 @@ impl<Net: Network> FileTransfer<'_, '_, Net> {
         mode: &mut TransferMode,
         wait: &mut WaitBudget,
     ) -> Result<(), TransferError> {
+        if let TransferMode::Paused(progress) = mode {
+            let total = progress.source.total;
+            let result = self.continue_ranges(stage, progress, wait).await;
+            return restore_mode(mode, total, result);
+        }
         if let TransferMode::Ranged(total) = *mode {
-            return self.ranged(stage, total, mode, wait).await;
+            return self
+                .ranged(stage, total, mode, wait, self.is_recovery())
+                .await;
         }
         if let Some(total) = size.filter(|&total| total >= self.range_threshold()) {
             *mode = TransferMode::Ranged(total);
-            return self.ranged(stage, total, mode, wait).await;
+            return self
+                .ranged(stage, total, mode, wait, self.is_recovery())
+                .await;
         }
         if size.is_none() && self.probe_unknown && self.parallelism > 1 {
             return self.probe(stage, mode, wait).await;
         }
         *mode = TransferMode::Whole;
-        self.transfer.open_whole(stage).await
+        self.transfer.open_whole(stage, self.is_recovery()).await
     }
 
     async fn probe(
@@ -85,7 +99,10 @@ impl<Net: Network> FileTransfer<'_, '_, Net> {
         mode: &mut TransferMode,
         wait: &mut WaitBudget,
     ) -> Result<(), TransferError> {
-        let connection = self.transfer.open_for_range(PROBE, None, None).await?;
+        let connection = self
+            .transfer
+            .open_for_range(PROBE, None, self.is_recovery(), None)
+            .await?;
         let Some(range) = connection.response.range else {
             *mode = TransferMode::Whole;
             return self.transfer.whole(connection, stage).await;
@@ -98,7 +115,7 @@ impl<Net: Network> FileTransfer<'_, '_, Net> {
         }
         drop(connection);
         *mode = TransferMode::Ranged(range.total);
-        self.ranged(stage, range.total, mode, wait).await
+        self.ranged(stage, range.total, mode, wait, false).await
     }
 
     async fn ranged(
@@ -107,6 +124,7 @@ impl<Net: Network> FileTransfer<'_, '_, Net> {
         total: u64,
         mode: &mut TransferMode,
         wait: &mut WaitBudget,
+        recovery: bool,
     ) -> Result<(), TransferError> {
         let (width, chunk, minimum) = self.range_plan(total);
         if let Some(share) = self.transfer.share {
@@ -114,7 +132,10 @@ impl<Net: Network> FileTransfer<'_, '_, Net> {
         }
         let end = total.min(chunk);
         let interval = ByteRange { start: 0, end };
-        let connection = self.transfer.open_for_range(interval, None, None).await?;
+        let connection = self
+            .transfer
+            .open_for_range(interval, None, recovery, None)
+            .await?;
         let Some(range) = connection.response.range else {
             *mode = TransferMode::Whole;
             return self.transfer.whole(connection, stage).await;
@@ -133,11 +154,35 @@ impl<Net: Network> FileTransfer<'_, '_, Net> {
             minimum,
             validator,
         };
-        let result = download(self.transfer, stage, &source, interval, connection, wait).await;
-        if result.is_err() {
-            *mode = TransferMode::Whole;
+        let mut progress = RangeProgress::new(source, interval.end);
+        let result = download(
+            self.transfer,
+            stage,
+            &mut progress,
+            Some((interval, connection)),
+            wait,
+        )
+        .await;
+        if result.as_ref().is_err_and(TransferError::origin_throttle) {
+            *mode = TransferMode::Paused(Box::new(progress));
         }
         result
+    }
+
+    async fn continue_ranges(
+        &self,
+        stage: &Mutex<&mut AtomicFile>,
+        progress: &mut RangeProgress,
+        wait: &mut WaitBudget,
+    ) -> Result<(), TransferError> {
+        if let Some(share) = self.transfer.share {
+            share.set_remaining(Some(progress.work.unwritten()));
+        }
+        download::<Net, Option<bytes::Bytes>>(self.transfer, stage, progress, None, wait).await
+    }
+
+    fn is_recovery(&self) -> bool {
+        self.transfer.attempts.request_count() != 0
     }
 
     fn range_threshold(&self) -> u64 {
@@ -174,57 +219,53 @@ struct RangeSource {
     validator: Option<RangeValidator>,
 }
 
-struct Work<'a> {
-    interval: ByteRange,
-    recovery: Option<Recovery<'a>>,
+pub(crate) struct RangeProgress {
+    source: RangeSource,
+    work: Schedule,
 }
 
-struct Pending<'a> {
-    work: Work<'a>,
-    delay: Delay,
-    error: TransferError,
+impl RangeProgress {
+    fn new(source: RangeSource, first_end: u64) -> Self {
+        let work = Schedule::new(first_end, source.total, source.chunk, source.minimum);
+        Self { source, work }
+    }
 }
 
-async fn download<Net: Network>(
+async fn download<Net: Network, Body: DownloadBody>(
     transfer: &Transfer<'_, Net>,
     stage: &Mutex<&mut AtomicFile>,
-    source: &RangeSource,
-    first: ByteRange,
-    connection: Connection<'_, impl DownloadBody>,
+    progress: &mut RangeProgress,
+    initial: Option<(ByteRange, Connection<'_, Body>)>,
     wait: &mut WaitBudget,
 ) -> Result<(), TransferError> {
-    let mut work = Schedule {
-        remaining: ByteRange {
-            start: first.end,
-            end: source.total,
-        },
-        pending: Vec::new(),
-        chunk: source.chunk,
-        minimum: source.minimum,
-    };
+    let RangeProgress { source, work } = progress;
     let mut active = FuturesUnordered::new();
-    active.push(run(
-        transfer,
-        stage,
-        Work {
-            interval: first,
-            recovery: None,
-        },
-        source,
-        Some(connection),
-    ));
+    let (pause, paused) = watch::channel(None);
+    if let Some((interval, connection)) = initial {
+        active.push(run(
+            transfer,
+            stage,
+            Work::fresh(interval),
+            source,
+            Some(connection),
+            paused.clone(),
+        ));
+    }
     let mut demand = source.width;
+    let mut cooldown = None;
     loop {
-        active.extend(
-            (active.len()..source.width)
-                .map_while(|_| work.next())
-                .map(|next| run(transfer, stage, next, source, None)),
-        );
-        if let Some(share) = transfer.share
-            && demand != active.len()
+        if cooldown.is_none() {
+            active.extend(
+                (active.len()..source.width)
+                    .map_while(|_| work.next())
+                    .map(|next| run(transfer, stage, next, source, None, paused.clone())),
+            );
+        }
+        update_demand(transfer, &mut demand, active.len());
+        if active.is_empty()
+            && let Some(error) = cooldown.take()
         {
-            demand = active.len();
-            share.set_width(demand);
+            return Err(error);
         }
         if active.is_empty() && !work.wait_next(wait).await? {
             return Ok(());
@@ -232,17 +273,28 @@ async fn download<Net: Network>(
         if active.is_empty() {
             continue;
         }
-        let delay = (active.len() < source.width)
+        let delay = (cooldown.is_none() && active.len() < source.width)
             .then(|| work.next_delay())
             .flatten();
-        let Some((interval, result, elapsed)) = complete_or_wake(&mut active, delay, wait).await
-        else {
+        let Some((item, result, elapsed)) = complete_or_wake(&mut active, delay, wait).await else {
             continue;
         };
-        let written = work.completed(transfer.attempts, interval, result, elapsed)?;
+        let written = work.completed(transfer.attempts, item, result, elapsed, &mut cooldown)?;
+        if let Some(status) = cooldown.as_ref().and_then(TransferError::throttle_status) {
+            pause.send_if_modified(|current| current.replace(status).is_none());
+        }
         if let Some(share) = transfer.share {
             share.record_written(written);
         }
+    }
+}
+
+fn update_demand(transfer: &Transfer<'_, impl Network>, demand: &mut usize, active: usize) {
+    if let Some(share) = transfer.share
+        && *demand != active
+    {
+        *demand = active;
+        share.set_width(active);
     }
 }
 
@@ -267,140 +319,40 @@ async fn complete_or_wake<T>(
 async fn run<Net: Network>(
     transfer: &Transfer<'_, Net>,
     stage: &Mutex<&mut AtomicFile>,
-    work: Work<'_>,
+    work: Work,
     source: &RangeSource,
     initial: Option<Connection<'_, impl DownloadBody>>,
-) -> (ByteRange, CopyResult, Duration) {
+    mut pause: watch::Receiver<Option<u16>>,
+) -> (Work, CopyResult, Duration) {
     let start = Instant::now();
-    let result = transfer
-        .segment(
-            stage,
-            ResponseRange {
-                interval: work.interval,
-                total: source.total,
-            },
-            source.validator.as_ref(),
-            work.recovery,
-            initial,
-        )
-        .await;
-    (work.interval, result, start.elapsed())
-}
-
-struct Schedule<'a> {
-    remaining: ByteRange,
-    pending: Vec<Pending<'a>>,
-    chunk: u64,
-    minimum: u64,
-}
-
-impl<'a> Schedule<'a> {
-    fn next(&mut self) -> Option<Work<'a>> {
-        if let Some(index) = self
-            .pending
-            .iter()
-            .position(|pending| pending.delay.remaining().is_zero())
-        {
-            return Some(self.pending.swap_remove(index).work);
-        }
-        let available = self.remaining.end - self.remaining.start;
-        if available == 0 {
-            return None;
-        }
-        let end = self.remaining.start + self.next_size(available);
-        let interval = ByteRange {
-            start: self.remaining.start,
-            end,
-        };
-        self.remaining.start = end;
-        Some(Work {
+    let interval = work.interval();
+    let activity = SegmentActivity::new(interval.start, initial.is_some());
+    let copying = transfer.segment(
+        stage,
+        ResponseRange {
             interval,
-            recovery: None,
-        })
-    }
+            total: source.total,
+        },
+        source.validator.as_ref(),
+        work.is_recovery(),
+        &activity,
+        initial,
+    );
+    let result = tokio::select! {
+        biased;
+        status = pause.wait_for(Option::is_some) => activity.paused(status.expect("active range schedule").expect("cooldown status")),
+        result = copying => result,
+    };
+    (work, result, start.elapsed())
+}
 
-    fn earliest(&self) -> Option<usize> {
-        self.pending
-            .iter()
-            .enumerate()
-            .min_by_key(|(_, pending)| pending.delay.remaining())
-            .map(|(index, _)| index)
+fn restore_mode(
+    mode: &mut TransferMode,
+    total: u64,
+    result: Result<(), TransferError>,
+) -> Result<(), TransferError> {
+    if !result.as_ref().is_err_and(TransferError::origin_throttle) {
+        *mode = TransferMode::Ranged(total);
     }
-
-    fn next_delay(&self) -> Option<Duration> {
-        self.earliest()
-            .map(|index| self.pending[index].delay.remaining())
-    }
-
-    async fn wait_next(&mut self, wait: &mut WaitBudget) -> Result<bool, TransferError> {
-        let Some(index) = self.earliest() else {
-            return Ok(false);
-        };
-        let delay = self.pending[index].delay.remaining();
-        if !wait.allows(delay) {
-            let failed = self.pending.swap_remove(index);
-            return Err(TransferError::RangeWaitExceeded(Box::new(failed.error)));
-        }
-        wait.wait(delay).await;
-        Ok(true)
-    }
-
-    fn next_size(&self, available: u64) -> u64 {
-        let bytes = available.min(self.chunk);
-        if self.minimum != MIN_RANGE_BYTES || !(1..self.minimum).contains(&(available - bytes)) {
-            return bytes;
-        }
-        if available < 2 * self.minimum {
-            available
-        } else {
-            available - self.minimum
-        }
-    }
-
-    fn completed(
-        &mut self,
-        attempts: &'a Attempts,
-        interval: ByteRange,
-        result: CopyResult,
-        elapsed: Duration,
-    ) -> Result<u64, TransferError> {
-        let Err(error) = result.result else {
-            let transferred = interval.end - interval.start;
-            let suggested =
-                (transferred as f64 * SEGMENT_TIME.as_secs_f64() / elapsed.as_secs_f64()) as u64;
-            self.chunk = suggested.clamp(self.minimum, MAX_SEGMENT);
-            return Ok(transferred);
-        };
-        if !error.retryable() || error.origin_throttle() {
-            return Err(error);
-        }
-        let Some(recovery) = attempts.reserve() else {
-            let delay = self
-                .pending
-                .iter()
-                .map(|pending| pending.delay.remaining())
-                .max();
-            return Err(TransferError::RangeRetriesExhausted {
-                error: Box::new(error),
-                pending_delay: delay,
-            });
-        };
-        let start = if result.end < interval.end {
-            result.end
-        } else {
-            interval.start
-        };
-        self.pending.push(Pending {
-            delay: recovery.delay(error.retry_hint()),
-            work: Work {
-                interval: ByteRange {
-                    start,
-                    end: interval.end,
-                },
-                recovery: Some(recovery),
-            },
-            error,
-        });
-        Ok(start - interval.start)
-    }
+    result
 }

@@ -98,18 +98,12 @@ pub(crate) struct Attempts {
 }
 
 impl Attempts {
-    pub(crate) fn reserve(&self) -> Option<Recovery<'_>> {
-        let index = self
-            .recoveries
+    pub(crate) fn dispatch_recovery(&self) -> bool {
+        self.recoveries
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
                 (used < RECOVERIES).then_some(used + 1)
             })
-            .ok()?;
-        Some(Recovery {
-            attempts: self,
-            index,
-            dispatched: false,
-        })
+            .is_ok()
     }
 
     pub(crate) fn can_recover(&self) -> bool {
@@ -126,30 +120,6 @@ impl Attempts {
 
     pub(crate) fn request_count(&self) -> usize {
         self.requests.load(Ordering::Relaxed)
-    }
-}
-
-pub(crate) struct Recovery<'a> {
-    attempts: &'a Attempts,
-    index: usize,
-    dispatched: bool,
-}
-
-impl Recovery<'_> {
-    pub(crate) fn delay(&self, hint: Option<Duration>) -> Delay {
-        Delay::new(backoff(self.index, hint))
-    }
-
-    pub(crate) fn dispatch(mut self) {
-        self.dispatched = true;
-    }
-}
-
-impl Drop for Recovery<'_> {
-    fn drop(&mut self) {
-        if !self.dispatched {
-            self.attempts.recoveries.fetch_sub(1, Ordering::Relaxed);
-        }
     }
 }
 

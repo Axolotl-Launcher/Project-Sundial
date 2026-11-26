@@ -52,11 +52,14 @@ to EOF and check the manifest digest, or the expected size when only size is
 supplied, before atomically publishing the staging file.
 
 Each file has three recovery requests per source across probes, ranges and
-whole-file transfers. Retries use jittered exponential backoff. HTTP 429 and
+whole-file transfers. A recovery uses its budget when dispatched. Adjacent
+failed intervals can share one recovery request after backoff. HTTP 429 and
 503 with `Retry-After` cool down the submitted origin across jobs. HTTP 429
 without a usable hint uses a short local cooldown. The engine tries ready
-alternate sources and budgets up to 30 seconds of scheduled wait per file.
-Backoff uses the Tokio time driver and releases idle connection capacity.
+alternate sources and can resume a paused source from its own staging file.
+Jittered exponential backoff uses the Tokio time driver and budgets up to
+30 seconds of scheduled wait per file. Paused requests release connection
+capacity while retaining their written prefixes.
 The shared engine defaults to
 256 connections globally and 16 per file. The desktop setting controls how
 many files may be queued at once.

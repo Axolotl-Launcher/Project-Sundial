@@ -144,3 +144,7 @@ mod retry_tests;
 #[cfg(test)]
 #[path = "../../../../tests/apps/core/download_engine/src/lib/range_identity.rs"]
 mod range_identity;
+
+#[cfg(test)]
+#[path = "../../../../tests/apps/core/download_engine/src/lib/range_recovery.rs"]
+mod range_recovery;
