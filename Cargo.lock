@@ -656,8 +656,10 @@ dependencies = [
  "axlauncher_domain",
  "axlauncher_spi",
  "axlauncher_storage",
+ "dunce",
  "serde",
  "serde_json",
+ "windows-registry 0.6.1",
  "zip",
 ]
 

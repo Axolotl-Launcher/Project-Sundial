@@ -210,15 +210,7 @@ impl DataDir {
 
     /// Account writers hold this across a read-modify-write operation.
     pub fn lock_accounts(&self) -> io::Result<fs::File> {
-        fs::create_dir_all(self.root())?;
-        let file = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(self.root().join("accounts.lock"))?;
-        file.lock()?;
-        Ok(file)
+        lock_document(self.root(), "accounts.lock")
     }
 }
 
@@ -264,6 +256,23 @@ pub fn invalid_settings_path(data: &Path) -> PathBuf {
 
 pub fn javas_path(data: &Path) -> PathBuf {
     data.join("javas.json")
+}
+
+/// Serializes Java catalog edits for one data directory across processes.
+pub fn lock_javas(data: &Path) -> io::Result<fs::File> {
+    lock_document(data, "javas.lock")
+}
+
+fn lock_document(root: &Path, name: &str) -> io::Result<fs::File> {
+    fs::create_dir_all(root)?;
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(root.join(name))?;
+    file.lock()?;
+    Ok(file)
 }
 
 pub fn runtime_record(runtime: &Path) -> PathBuf {

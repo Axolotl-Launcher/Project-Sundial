@@ -35,6 +35,12 @@ and sequences the owner calls, but does not implement loader protocols, file
 preparation, profile writes, or process execution. GPUI workers and channels,
 progress redraw throttling, and view state stay in `frontend`.
 
+The desktop Java catalog scans installed runtimes on demand through `launch`.
+Storage resolves conventional OS search roots and the catalog lock and document
+paths. State persists manual registrations, per-major preferences and
+machine-local preferences keyed by portable profile ID. Installation makes
+managed runtimes discoverable in their runtime directory.
+
 ## Download protocol behavior
 
 File transfers use HTTP/1.1 by default, including range requests. HTTP/2 is

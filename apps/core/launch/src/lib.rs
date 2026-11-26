@@ -21,7 +21,7 @@ pub use arguments::Values;
 pub use chain::{ChainError, merge, resolve};
 pub use flow::{FlowError, LaunchOutcome, LaunchRequest};
 pub use jar::JarReader;
-pub use java::SystemJava;
+pub use java::{JavaRuntime, SystemJava};
 pub use language::GameLanguage;
 pub use plan::{Layout, Session};
 pub use rules::Target;

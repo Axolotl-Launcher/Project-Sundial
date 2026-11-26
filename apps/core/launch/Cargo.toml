@@ -14,9 +14,13 @@ license.workspace = true
 axlauncher_domain = { workspace = true }
 axlauncher_spi = { workspace = true }
 axlauncher_storage = { workspace = true }
+dunce = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 zip = { workspace = true, features = ["default"] }
+
+[target."cfg(windows)".dependencies]
+windows-registry = { workspace = true }
 
 [lints]
 workspace = true

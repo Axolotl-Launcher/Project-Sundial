@@ -137,12 +137,16 @@ fn futures_lite_block_on<F: std::future::Future>(future: F) -> F::Output {
 struct FixedJava(PathBuf);
 
 impl Java for FixedJava {
-    fn executable(&self, _preferred: Option<&Path>, _mode: JavaMode) -> Option<PathBuf> {
+    fn executable(&self, _mode: JavaMode) -> Option<PathBuf> {
         Some(self.0.clone())
     }
 
     fn executable_for(&self, _major: u32, _mode: JavaMode) -> Option<PathBuf> {
         Some(self.0.clone())
+    }
+
+    fn executable_at(&self, path: &Path, _major: Option<u32>, _mode: JavaMode) -> Option<PathBuf> {
+        (self.0 == path).then(|| self.0.clone())
     }
 }
 
@@ -151,7 +155,7 @@ fn a_java_provider_satisfies_the_port() {
     let java: &dyn Java = &FixedJava(PathBuf::from("/opt/jdk/bin/java"));
 
     assert_eq!(
-        java.executable(None, JavaMode::Windowed),
+        java.executable(JavaMode::Windowed),
         Some(PathBuf::from("/opt/jdk/bin/java"))
     );
 }

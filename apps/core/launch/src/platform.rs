@@ -56,11 +56,15 @@ pub(crate) fn executable_in_home(home: &Path, mode: JavaMode) -> Option<PathBuf>
 /// the component directory is the home. Discovery and installation must agree
 /// on this, or a runtime this launcher fetched is never found again.
 pub(crate) fn managed_home(root: &Path) -> PathBuf {
-    let bundle = root.join("jre.bundle").join("Contents").join("Home");
+    let bundle = bundle_home(&root.join("jre.bundle"));
     if bundle.is_dir() {
         return bundle;
     }
     root.to_path_buf()
+}
+
+pub(crate) fn bundle_home(root: &Path) -> PathBuf {
+    root.join("Contents").join("Home")
 }
 
 /// The Java executable in a launcher-managed runtime directory.

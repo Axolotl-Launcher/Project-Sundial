@@ -41,24 +41,74 @@ fn a_major_without_a_runtime_asks_for_that_major() {
     assert_eq!(missing_java(&document, |_| false), Some(21));
 }
 
-#[test]
-fn managed_java_and_environment_share_the_recorded_choice() {
-    let root = tempfile::tempdir().unwrap();
-    let java = root.path().join("user-java");
-    std::fs::write(&java, b"fixture").unwrap();
-    javas::choose_if_unset(
-        root.path(),
-        ChosenJava {
-            major_version: 21,
-            full_version: "21.0.1".into(),
-            architecture: "fixture".into(),
-            path: java.display().to_string(),
-        },
+pub(in crate::desktop) fn test_runtime(home: &Path, major: u32) -> PathBuf {
+    let bin = home.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let path = bin.join(if cfg!(windows) { "java.exe" } else { "java" });
+    std::fs::write(&path, b"fixture").unwrap();
+    std::fs::write(
+        home.join("release"),
+        format!("JAVA_VERSION=\"{major}.0.1\"\nOS_ARCH=\"fixture\"\n"),
     )
     .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    path
+}
 
+#[test]
+fn a_registered_runtime_is_listed_and_used_for_automatic_selection() {
+    let root = tempfile::tempdir().unwrap();
+    let data = DataDir::isolated(root.path()).unwrap();
+    let path = test_runtime(&root.path().join("custom"), 42);
+
+    let registered = add(&data, &path).unwrap();
+    let catalog = list(&data).unwrap();
+    assert!(catalog.available().contains(&registered));
+    assert_eq!(
+        catalog.manual_paths().collect::<Vec<_>>(),
+        [registered.path()]
+    );
+    assert_eq!(
+        managed(&data)
+            .executable_for(42, JavaMode::Console)
+            .as_deref(),
+        Some(registered.path())
+    );
+
+    set_preferred(&data, 42, Some(registered.path())).unwrap();
     let environment = JavaEnvironment::load(Some(root.path()));
-    assert_eq!(environment.chosen(), &[(21, java.clone())]);
-    let provider = managed(&DataDir::isolated(root.path()).unwrap());
-    assert_eq!(provider.executable_for(21, JavaMode::Console), Some(java));
+    assert_eq!(environment.chosen(), &[(42, registered.path().to_owned())]);
+    std::fs::remove_file(&path).unwrap();
+    let catalog = list(&data).unwrap();
+    assert!(!catalog.available().contains(&registered));
+    assert_eq!(catalog.manual_paths().count(), 1);
+    assert!(remove(&data, registered.path()).unwrap());
+    assert_eq!(list(&data).unwrap().preferred().count(), 0);
+}
+
+#[test]
+fn invalid_paths_and_wrong_major_preferences_leave_the_catalog_untouched() {
+    let root = tempfile::tempdir().unwrap();
+    let data = DataDir::isolated(root.path()).unwrap();
+    let path = test_runtime(&root.path().join("custom"), 42);
+    let err = add(&data, root.path()).unwrap_err();
+    assert!(matches!(
+        err,
+        JavaCatalogError::InvalidRuntime { required: None, .. }
+    ));
+    let err = set_preferred(&data, 43, Some(&path)).unwrap_err();
+    assert!(matches!(
+        err,
+        JavaCatalogError::InvalidRuntime {
+            required: Some(43),
+            ..
+        }
+    ));
+    let saved = javas::load(data.root()).unwrap();
+    assert_eq!(saved.manual_paths().count(), 0);
+    assert_eq!(saved.preferred().count(), 0);
 }

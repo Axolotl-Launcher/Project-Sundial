@@ -1,293 +1,148 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! The Java runtimes the user chose and the ones found on this machine.
-//!
-//! Two kinds of answer live together because they answer one question — which
-//! executable runs a game that asks for major version N — but they are not the
-//! same kind of fact:
-//!
-//! - `chosen` is **user intent**: a path the user picked for a major version.
-//!   It wins over everything else and is never discarded automatically.
-//! - `discovered` is a **cache**: every runtime a scan found, keyed by its
-//!   path, with the file's size and modification time so a later run can tell
-//!   whether the cached details still describe the file on disk.
-//!
-//! Keeping the two apart means a rescan can rebuild `discovered` freely without
-//! touching what the user chose.
+//! Machine-local Java registrations and preferences.
 
-use std::collections::BTreeMap;
-use std::fmt;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use axlauncher_storage::{javas_path, write_atomic};
+use axlauncher_storage::{javas_path, lock_javas, write_atomic};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-use crate::document::{self, Existing};
+const SCHEMA_VERSION: u32 = 1;
 
-/// The only schema this build reads.
-pub const JAVAS_SCHEMA_VERSION: u32 = 1;
-
-/// What a scan learned about one runtime.
+/// The user's preferred installation for a Java major.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DiscoveredJava {
-    pub major_version: u32,
-    pub full_version: String,
-    pub architecture: String,
-    /// The file's size when the details were recorded, in bytes.
-    pub file_size: u64,
-    /// The file's modification time when the details were recorded, in Unix
-    /// milliseconds.
-    pub file_mtime_ms: i64,
+struct ChosenJava {
+    major_version: u32,
+    path: PathBuf,
 }
 
-impl DiscoveredJava {
-    /// Whether this record still describes the file at `path`.
-    ///
-    /// A runtime replaced in place keeps its path but changes size or time, and
-    /// the recorded version would then be a lie about a different binary.
-    pub fn matches_file(&self, path: &Path) -> bool {
-        let Ok(metadata) = fs::metadata(path) else {
-            return false;
-        };
-        if metadata.len() != self.file_size {
-            return false;
-        }
-        modification_ms(&metadata).is_some_and(|ms| ms == self.file_mtime_ms)
-    }
-}
-
-/// A file's modification time in Unix milliseconds.
-pub fn modification_ms(metadata: &fs::Metadata) -> Option<i64> {
-    let modified = metadata.modified().ok()?;
-    let since_epoch = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
-    i64::try_from(since_epoch.as_millis()).ok()
-}
-
-/// The user's chosen runtime for a major version.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ChosenJava {
-    pub major_version: u32,
-    pub full_version: String,
-    pub architecture: String,
-    pub path: String,
-}
-
-/// Both halves of the document.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// The local catalog entries and selections that persist across scans.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Javas {
     chosen: Vec<ChosenJava>,
-    discovered: BTreeMap<String, DiscoveredJava>,
+    manual: BTreeSet<PathBuf>,
+    profiles: BTreeMap<String, PathBuf>,
 }
 
 impl Javas {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Records the user's choice for a major version, replacing any previous
-    /// one for that version.
-    pub fn choose(&mut self, chosen: ChosenJava) {
-        self.chosen
-            .retain(|existing| existing.major_version != chosen.major_version);
-        self.chosen.push(chosen);
-        self.chosen.sort_by_key(|entry| entry.major_version);
-    }
-
-    /// The path the user chose for `major`, if any.
-    pub fn chosen_for(&self, major: u32) -> Option<&ChosenJava> {
+    pub fn preferred(&self) -> impl Iterator<Item = (u32, &Path)> {
         self.chosen
             .iter()
-            .find(|entry| entry.major_version == major)
+            .map(|entry| (entry.major_version, entry.path.as_path()))
     }
 
-    pub fn chosen(&self) -> &[ChosenJava] {
-        &self.chosen
+    /// A major has at most one preferred installation.
+    pub fn set_chosen(&mut self, major: u32, path: Option<PathBuf>) {
+        self.chosen.retain(|entry| entry.major_version != major);
+        if let Some(path) = path {
+            self.chosen.push(ChosenJava {
+                major_version: major,
+                path,
+            });
+            self.chosen.sort_by_key(|entry| entry.major_version);
+        }
     }
 
-    /// Records what a scan found about the runtime at `path`.
-    pub fn discover(&mut self, path: &str, java: DiscoveredJava) {
-        self.discovered.insert(path.to_owned(), java);
+    pub fn manual_paths(&self) -> impl Iterator<Item = &Path> {
+        self.manual.iter().map(PathBuf::as_path)
     }
 
-    pub fn discovered(&self) -> &BTreeMap<String, DiscoveredJava> {
-        &self.discovered
+    pub fn add_manual(&mut self, path: PathBuf) {
+        self.manual.insert(path);
     }
 
-    /// The runtimes for `major` whose cached details still match the file.
-    ///
-    /// A record whose file changed or vanished is skipped, not deleted: a
-    /// temporarily unavailable path must not erase what a scan learned.
-    pub fn usable(&self, major: u32) -> impl Iterator<Item = (&str, &DiscoveredJava)> {
-        self.discovered
-            .iter()
-            .filter(move |(_, java)| java.major_version == major)
-            .filter(|(path, java)| java.matches_file(Path::new(path)))
-            .map(|(path, java)| (path.as_str(), java))
+    /// Removes a registration and clears preferences that referred to it.
+    pub fn remove_manual(&mut self, path: &Path) -> bool {
+        if !self.manual.remove(path) {
+            return false;
+        }
+        self.chosen.retain(|entry| entry.path != path);
+        self.profiles.retain(|_, selected| selected != path);
+        true
+    }
+
+    pub fn profile_preference(&self, id: &str) -> Option<&Path> {
+        self.profiles.get(id).map(PathBuf::as_path)
+    }
+
+    /// Saves a machine-local override for a portable profile ID.
+    pub fn set_profile_preference(&mut self, id: &str, path: Option<PathBuf>) {
+        if let Some(path) = path {
+            self.profiles.insert(id.to_owned(), path);
+        } else {
+            self.profiles.remove(id);
+        }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct JavasDocument {
     schema_version: u32,
-    #[serde(default)]
-    chosen: Vec<ChosenJava>,
-    #[serde(default)]
-    discovered: BTreeMap<String, DiscoveredJava>,
+    #[serde(flatten)]
+    javas: Javas,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum JavasError {
-    Read {
-        path: PathBuf,
-        source: io::Error,
-    },
+    #[error("cannot read {path}: {source}")]
+    Read { path: PathBuf, source: io::Error },
+    #[error("cannot parse {path}: {source}")]
     Parse {
         path: PathBuf,
         source: serde_json::Error,
     },
-    Write {
-        path: PathBuf,
-        source: io::Error,
-    },
-    RefusedSchema {
-        path: PathBuf,
-        found: u32,
-    },
-    RefusedUnreadable {
-        path: PathBuf,
-    },
+    #[error("cannot write {path}: {source}")]
+    Write { path: PathBuf, source: io::Error },
+    #[error("{path} uses unsupported Java catalog schema {found}")]
+    RefusedSchema { path: PathBuf, found: u32 },
 }
 
-impl fmt::Display for JavasError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Read { path, source } => {
-                write!(formatter, "cannot read {}: {source}", path.display())
-            }
-            Self::Parse { path, source } => {
-                write!(formatter, "cannot parse {}: {source}", path.display())
-            }
-            Self::Write { path, source } => {
-                write!(formatter, "cannot write {}: {source}", path.display())
-            }
-            Self::RefusedSchema { path, found } => write!(
-                formatter,
-                "{} uses schema {found}; this build reads schema {JAVAS_SCHEMA_VERSION}",
-                path.display()
-            ),
-            Self::RefusedUnreadable { path } => {
-                write!(
-                    formatter,
-                    "{} is unreadable; refusing to replace it",
-                    path.display()
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for JavasError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Read { source, .. } | Self::Write { source, .. } => Some(source),
-            Self::Parse { source, .. } => Some(source),
-            Self::RefusedSchema { .. } | Self::RefusedUnreadable { .. } => None,
-        }
-    }
-}
-
-/// What a load found.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum JavasOrigin {
-    Stored,
-    Absent,
-    ReadOnlyOtherSchema { found: u32 },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LoadedJavas {
-    pub javas: Javas,
-    pub origin: JavasOrigin,
-}
-
-/// Reads the document under `root`, treating an absent file as no choices and
-/// no cache.
-pub fn load(root: &Path) -> Result<LoadedJavas, JavasError> {
+/// Reads the machine-local preferences for the current data directory.
+pub fn load(root: &Path) -> Result<Javas, JavasError> {
     let path = javas_path(root);
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return Ok(LoadedJavas {
-                javas: Javas::new(),
-                origin: JavasOrigin::Absent,
-            });
-        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Javas::default()),
         Err(source) => return Err(JavasError::Read { path, source }),
     };
-
     let document: JavasDocument =
         serde_json::from_slice(&bytes).map_err(|source| JavasError::Parse {
             path: path.clone(),
             source,
         })?;
-
-    if document.schema_version != JAVAS_SCHEMA_VERSION {
-        return Ok(LoadedJavas {
-            javas: Javas::new(),
-            origin: JavasOrigin::ReadOnlyOtherSchema {
-                found: document.schema_version,
-            },
+    if document.schema_version != SCHEMA_VERSION {
+        return Err(JavasError::RefusedSchema {
+            path,
+            found: document.schema_version,
         });
     }
-
-    Ok(LoadedJavas {
-        javas: Javas {
-            chosen: document.chosen,
-            discovered: document.discovered,
-        },
-        origin: JavasOrigin::Stored,
-    })
+    Ok(document.javas)
 }
 
-/// A managed runtime fills an unanswered major without replacing a user's choice.
-pub fn choose_if_unset(root: &Path, runtime: ChosenJava) -> Result<(), JavasError> {
-    let mut document = load(root)?.javas;
-    if document.chosen_for(runtime.major_version).is_none() {
-        document.choose(runtime);
-        return save(root, &document);
-    }
-    Ok(())
-}
-
-/// Writes the document under `root`, refusing to replace one this build does
-/// not own.
-pub fn save(root: &Path, javas: &Javas) -> Result<(), JavasError> {
+/// Concurrent writers edit the latest catalog under a lock before atomic publication.
+pub fn update<T>(root: &Path, edit: impl FnOnce(&mut Javas) -> T) -> Result<T, JavasError> {
     let path = javas_path(root);
-
-    match document::inspect(&path).map_err(|source| JavasError::Read {
+    let failure = |source| JavasError::Write {
         path: path.clone(),
         source,
-    })? {
-        Existing::Unreadable => return Err(JavasError::RefusedUnreadable { path }),
-        Existing::Schema(found) if found != JAVAS_SCHEMA_VERSION => {
-            return Err(JavasError::RefusedSchema { path, found });
-        }
-        Existing::Missing | Existing::Schema(_) => {}
-    }
-
-    let document = JavasDocument {
-        schema_version: JAVAS_SCHEMA_VERSION,
-        chosen: javas.chosen.clone(),
-        discovered: javas.discovered.clone(),
     };
-    let bytes = serde_json::to_vec_pretty(&document).map_err(|source| JavasError::Write {
-        path: path.clone(),
-        source: io::Error::other(source),
-    })?;
-    write_atomic(&path, &bytes).map_err(|source| JavasError::Write { path, source })
+    let _lock = lock_javas(root).map_err(failure)?;
+    let mut javas = load(root)?;
+    let result = edit(&mut javas);
+    let document = JavasDocument {
+        schema_version: SCHEMA_VERSION,
+        javas,
+    };
+    let bytes =
+        serde_json::to_vec_pretty(&document).map_err(|error| failure(io::Error::other(error)))?;
+    write_atomic(&path, &bytes).map_err(failure)?;
+    Ok(result)
 }
 
 #[cfg(test)]
