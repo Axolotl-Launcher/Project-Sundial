@@ -10,19 +10,53 @@ fn builds(versions: &[&str]) -> Vec<String> {
 #[test]
 fn forge_keeps_full_coordinates_and_never_mixes_development_lines() {
     let target = MavenTarget::classify(LoaderKind::Forge, "1.7.10").unwrap();
+    let short = "1.7.10-10.13.4.1614";
     let coordinate = "1.7.10-10.13.4.1614-1.7.10";
     let published = target.builds(builds(&[
-        "1.7.10-10.13.4.1614",
+        short,
         coordinate,
         "1.7.10-10.13.4/1614",
         "1.7.10-snapshot-1-10.13.4.1614",
     ]));
     assert_eq!(published.find(coordinate).unwrap().coordinate(), coordinate);
+    assert_eq!(published.find(short).unwrap().coordinate(), short);
     assert_eq!(
         published.find("10.13.4.1614").unwrap().coordinate(),
-        "1.7.10-10.13.4.1614"
+        coordinate
     );
     assert_eq!(published.into_offers().len(), 1);
+}
+
+#[test]
+fn forge_coordinates_only_offer_the_other_spelling_of_a_historical_build() {
+    let historical = MavenTarget::classify(LoaderKind::Forge, "1.7.10").unwrap();
+    let short = "1.7.10-10.13.4.1614";
+    let repeated = "1.7.10-10.13.4.1614-1.7.10";
+    assert_eq!(
+        historical.forge_coordinates("10.13.4.1614"),
+        Some((short.into(), Some(repeated.into())))
+    );
+    assert_eq!(
+        historical.forge_coordinates(repeated),
+        Some((repeated.into(), Some(short.into())))
+    );
+    assert!(historical.forge_coordinates("10.13.4/1614").is_none());
+
+    let branch = MavenTarget::classify(LoaderKind::Forge, "1.10").unwrap();
+    assert_eq!(
+        branch.forge_coordinates("12.18.0.2000-1.10.0"),
+        Some(("1.10-12.18.0.2000-1.10.0".into(), None))
+    );
+    let release = MavenTarget::classify(LoaderKind::Forge, "26.1").unwrap();
+    assert!(
+        release
+            .forge_coordinates("26.1-snapshot-1-62.0.2")
+            .is_none()
+    );
+    assert_eq!(
+        release.forge_coordinates("62.0.2"),
+        Some(("26.1-62.0.2".into(), None))
+    );
 }
 
 #[test]

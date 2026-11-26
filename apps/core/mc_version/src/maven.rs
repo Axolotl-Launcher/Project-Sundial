@@ -54,8 +54,21 @@ impl<'game> MavenTarget<'game> {
         }
     }
 
+    /// A named Forge build's primary coordinate and, for historical builds,
+    /// the equivalent spelling to try if its installer is not published.
+    pub fn forge_coordinates(&self, requested: &str) -> Option<(String, Option<String>)> {
+        let Convention::Forge(target) = &self.convention else {
+            return None;
+        };
+        if !is_coordinate_version(self.game) || !is_coordinate_version(requested) {
+            return None;
+        }
+        target.coordinates(requested)
+    }
+
     /// Filters by game version and orders the published builds together with
-    /// the exact artifact versions needed to download them.
+    /// the exact artifact versions needed to download them. For two Forge
+    /// coordinates for the same build, the repeated-game form comes first.
     pub fn builds(&self, versions: Vec<String>) -> MavenBuilds {
         let mut builds: Vec<_> = versions
             .into_iter()
@@ -64,8 +77,7 @@ impl<'game> MavenTarget<'game> {
         builds.sort_unstable_by(|left, right| {
             order::compare(&right.offer.version, &left.offer.version)
                 .then_with(|| left.offer.version.cmp(&right.offer.version))
-                .then_with(|| left.coordinate.len().cmp(&right.coordinate.len()))
-                .then_with(|| left.coordinate.cmp(&right.coordinate))
+                .then_with(|| right.coordinate.cmp(&left.coordinate))
         });
         MavenBuilds(builds)
     }

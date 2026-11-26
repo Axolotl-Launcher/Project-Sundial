@@ -1,4 +1,8 @@
+use crate::java::is_number;
+
 use super::BuildDetails;
+
+const HISTORICAL_BUILD_COMPONENTS: usize = 4;
 
 #[derive(Debug)]
 pub(super) struct Target {
@@ -12,6 +16,29 @@ impl Target {
             prefix: format!("{game}-"),
             repeated_game: format!("-{game}"),
         }
+    }
+
+    pub(super) fn coordinates(&self, requested: &str) -> Option<(String, Option<String>)> {
+        let primary = if requested.starts_with(&self.prefix) {
+            requested.to_owned()
+        } else {
+            format!("{}{requested}", self.prefix)
+        };
+        let build = self.parse(&primary)?.version;
+        let alternate = self.alternate(&primary, build);
+        Some((primary, alternate))
+    }
+
+    fn alternate(&self, coordinate: &str, build: &str) -> Option<String> {
+        let mut parts = build.split('.');
+        if parts.clone().count() != HISTORICAL_BUILD_COMPONENTS || !parts.all(is_number) {
+            return None;
+        }
+        Some(if coordinate.ends_with(&self.repeated_game) {
+            format!("{}{build}", self.prefix)
+        } else {
+            format!("{coordinate}{}", self.repeated_game)
+        })
     }
 
     pub(super) fn parse<'version>(

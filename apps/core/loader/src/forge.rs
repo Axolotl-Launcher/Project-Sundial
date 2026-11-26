@@ -26,6 +26,7 @@ const PROMOTIONS: &str =
 
 /// Limit how long optional recommendations can hold up the Maven listing.
 const CATALOG_PROMOTIONS_TIMEOUT: Duration = Duration::from_secs(3);
+const INSTALLER_NOT_FOUND: u16 = 404;
 
 /// The channels a promotion entry can name.
 const RECOMMENDED: &str = "recommended";
@@ -85,12 +86,11 @@ impl<N: Network> ModLoader for ForgeApi<N> {
         let target = maven_metadata::target(self.kind(), &request.game_version)?;
         let coordinate = match request.loader_version.as_deref() {
             Some(requested) if !requested.trim().is_empty() => {
-                maven_metadata::resolve(&self.network, &target, Some(requested)).await?
+                self.named_coordinate(&target, requested).await?
             }
             _ => self.default_coordinate(&target).await?,
         };
-        let url = maven_metadata::installer_url(target.artifact(), &coordinate);
-        installer::fetch(&self.network, self.kind(), &url, target.game()).await
+        self.install(&target, &coordinate).await
     }
 }
 
@@ -116,12 +116,65 @@ impl<N: Network> ForgeApi<N> {
             Err(LoaderError::NoVersions { .. }) => None,
             Err(error) => return Err(error),
         };
-        match maven_metadata::resolve(&self.network, target, promotion.as_deref()).await {
-            Err(LoaderError::UnknownVersion { .. }) if promotion.is_some() => {
-                maven_metadata::resolve(&self.network, target, None).await
+        maven_metadata::fetch_builds(&self.network, target, |builds| {
+            promotion
+                .as_deref()
+                .and_then(|version| builds.find(version))
+                .or_else(|| builds.preferred())
+                .map(|build| build.coordinate().to_owned())
+                .ok_or_else(|| no_versions(target.game()))
+        })
+        .await
+    }
+
+    async fn named_coordinate(
+        &self,
+        target: &MavenTarget<'_>,
+        requested: &str,
+    ) -> Result<String, LoaderError> {
+        match maven_metadata::resolve(&self.network, target, Some(requested)).await {
+            Err(LoaderError::Unavailable { .. } | LoaderError::Malformed { .. }) => {
+                Ok(requested.to_owned())
             }
             result => result,
         }
+    }
+
+    async fn install(
+        &self,
+        target: &MavenTarget<'_>,
+        requested: &str,
+    ) -> Result<LoaderProfile, LoaderError> {
+        let (primary, alternate) =
+            target
+                .forge_coordinates(requested)
+                .ok_or_else(|| LoaderError::UnknownVersion {
+                    loader: self.kind(),
+                    version: requested.to_owned(),
+                })?;
+        let result = self.fetch_installer(target, &primary).await;
+        if let Err(LoaderError::Unavailable {
+            source:
+                FetchError::Rejected {
+                    status: INSTALLER_NOT_FOUND,
+                    ..
+                },
+            ..
+        }) = &result
+            && let Some(alternate) = alternate
+        {
+            return self.fetch_installer(target, &alternate).await;
+        }
+        result
+    }
+
+    async fn fetch_installer(
+        &self,
+        target: &MavenTarget<'_>,
+        coordinate: &str,
+    ) -> Result<LoaderProfile, LoaderError> {
+        let url = maven_metadata::installer_url(target.artifact(), coordinate);
+        installer::fetch(&self.network, self.kind(), &url, target.game()).await
     }
 }
 
