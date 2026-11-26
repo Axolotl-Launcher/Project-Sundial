@@ -1,44 +1,37 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Shared model and rendering for the pull-request impact report.
+// The pull-request impact report model and its Markdown rendering.
 //
-// The analysis job turns GitNexus output into this stable shape, and the
-// comment job renders it from the uploaded artifact. Keeping the model here
-// means the two jobs cannot drift, and the rendering has no dependency on the
-// analysis environment.
+// The analysis job writes this model and its rendering, and the comment job
+// publishes the rendering. Keeping both here means the durable artifact and the
+// posted comment cannot drift.
 
 export const REPORT_MARKER = "<!-- pr-impact-report -->";
 
-const MAX_DIAGRAM_SYMBOLS = 12;
-const MAX_RENDERED_STEPS = 8;
 const SHA_PREFIX_LENGTH = 12;
 
-export type RiskLevel =
-  | "none"
-  | "low"
-  | "medium"
-  | "high"
-  | "critical"
-  | "unknown";
+export type ChangedFileKind = "source" | "test" | "other";
 
-export interface ChangedSymbol {
-  readonly name: string;
-  readonly type: string;
+export interface ChangedFile {
   readonly path: string;
+  readonly kind: ChangedFileKind;
 }
 
-export interface AffectedProcess {
-  readonly name: string;
-  readonly changedSteps: readonly string[];
-  readonly stepCount: number;
+/// Tests grouped by the crate directory they belong to, so the reading order
+/// matches the module labels on the pull request.
+export interface TestGroup {
+  readonly module: string;
+  readonly mirrored: boolean;
+  readonly directory: string;
+  readonly tests: readonly string[];
 }
 
-export interface UpstreamCaller {
-  readonly name: string;
-  readonly risk: RiskLevel;
-  readonly direct: number;
-  readonly affectedProcesses: number;
+export interface IndexSummary {
+  readonly fileCount: number;
+  readonly nodeCount: number;
+  readonly languages: readonly string[];
+  readonly filesWithParseErrors: number;
 }
 
 export interface ImpactReport {
@@ -48,55 +41,27 @@ export interface ImpactReport {
   readonly baseSha: string;
   readonly analyzedAt: string;
   readonly analyzer: string;
-  readonly risk: RiskLevel;
-  readonly changedFiles: number;
-  readonly changedSymbols: number;
-  readonly affectedProcesses: number;
-  readonly callerLookupLimit: number;
-  readonly callerLookupsOmitted: number;
-  readonly truncated: boolean;
-  readonly partial: boolean;
+  readonly traversalDepth: number;
+  readonly changedFileCount: number;
+  readonly sourceFiles: number;
+  readonly testFiles: number;
+  readonly otherFiles: number;
+  readonly changedFiles: readonly ChangedFile[];
+  readonly changedFileListingLimit: number;
+  readonly affectedTestCount: number;
+  readonly testGroups: readonly TestGroup[];
+  readonly testListingLimit: number;
+  readonly touchedCycleCount: number;
+  readonly cyclesByFile: Readonly<Record<string, number>>;
+  readonly cycleListingLimit: number;
+  readonly cycles: readonly (readonly string[])[];
+  readonly truncatedCycles: boolean;
+  readonly index: IndexSummary;
   readonly note: string | null;
-  readonly symbols: readonly ChangedSymbol[];
-  readonly processes: readonly AffectedProcess[];
-  readonly upstream: readonly UpstreamCaller[];
 }
 
-const RISK_LABELS: Readonly<Record<RiskLevel, string>> = {
-  none: "None",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  critical: "Critical",
-  unknown: "Unknown",
-};
-
-const RISK_ORDER: readonly RiskLevel[] = [
-  "none",
-  "low",
-  "medium",
-  "high",
-  "critical",
-  "unknown",
-];
-
-/// Highest risk present, treating `unknown` as the strongest caution.
-export function highestRisk(risks: readonly RiskLevel[]): RiskLevel {
-  let highest: RiskLevel = "none";
-  for (const risk of risks) {
-    if (RISK_ORDER.indexOf(risk) > RISK_ORDER.indexOf(highest)) {
-      highest = risk;
-    }
-  }
-  return highest;
-}
-
-export function riskLabel(risk: RiskLevel): string {
-  return RISK_LABELS[risk];
-}
-
-/// Markdown table cells cannot contain raw pipes or newlines, and a symbol name
-/// must not become HTML when GitHub renders the comment.
+/// Markdown table cells cannot contain raw pipes or newlines, and a path or
+/// symbol must not become HTML when GitHub renders the comment.
 function cell(text: string): string {
   return text
     .replaceAll("&", "&amp;")
@@ -113,161 +78,151 @@ function plural(count: number, singular: string, pluralForm: string): string {
   return `${String(count)} ${count === 1 ? singular : pluralForm}`;
 }
 
-/// A short, human-readable summary for the review comment.
+/// The one-line summary under the title.
 export function summaryLine(report: ImpactReport): string {
-  if (report.changedSymbols === 0) {
-    return report.partial
-      ? "No symbol-level impact was observed, but the analysis was incomplete."
-      : "No indexed symbols were touched.";
+  if (report.changedFileCount === 0) {
+    return "This pull request has no changed files against its merge base.";
   }
-  return [
-    plural(report.changedFiles, "file", "files"),
-    plural(report.changedSymbols, "indexed symbol", "indexed symbols"),
-    plural(report.affectedProcesses, "affected process", "affected processes"),
-  ].join(", ");
+  const parts = [
+    plural(report.changedFileCount, "changed file", "changed files"),
+    `${String(report.sourceFiles)} source`,
+    `${String(report.testFiles)} test`,
+  ];
+  if (report.otherFiles > 0) {
+    parts.push(`${String(report.otherFiles)} other`);
+  }
+  parts.push(
+    plural(report.affectedTestCount, "affected test file", "affected test files"),
+  );
+  return parts.join(" · ");
 }
 
-function appendWarnings(lines: string[], report: ImpactReport): void {
-  if (report.partial) {
+function appendWarnings(lines: string[]): void {
+  lines.push(
+    "> [!NOTE]",
+    "> Advisory only: the affected test list is broad by design and does not gate this pull request. A missing index fails the job instead of posting an empty result.",
+    "",
+  );
+}
+
+function appendChangedFiles(lines: string[], report: ImpactReport): void {
+  if (report.changedFiles.length === 0) {
+    return;
+  }
+  lines.push("### Changed files", "", "| Kind | File |", "| --- | --- |");
+  for (const file of report.changedFiles) {
+    lines.push(`| ${file.kind} | ${cell(file.path)} |`);
+  }
+  const omitted = report.changedFileCount - report.changedFiles.length;
+  if (omitted > 0) {
     lines.push(
-      "> [!WARNING]",
-      "> GitNexus could not complete the analysis. The counts and risk below are lower bounds; do not read them as a clean result.",
+      "",
+      `> ${String(omitted)} further changed file${omitted === 1 ? "" : "s"} not listed.`,
+    );
+  }
+  lines.push("");
+}
+
+function appendTestGroup(lines: string[], group: TestGroup, limit: number): void {
+  const heading = group.mirrored ? "Mirrors" : "Dependent tests";
+  lines.push(
+    `#### ${heading} (\`${cell(group.directory)}\`)`,
+    "",
+  );
+  if (!group.mirrored) {
+    lines.push(
+      `Reached through dependencies of the changed code rather than through a mirrored test file in this crate.`,
       "",
     );
   }
-  if (report.truncated) {
+  for (const test of group.tests.slice(0, limit)) {
+    lines.push(`- \`${cell(test)}\``);
+  }
+  const omitted = group.tests.length - Math.min(group.tests.length, limit);
+  if (omitted > 0) {
+    lines.push(`- … ${String(omitted)} more in this group`);
+  }
+  lines.push("");
+}
+
+function appendAffectedTests(lines: string[], report: ImpactReport): void {
+  lines.push("### Affected tests", "");
+  if (report.testGroups.length === 0) {
     lines.push(
-      "> [!NOTE]",
-      "> The changed-symbol list is capped. The counts and risk were computed over the full set.",
+      report.changedFileCount === 0
+        ? "No changed file to map to tests."
+        : "CodeGraph found no test file that depends on the changed sources. That can be correct, so confirm before treating the change as untested.",
       "",
     );
+    return;
   }
-  if (report.risk === "unknown" && !report.partial) {
-    lines.push(
-      "> [!CAUTION]",
-      "> The graph could not resolve the impact. Confirm with a text search before treating this change as safe.",
-      "",
-    );
-  }
-  if (report.note !== null) {
-    lines.push(cell(report.note), "");
+  lines.push(
+    `CodeGraph followed imports ${String(report.traversalDepth)} steps deep from the changed sources with \`codegraph affected\`.`,
+    "",
+  );
+  for (const group of report.testGroups) {
+    appendTestGroup(lines, group, report.testListingLimit);
   }
 }
 
-function appendSymbols(lines: string[], report: ImpactReport): void {
-  if (report.symbols.length > 0) {
-    lines.push("### Changed symbols", "", "| Symbol | Kind | File |", "| --- | --- | --- |");
-    for (const symbol of report.symbols) {
-      lines.push(
-        `| ${cell(symbol.name)} | ${cell(symbol.type)} | ${cell(symbol.path)} |`,
-      );
+function appendCycles(lines: string[], report: ImpactReport): void {
+  const cycleFileCount = Object.keys(report.cyclesByFile).length;
+  lines.push("### Import cycles", "");
+  if (report.touchedCycleCount === 0) {
+    lines.push(
+      "The changed files are not part of an import cycle the repository maintains. That covers the reported cycles only; it is not a proof the change is cycle-free.",
+      "",
+    );
+    return;
+  }
+  lines.push(
+    `The change touches ${plural(cycleFileCount, "import cycle file", "import cycle files")} (${String(report.touchedCycleCount)} touched ${report.touchedCycleCount === 1 ? "cycle" : "cycles"}):`,
+    "",
+  );
+  for (const cycle of report.cycles) {
+    const [head, ...rest] = cycle;
+    if (head === undefined) {
+      continue;
     }
-    lines.push("");
+    const cycleCount = report.cyclesByFile[head] ?? 0;
+    const suffix = cycleCount > 1 ? ` (+${String(cycleCount - 1)} more)` : "";
+    lines.push(`- \`${cell(head)}\`${suffix} → ${rest.map(cell).join(" → ")}`);
   }
-}
-
-function appendProcesses(lines: string[], report: ImpactReport): void {
-  if (report.processes.length > 0) {
-    lines.push("### Affected processes", "");
-    for (const process of report.processes) {
-      const shown = process.changedSteps.slice(0, MAX_RENDERED_STEPS);
-      const omittedSteps = process.changedSteps.length - shown.length;
-      const omitted =
-        omittedSteps === 0
-          ? ""
-          : ` +${String(omittedSteps)} more`;
-      const steps =
-        shown.length === 0
-          ? ""
-          : ` — ${cell(shown.join(", "))}${omitted}`;
-      lines.push(
-        `- ${cell(process.name)} (${plural(process.stepCount, "step", "steps")})${steps}`,
-      );
-    }
-    lines.push("");
-  }
-}
-
-function appendUpstream(lines: string[], report: ImpactReport): void {
-  if (report.upstream.length > 0) {
+  if (report.truncatedCycles) {
     lines.push(
-      "### Upstream callers",
       "",
-      "| Symbol | Risk | Direct callers | Affected processes |",
-      "| --- | --- | --- | --- |",
-    );
-    for (const caller of report.upstream) {
-      lines.push(
-        `| ${cell(caller.name)} | ${riskLabel(caller.risk)} | ${String(caller.direct)} | ${String(caller.affectedProcesses)} |`,
-      );
-    }
-    lines.push("");
-  }
-  if (report.callerLookupsOmitted > 0) {
-    lines.push(
-      `> [!NOTE]`,
-      `> Upstream callers were traced for ${String(report.callerLookupLimit)} symbols; ${String(report.callerLookupsOmitted)} further eligible symbol${report.callerLookupsOmitted === 1 ? "" : "s"} were not queried.`,
-      "",
+      `> ${String(report.touchedCycleCount - report.cycleListingLimit)} further touched cycle${report.touchedCycleCount - report.cycleListingLimit === 1 ? "" : "s"} not listed.`,
     );
   }
+  lines.push("");
 }
 
-/// The complete pull-request comment, including the marker used to update it.
+/// The complete comment, including the marker used to update it in place.
 export function renderComment(report: ImpactReport): string {
   const lines = [
     REPORT_MARKER,
     "## Impact analysis",
     "",
-    `**Risk:** ${riskLabel(report.risk)}`,
-    "",
+  ];
+  appendWarnings(lines);
+  lines.push(
     summaryLine(report),
     "",
-  ];
-  appendWarnings(lines, report);
-  appendSymbols(lines, report);
-  appendProcesses(lines, report);
-  appendUpstream(lines, report);
+    `\`codegraph status\`: ${plural(report.index.fileCount, "file", "files")} · ${plural(report.index.nodeCount, "node", "nodes")} · ${report.index.languages.length === 0 ? "no languages" : cell(report.index.languages.join(", "))}`,
+    "",
+  );
+  appendChangedFiles(lines, report);
+  appendAffectedTests(lines, report);
+  appendCycles(lines, report);
+  if (report.note !== null) {
+    lines.push(
+      ...report.note.split("\n\n").map((part) => `> ${cell(part)}`),
+      "",
+    );
+  }
   lines.push(
     `Analyzed \`${report.baseSha.slice(0, SHA_PREFIX_LENGTH)}\`..\`${report.headSha.slice(0, SHA_PREFIX_LENGTH)}\` with ${report.analyzer}.`,
     "",
   );
   return lines.join("\n");
-}
-
-/// Mermaid mind-map source, kept in the artifact for later editing.
-export function renderMermaid(report: ImpactReport): string {
-  const lines = [
-    "mindmap",
-    `  root(("PR #${String(report.pullRequest)} · ${riskLabel(report.risk)}"))`,
-    `    Changes["${String(report.changedFiles)} files / ${String(report.changedSymbols)} symbols"]`,
-  ];
-  const symbols = report.symbols.slice(0, MAX_DIAGRAM_SYMBOLS);
-  for (const symbol of symbols) {
-    const label = `${symbol.name} (${symbol.type})`;
-    lines.push(`      S${String(lines.length)}["${escapeMermaid(label)}"]`);
-  }
-  if (report.symbols.length > symbols.length) {
-    lines.push(
-      `      SMore["+${String(report.symbols.length - symbols.length)} more symbols"]`,
-    );
-  }
-  if (report.processes.length > 0) {
-    lines.push(`    Processes["${String(report.affectedProcesses)} affected processes"]`);
-    for (const process of report.processes.slice(0, MAX_DIAGRAM_SYMBOLS)) {
-      lines.push(`      P${String(lines.length)}["${escapeMermaid(process.name)}"]`);
-    }
-    const omitted = report.processes.length - MAX_DIAGRAM_SYMBOLS;
-    if (omitted > 0) {
-      lines.push(`      PMore["${String(omitted)} more processes"]`);
-    }
-  }
-  return `${lines.join("\n")}\n`;
-}
-
-function escapeMermaid(text: string): string {
-  return text
-    .replaceAll('"', "'")
-    .replaceAll("[", "(")
-    .replaceAll("]", ")")
-    .replaceAll(/\s*\r?\n\s*/g, " ");
 }

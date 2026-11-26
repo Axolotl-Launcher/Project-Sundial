@@ -3,34 +3,31 @@
 
 // Builds the impact-report artifacts for a pull request.
 //
-// Run from the analysis job. It expects GitNexus to be installed in the
-// temporary CI home, and writes the report plus its Mermaid, draw.io and SVG
-// renderings to an output directory. No GitHub API call happens here.
+// Run from the analysis job after `codegraph init` indexed the pull request as
+// data. It reads the index through the CodeGraph CLI, then writes the report and
+// its JSON form to an output directory. No GitHub API call happens here.
 
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import {
-  impactTargets,
-  type DetectChangesInput,
-  type ImpactInput,
+  TRAVERSAL_DEPTH,
   buildReport,
+  type AnalysisContext,
+  type Cycle,
+  type IndexSummary,
 } from "./impact-analysis.ts";
-import { GitNexusClient } from "./impact-mcp.ts";
-import { renderMermaid, renderComment } from "./impact-report.ts";
-import { renderDrawio, renderSvg } from "./impact-mindmap.ts";
+import { renderComment } from "./impact-report.ts";
 
-const ANALYZER = "gitnexus@1.6.12";
+const ANALYZER = "codegraph@1.6.4";
 const JSON_INDENT = 2;
+const BYTES_PER_KIB = 1024;
+const KIB_PER_MIB = 1024;
+const MAX_OUTPUT_MIB = 64;
 
-function git(args: readonly string[], cwd: string): string {
-  return execFileSync("git", args, {
-    cwd,
-    encoding: "utf8",
-    windowsHide: true,
-  }).trim();
-}
+/// `codegraph cycles` reports a project that has cycles with this exit status.
+const CYCLES_FOUND_STATUS = 1;
 
 function required(name: string): string {
   const value = process.env[name];
@@ -40,14 +37,130 @@ function required(name: string): string {
   return value;
 }
 
+function git(args: readonly string[], cwd: string): string {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    windowsHide: true,
+  }).trim();
+}
+
 /// The commit the pull request branched from, not the current base tip. A
 /// two-dot diff against the tip would include base-branch drift.
 function mergeBase(baseSha: string, headSha: string, cwd: string): string {
   return git(["merge-base", baseSha, headSha], cwd);
 }
 
+function changedPaths(mergeBaseSha: string, worktree: string): readonly string[] {
+  const output = git(
+    ["diff", "--name-only", "--no-renames", mergeBaseSha, "HEAD"],
+    worktree,
+  );
+  return output.split("\n").filter((line) => line.length > 0);
+}
+
 function outputDirectory(): string {
   return resolve(required("IMPACT_OUTPUT"));
+}
+
+/// The workflow supplies the executable and its arguments: the npm shim on
+/// Windows and the Linux launcher take different paths, and spawning either
+/// through a shell would make argument handling differ.
+function codegraphCommand(): { command: string; args: readonly string[] } {
+  const parsed: unknown = JSON.parse(required("CODEGRAPH_ARGS"));
+  if (
+    !Array.isArray(parsed) ||
+    !parsed.every((argument): argument is string => typeof argument === "string")
+  ) {
+    throw new Error("CODEGRAPH_ARGS must be a JSON array of strings");
+  }
+  return { command: required("CODEGRAPH_COMMAND"), args: parsed };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function numberField(record: Record<string, unknown>, name: string): number {
+  const value = record[name];
+  if (typeof value !== "number") {
+    throw new Error(`codegraph status returned no numeric ${name}`);
+  }
+  return value;
+}
+
+function stringArray(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+function asIndex(value: unknown): IndexSummary {
+  if (!isRecord(value)) {
+    throw new Error("codegraph status returned a non-object result");
+  }
+  return {
+    fileCount: numberField(value, "fileCount"),
+    nodeCount: numberField(value, "nodeCount"),
+    languages: stringArray(value["languages"]),
+    filesWithParseErrors: 0,
+  };
+}
+
+function parseErrors(value: unknown): number {
+  if (!isRecord(value) || !isRecord(value["index"])) {
+    return 0;
+  }
+  const count = value["index"]["filesWithParseErrors"];
+  return typeof count === "number" ? count : 0;
+}
+
+function asAffected(value: unknown): readonly string[] {
+  if (!isRecord(value)) {
+    throw new Error("codegraph affected returned a non-object result");
+  }
+  return stringArray(value["affectedTests"]);
+}
+
+function asCycles(value: unknown): readonly Cycle[] {
+  if (!isRecord(value) || !Array.isArray(value["cycles"])) {
+    throw new Error("codegraph cycles returned a non-object result");
+  }
+  return value["cycles"]
+    .filter(Array.isArray)
+    .map((cycle: readonly unknown[]) => stringArray(cycle))
+    .filter((cycle) => cycle.length > 0);
+}
+
+function callCodegraph(
+  invocation: { command: string; args: readonly string[] },
+  worktree: string,
+  args: readonly string[],
+  input?: string,
+): string {
+  try {
+    return execFileSync(invocation.command, [...invocation.args, ...args], {
+      cwd: worktree,
+      encoding: "utf8",
+      input,
+      windowsHide: true,
+      maxBuffer: MAX_OUTPUT_MIB * KIB_PER_MIB * BYTES_PER_KIB,
+    });
+  } catch (error) {
+    const failed = error as { status?: unknown; stdout?: unknown; stderr?: unknown };
+    const stdout = typeof failed.stdout === "string" ? failed.stdout : "";
+    const stderr = typeof failed.stderr === "string" ? failed.stderr : "";
+    /// `codegraph cycles` exits 1 when the project has cycles, which is its
+    /// documented gate behaviour and still a successful query.
+    if (args[0] === "cycles" && failed.status === CYCLES_FOUND_STATUS) {
+      return stdout;
+    }
+    throw new Error(
+      `codegraph ${args.join(" ")} failed: ${stderr.trim() || (error instanceof Error ? error.message : String(error))}`,
+      { cause: error },
+    );
+  }
 }
 
 function writeOutputs(report: ReturnType<typeof buildReport>): void {
@@ -55,143 +168,81 @@ function writeOutputs(report: ReturnType<typeof buildReport>): void {
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "impact.json"), `${JSON.stringify(report, null, JSON_INDENT)}\n`);
   writeFileSync(join(directory, "impact.md"), `${renderComment(report)}\n`);
-  writeFileSync(join(directory, "impact.mmd"), renderMermaid(report));
-  writeFileSync(join(directory, "impact.drawio"), renderDrawio(report));
-  writeFileSync(join(directory, "impact.svg"), renderSvg(report));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function asDetectChanges(value: unknown): DetectChangesInput {
-  if (!isRecord(value)) {
-    throw new Error("detect_changes returned a non-object result");
-  }
-  return value;
-}
-
-function asImpact(value: unknown): ImpactInput {
-  if (!isRecord(value)) {
-    throw new Error("impact returned a non-object result");
-  }
-  return value;
 }
 
 function printSummary(report: ReturnType<typeof buildReport>): void {
   console.log(
-    `Impact report: ${report.risk} risk, ${String(report.changedSymbols)} symbols, ${String(report.affectedProcesses)} processes`,
+    `Impact report: ${String(report.changedFileCount)} changed files, ${String(report.affectedTestCount)} affected tests, ${String(report.touchedCycleCount)} touched cycles`,
   );
 }
 
-/// The workflow supplies the executable and its arguments explicitly: npm
-/// installs a `.cmd` shim on Windows, while Linux has a shebang script, and
-/// spawning either through a shell would make argument handling differ.
-function mcpCommand(): { command: string; args: readonly string[] } {
-  const command = required("GITNEXUS_MCP_COMMAND");
-  const rawArgs = required("GITNEXUS_MCP_ARGS");
-  const parsed: unknown = JSON.parse(rawArgs);
-  if (
-    !Array.isArray(parsed) ||
-    !parsed.every((argument): argument is string => typeof argument === "string")
-  ) {
-    throw new Error("GITNEXUS_MCP_ARGS must be a JSON array of strings");
-  }
-  return { command, args: parsed };
+interface GraphAnswers {
+  readonly index: IndexSummary;
+  readonly affectedTests: readonly string[];
+  readonly cycles: readonly Cycle[];
 }
 
-async function detectChanges(
-  client: GitNexusClient,
-  mergeBaseSha: string,
-): Promise<DetectChangesInput> {
-  return asDetectChanges(
-    await client.callTool("detect_changes", {
-      scope: "compare",
-      base_ref: mergeBaseSha,
-      repo: required("IMPACT_WORKTREE"),
-      worktree: required("IMPACT_WORKTREE"),
-    }),
+/// A failure here aborts the analysis instead of publishing an empty report:
+/// "no affected tests" is a plausible-looking lie when the graph was never
+/// queried, and an advisory comment must not claim more than it checked.
+function queryGraph(
+  invocation: { command: string; args: readonly string[] },
+  worktree: string,
+  files: readonly string[],
+): GraphAnswers {
+  const status = JSON.parse(callCodegraph(invocation, worktree, ["status", "--json"])) as unknown;
+  const affected = asAffected(
+    JSON.parse(
+      callCodegraph(
+        invocation,
+        worktree,
+        ["affected", "--stdin", "--json", "--depth", String(TRAVERSAL_DEPTH)],
+        `${files.join("\n")}\n`,
+      ),
+    ) as unknown,
   );
+  const cycles = asCycles(
+    JSON.parse(callCodegraph(invocation, worktree, ["cycles", "--json"])) as unknown,
+  );
+  return {
+    index: { ...asIndex(status), filesWithParseErrors: parseErrors(status) },
+    affectedTests: affected,
+    cycles,
+  };
 }
 
-async function collectImpacts(
-  client: GitNexusClient,
-  detect: DetectChangesInput,
-): Promise<ImpactInput[]> {
-  const impacts: ImpactInput[] = [];
-  for (const target of impactTargets(detect)) {
-    try {
-      impacts.push(
-        {
-          ...asImpact(
-            await client.callTool("impact", {
-              target: target.name,
-              ...(target.path === undefined ? {} : { file_path: target.path }),
-              direction: "upstream",
-              repo: required("IMPACT_WORKTREE"),
-              summaryOnly: true,
-            }),
-          ),
-          target: { name: target.name },
-        },
-      );
-    } catch (error) {
-      impacts.push({
-        target: { name: target.name },
-        error: error instanceof Error ? error.message : String(error),
-      });
-      console.warn(
-        `Impact failed for ${target.name}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-  return impacts;
-}
-
-async function analyze(): Promise<number> {
+function analyze(): number {
   const repository = required("GITHUB_REPOSITORY");
   const pullRequest = Number(required("PR_NUMBER"));
   const headSha = required("HEAD_SHA");
   const baseSha = required("BASE_SHA");
   const worktree = resolve(required("IMPACT_WORKTREE"));
   const mergeBaseSha = mergeBase(baseSha, headSha, worktree);
-  const invocation = mcpCommand();
-  const client = new GitNexusClient(
-    invocation.command,
-    invocation.args,
-    worktree,
-    {
-      ...process.env,
-      GITNEXUS_HOME: required("GITNEXUS_HOME"),
-    },
-  );
+  const files = changedPaths(mergeBaseSha, worktree);
+  const context: AnalysisContext = {
+    repository,
+    pullRequest,
+    headSha,
+    baseSha: mergeBaseSha,
+    analyzedAt: new Date().toISOString(),
+    analyzer: ANALYZER,
+    traversalDepth: TRAVERSAL_DEPTH,
+  };
+  const answers = queryGraph(codegraphCommand(), worktree, files);
 
-  try {
-    await client.initialize();
-    const detect = await detectChanges(client, mergeBaseSha);
-    const impacts = await collectImpacts(client, detect);
-    const report = buildReport(
-      {
-        repository,
-        pullRequest,
-        headSha,
-        baseSha: mergeBaseSha,
-        analyzedAt: new Date().toISOString(),
-        analyzer: ANALYZER,
-      },
-      detect,
-      impacts,
-    );
-    writeOutputs(report);
-    printSummary(report);
-    return 0;
-  } finally {
-    client.close();
-  }
+  const report = buildReport({
+    context,
+    changedFiles: files,
+    ...answers,
+    note: null,
+  });
+  writeOutputs(report);
+  printSummary(report);
+  return 0;
 }
 
 try {
-  process.exit(await analyze());
+  process.exit(analyze());
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);

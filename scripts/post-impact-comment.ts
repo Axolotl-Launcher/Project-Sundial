@@ -125,7 +125,7 @@ function main(): number {
   publish(
     repository,
     pullRequest,
-    `${markdown.trimEnd()}\n\nThe draw.io mind map, Mermaid source and SVG preview are in the [\`pr-impact\` artifact](${runUrl}#artifacts) for this run.`,
+    `${markdown.trimEnd()}\n\nThe full report is attached to this run as the [\`pr-impact\` artifact](${runUrl}#artifacts).`,
     token,
   );
   return 0;
