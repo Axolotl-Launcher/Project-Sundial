@@ -148,32 +148,38 @@ impl RootView {
                     .child(self.render_profile_creation(cx))
                     .when(
                         !profiles.instances.is_empty() && self.accounts.selected().is_none(),
-                        |column| {
-                            column.child(
-                                h_flex()
-                                    .gap_3()
-                                    .child(Label::new("Offline player name").text_sm())
-                                    .child(
-                                        Input::new(&self.player_input)
-                                            .id("offline-player-name")
-                                            .aria_label("Offline player name")
-                                            .w_48(),
-                                    ),
-                            )
-                        },
+                        |column| column.child(self.offline_player()),
                     )
                     .children(profiles.instances.iter().map(|entry| {
-                        instance_row::row(
+                        let selected = self.instances.selected.as_ref() == Some(&entry.directory);
+                        let row = instance_row::row(
                             entry,
-                            self.instances.selected.as_ref() == Some(&entry.directory),
+                            selected,
                             installations,
                             self.launches.get(&entry.directory),
-                            self.account_selection_pending(),
+                            self.account_selection_pending()
+                                || self.java_write_pending(entry.profile.id(), cx),
                             muted,
                             cx,
-                        )
+                        );
+                        v_flex()
+                            .gap_2()
+                            .child(row)
+                            .when(selected, |row| row.children(self.selected_java_picker()))
                     })),
             )
             .into_any_element()
+    }
+
+    fn offline_player(&self) -> impl IntoElement + use<> {
+        h_flex()
+            .gap_3()
+            .child(Label::new("Offline player name").text_sm())
+            .child(
+                Input::new(&self.player_input)
+                    .id("offline-player-name")
+                    .aria_label("Offline player name")
+                    .w_48(),
+            )
     }
 }

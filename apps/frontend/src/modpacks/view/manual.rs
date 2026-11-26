@@ -10,7 +10,7 @@ use axlauncher_ui::{
     Entity, IntoElement, Label, Link, Render, SharedString, WeakEntity, Window, h_flex, v_flex,
 };
 
-use super::controls::choose_file;
+use crate::file_picker::choose_file;
 use crate::modpacks::service::ManualFile;
 
 #[derive(Default)]

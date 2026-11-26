@@ -27,6 +27,7 @@ mod activity;
 mod download_debug;
 mod environment;
 mod instances;
+mod java;
 mod launch;
 mod profile_creation;
 
@@ -43,6 +44,7 @@ pub(crate) struct RootView {
     accounts: accounts::AccountsPanel,
     profile_creation: profile_creation::ProfileCreation,
     instances: instances::InstancesState,
+    java: Entity<java::JavaPanel>,
     modpack: Entity<ModpackImport>,
     download_debug: download_debug::DownloadDebug,
     inspection: launch::Inspection,
@@ -74,12 +76,7 @@ impl RootView {
             .as_ref()
             .map(|settings| settings.theme)
             .unwrap_or_default();
-        let modpack = cx.new(ModpackImport::new);
-        modpack.update(cx, |view, cx| view.set_enabled(loaded.paths.is_some(), cx));
-        cx.subscribe_in(&modpack, window, Self::modpack_event)
-            .detach();
-        cx.observe(&modpack, Self::modpack_download_changed)
-            .detach();
+        let modpack = Self::new_modpack_import(loaded.paths.is_some(), window, cx);
         let download_debug =
             download_debug::DownloadDebug::new(loaded.settings.as_ref(), window, cx);
         let accounts = accounts::AccountsPanel::new(loaded.paths.as_ref(), window, cx);
@@ -87,8 +84,8 @@ impl RootView {
             .settings
             .as_ref()
             .map_or("", |settings| settings.default_game_language.as_str());
-        let environment =
-            environment::EnvironmentState::new(loaded.paths.as_ref(), game_language, window, cx);
+        let environment = environment::EnvironmentState::new(game_language, window, cx);
+        let java = Self::new_java_panel(loaded.paths.clone(), cx);
         let mut view = Self {
             paths: loaded.paths,
             notice: loaded.notice,
@@ -100,6 +97,7 @@ impl RootView {
             accounts,
             profile_creation,
             instances: instances::InstancesState::new(loaded.profiles),
+            java,
             modpack,
             download_debug,
             inspection: launch::Inspection::default(),
@@ -113,6 +111,72 @@ impl RootView {
         view.refresh_accounts(cx);
         view.load_minecraft_versions(window, cx);
         view
+    }
+
+    fn new_modpack_import(
+        enabled: bool,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Entity<ModpackImport> {
+        let modpack = cx.new(ModpackImport::new);
+        modpack.update(cx, |view, cx| view.set_enabled(enabled, cx));
+        cx.subscribe_in(&modpack, window, Self::modpack_event)
+            .detach();
+        cx.observe(&modpack, Self::modpack_download_changed)
+            .detach();
+        modpack
+    }
+
+    fn new_java_panel(
+        paths: Option<DataDir>,
+        cx: &mut Context<'_, Self>,
+    ) -> Entity<java::JavaPanel> {
+        let panel = cx.new(|cx| java::JavaPanel::new(paths, cx));
+        cx.subscribe(&panel, Self::java_changed).detach();
+        cx.observe(&panel, |_, _, cx| cx.notify()).detach();
+        panel
+    }
+
+    fn java_changed(
+        &mut self,
+        _: Entity<java::JavaPanel>,
+        event: &java::JavaEvent,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let selected = self.instances.selected().map(|entry| entry.profile.id());
+        match event {
+            java::JavaEvent::RefreshStarted => self.inspection.mark_java_refresh(),
+            java::JavaEvent::CatalogChanged => self.inspection.invalidate_refreshed_catalog(),
+            java::JavaEvent::SelectionChanged(profile)
+                if profile
+                    .as_deref()
+                    .is_none_or(|owner| Some(owner) == selected) =>
+            {
+                self.inspection = launch::Inspection::default();
+            }
+            java::JavaEvent::SelectionChanged(_) => return,
+        }
+        cx.notify();
+    }
+
+    fn java_write_pending(&self, profile: &str, cx: &Context<'_, Self>) -> bool {
+        self.java.read(cx).write_pending(profile)
+    }
+
+    fn selected_java_picker(&self) -> Option<java::InstancePicker> {
+        let entry = self.instances.selected()?;
+        entry.profile.game()?;
+        Some(java::InstancePicker::new(
+            self.java.clone(),
+            entry.profile.id(),
+            &entry.profile.instance.name,
+        ))
+    }
+
+    fn refresh_java_after_install(&mut self, paths: &DataDir, cx: &mut Context<'_, Self>) {
+        if self.paths.as_ref().map(DataDir::root) == Some(paths.root()) {
+            self.java.update(cx, java::JavaPanel::refresh);
+        }
     }
 
     fn player_changed(
@@ -169,7 +233,9 @@ impl RootView {
             .as_ref()
             .map(|settings| settings.theme)
             .unwrap_or_default();
-        self.environment.refresh(self.paths.as_ref());
+        self.environment.clear_feedback();
+        self.java
+            .update(cx, |panel, cx| panel.reload(self.paths.clone(), cx));
         let game_language = self
             .settings
             .as_ref()
@@ -231,6 +297,7 @@ impl RootView {
         cx: &mut Context<'_, Self>,
     ) {
         self.activity.success(format!("Installed {name}"));
+        self.refresh_java_after_install(paths, cx);
         if self
             .instances
             .refresh_after_install(self.paths.as_ref(), paths)
@@ -315,6 +382,7 @@ impl Render for RootView {
                     .overflow_y_scrollbar()
                     .child(self.render_accounts(cx))
                     .child(self.render_instances(cx))
+                    .child(self.java.clone())
                     .child(self.render_download_debug(cx))
                     .child(self.render_launch(cx))
                     .child(self.render_environment(cx))

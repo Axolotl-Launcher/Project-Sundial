@@ -25,7 +25,7 @@ struct ActionState<'a> {
     install: Option<Option<&'a Installation>>,
     launch: Option<&'a Launch>,
     launchable: bool,
-    account_pending: bool,
+    launch_pending: bool,
     /// Whether this profile recorded its own version id. A shared install slot
     /// can be Complete from another profile, and this one still needs the
     /// button that would produce its id.
@@ -42,14 +42,11 @@ pub(crate) fn row(
     selected: bool,
     installations: Option<&HashMap<String, Installation>>,
     launch: Option<&(String, Launch)>,
-    account_pending: bool,
+    launch_pending: bool,
     muted: Hsla,
     cx: &mut Context<'_, RootView>,
 ) -> impl IntoElement + use<> {
     let action = instance.profile.game().and_then(|game| {
-        // A loader profile has no launchable version until its install
-        // produces one, so an absent version must not hide the install action
-        // that would create it.
         let version = game.effective_version();
         let install =
             install_key(game).map(|key| installations.and_then(|states| states.get(&key)));
@@ -62,11 +59,6 @@ pub(crate) fn row(
             _ => None,
         };
         (install.is_some() || launch.is_some() || version.is_some()).then(|| {
-            // The install slot is keyed by what the profile asked for, so a
-            // second profile naming the same game and loader shares it. Only a
-            // profile that recorded its own version id has an install to show;
-            // the other would hide Install behind someone else's Complete and
-            // have no version to launch.
             instance_actions(
                 ActionState {
                     directory: instance.directory.clone(),
@@ -74,7 +66,7 @@ pub(crate) fn row(
                     install,
                     launch,
                     launchable: version.is_some(),
-                    account_pending,
+                    launch_pending,
                     recorded: game.version_id.is_some(),
                 },
                 muted,
@@ -83,15 +75,12 @@ pub(crate) fn row(
         })
     });
     let path = instance.directory.clone();
-    let inspect = Button::new(ElementId::Name(
+    let select = Button::new(ElementId::Name(
         format!("inspect:{}", path.display()).into(),
     ))
     .label("Select")
     .toggled(selected)
-    .accessibility_label(format!(
-        "Select {} for diagnostics",
-        instance.profile.instance.name
-    ))
+    .accessibility_label(format!("Select {}", instance.profile.instance.name))
     .on_click(cx.listener(move |view, _, _, cx| view.select_instance(path.clone(), cx)));
     div()
         .h_flex()
@@ -104,7 +93,7 @@ pub(crate) fn row(
                 .h_flex()
                 .items_start()
                 .gap_2()
-                .child(inspect)
+                .child(select)
                 .children(action),
         )
 }
@@ -156,7 +145,7 @@ fn instance_actions(
         install,
         launch,
         launchable,
-        account_pending,
+        launch_pending,
         recorded,
     } = state;
     let slot = install.flatten();
@@ -187,7 +176,7 @@ fn instance_actions(
         .h_flex()
         .gap_2()
         .children(install_button)
-        .children(launchable.then(|| launch_button(&directory, busy || account_pending, cx)));
+        .children(launchable.then(|| launch_button(&directory, busy || launch_pending, cx)));
     div()
         .v_flex()
         .gap_1()

@@ -3,6 +3,7 @@
 
 //! Desktop policy for choosing and provisioning Java.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -12,41 +13,7 @@ use axlauncher_spi::Network;
 use axlauncher_state::javas::{self, Javas, JavasError};
 use axlauncher_storage::DataDir;
 
-/// The environment fallback and the choices recorded for the current data root.
-#[derive(Default)]
-pub struct JavaEnvironment {
-    java_home: Option<PathBuf>,
-    default_java: Option<PathBuf>,
-    chosen: Vec<(u32, PathBuf)>,
-}
-
-impl JavaEnvironment {
-    pub fn load(root: Option<&Path>) -> Self {
-        let provider = SystemJava::from_environment();
-        Self {
-            java_home: provider.java_home().map(Path::to_path_buf),
-            default_java: provider.executable(JavaMode::Windowed),
-            chosen: root
-                .map(preferences)
-                .map(|javas| chosen(&javas))
-                .unwrap_or_default(),
-        }
-    }
-
-    pub fn java_home(&self) -> Option<&Path> {
-        self.java_home.as_deref()
-    }
-
-    pub fn default_java(&self) -> Option<&Path> {
-        self.default_java.as_deref()
-    }
-
-    pub fn chosen(&self) -> &[(u32, PathBuf)] {
-        &self.chosen
-    }
-}
-
-/// A recorded runtime outranks managed discovery and the environment for its major.
+/// A recorded runtime outranks the newest discovered runtime for its major.
 pub(super) fn managed(data: &DataDir) -> SystemJava {
     provider(data, &preferences(data.root()))
 }
@@ -71,14 +38,22 @@ fn chosen(javas: &Javas) -> Vec<(u32, PathBuf)> {
 }
 
 /// The available installations and the preferences saved on this machine.
+#[derive(PartialEq, Eq)]
 pub struct JavaCatalog {
     available: Vec<JavaRuntime>,
+    defaults: BTreeMap<u32, PathBuf>,
     saved: Javas,
+    profile_runtimes: BTreeMap<PathBuf, JavaRuntime>,
 }
 
 impl JavaCatalog {
     pub fn available(&self) -> &[JavaRuntime] {
         &self.available
+    }
+
+    /// The executable automatic selection would use for this major.
+    pub fn default_for(&self, major: u32) -> Option<&Path> {
+        self.defaults.get(&major).map(PathBuf::as_path)
     }
 
     /// Includes registrations whose files are currently unavailable.
@@ -92,6 +67,15 @@ impl JavaCatalog {
 
     pub fn profile_preference(&self, profile_id: &str) -> Option<&Path> {
         self.saved.profile_preference(profile_id)
+    }
+
+    /// Resolves a saved choice even when its path is no longer in the scan.
+    pub fn profile_runtime(&self, profile_id: &str) -> Option<&JavaRuntime> {
+        let path = self.profile_preference(profile_id)?;
+        self.available
+            .iter()
+            .find(|runtime| runtime.path() == path)
+            .or_else(|| self.profile_runtimes.get(path))
     }
 }
 
@@ -150,8 +134,34 @@ impl From<JavasError> for JavaCatalogError {
 /// Rescans local installations and includes saved manual entries and preferences.
 pub fn list(data: &DataDir) -> Result<JavaCatalog, JavaCatalogError> {
     let saved = javas::load(data.root())?;
-    let available = provider(data, &saved).discover();
-    Ok(JavaCatalog { available, saved })
+    let provider = provider(data, &saved);
+    let available = provider.discover();
+    let defaults = available
+        .iter()
+        .map(JavaRuntime::major)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter_map(|major| {
+            Some((
+                major,
+                provider.default_for(major, &available)?.path().to_owned(),
+            ))
+        })
+        .collect();
+    let discovered: BTreeSet<_> = available.iter().map(JavaRuntime::path).collect();
+    let profile_runtimes = saved
+        .profile_paths()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|path| !discovered.contains(path))
+        .filter_map(|path| Some((path.to_owned(), JavaRuntime::inspect(path)?)))
+        .collect();
+    Ok(JavaCatalog {
+        available,
+        defaults,
+        saved,
+        profile_runtimes,
+    })
 }
 
 /// Registers a Java executable after checking its installation.

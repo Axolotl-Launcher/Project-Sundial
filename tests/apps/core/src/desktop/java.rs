@@ -80,14 +80,66 @@ fn a_registered_runtime_is_listed_and_used_for_automatic_selection() {
     );
 
     set_preferred(&data, 42, Some(registered.path())).unwrap();
-    let environment = JavaEnvironment::load(Some(root.path()));
-    assert_eq!(environment.chosen(), &[(42, registered.path().to_owned())]);
+    assert_eq!(
+        list(&data).unwrap().preferred().collect::<Vec<_>>(),
+        [(42, registered.path())]
+    );
     std::fs::remove_file(&path).unwrap();
     let catalog = list(&data).unwrap();
     assert!(!catalog.available().contains(&registered));
     assert_eq!(catalog.manual_paths().count(), 1);
     assert!(remove(&data, registered.path()).unwrap());
     assert_eq!(list(&data).unwrap().preferred().count(), 0);
+}
+
+#[test]
+fn a_saved_profile_runtime_is_resolved_outside_the_discovery_locations() {
+    let root = tempfile::tempdir().unwrap();
+    let data = DataDir::isolated(root.path()).unwrap();
+    let path = test_runtime(&root.path().join("custom"), 42);
+    set_profile_preference(&data, "profile", Some(&path)).unwrap();
+
+    let catalog = list(&data).unwrap();
+    let saved = catalog.profile_runtime("profile").unwrap();
+    assert_eq!(saved.major(), 42);
+    assert!(!catalog.available().contains(saved));
+
+    std::fs::remove_file(path).unwrap();
+    let catalog = list(&data).unwrap();
+    assert!(catalog.profile_runtime("profile").is_none());
+    assert!(catalog.profile_preference("profile").is_some());
+}
+
+#[test]
+fn the_catalog_exposes_the_launch_default_for_each_available_major() {
+    let root = tempfile::tempdir().unwrap();
+    let data = DataDir::isolated(root.path()).unwrap();
+    let earlier = test_runtime(&root.path().join("earlier"), 42);
+    let updated = root.path().join("updated");
+    let latest = test_runtime(&updated, 42);
+    std::fs::write(updated.join("release"), "JAVA_VERSION=\"42.0.10\"").unwrap();
+    let other = test_runtime(&root.path().join("other"), 43);
+    let earlier = add(&data, &earlier).unwrap();
+    let latest = add(&data, &latest).unwrap();
+    let other = add(&data, &other).unwrap();
+
+    let catalog = list(&data).unwrap();
+    for runtime in [&latest, &other] {
+        let major = runtime.major();
+        assert_eq!(catalog.default_for(major), Some(runtime.path()));
+        assert_eq!(
+            managed(&data)
+                .executable_for(major, JavaMode::Console)
+                .as_deref(),
+            catalog.default_for(major)
+        );
+    }
+    assert_eq!(catalog.preferred().count(), 0);
+
+    set_preferred(&data, 42, Some(earlier.path())).unwrap();
+    assert_eq!(list(&data).unwrap().default_for(42), Some(earlier.path()));
+    set_preferred(&data, 42, None).unwrap();
+    assert_eq!(list(&data).unwrap().default_for(42), Some(latest.path()));
 }
 
 #[test]

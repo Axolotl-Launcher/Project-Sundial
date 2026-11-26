@@ -71,6 +71,10 @@ impl Javas {
         self.profiles.get(id).map(PathBuf::as_path)
     }
 
+    pub fn profile_paths(&self) -> impl Iterator<Item = &Path> {
+        self.profiles.values().map(PathBuf::as_path)
+    }
+
     /// Saves a machine-local override for a portable profile ID.
     pub fn set_profile_preference(&mut self, id: &str, path: Option<PathBuf>) {
         if let Some(path) = path {

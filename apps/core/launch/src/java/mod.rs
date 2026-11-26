@@ -82,11 +82,6 @@ impl SystemJava {
             .collect()
     }
 
-    /// The configured Java home, when the environment names one.
-    pub fn java_home(&self) -> Option<&Path> {
-        self.java_home.as_deref()
-    }
-
     fn candidates(&self) -> impl Iterator<Item = PathBuf> + '_ {
         self.managed_candidates()
             .chain(self.environment_candidates())
