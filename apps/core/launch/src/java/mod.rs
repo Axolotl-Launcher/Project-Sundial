@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use axlauncher_spi::{Java, JavaMode};
 use axlauncher_storage::runtime_record;
 
-use crate::platform::{executable_in_home, managed_executable, managed_home, search_all};
+use crate::platform::{executable_in_home, java_bin, managed_executable, managed_home, search_all};
 
 mod discovery;
 mod release;
@@ -210,7 +210,7 @@ fn completed_component(root: &Path, executable: &Path) -> bool {
     let Some(component) = relative.components().next() else {
         return false;
     };
-    let directory = if managed_home(root).join("bin").is_dir() {
+    let directory = if java_bin(&managed_home(root)).is_dir() {
         root.to_owned()
     } else {
         root.join(component)
@@ -222,7 +222,7 @@ fn completed_component(root: &Path, executable: &Path) -> bool {
 fn inventory(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut found = Vec::new();
     for root in roots {
-        if managed_home(root).join("bin").is_dir() {
+        if java_bin(&managed_home(root)).is_dir() {
             found.push(root.clone());
             continue;
         }
@@ -233,7 +233,7 @@ fn inventory(roots: &[PathBuf]) -> Vec<PathBuf> {
             entries
                 .flatten()
                 .map(|entry| entry.path())
-                .filter(|path| path.is_dir() && managed_home(path).join("bin").is_dir()),
+                .filter(|path| path.is_dir() && java_bin(&managed_home(path)).is_dir()),
         );
     }
     found.sort();

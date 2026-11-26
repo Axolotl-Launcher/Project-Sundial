@@ -47,7 +47,12 @@ pub(crate) fn executable_in(directory: &Path, mode: JavaMode) -> Option<PathBuf>
 
 /// The Java executable for `mode` inside a JDK home, which keeps it in `bin/`.
 pub(crate) fn executable_in_home(home: &Path, mode: JavaMode) -> Option<PathBuf> {
-    executable_in(&home.join("bin"), mode)
+    executable_in(&java_bin(home), mode)
+}
+
+/// The directory containing executables in a Java installation.
+pub(crate) fn java_bin(home: &Path) -> PathBuf {
+    home.join("bin")
 }
 
 /// The JDK home a launcher-managed runtime directory holds.

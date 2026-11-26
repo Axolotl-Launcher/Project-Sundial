@@ -88,7 +88,14 @@ pub(super) fn scan(root: &Path, depth: u8, found: &mut Vec<PathBuf>) {
         managed_executable(root, JavaMode::Console),
         executable_in_home(&bundle_home(root), JavaMode::Console),
     ];
-    found.extend(candidates.into_iter().flatten());
+    if let Some(path) = candidates
+        .into_iter()
+        .flatten()
+        .find(|path| inspect_automatic(path).is_some())
+    {
+        found.push(path);
+        return;
+    }
     if depth == 0 {
         return;
     }

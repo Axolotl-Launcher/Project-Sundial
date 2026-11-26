@@ -65,6 +65,11 @@ fn the_store_layout_accepts_runtime_components_on_non_wpsystem_paths() {
 
 fn fake_java(bin: PathBuf) -> PathBuf {
     fs::create_dir_all(&bin).unwrap();
+    fs::write(
+        bin.parent().unwrap().join("release"),
+        "JAVA_VERSION=\"21\"\n",
+    )
+    .unwrap();
     let path = bin.join("java.exe");
     fs::write(&path, b"fixture").unwrap();
     dunce::canonicalize(path).unwrap()
