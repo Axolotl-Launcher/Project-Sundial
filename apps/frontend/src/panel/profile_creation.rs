@@ -4,7 +4,8 @@
 //! Version selection and catalog queries for the instance creation form.
 
 use axlauncher_core::desktop::{catalog, sources::DownloadOptions};
-use axlauncher_core::install::vanilla::{MinecraftCatalog, MinecraftVersionKind};
+use axlauncher_core::install::vanilla::MinecraftCatalog;
+use axlauncher_core::mc_version::{JavaVersionKind, classify_java};
 use axlauncher_core::spi::{LoaderKind, LoaderVersion};
 use axlauncher_core::state::profile::Game;
 use axlauncher_ui::component::IndexPath;
@@ -382,13 +383,7 @@ fn minecraft_picker_items(
             .versions()
             .iter()
             .map(|version| {
-                let category = match version.kind() {
-                    MinecraftVersionKind::Release => "Release",
-                    MinecraftVersionKind::Snapshot => "Snapshot",
-                    MinecraftVersionKind::OldBeta => "Old beta",
-                    MinecraftVersionKind::OldAlpha => "Old alpha",
-                    MinecraftVersionKind::Other => "Other",
-                };
+                let category = minecraft_category(version.id(), version.manifest_type());
                 Choice::new(
                     version.id().to_owned(),
                     format!("{} · {category}", version.id()),
@@ -397,6 +392,18 @@ fn minecraft_picker_items(
             .collect::<Vec<_>>(),
     );
     (items, SharedString::from(selected.to_owned()))
+}
+
+fn minecraft_category(id: &str, manifest_type: &str) -> &'static str {
+    match classify_java(id, Some(manifest_type)).map(|version| version.kind()) {
+        Some(JavaVersionKind::Release) => "Release",
+        Some(JavaVersionKind::Snapshot) => "Snapshot",
+        Some(JavaVersionKind::PreRelease) => "Pre-release",
+        Some(JavaVersionKind::ReleaseCandidate) => "Release candidate",
+        Some(JavaVersionKind::OldBeta) => "Old beta",
+        Some(JavaVersionKind::OldAlpha) => "Old alpha",
+        None => "Other",
+    }
 }
 
 fn loader_choices() -> SearchableVec<Choice> {

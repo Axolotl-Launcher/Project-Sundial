@@ -17,6 +17,7 @@ axlauncher_download_engine = { workspace = true }
 axlauncher_install = { workspace = true }
 axlauncher_launch = { workspace = true }
 axlauncher_loader = { workspace = true }
+axlauncher_mc_version = { workspace = true }
 axlauncher_mod_metadata = { workspace = true }
 axlauncher_network = { workspace = true }
 axlauncher_observability = { workspace = true }

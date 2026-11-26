@@ -6,6 +6,9 @@ use std::collections::BTreeMap;
 use super::*;
 use axlauncher_spi::{FetchError, FetchKind, Network};
 
+const MAVEN: &str = "https://maven.neoforged.net/releases/net/neoforged/neoforge";
+const LEGACY_MAVEN: &str = "https://maven.neoforged.net/releases/net/neoforged/forge";
+
 const METADATA: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <metadata>
   <groupId>net.neoforged</groupId>
@@ -65,10 +68,14 @@ impl Network for StaleMirror {
 
 #[test]
 fn a_requested_build_missing_from_the_mirror_is_looked_up_at_the_official_source() {
-    let api = NeoForgeApi::new(StaleMirror);
-    let offers = block_on(api.offers("1.20.2", Some("20.2.93"))).unwrap();
-    assert_eq!(offers.len(), 1);
-    assert_eq!(offers[0].version, "20.2.93");
+    let target = maven_metadata::target(LoaderKind::NeoForge, "1.20.2").unwrap();
+    let coordinate = block_on(maven_metadata::resolve(
+        &StaleMirror,
+        &target,
+        Some("20.2.93"),
+    ))
+    .unwrap();
+    assert_eq!(coordinate, "20.2.93");
 }
 
 fn block_on<F: std::future::Future>(future: F) -> F::Output {

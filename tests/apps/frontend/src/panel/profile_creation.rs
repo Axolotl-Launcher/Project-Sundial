@@ -16,12 +16,23 @@ impl Network for MinecraftCatalogNetwork {
         Ok(br#"{
             "latest": {"release": "26.3"},
             "versions": [
+                {"id": "26.4-rc-1", "type": "snapshot", "url": "https://example.invalid/rc", "sha1": ""},
                 {"id": "26.3", "type": "release", "url": "https://example.invalid/26.3", "sha1": ""},
                 {"id": "1.20.1", "type": "release", "url": "https://example.invalid/1.20.1", "sha1": ""}
             ]
         }"#
         .to_vec())
     }
+}
+
+#[test]
+fn prerelease_labels_do_not_change_the_version_ids_saved_to_the_profile() {
+    let catalog = futures::executor::block_on(vanilla::versions(&MinecraftCatalogNetwork)).unwrap();
+    let (choices, _) = minecraft_picker_items(&catalog, "26.4-rc-1");
+    let index = choices.position(&SharedString::from("26.4-rc-1")).unwrap();
+    let choice = choices.item(index).unwrap();
+    assert_eq!(choice.title().as_ref(), "26.4-rc-1 · Release candidate");
+    assert_eq!(choice.value().as_ref(), "26.4-rc-1");
 }
 
 #[test]

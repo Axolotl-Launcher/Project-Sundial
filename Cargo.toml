@@ -11,6 +11,7 @@ members = [
   "apps/core/install",
   "apps/core/launch",
   "apps/core/loader",
+  "apps/core/mc_version",
   "apps/core/mod_metadata",
   "apps/core/network",
   "apps/core/observability",
@@ -121,6 +122,7 @@ axlauncher_frontend = { path = "apps/frontend" }
 axlauncher_install = { path = "apps/core/install" }
 axlauncher_launch = { path = "apps/core/launch" }
 axlauncher_loader = { path = "apps/core/loader" }
+axlauncher_mc_version = { path = "apps/core/mc_version" }
 axlauncher_mod_metadata = { path = "apps/core/mod_metadata" }
 axlauncher_modpack = { path = "apps/plugins/modpack" }
 axlauncher_network = { path = "apps/core/network" }

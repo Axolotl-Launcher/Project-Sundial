@@ -1,0 +1,14 @@
+[package]
+name = "axlauncher_mc_version"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Minecraft Java and loader version conventions"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+axlauncher_spi.workspace = true
+
+[lints]
+workspace = true

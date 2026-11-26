@@ -17,7 +17,7 @@ use crate::prepare::{Prepared, Progress, check_local_files, prepare_reporting};
 
 mod catalog;
 
-pub use catalog::{MinecraftCatalog, MinecraftVersion, MinecraftVersionKind, versions};
+pub use catalog::{MinecraftCatalog, MinecraftVersion, versions};
 
 /// Installation uses the shared game root and reuses files already in place.
 ///

@@ -65,7 +65,7 @@ fn curseforge_preview_and_bundled_only_plan_use_the_same_plugin_contract() {
     assert_eq!(pack.source(), PackSource::CurseForge);
     assert_eq!(
         pack.game().loader(),
-        Some((axlauncher_spi::LoaderKind::NeoForge, "47.1.106"))
+        Some((axlauncher_spi::LoaderKind::NeoForge, "1.20.1-47.1.106"))
     );
     assert_eq!(pack.optional_files().len(), 1);
     let plan = local_plan(&pack, &BTreeSet::new());

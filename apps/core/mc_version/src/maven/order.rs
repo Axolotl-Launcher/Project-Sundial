@@ -3,15 +3,13 @@
 
 //! Ordering loader versions, whose schemes only share being dotted numbers.
 //!
-//! A loader's version is not semver: Forge says `47.4.28`, NeoForge says
-//! `20.2.93` and `20.2.3-beta`, and a future loader may say anything. The
-//! comparison here compares numeric runs numerically and falls back to text,
-//! and it treats a pre-release suffix as older than the release it suffixes.
+//! Numeric components sort numerically, text components sort after numeric
+//! ones, and a development suffix sorts before its unsuffixed release.
 
 use std::cmp::Ordering;
 
 /// Orders two version strings, ignoring build metadata after `+`.
-pub(crate) fn compare(left: &str, right: &str) -> Ordering {
+pub(super) fn compare(left: &str, right: &str) -> Ordering {
     let (left_core, left_pre) = split_pre(left);
     let (right_core, right_pre) = split_pre(right);
 
@@ -35,21 +33,38 @@ fn split_pre(version: &str) -> (&str, Option<&str>) {
 }
 
 fn compare_dotted(left: &str, right: &str) -> Ordering {
-    let left: Vec<&str> = left.split('.').collect();
-    let right: Vec<&str> = right.split('.').collect();
-
-    for (left, right) in left.iter().zip(right.iter()) {
-        let ordering = match (left.parse::<u64>(), right.parse::<u64>()) {
-            (Ok(left), Ok(right)) => left.cmp(&right),
-            _ => left.cmp(right),
+    let mut right = right.split('.');
+    for left in left.split('.') {
+        let Some(right) = right.next() else {
+            return Ordering::Greater;
         };
+        let ordering = compare_component(left, right);
         if ordering != Ordering::Equal {
             return ordering;
         }
     }
-    left.len().cmp(&right.len())
+    if right.next().is_some() {
+        Ordering::Less
+    } else {
+        Ordering::Equal
+    }
+}
+
+fn compare_component(left: &str, right: &str) -> Ordering {
+    use crate::java::is_number;
+
+    match (is_number(left), is_number(right)) {
+        (true, true) => {
+            let left = left.trim_start_matches('0');
+            let right = right.trim_start_matches('0');
+            left.len().cmp(&right.len()).then_with(|| left.cmp(right))
+        }
+        (true, false) => Ordering::Less,
+        (false, true) => Ordering::Greater,
+        (false, false) => left.cmp(right),
+    }
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/core/loader/src/versions.rs"]
+#[path = "../../../../../tests/apps/core/mc_version/src/maven/order.rs"]
 mod tests;

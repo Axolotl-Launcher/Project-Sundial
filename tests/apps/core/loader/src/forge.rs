@@ -1,12 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::io::{Cursor, Write};
 
 use super::*;
 use axlauncher_spi::FetchError;
 
+const MAVEN: &str = "https://maven.minecraftforge.net/net/minecraftforge/forge";
 const PROMOTIONS_BODY: &str = r#"{
   "homepage": "https://files.minecraftforge.net/",
   "promos": {
@@ -35,15 +37,21 @@ fn catalog() -> FakeNetwork {
             format!("{MAVEN}/maven-metadata.xml"),
             Ok(METADATA.as_bytes().to_vec()),
         )]),
+        ..FakeNetwork::default()
     }
 }
 
+#[derive(Default)]
 struct FakeNetwork {
     responses: BTreeMap<String, Result<Vec<u8>, FetchError>>,
+    metadata_requests: Cell<usize>,
 }
 
 impl Network for FakeNetwork {
     async fn fetch(&self, url: &str) -> Result<Vec<u8>, FetchError> {
+        if url == format!("{MAVEN}/maven-metadata.xml") {
+            self.metadata_requests.set(self.metadata_requests.get() + 1);
+        }
         self.responses
             .get(url)
             .cloned()
@@ -59,21 +67,25 @@ fn block_on<F: std::future::Future>(future: F) -> F::Output {
         .block_on(future)
 }
 
-fn installer() -> Vec<u8> {
-    let install = r#"{
+fn installer(game: &str, id: &str) -> Vec<u8> {
+    let install = format!(
+        r#"{{
       "spec": 1,
-      "version": "1.20.1-forge-47.4.28",
-      "minecraft": "1.20.1",
+      "version": "{id}",
+      "minecraft": "{game}",
       "json": "/version.json",
-      "processors": [{ "jar": "net.minecraftforge:installertools:1.0", "classpath": [], "args": [] }],
-      "data": {}
-    }"#;
-    let version = r#"{
-      "id": "1.20.1-forge-47.4.28",
-      "inheritsFrom": "1.20.1",
+      "processors": [{{ "jar": "net.minecraftforge:installertools:1.0", "classpath": [], "args": [] }}],
+      "data": {{}}
+    }}"#
+    );
+    let version = format!(
+        r#"{{
+      "id": "{id}",
+      "inheritsFrom": "{game}",
       "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
       "libraries": []
-    }"#;
+    }}"#
+    );
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     let options = zip::write::SimpleFileOptions::default();
     for (name, bytes) in [
@@ -135,6 +147,7 @@ fn a_non_maven_response_is_a_metadata_error() {
             format!("{MAVEN}/maven-metadata.xml"),
             Ok(b"<html>Service unavailable</html>".to_vec()),
         )]),
+        ..FakeNetwork::default()
     };
     let error = block_on(ForgeApi::new(network).versions("1.20.1")).unwrap_err();
     assert!(matches!(error, LoaderError::Malformed { .. }));
@@ -159,13 +172,14 @@ fn the_catalog_deduplicates_repeated_game_suffixes_and_preserves_branch_coordina
 
 #[test]
 fn the_profile_comes_from_the_installer_of_the_recommended_version() {
-    let installer_url = ForgeApi::<FakeNetwork>::installer_url("1.20.1", "47.4.28");
-    let network = FakeNetwork {
-        responses: BTreeMap::from([
-            (PROMOTIONS.into(), Ok(PROMOTIONS_BODY.as_bytes().to_vec())),
-            (installer_url, Ok(installer())),
-        ]),
-    };
+    let mut network = catalog();
+    network
+        .responses
+        .insert(PROMOTIONS.into(), Ok(PROMOTIONS_BODY.as_bytes().to_vec()));
+    network.responses.insert(
+        format!("{MAVEN}/1.20.1-47.4.28/forge-1.20.1-47.4.28-installer.jar"),
+        Ok(installer("1.20.1", "1.20.1-forge-47.4.28")),
+    );
     let api = ForgeApi::new(network);
 
     let profile = block_on(api.profile(LoaderRequest {
@@ -179,12 +193,11 @@ fn the_profile_comes_from_the_installer_of_the_recommended_version() {
 
 #[test]
 fn a_named_loader_version_is_fetched_even_when_no_promotion_names_it() {
-    // The promotions document holds only the two recommended builds, while the
-    // Maven hosts every published one.
-    let installer_url = ForgeApi::<FakeNetwork>::installer_url("1.20.1", "47.4.0");
-    let network = FakeNetwork {
-        responses: BTreeMap::from([(installer_url, Ok(installer()))]),
-    };
+    let mut network = catalog();
+    network.responses.insert(
+        format!("{MAVEN}/1.20.1-47.4.0/forge-1.20.1-47.4.0-installer.jar"),
+        Ok(installer("1.20.1", "1.20.1-forge-47.4.0")),
+    );
     let api = ForgeApi::new(network);
 
     let profile = block_on(api.profile(LoaderRequest {
@@ -193,7 +206,115 @@ fn a_named_loader_version_is_fetched_even_when_no_promotion_names_it() {
     }))
     .expect("profile");
 
-    // The fixture's own document names this id; what matters is that a build
-    // the promotions omit was fetched rather than refused.
-    assert_eq!(profile.version_id, "1.20.1-forge-47.4.28");
+    assert_eq!(profile.version_id, "1.20.1-forge-47.4.0");
+}
+
+#[test]
+fn a_historical_build_goes_directly_to_its_published_coordinate() {
+    let coordinate = "1.7.10-10.13.4.1614-1.7.10";
+    let profile_id = "1.7.10-Forge10.13.4.1614-1.7.10";
+    let mut network = catalog();
+    network.responses.insert(
+        format!("{MAVEN}/{coordinate}/forge-{coordinate}-installer.jar"),
+        Ok(installer("1.7.10", profile_id)),
+    );
+    let api = ForgeApi::new(network);
+    let listed = block_on(api.versions("1.7.10")).unwrap();
+    assert_eq!(listed[0].version, "10.13.4.1614");
+    for version in [listed[0].version.as_str(), coordinate] {
+        let profile = block_on(api.profile(LoaderRequest {
+            game_version: "1.7.10".into(),
+            loader_version: Some(version.into()),
+        }))
+        .unwrap();
+        assert_eq!(profile.version_id, profile_id);
+    }
+}
+
+#[test]
+fn a_named_installer_remains_reachable_when_the_index_is_down_or_malformed() {
+    let profile_id = "1.20.1-forge-47.4.0";
+    let coordinate = "1.20.1-47.4.0";
+    for (metadata, request) in [
+        (Err(FetchError::Retryable("HTTP 503".into())), "47.4.0"),
+        (Ok(b"<html>Service unavailable</html>".to_vec()), coordinate),
+    ] {
+        let api = ForgeApi::new(FakeNetwork {
+            responses: BTreeMap::from([
+                (format!("{MAVEN}/maven-metadata.xml"), metadata),
+                (
+                    format!("{MAVEN}/{coordinate}/forge-{coordinate}-installer.jar"),
+                    Ok(installer("1.20.1", profile_id)),
+                ),
+            ]),
+            ..FakeNetwork::default()
+        });
+        let profile = block_on(api.profile(LoaderRequest {
+            game_version: "1.20.1".into(),
+            loader_version: Some(request.into()),
+        }))
+        .unwrap();
+        assert_eq!(profile.version_id, profile_id);
+    }
+}
+
+#[test]
+fn a_missing_historical_installer_can_try_its_other_coordinate() {
+    let short = "1.7.10-10.13.4.1614";
+    let coordinate = "1.7.10-10.13.4.1614-1.7.10";
+    let profile_id = "1.7.10-Forge10.13.4.1614-1.7.10";
+    for status in [404, 403] {
+        let mut network = catalog();
+        network.responses.extend([
+            (
+                format!("{MAVEN}/{short}/forge-{short}-installer.jar"),
+                Err(FetchError::Rejected {
+                    status,
+                    body: Vec::new(),
+                }),
+            ),
+            (
+                format!("{MAVEN}/{coordinate}/forge-{coordinate}-installer.jar"),
+                Ok(installer("1.7.10", profile_id)),
+            ),
+        ]);
+        let result = block_on(ForgeApi::new(network).profile(LoaderRequest {
+            game_version: "1.7.10".into(),
+            loader_version: Some(short.into()),
+        }));
+        if status == 404 {
+            assert_eq!(result.unwrap().version_id, profile_id);
+        } else {
+            assert!(matches!(
+                result.unwrap_err(),
+                LoaderError::Unavailable {
+                    source: FetchError::Rejected { status: 403, .. },
+                    ..
+                }
+            ));
+        }
+    }
+}
+
+#[test]
+fn a_stale_promotion_uses_the_same_listing_to_choose_a_build() {
+    let mut network = catalog();
+    network.responses.extend([
+        (
+            PROMOTIONS.into(),
+            Ok(br#"{"promos":{"1.20.1-recommended":"47.0.0"}}"#.to_vec()),
+        ),
+        (
+            format!("{MAVEN}/1.20.1-47.4.29/forge-1.20.1-47.4.29-installer.jar"),
+            Ok(installer("1.20.1", "1.20.1-forge-47.4.29")),
+        ),
+    ]);
+    let api = ForgeApi::new(network);
+    let profile = block_on(api.profile(LoaderRequest {
+        game_version: "1.20.1".into(),
+        loader_version: None,
+    }))
+    .unwrap();
+    assert_eq!(profile.version_id, "1.20.1-forge-47.4.29");
+    assert_eq!(api.network.metadata_requests.get(), 1);
 }

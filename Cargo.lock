@@ -581,6 +581,7 @@ dependencies = [
  "axlauncher_install",
  "axlauncher_launch",
  "axlauncher_loader",
+ "axlauncher_mc_version",
  "axlauncher_mod_metadata",
  "axlauncher_network",
  "axlauncher_observability",
@@ -665,12 +666,20 @@ name = "axlauncher_loader"
 version = "0.1.0"
 dependencies = [
  "axlauncher_domain",
+ "axlauncher_mc_version",
  "axlauncher_spi",
  "quick-xml",
  "serde",
  "serde_json",
  "tokio",
  "zip",
+]
+
+[[package]]
+name = "axlauncher_mc_version"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_spi",
 ]
 
 [[package]]

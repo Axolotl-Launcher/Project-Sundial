@@ -227,3 +227,7 @@ fn download_game(
     let target = InstallTarget::for_game(game).ok_or("No supported installer for this game.")?;
     installation::prepare(data, target, options, report)
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/apps/frontend/src/modpacks/service.rs"]
+mod tests;

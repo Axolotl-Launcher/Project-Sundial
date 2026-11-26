@@ -75,6 +75,7 @@ fn permitted_edge(owner: &str, dependency: &str, target_dir: &Path) -> bool {
                     | "axlauncher_launch"
             ),
             "axlauncher_launch" | "axlauncher_download_engine" => owner == "axlauncher_install",
+            "axlauncher_mc_version" => owner == "axlauncher_loader",
             "axlauncher_network" => {
                 matches!(owner, "axlauncher_download_engine" | "axlauncher_install")
             }

@@ -24,7 +24,6 @@ mod library;
 mod maven_metadata;
 mod neoforge;
 mod providers;
-mod versions;
 pub use providers::{provider, supported_kinds};
 
 /// Fabric's metadata service, whose scheme the `/versions/...` paths below are

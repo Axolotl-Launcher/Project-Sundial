@@ -12,6 +12,7 @@ license.workspace = true
 
 [dependencies]
 axlauncher_domain = { workspace = true }
+axlauncher_mc_version = { workspace = true }
 axlauncher_spi = { workspace = true }
 quick-xml = { workspace = true, features = ["serialize"] }
 serde = { workspace = true }
