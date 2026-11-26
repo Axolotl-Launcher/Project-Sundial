@@ -99,6 +99,8 @@ pub enum FlowError {
         path: PathBuf,
         required: Option<u32>,
     },
+    /// The caller could not read the configured Java selection.
+    JavaConfiguration { source: std::io::Error },
     /// The native jars could not be unpacked.
     Natives {
         /// The directory the natives were to be written into.
@@ -154,6 +156,9 @@ impl std::fmt::Display for FlowError {
                 "the selected Java runtime at {} is unavailable. Choose another installation or switch to automatic selection",
                 path.display()
             ),
+            Self::JavaConfiguration { source } => {
+                write!(formatter, "cannot load the Java configuration: {source}")
+            }
             Self::Natives { directory, source } => write!(
                 formatter,
                 "cannot unpack natives into {}: {source}",
@@ -183,7 +188,7 @@ impl std::error::Error for FlowError {
             Self::Chain { source } => Some(source),
             Self::Natives { source, .. } => Some(source),
             Self::Plan { source } => Some(source),
-            Self::GameOptions { source, .. } => Some(source),
+            Self::GameOptions { source, .. } | Self::JavaConfiguration { source } => Some(source),
             Self::Launch { source, .. } => Some(source),
             Self::NoJava | Self::NoMatchingJava { .. } | Self::InvalidJavaPreference { .. } => None,
         }
@@ -270,7 +275,11 @@ pub fn inspect_version(
     request: &LaunchRequest,
 ) -> Result<VersionInspection, FlowError> {
     let (version, parent) = load_version(request)?;
-    let java = java_executable(java, &version, request).ok();
+    let java = match java_executable(java, &version, request) {
+        Ok(java) => Some(java),
+        Err(error) if request.java_preference.is_some() => return Err(error),
+        Err(_) => None,
+    };
     Ok(VersionInspection {
         version,
         parent,

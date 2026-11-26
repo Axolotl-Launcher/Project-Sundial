@@ -51,11 +51,11 @@ pub(super) fn managed(data: &DataDir) -> SystemJava {
     provider(data, &preferences(data.root()))
 }
 
-pub(super) fn preferences(root: &Path) -> Javas {
+fn preferences(root: &Path) -> Javas {
     javas::load(root).unwrap_or_default()
 }
 
-fn provider(data: &DataDir, javas: &Javas) -> SystemJava {
+pub(super) fn provider(data: &DataDir, javas: &Javas) -> SystemJava {
     SystemJava::from_environment()
         .with_runtime_roots(vec![data.java_versions()])
         .with_chosen(chosen(javas))
@@ -263,3 +263,5 @@ pub(super) async fn provision(
 #[cfg(test)]
 #[path = "../../../../tests/apps/core/src/desktop/java.rs"]
 mod tests;
+#[cfg(test)]
+pub(super) use tests::test_runtime;

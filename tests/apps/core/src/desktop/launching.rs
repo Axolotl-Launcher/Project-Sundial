@@ -90,3 +90,97 @@ fn a_profile_without_game_files_needs_install_and_starts_nothing() {
         matches!(failure, LaunchFailure::NeedsInstall(reason) if reason.starts_with("Install game files to continue."))
     );
 }
+
+#[test]
+fn a_profile_override_is_used_and_checked_against_the_version_requirement() {
+    let root = tempfile::tempdir().unwrap();
+    let data = DataDir::isolated(root.path()).unwrap();
+    let job = java_profile_job(&data);
+    let id = &job.profile_id;
+    let selected = java::test_runtime(&root.path().join("selected"), 42);
+    let other = java::test_runtime(&root.path().join("other"), 43);
+    let automatic = java::test_runtime(&root.path().join("automatic"), 42);
+    java::set_preferred(&data, 42, Some(&automatic)).unwrap();
+    java::set_profile_preference(&data, id, Some(&selected)).unwrap();
+    let inspection = job.inspect().unwrap();
+    assert!(
+        inspection
+            .java()
+            .unwrap()
+            .ends_with(selected.strip_prefix(root.path()).unwrap())
+    );
+
+    java::set_profile_preference(&data, id, Some(&other)).unwrap();
+    let error = job.preview(&Session::offline("Player")).unwrap_err();
+    assert!(matches!(
+        error,
+        FlowError::InvalidJavaPreference {
+            required: Some(42),
+            ..
+        }
+    ));
+
+    java::set_profile_preference(&data, id, None).unwrap();
+    let inspection = job.inspect().unwrap();
+    assert!(
+        inspection
+            .java()
+            .unwrap()
+            .ends_with(automatic.strip_prefix(root.path()).unwrap())
+    );
+}
+
+#[test]
+fn a_removed_explicit_java_is_reported_even_when_automatic_java_is_available() {
+    let root = tempfile::tempdir().unwrap();
+    let data = DataDir::isolated(root.path()).unwrap();
+    let job = java_profile_job(&data);
+    let chosen = java::test_runtime(&root.path().join("chosen"), 42);
+    let fallback = java::test_runtime(&root.path().join("fallback"), 42);
+    java::set_preferred(&data, 42, Some(&fallback)).unwrap();
+    java::set_profile_preference(&data, &job.profile_id, Some(&chosen)).unwrap();
+    std::fs::remove_file(chosen).unwrap();
+
+    assert!(matches!(
+        job.inspect(),
+        Err(FlowError::InvalidJavaPreference { .. })
+    ));
+    assert!(matches!(
+        job.preview(&Session::offline("Player")),
+        Err(FlowError::InvalidJavaPreference { .. })
+    ));
+}
+
+#[test]
+fn an_unreadable_java_catalog_is_reported_and_preserved() {
+    let root = tempfile::tempdir().unwrap();
+    let data = DataDir::isolated(root.path()).unwrap();
+    let job = java_profile_job(&data);
+    let catalog = axlauncher_storage::javas_path(data.root());
+    let contents = b"{broken";
+    std::fs::write(&catalog, contents).unwrap();
+
+    assert!(matches!(
+        job.inspect(),
+        Err(FlowError::JavaConfiguration { .. })
+    ));
+    assert!(matches!(
+        job.preview(&Session::offline("Player")),
+        Err(FlowError::JavaConfiguration { .. })
+    ));
+    assert_eq!(std::fs::read(catalog).unwrap(), contents);
+}
+
+fn java_profile_job(data: &DataDir) -> LaunchJob {
+    let version = "1.21.11";
+    profile::create(&data.instances(), "Fixture", Game::new(version)).unwrap();
+    let profiles = profile::discover(&data.instances());
+    let manifest = data.game().version_document(version);
+    std::fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+    std::fs::write(
+        manifest,
+        r#"{"id":"1.21.11","javaVersion":{"majorVersion":42}}"#,
+    )
+    .unwrap();
+    LaunchJob::for_profile(data, &profiles.instances[0], "Player".into(), None).unwrap()
+}
