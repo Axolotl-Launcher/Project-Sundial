@@ -46,7 +46,7 @@ node scripts/desktop.ts build
 mkdir -p "Axolotl Launcher.app/Contents/MacOS" "Axolotl Launcher.app/Contents/Resources"
 cp target/release/axlauncher "Axolotl Launcher.app/Contents/MacOS/"
 cp packaging/macos/Info.plist "Axolotl Launcher.app/Contents/"
-# AppIcon.icns must be generated from a 1024x1024 PNG with `iconutil`.
+cp packaging/icons/axolotl-launcher.icns "Axolotl Launcher.app/Contents/Resources/AppIcon.icns"
 ```
 
 ## Signing and notarising

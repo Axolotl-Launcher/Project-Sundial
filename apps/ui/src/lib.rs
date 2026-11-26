@@ -33,6 +33,15 @@ pub use gpui_kit::component::{
 };
 pub use gpui_kit::{self as kit, *};
 
+/// Decodes the embedded application icon for the X11 window backend.
+#[cfg(target_os = "linux")]
+pub fn application_icon() -> std::sync::Arc<image::RgbaImage> {
+    let png = include_bytes!("../../../packaging/icons/axolotl-launcher.png");
+    let image = image::load_from_memory_with_format(png, image::ImageFormat::Png)
+        .expect("decode the embedded Axolotl Launcher icon");
+    std::sync::Arc::new(image.into_rgba8())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Palette {
     Dark,

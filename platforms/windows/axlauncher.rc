@@ -1,0 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Axolotl Team
+// SPDX-License-Identifier: GPL-3.0-only
+
+// GPUI loads the application window icon from resource ID 1.
+1 ICON "../../packaging/icons/axolotl-launcher.ico"

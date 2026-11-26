@@ -46,10 +46,12 @@ license = "GPL-3.0-only"
 
 [workspace.dependencies]
 dirs = "6"
+embed-resource = "3.0.12"
 # gpui-kit 0.10.0 一揽子锁定 GPUI 家族（gpui-pre 0.3.12 快照、gpui-base、
 # gpui-component 与 Lucide 资源），是 Zed crates/gpui 的长期跟进快照。
 # 升级时须整体升级 gpui-kit，不要单独改 gpui-pre。
 gpui-kit = "0.10.0"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
 proc-macro2 = "1.0.107"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

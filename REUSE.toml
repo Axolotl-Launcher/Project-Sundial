@@ -87,6 +87,12 @@ path = "packaging/macos/Info.plist"
 SPDX-FileCopyrightText = "2026 Axolotl Team"
 SPDX-License-Identifier = "GPL-3.0-only"
 
+# The original Axolotl Launcher application icons are imported unchanged.
+[[annotations]]
+path = "packaging/icons/axolotl-launcher.*"
+SPDX-FileCopyrightText = "2026 Garbage Human Studio"
+SPDX-License-Identifier = "GPL-3.0-only"
+
 # Third-party skills retain their upstream copyright and license notices.
 [[annotations]]
 path = [".agents/skills/gpui-kit/**", ".agents/skills/gpui-kit-design-guides/**"]
