@@ -14,6 +14,7 @@ pub(super) enum Input<Command> {
 #[derive(Deserialize, Serialize)]
 pub(super) enum Output<Reply> {
     Ready,
+    StartupFailed(String),
     Event { id: u64, reply: Reply },
     Finished { id: u64, result: Result<(), String> },
     Retain(bool),

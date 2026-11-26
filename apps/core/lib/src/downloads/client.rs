@@ -1,5 +1,6 @@
 //! Desktop-side routing and diagnostics for embedded file transfers.
 
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use axlauncher_spi::downloads::{
@@ -14,11 +15,17 @@ use super::{Reply, Route, Transfer};
 
 static WORKER: OnceLock<Service<Reply>> = OnceLock::new();
 
-pub(crate) fn configure(image: Image) {
-    let _ = WORKER.set(Service::new(image));
+pub(crate) fn configure(image: Image, executable: Result<PathBuf, String>) {
+    let _ = WORKER.set(Service::new(image, executable));
 }
 
 pub(crate) fn close() {
+    if let Some(worker) = WORKER.get() {
+        worker.close();
+    }
+}
+
+pub(crate) fn wait_closed() {
     if let Some(worker) = WORKER.get() {
         worker.close_and_wait();
     }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{self, BufReader, Write};
-use std::path::PathBuf;
-use std::process::{Child, Stdio};
+use std::path::{Path, PathBuf};
+use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
@@ -15,12 +15,14 @@ use crate::protocol::{self, Event, Input, Output};
 
 const START_TIMEOUT: Duration = Duration::from_secs(10);
 const STOP_TIMEOUT: Duration = Duration::from_secs(5);
+const CLEANUP_TIMEOUT: Duration = Duration::from_secs(1);
 const WAIT_INTERVAL: Duration = Duration::from_millis(20);
+type Handshake = mpsc::Receiver<io::Result<()>>;
 
 /// A single on-demand process slot for an embedded service.
 pub struct Service<Reply> {
     image: Image,
-    executable: Option<PathBuf>,
+    executable: Result<PathBuf, String>,
     slot: Mutex<Slot<Reply>>,
     closed: Arc<AtomicBool>,
 }
@@ -32,10 +34,10 @@ struct Slot<Reply> {
 }
 
 impl<Reply: DeserializeOwned + Send + 'static> Service<Reply> {
-    pub fn new(image: Image) -> Self {
+    pub(crate) fn new(image: Image, executable: Result<PathBuf, String>) -> Self {
         Self {
             image,
-            executable: None,
+            executable,
             slot: Mutex::new(Slot {
                 running: None,
                 leases: 0,
@@ -47,9 +49,7 @@ impl<Reply: DeserializeOwned + Send + 'static> Service<Reply> {
 
     /// Starts the same executable that supplies the embedded images.
     pub fn for_executable(image: Image, executable: PathBuf) -> Self {
-        let mut service = Self::new(image);
-        service.executable = Some(executable);
-        service
+        Self::new(image, Ok(executable))
     }
 
     /// Starts the process if necessary. Call away from the UI thread.
@@ -70,27 +70,33 @@ impl<Reply: DeserializeOwned + Send + 'static> Service<Reply> {
         {
             return Ok(request);
         }
-        if let Some(previous) = slot.running.take() {
-            previous.wait_for_exit();
+        if let Some(previous) = &slot.running {
+            previous
+                .wait_for_exit()
+                .map_err(|error| error.to_string())?;
         }
-        let running = Running::start(
+        let (running, handshake) = Running::start(
             self.image,
             data,
-            self.executable.as_ref(),
+            self.executable.as_deref().map_err(Clone::clone)?,
             slot.leases,
             Arc::clone(&self.closed),
         )
         .map_err(|error| slot.remember_start_failure(error))?;
+        slot.running = Some(Arc::clone(&running));
+        if let Err(error) = wait_for_ready(handshake) {
+            running.stop();
+            let _ = running.wait_for_exit();
+            return Err(slot.remember_start_failure(error));
+        }
         if self.closed.load(Ordering::Acquire) {
             running.stop();
-            slot.running = Some(running);
             return Err("The worker is closed.".into());
         }
         let request = running.enqueue(&command);
         if !matches!(&request, Ok(Some(_))) {
             running.stop();
         }
-        slot.running = Some(running);
         request?.ok_or_else(|| "The worker exited during startup.".into())
     }
 
@@ -158,11 +164,21 @@ impl<Reply> Service<Reply> {
 
     pub fn close_and_wait(&self) {
         self.closed.store(true, Ordering::Release);
-        let running = self.slot.lock().expect("worker slot").running.take();
-        if let Some(running) = running {
-            running.stop();
-            running.wait_for_exit();
+        let running = self.slot.lock().expect("worker slot").running.clone();
+        let Some(running) = running else { return };
+        running.stop();
+        if let Err(error) = running.wait_for_exit() {
+            eprintln!("Could not close an embedded worker: {error}");
         }
+    }
+
+    pub(crate) fn closed_and_reaped(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+            && self.slot.try_lock().is_ok_and(|slot| {
+                slot.running
+                    .as_ref()
+                    .is_none_or(|running| running.is_reaped())
+            })
     }
 }
 
@@ -236,19 +252,16 @@ impl<Reply: DeserializeOwned + Send + 'static> Running<Reply> {
     fn start(
         image: Image,
         data: &DataDir,
-        executable: Option<&PathBuf>,
+        executable: &Path,
         leases: usize,
         closed: Arc<AtomicBool>,
-    ) -> io::Result<Arc<Self>> {
-        let executable = executable.cloned().map_or_else(std::env::current_exe, Ok)?;
-        let (scratch, path) = image.extract(data)?;
-        let mut child = image
-            .command(&executable, &path)
-            .env_remove("CURSEFORGE_API_KEY")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?;
+    ) -> io::Result<(Arc<Self>, Handshake)> {
+        let (scratch, path) = image.extract(data).map_err(|error| {
+            io::Error::other(format!(
+                "could not extract the bundled library to the launcher cache: {error}"
+            ))
+        })?;
+        let mut child = image.spawn(executable, &path)?;
         let input = child.stdin.take().expect("piped worker input");
         let output = child.stdout.take().expect("piped worker output");
         let (writer, outgoing) = mpsc::channel();
@@ -273,25 +286,14 @@ impl<Reply: DeserializeOwned + Send + 'static> Running<Reply> {
         std::thread::spawn(move || reaper.reap(child, scratch, &closed));
         let writer = Arc::clone(&running);
         std::thread::spawn(move || writer.write_process(input, outgoing));
-        match handshake.recv_timeout(START_TIMEOUT) {
-            Ok(()) => Ok(running),
-            Err(error) => {
-                running.stop();
-                Err(io::Error::new(
-                    io::ErrorKind::ConnectionAborted,
-                    format!("worker handshake failed: {error}"),
-                ))
-            }
-        }
+        Ok((running, handshake))
     }
 
-    fn read_process(&self, output: impl io::Read, ready: mpsc::SyncSender<()>) {
+    fn read_process(&self, output: impl io::Read, ready: mpsc::SyncSender<io::Result<()>>) {
         let mut output = BufReader::new(output);
-        if matches!(
-            protocol::read(&mut output),
-            Ok(Some(Output::<Reply>::Ready))
-        ) {
-            let _ = ready.send(());
+        let handshake = read_handshake::<Reply>(&mut output);
+        let started = handshake.is_ok();
+        if ready.send(handshake).is_ok() && started {
             self.read_replies(&mut output);
         }
         self.failed();
@@ -342,10 +344,13 @@ impl<Reply: DeserializeOwned + Send + 'static> Running<Reply> {
     }
 
     fn reap(&self, mut child: Child, scratch: tempfile::TempDir, closed: &AtomicBool) {
-        while matches!(child.try_wait(), Ok(None)) && self.keep_running(closed) {
-            std::thread::sleep(WAIT_INTERVAL);
-        }
-        if self.stop_expired() {
+        let exited = loop {
+            match child.try_wait() {
+                Ok(None) if self.keep_running(closed) => std::thread::sleep(WAIT_INTERVAL),
+                status => break matches!(status, Ok(Some(_))),
+            }
+        };
+        if !exited {
             let _ = child.kill();
         }
         let _ = child.wait();
@@ -358,7 +363,7 @@ impl<Reply: DeserializeOwned + Send + 'static> Running<Reply> {
 impl<Reply> State<Reply> {
     fn deliver(&mut self, output: Output<Reply>) -> Option<()> {
         match output {
-            Output::Ready => return None,
+            Output::Ready | Output::StartupFailed(_) => return None,
             Output::Retain(retain) => self.retained = retain,
             Output::Status(status) => self.status = Some(status),
             Output::Event { id, reply } => {
@@ -403,12 +408,24 @@ impl<Reply> Running<Reply> {
         self.stop_if_idle(&mut state);
     }
 
-    fn wait_for_exit(&self) {
+    fn wait_for_exit(&self) -> io::Result<()> {
         let reaped = self.reaped.lock().expect("worker reaper");
-        let _guard = self
+        let (reaped, _) = self
             .finished
-            .wait_timeout_while(reaped, STOP_TIMEOUT + WAIT_INTERVAL, |reaped| !*reaped)
+            .wait_timeout_while(reaped, STOP_TIMEOUT + CLEANUP_TIMEOUT, |reaped| !*reaped)
             .expect("wait for worker");
+        if *reaped {
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "the worker did not finish exiting",
+            ))
+        }
+    }
+
+    fn is_reaped(&self) -> bool {
+        self.reaped.try_lock().is_ok_and(|reaped| *reaped)
     }
 
     fn stop_expired(&self) -> bool {
@@ -445,6 +462,25 @@ impl<Reply> Running<Reply> {
             )));
         }
     }
+}
+
+fn read_handshake<Reply: DeserializeOwned>(output: &mut impl io::Read) -> io::Result<()> {
+    match protocol::read::<Output<Reply>>(output)? {
+        Some(Output::Ready) => Ok(()),
+        Some(Output::StartupFailed(error)) => Err(io::Error::other(error)),
+        Some(_) => Err(io::Error::other(
+            "unexpected message before the worker was ready",
+        )),
+        None => Err(io::Error::other(
+            "worker exited before it was ready; restart the launcher if it was updated",
+        )),
+    }
+}
+
+fn wait_for_ready(handshake: Handshake) -> io::Result<()> {
+    handshake
+        .recv_timeout(START_TIMEOUT)
+        .map_err(|error| io::Error::other(format!("waiting for the worker: {error}")))?
 }
 
 fn write_requests(mut input: impl Write, outgoing: mpsc::Receiver<WriteFrame>) -> io::Result<()> {

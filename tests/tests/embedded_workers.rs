@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use axlauncher_spi::downloads::DownloadJob;
-use axlauncher_storage::DataDir;
+use axlauncher_storage::{DataDir, Directory};
 use axlauncher_worker::accounts::{Action, Change, Command, Method, Reply};
 use axlauncher_worker::downloads::{Route, Transfer};
 use axlauncher_worker::{Event, Images, Request, Service};
@@ -28,7 +28,10 @@ impl Fixture {
         let copied = root.path().join(executable.file_name().unwrap());
         fs::copy(executable, &copied).unwrap();
         assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
-        let data = DataDir::isolated(root.path().join("profile root 雪")).unwrap();
+        let mut data = DataDir::isolated(root.path().join("profile root 雪")).unwrap();
+        let temp = root.path().join("unavailable temp directory");
+        data.set_directory(Directory::AppTemp, Some(&temp)).unwrap();
+        fs::write(temp, b"not a directory").unwrap();
         Self {
             root,
             executable: copied,
@@ -59,12 +62,20 @@ impl Fixture {
 
     fn wait_for_cleanup(&self) {
         let deadline = Instant::now() + DEADLINE;
-        while fs::read_dir(self.data.temp()).is_ok_and(|mut entries| entries.next().is_some()) {
+        while self.has_extracted_libraries() {
             assert!(
                 Instant::now() < deadline,
                 "an extracted library was not cleaned up"
             );
             std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    fn has_extracted_libraries(&self) -> bool {
+        match fs::read_dir(self.data.caches().join("workers")) {
+            Ok(mut entries) => entries.next().is_some(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(error) => panic!("could not inspect worker scratch: {error}"),
         }
     }
 }
@@ -97,7 +108,7 @@ async fn finish<Reply>(request: &mut Request<Reply>) -> Result<(), String> {
 fn one_executable_loads_accounts_only_on_demand() {
     let fixture = Fixture::new();
     let worker = fixture.accounts();
-    assert!(!fixture.data.temp().exists());
+    assert!(!fixture.has_extracted_libraries());
     let hold = worker.hold();
     let mut add = fixture.account(
         &worker,
@@ -172,8 +183,10 @@ fn mismatched_worker_image_is_refused_and_removed() {
             Action::Change(Change::Read),
         ),
     );
-    assert!(request.err().unwrap().contains("worker handshake failed"));
-    fixture.wait_for_cleanup();
+    let error = request.err().unwrap();
+    assert!(error.contains("worker library does not match the embedded image"));
+    assert!(error.contains("restart the launcher"));
+    assert!(!fixture.has_extracted_libraries());
     assert!(!fixture.data.accounts().exists());
 }
 
@@ -276,6 +289,26 @@ fn crashed_worker_fails_the_request_and_the_next_request_starts_a_new_worker() {
     run(finish(&mut next)).unwrap();
     assert_eq!(fs::read(destination).unwrap(), b"abc");
     fixture.wait_for_cleanup();
+}
+
+#[test]
+#[ignore = "run node scripts/desktop.ts smoke to supply the packaged desktop executable"]
+fn worker_shutdown_reaps_a_live_download_before_removing_its_library() {
+    let fixture = Fixture::new();
+    let worker = fixture.downloads();
+    let destination = fixture.data.root().join("interrupted.bin");
+    let (url, stalled) = local_file(true);
+    let mut request = worker
+        .request(&fixture.data, transfer(&url, &destination))
+        .unwrap();
+    stalled.ready.recv_timeout(DEADLINE).unwrap();
+    assert!(fixture.has_extracted_libraries());
+
+    worker.close_and_wait();
+
+    assert!(!fixture.has_extracted_libraries());
+    assert!(!destination.exists());
+    assert!(run(finish(&mut request)).is_err());
 }
 
 fn kill(pid: u32) {

@@ -177,23 +177,12 @@ impl DataDir {
 
     /// A private scratch directory removed when the returned handle is dropped.
     pub fn scratch(&self) -> io::Result<tempfile::TempDir> {
-        let root = self.temp();
-        let mut builder = fs::DirBuilder::new();
-        builder.recursive(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            builder.mode(0o700);
-        }
-        builder.create(&root)?;
-        let mut scratch = tempfile::Builder::new();
-        scratch.prefix("AXLauncher-");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            scratch.permissions(fs::Permissions::from_mode(0o700));
-        }
-        scratch.tempdir_in(root)
+        private_scratch(&self.temp())
+    }
+
+    /// A private worker-library directory under the launcher cache.
+    pub fn worker_scratch(&self) -> io::Result<tempfile::TempDir> {
+        private_scratch(&self.caches().join("workers"))
     }
 
     /// The same game files and native archive cache serve installation and launch.
@@ -246,6 +235,25 @@ impl DataDir {
         file.lock()?;
         Ok(file)
     }
+}
+
+fn private_scratch(root: &Path) -> io::Result<tempfile::TempDir> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(root)?;
+    let mut scratch = tempfile::Builder::new();
+    scratch.prefix("AXLauncher-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        scratch.permissions(fs::Permissions::from_mode(0o700));
+    }
+    scratch.tempdir_in(root)
 }
 
 fn missing_directory(kind: &str) -> io::Error {

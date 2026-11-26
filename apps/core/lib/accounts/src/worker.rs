@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use axlauncher_network::auth::AuthHttp;
 use axlauncher_spi::ServiceHost;
-use axlauncher_spi::auth::CredentialStore;
+use axlauncher_spi::auth::{AuthNetwork, CredentialStore};
 use axlauncher_storage::{DataDir, SystemCredentials};
 use axlauncher_worker::accounts::{AccountId, Action, Change, Command, Identity, Reply};
 use axlauncher_worker::{Cancellation, Responder, serve};
@@ -73,16 +73,25 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
         let commit = SignInCommit::reporting(cancel.clone(), move || {
             let _ = reply.send(Reply::Saving);
         });
-        let outcome = match action {
-            Action::Change(change) => self.change(change, reply, &cancel).await,
+        let outcome = self.dispatch(action, reply, &cancel, &commit).await;
+        self.update_retention(reply.retention()).await;
+        outcome
+    }
+
+    async fn dispatch(
+        self: &Rc<Self>,
+        action: Action,
+        reply: Responder<Reply>,
+        cancel: &Cancellation,
+        commit: &SignInCommit,
+    ) -> Result<(), String> {
+        match action {
+            Action::Change(change) => self.change(change, reply, cancel).await,
             Action::Microsoft {
                 method,
                 expected,
                 proxy,
-            } => {
-                self.microsoft(method, expected, proxy, reply, &commit)
-                    .await
-            }
+            } => self.microsoft(method, expected, proxy, reply, commit).await,
             Action::Yggdrasil {
                 url,
                 username,
@@ -97,7 +106,7 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
                     },
                     expected,
                     reply,
-                    &commit,
+                    commit,
                 )
                 .await
             }
@@ -113,7 +122,7 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
                     },
                     expected,
                     reply,
-                    &commit,
+                    commit,
                 )
                 .await
             }
@@ -122,9 +131,7 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
                 Ok(())
             }
             Action::Resolve { id, proxy } => self.resolve(id, proxy, reply, cancel).await,
-        };
-        self.update_retention(reply.retention()).await;
-        outcome
+        }
     }
 
     async fn change(
@@ -172,15 +179,41 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
         id: AccountId,
         proxy: Option<ServiceHost>,
         reply: Responder<Reply>,
-        cancel: Cancellation,
+        cancel: &Cancellation,
     ) -> Result<(), String> {
         let network = auth(proxy)?;
+        reply.send(self.launch_reply(id, &network, cancel).await?)
+    }
+
+    async fn launch_reply(
+        &self,
+        id: AccountId,
+        network: &impl AuthNetwork,
+        cancel: &Cancellation,
+    ) -> Result<Reply, String> {
         let identity = tokio::select! {
             biased;
-            () = cancel.cancelled() => return reply.send(Reply::Cancelled),
-            result = self.service.resolve(id, &network) => result.map_err(|error| error.to_string())?,
+            () = cancel.cancelled() => return Ok(Reply::Cancelled),
+            result = self.launch_identity(id, network) => result?,
         };
-        let identity = match identity {
+        Ok(if cancel.begin_commit() {
+            Reply::Identity(identity)
+        } else {
+            Reply::Cancelled
+        })
+    }
+
+    async fn launch_identity(
+        &self,
+        id: AccountId,
+        network: &impl AuthNetwork,
+    ) -> Result<Identity, String> {
+        let identity = self
+            .service
+            .resolve(id, network)
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(match identity {
             LaunchIdentity::Offline(account) => Identity::Offline {
                 name: account.name().to_owned(),
             },
@@ -200,7 +233,7 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
                 let server = account
                     .server()
                     .ok_or("The third-party account is missing its server.")?;
-                let metadata = yggdrasil::launch_metadata(&network, server)
+                let metadata = yggdrasil::launch_metadata(network, server)
                     .await
                     .map_err(|error| error.to_string())?;
                 Identity::Yggdrasil {
@@ -210,8 +243,7 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
                     metadata: STANDARD.encode(metadata),
                 }
             }
-        };
-        reply.send(Reply::Identity(identity))
+        })
     }
 
     async fn update_retention(&self, retention: axlauncher_worker::Retention<Reply>) {
@@ -225,3 +257,7 @@ fn auth(proxy: Option<ServiceHost>) -> Result<AuthHttp, String> {
         .map(|network| network.with_fallen_proxy(proxy))
         .map_err(|_| "Could not initialize online sign-in.".to_owned())
 }
+
+#[cfg(test)]
+#[path = "../../../../../tests/apps/core/lib/accounts/src/worker.rs"]
+mod tests;

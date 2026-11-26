@@ -1,6 +1,7 @@
 //! Desktop account operations backed by the embedded account process.
 
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::{Event, Image, Service};
 use axlauncher_spi::ServiceHost;
@@ -10,35 +11,38 @@ use crate::accounts::{
     AccountId, AccountSnapshot, Action, Change, ChoiceId, Command, Identity, Reply, SignInCommit,
 };
 
-static IMAGE: OnceLock<Image> = OnceLock::new();
-static ACCOUNTS: Mutex<Weak<DesktopAccounts>> = Mutex::new(Weak::new());
+static IMAGE: OnceLock<(Image, Result<PathBuf, String>)> = OnceLock::new();
+static WORKERS: Mutex<Vec<Arc<Service<Reply>>>> = Mutex::new(Vec::new());
 
-pub(crate) fn configure(image: Image) {
-    let _ = IMAGE.set(image);
+pub(crate) fn configure(image: Image, executable: Result<PathBuf, String>) {
+    let _ = IMAGE.set((image, executable));
+}
+
+pub(crate) fn take_workers() -> Vec<Arc<Service<Reply>>> {
+    std::mem::take(&mut *WORKERS.lock().expect("account workers"))
+}
+
+fn new_worker(image: Image, executable: Result<PathBuf, String>) -> Arc<Service<Reply>> {
+    let worker = Arc::new(Service::new(image, executable));
+    let mut workers = WORKERS.lock().expect("account workers");
+    workers.retain(|worker| !worker.closed_and_reaped());
+    workers.push(Arc::clone(&worker));
+    worker
 }
 
 pub struct DesktopAccounts {
     data: Mutex<DataDir>,
-    worker: Option<Service<Reply>>,
+    worker: Option<Arc<Service<Reply>>>,
 }
 
 impl DesktopAccounts {
-    pub(crate) fn close_active() {
-        let service = ACCOUNTS.lock().expect("active account service").upgrade();
-        if let Some(service) = service
-            && let Some(worker) = &service.worker
-        {
-            worker.close_and_wait();
-        }
-    }
-
     pub fn new(data: DataDir) -> Arc<Self> {
-        let service = Arc::new(Self {
+        Arc::new(Self {
             data: Mutex::new(data),
-            worker: IMAGE.get().copied().map(Service::new),
-        });
-        *ACCOUNTS.lock().expect("active account service") = Arc::downgrade(&service);
-        service
+            worker: IMAGE
+                .get()
+                .map(|(image, executable)| new_worker(*image, executable.clone())),
+        })
     }
 
     pub fn data_dir(&self) -> DataDir {
@@ -150,5 +154,11 @@ impl DesktopAccounts {
                 None => return Err("The account worker closed its reply pipe.".into()),
             }
         }
+    }
+}
+
+impl Drop for DesktopAccounts {
+    fn drop(&mut self) {
+        self.close();
     }
 }

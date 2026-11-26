@@ -7,6 +7,10 @@
 //! that combines `axlauncher_core` with `axlauncher_ui`. State lives here in
 //! GPUI entities; components stay stateless recipes.
 
+use std::cell::Cell;
+use std::rc::Rc;
+use std::thread::JoinHandle;
+
 use axlauncher_core::state::profile::{ProfileDiscovery, discover};
 use axlauncher_core::state::{SettingsData, SettingsOrigin, ThemeChoice, load_settings};
 use axlauncher_core::storage::DataDir;
@@ -70,18 +74,42 @@ impl Startup {
 pub fn run(images: WorkerImages) {
     images.configure();
     let startup = Startup::load();
+    let shutdown = Rc::new(Cell::new(None));
+    let on_quit = Rc::clone(&shutdown);
 
     kit::application()
         .with_assets(kit::assets::Assets)
         .run(move |cx| {
-            cx.on_app_quit(|_| async {
-                WorkerImages::close_workers();
-            })
-            .detach();
+            cx.on_app_quit(move |cx| stop_workers(cx, &on_quit))
+                .detach();
             startup.palette.install(cx);
             open_main_window(cx, startup);
         });
-    WorkerImages::close_workers();
+    wait_for_workers(shutdown.take().unwrap_or_else(WorkerImages::begin_shutdown));
+}
+
+/// AppKit may exit without returning from the event loop. Hide the UI before its final wait.
+fn stop_workers(
+    cx: &kit::App,
+    shutdown: &Cell<Option<JoinHandle<()>>>,
+) -> impl Future<Output = ()> + use<> {
+    let reaper = WorkerImages::begin_shutdown();
+    let native_quit = if cfg!(target_os = "macos") {
+        cx.hide();
+        Some(reaper)
+    } else {
+        shutdown.set(Some(reaper));
+        None
+    };
+    async move {
+        if let Some(reaper) = native_quit {
+            wait_for_workers(reaper);
+        }
+    }
+}
+
+fn wait_for_workers(reaper: JoinHandle<()>) {
+    reaper.join().expect("finish worker shutdown");
 }
 
 fn open_main_window(cx: &mut kit::App, startup: Startup) {

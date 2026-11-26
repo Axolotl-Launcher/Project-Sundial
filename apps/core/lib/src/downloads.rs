@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 mod client;
 pub use client::{Downloads, stats};
-pub(crate) use client::{close, configure};
+pub(crate) use client::{close, configure, wait_closed};
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Route {

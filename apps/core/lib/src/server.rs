@@ -124,6 +124,12 @@ fn send<Reply: Serialize>(reply: Output<Reply>) -> Result<(), String> {
         .map_err(|_| "The worker could not send a reply.".to_owned())
 }
 
+/// Reports a bootstrap failure before accepting any account or download requests.
+pub(super) fn startup_failed(error: impl std::fmt::Display) -> i32 {
+    let _ = send(Output::<()>::StartupFailed(error.to_string()));
+    1
+}
+
 /// Runs a versioned pipe server. Its reader, runtime and tasks end before return.
 pub fn serve<Command, Reply, Handler, Work>(handle: Handler) -> i32
 where
@@ -132,11 +138,12 @@ where
     Handler: Fn(Command, Responder<Reply>, Cancellation) -> Work + 'static,
     Work: Future<Output = Result<(), String>> + 'static,
 {
-    let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+    let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-    else {
-        return 1;
+    {
+        Ok(runtime) => runtime,
+        Err(error) => return startup_failed(format!("could not initialize the worker: {error}")),
     };
     if send(Output::<Reply>::Ready).is_err() {
         return 1;
