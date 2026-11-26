@@ -8,8 +8,9 @@
 use std::path::{Path, PathBuf};
 
 use axlauncher_spi::{
-    ContentProvider, ContentSummary, FetchError, InstanceRecord, Java, JavaMode, Network,
-    StateStore, Storage, StorageError, Telemetry,
+    ByteRange, ContentProvider, ContentSummary, DownloadBody, DownloadProtocol, FetchError,
+    InstanceRecord, Java, JavaMode, Network, RangeRequest, StateStore, Storage, StorageError,
+    Telemetry,
 };
 use axlauncher_state::MemoryState;
 
@@ -50,6 +51,25 @@ fn a_caller_written_against_the_port_works_with_any_provider() {
     let title = futures_lite_block_on(fetch_title(&EchoNetwork, "https://example.test/mod"))
         .expect("the echo provider cannot fail");
     assert_eq!(title, "https://example.test/mod");
+}
+
+#[test]
+fn a_body_only_provider_returns_the_full_body_for_a_conditional_range() {
+    futures_lite_block_on(async {
+        let url = "https://example.test/file";
+        let range = RangeRequest {
+            interval: ByteRange { start: 1, end: 2 },
+            if_range: Some(b"\"version\""),
+        };
+        let mut response = EchoNetwork
+            .open_download(url, DownloadProtocol::Http1, Some(range))
+            .await
+            .unwrap();
+        assert!(response.range.is_none());
+        assert!(response.representation.is_none());
+        let content = response.body.next_chunk().await.unwrap().unwrap();
+        assert_eq!(content, url.as_bytes());
+    });
 }
 
 #[test]

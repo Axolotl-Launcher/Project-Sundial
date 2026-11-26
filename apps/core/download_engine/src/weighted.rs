@@ -88,12 +88,14 @@ impl State {
         }
 
         let mut candidates = BinaryHeap::new();
-        for (index, (&id, file)) in self.files.iter_mut().enumerate() {
-            file.target = usize::from(index < self.limit);
+        let mut admitted = 0;
+        for (&id, file) in &mut self.files {
+            file.target = usize::from(file.cap() > 0 && admitted < self.limit);
+            admitted += file.target;
             candidates.extend(file.priority(id));
         }
         // Highest averages with one slot reserved for each admitted file.
-        let mut slots = self.files.len()..self.limit;
+        let mut slots = admitted..self.limit;
         while let Some((_, std::cmp::Reverse(id))) = slots.next().and_then(|_| candidates.pop()) {
             let file = self.files.get_mut(&id).expect("allocated file");
             file.target += 1;
@@ -112,6 +114,9 @@ impl FileDemand {
     }
 
     fn cap(&self) -> usize {
+        if self.width == 0 {
+            return 0;
+        }
         self.remaining
             .map_or(1, |remaining| range_width(remaining, self.width))
     }

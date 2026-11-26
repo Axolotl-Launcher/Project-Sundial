@@ -8,8 +8,8 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use axlauncher_spi::{
-    ByteRange, DownloadBody, DownloadMirror, DownloadProtocol, DownloadResponse, FetchError,
-    FetchKind, Network,
+    DownloadBody, DownloadMirror, DownloadProtocol, DownloadResponse, FetchError, FetchKind,
+    Network, RangeRequest,
 };
 use url::Url;
 
@@ -37,6 +37,7 @@ impl Network for UnimplementedNetwork {
 #[derive(Debug, Clone)]
 pub struct ReqwestNetwork {
     client: reqwest::Client,
+    file_auto: reqwest::Client,
     file_http1: reqwest::Client,
     file_http2: reqwest::Client,
     mirrors: Option<Arc<mirrors::Mirrors>>,
@@ -54,6 +55,7 @@ impl ReqwestNetwork {
     /// A provider that sends every request through `client`.
     pub fn new(client: reqwest::Client) -> Self {
         Self {
+            file_auto: client.clone(),
             file_http1: client.clone(),
             file_http2: client.clone(),
             client,
@@ -124,6 +126,7 @@ impl ReqwestNetwork {
         };
         Ok(Self {
             client: build(builder().timeout(Duration::from_secs(120)))?,
+            file_auto: build(builder())?,
             file_http1: build(builder().http1_only())?,
             file_http2: build(builder().http2_prior_knowledge())?,
             mirrors: Some(Arc::new(mirrors::Mirrors::new(settings))),
@@ -278,11 +281,11 @@ impl Network for ReqwestNetwork {
         &self,
         url: &str,
         protocol: DownloadProtocol,
-        range: Option<ByteRange>,
+        range: Option<RangeRequest<'_>>,
     ) -> Result<DownloadResponse<impl DownloadBody>, FetchError> {
         self.check_target(url)?;
         let (client, version) = match protocol {
-            DownloadProtocol::Automatic => (&self.client, None),
+            DownloadProtocol::Automatic => (&self.file_auto, None),
             DownloadProtocol::Http1 => (&self.file_http1, Some(reqwest::Version::HTTP_11)),
             DownloadProtocol::Http2 => (&self.file_http2, Some(reqwest::Version::HTTP_2)),
         };

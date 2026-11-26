@@ -20,13 +20,17 @@ mod transfer;
 pub use axlauncher_domain::Id;
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 mod loader;
 pub use loader::{
     LoaderError, LoaderFile, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader,
 };
 pub use sources::{DownloadMirror, FetchKind, ServiceHost};
-pub use transfer::{ByteRange, DownloadBody, DownloadProtocol, DownloadResponse, ResponseRange};
+pub use transfer::{
+    ByteRange, DownloadBody, DownloadEtag, DownloadProtocol, DownloadRepresentation,
+    DownloadResponse, RangeRequest, ResponseRange,
+};
 
 /// Fetches bytes over the network.
 pub trait Network {
@@ -59,13 +63,14 @@ pub trait Network {
         &self,
         url: &str,
         _protocol: DownloadProtocol,
-        _range: Option<ByteRange>,
+        _range: Option<RangeRequest<'_>>,
     ) -> impl Future<Output = Result<DownloadResponse<impl DownloadBody>, FetchError>> {
         async move {
             let body = bytes::Bytes::from(self.fetch(url).await?);
             Ok(DownloadResponse {
                 length: Some(body.len() as u64),
                 range: None,
+                representation: None,
                 body: Some(body),
             })
         }
@@ -77,10 +82,14 @@ pub trait Network {
 pub enum FetchError {
     /// Worth retrying: a timeout, a 5xx, a dropped connection.
     Retryable(String),
+    /// A temporary HTTP failure with an optional server-supplied minimum delay.
+    HttpRetryable {
+        status: u16,
+        retry_after: Option<Duration>,
+    },
     /// Not worth retrying: a malformed URL, no transport configured.
     Fatal(String),
-    /// The server answered with a client error, and the answer itself is the
-    /// reason.
+    /// The server rejected the request and may have supplied an explanation.
     ///
     /// The body is kept because an API can put meaning in it: a version that
     /// does not exist and a request the server rejected can both arrive as a
@@ -97,7 +106,11 @@ impl std::fmt::Display for FetchError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Retryable(reason) => write!(formatter, "retryable: {reason}"),
+            Self::HttpRetryable { status, .. } => write!(formatter, "HTTP {status}"),
             Self::Fatal(reason) => formatter.write_str(reason),
+            Self::Rejected { status, body } if body.is_empty() => {
+                write!(formatter, "HTTP {status}")
+            }
             Self::Rejected { status, body } => {
                 write!(formatter, "HTTP {status}: {}", body_excerpt(body))
             }

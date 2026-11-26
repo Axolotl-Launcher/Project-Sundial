@@ -3,71 +3,150 @@
 
 use std::fmt;
 use std::io::{self, Seek, SeekFrom, Write};
+use std::num::{NonZeroU64, NonZeroUsize};
 use std::sync::Mutex;
-use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration;
 
 use axlauncher_spi::{
-    ByteRange, DownloadBody, DownloadResponse, FetchError, Network, ResponseRange,
+    ByteRange, DownloadBody, DownloadEtag, DownloadProtocol, DownloadRepresentation,
+    DownloadResponse, FetchError, Network, RangeRequest, ResponseRange,
 };
 use axlauncher_storage::AtomicFile;
 use bytes::Bytes;
+use url::Origin;
 
-use crate::engine::{DownloadEngine, DownloadJob};
-use crate::ranges::{self, RangeSource};
-use crate::resources::{BUFFER_BYTES, Lease, Quota};
-use crate::weighted::{FileShare, MIN_RANGE_BYTES, ShareLease, range_width};
+use crate::resources::{BUFFER_BYTES, Bandwidth, Lease, Quota};
+use crate::retry::{Attempts, Cooldowns, origin_throttle};
+use crate::weighted::{FileShare, ShareLease};
 
-const RANGE_THRESHOLD: u64 = 4 * 1024 * 1024;
-const PROBE: ByteRange = ByteRange { start: 0, end: 1 };
-const SLOW_INTERVAL: Duration = Duration::from_secs(5);
-const SLOW_BYTES_PER_SECOND: u64 = 40 * 1024;
+pub(crate) struct TransferResources {
+    connections: Quota,
+    buffers: Quota,
+    bandwidth: Bandwidth,
+    bytes_received: AtomicU64,
+    cooldowns: Cooldowns,
+}
+
+impl TransferResources {
+    pub(crate) fn new(
+        connections: NonZeroUsize,
+        buffer_bytes: NonZeroUsize,
+        rate: Option<NonZeroU64>,
+    ) -> Self {
+        let slots = (buffer_bytes.get() / BUFFER_BYTES).max(1);
+        Self {
+            connections: Quota::new(connections),
+            buffers: Quota::new(NonZeroUsize::new(slots).unwrap()),
+            bandwidth: Bandwidth::new(rate),
+            bytes_received: AtomicU64::new(0),
+            cooldowns: Cooldowns::default(),
+        }
+    }
+
+    pub(crate) fn active_connections(&self) -> usize {
+        self.connections.active()
+    }
+    pub(crate) fn connection_limit(&self) -> usize {
+        self.connections.limit()
+    }
+    pub(crate) fn set_connection_limit(&self, limit: NonZeroUsize) {
+        self.connections.set_limit(limit);
+    }
+    pub(crate) fn set_speed_limit(&self, limit: Option<NonZeroU64>) {
+        self.bandwidth.set_limit(limit);
+    }
+    pub(crate) fn bytes_received(&self) -> u64 {
+        self.bytes_received.load(Ordering::Relaxed)
+    }
+    pub(crate) fn cooldown(&self, origin: &Origin, grace: Duration) -> Option<(u16, Duration)> {
+        self.cooldowns.remaining(origin, grace)
+    }
+}
 
 pub(crate) struct Transfer<'a, Net> {
-    pub(crate) engine: &'a DownloadEngine,
+    pub(crate) resources: &'a TransferResources,
+    pub(crate) protocol: DownloadProtocol,
     pub(crate) network: &'a Net,
     pub(crate) source: &'a str,
+    pub(crate) origin: &'a Origin,
+    pub(crate) attempts: &'a Attempts,
     pub(crate) host: &'a Quota,
     pub(crate) share: Option<&'a FileShare<'a>>,
 }
 
 #[derive(Debug)]
 pub(crate) enum TransferError {
-    Network(FetchError),
+    Open(FetchError),
+    Body(FetchError),
     Disk(io::Error),
     Invalid(String),
+    IntegrityMismatch(String),
     RangeUnavailable,
+    CoolingDown(u16),
+    RetryWaitExceeded,
+    RecoveryExhausted,
+    RangeRecoveryExhausted(Box<TransferError>),
+    RangeWaitExceeded(Box<TransferError>),
+}
+
+impl From<io::Error> for TransferError {
+    fn from(error: io::Error) -> Self {
+        Self::Disk(error)
+    }
 }
 
 impl TransferError {
     pub(crate) fn retryable(&self) -> bool {
         matches!(
             self,
-            Self::Network(
-                FetchError::Retryable(_)
-                    | FetchError::Rejected {
-                        status: 408 | 429,
-                        ..
-                    }
-            ) | Self::Invalid(_)
+            Self::Open(FetchError::Retryable(_) | FetchError::HttpRetryable { .. })
+                | Self::Body(FetchError::Retryable(_))
         )
     }
-}
 
-impl From<FetchError> for TransferError {
-    fn from(error: FetchError) -> Self {
-        Self::Network(error)
+    pub(crate) fn retry_hint(&self) -> Option<Duration> {
+        match self {
+            Self::Open(FetchError::HttpRetryable { retry_after, .. }) => *retry_after,
+            _ => None,
+        }
+    }
+
+    pub(crate) fn origin_throttle(&self) -> bool {
+        self.throttle_status().is_some()
+    }
+
+    pub(crate) fn throttle_status(&self) -> Option<u16> {
+        match self {
+            Self::CoolingDown(status) => Some(*status),
+            Self::Open(error) => origin_throttle(error).map(|(status, _)| status),
+            _ => None,
+        }
     }
 }
 
 impl fmt::Display for TransferError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Network(FetchError::Retryable(reason) | FetchError::Fatal(reason))
-            | Self::Invalid(reason) => formatter.write_str(reason),
-            Self::Network(error) => error.fmt(formatter),
+            // Rejection bodies can contain credentials or signed URLs from the server.
+            Self::Open(FetchError::Rejected { status, .. }) => {
+                write!(formatter, "opening download: HTTP {status}")
+            }
+            Self::Open(error) => write!(formatter, "opening download: {error}"),
+            Self::Body(error) => write!(formatter, "reading download body: {error}"),
+            Self::Invalid(reason) | Self::IntegrityMismatch(reason) => formatter.write_str(reason),
             Self::Disk(error) => write!(formatter, "cannot write download: {error}"),
             Self::RangeUnavailable => formatter.write_str("source did not honor the byte range"),
+            Self::CoolingDown(status) => write!(formatter, "HTTP {status}: origin is cooling down"),
+            Self::RetryWaitExceeded => formatter.write_str("retry delay exceeds the wait budget"),
+            Self::RecoveryExhausted => formatter.write_str("retry budget exhausted"),
+            Self::RangeRecoveryExhausted(error) => {
+                write!(formatter, "retry budget exhausted: {error}")
+            }
+            Self::RangeWaitExceeded(error) => write!(
+                formatter,
+                "range recovery exceeded the wait budget: {error}"
+            ),
         }
     }
 }
@@ -81,141 +160,69 @@ pub(crate) struct Connection<'a, Body> {
 }
 
 impl<Net: Network> Transfer<'_, Net> {
-    pub(crate) async fn run(
-        &self,
-        job: DownloadJob<'_>,
-        staging: &mut AtomicFile,
-        final_round: bool,
-    ) -> Result<(), TransferError> {
-        let stage = Mutex::new(staging);
-        let attempt = match job.size {
-            Some(total) if total >= self.range_threshold() => {
-                self.ranged(&stage, total, final_round).await
-            }
-            None if !job.batch && self.engine.policy.connections_per_file.get() > 1 => {
-                self.probe(&stage, final_round).await
-            }
-            _ => Err(TransferError::RangeUnavailable),
-        };
-        match attempt {
-            Ok(()) => return Ok(()),
-            Err(TransferError::RangeUnavailable) => stage
-                .lock()
-                .expect("staged download lock")
-                .file()
-                .set_len(0)?,
-            Err(error) => return Err(error),
-        }
-        if let Some(share) = self.share {
-            share.set_remaining(None);
-        }
-        let connection = self.open(None).await?;
-        self.whole(connection, &stage).await
-    }
-
-    async fn probe(
-        &self,
-        stage: &Mutex<&mut AtomicFile>,
-        final_round: bool,
-    ) -> Result<(), TransferError> {
-        let connection = self.open_for_range(PROBE).await?;
-        let Some(range) = connection.response.range else {
-            return self.whole(connection, stage).await;
-        };
-        if range.interval != PROBE || range.total < self.range_threshold() {
-            return Err(TransferError::RangeUnavailable);
-        }
-        drop(connection);
-        self.ranged(stage, range.total, final_round).await
-    }
-
-    async fn ranged(
-        &self,
-        stage: &Mutex<&mut AtomicFile>,
-        total: u64,
-        final_round: bool,
-    ) -> Result<(), TransferError> {
-        let (width, chunk, minimum) = self.range_plan(total);
-        if let Some(share) = self.share {
-            share.set_remaining(Some(total));
-        }
-        let end = total.min(chunk);
-        let interval = ByteRange { start: 0, end };
-        let connection = self.open_for_range(interval).await?;
-        let Some(range) = connection.response.range else {
-            return self.whole(connection, stage).await;
-        };
-        if range.interval != interval || range.total != total {
-            return Err(TransferError::RangeUnavailable);
-        }
-        let source = RangeSource {
-            total,
-            width,
-            chunk,
-            minimum,
-        };
-        ranges::download(self, stage, source, interval, connection, final_round).await
-    }
-
-    fn range_threshold(&self) -> u64 {
-        if self.share.is_some() {
-            2 * MIN_RANGE_BYTES
-        } else {
-            RANGE_THRESHOLD
-        }
-    }
-
-    fn range_plan(&self, total: u64) -> (usize, u64, u64) {
-        let limit = self.engine.policy.connections_per_file.get();
-        let http1 = self.share.is_some();
-        let width = if http1 {
-            range_width(total, limit)
-        } else {
-            limit
-        };
-        let chunk = match (width, http1) {
-            (1, _) => total,
-            (_, true) => total.div_ceil(width as u64).min(ranges::INITIAL_SEGMENT),
-            (_, false) => ranges::INITIAL_SEGMENT,
-        };
-        let minimum = if http1 {
-            MIN_RANGE_BYTES
-        } else {
-            ranges::MIN_SEGMENT
-        };
-        (width, chunk, minimum)
-    }
-
-    async fn whole(
+    pub(crate) async fn whole(
         &self,
         mut connection: Connection<'_, impl DownloadBody>,
         stage: &Mutex<&mut AtomicFile>,
     ) -> Result<(), TransferError> {
         if connection.response.range.is_some() {
-            return Err(TransferError::RangeUnavailable);
+            return Err(TransferError::Invalid(
+                "unsolicited partial download".into(),
+            ));
         }
         if let Some(share) = self.share {
             share.set_remaining(None);
         }
-        self.copy(&mut connection.response.body, stage, 0, None, false)
+        let activity = SegmentActivity::new(0, true);
+        self.copy(&mut connection.response.body, stage, 0, None, &activity)
             .await
             .result
     }
 
+    pub(crate) async fn open_whole(
+        &self,
+        stage: &Mutex<&mut AtomicFile>,
+        recovery: bool,
+    ) -> Result<(), TransferError> {
+        if let Some(share) = self.share {
+            share.set_remaining(None);
+            share.set_width(1);
+        }
+        let connection = self.open(None, recovery, None).await?;
+        self.whole(connection, stage).await
+    }
+
     async fn open(
         &self,
-        range: Option<ByteRange>,
+        range: Option<RangeRequest<'_>>,
+        recovery: bool,
+        activity: Option<&SegmentActivity>,
     ) -> Result<Connection<'_, impl DownloadBody>, TransferError> {
+        self.check_cooldown()?;
         let share = match self.share {
             Some(share) => Some(share.acquire().await),
             None => None,
         };
         let host = self.host.acquire().await;
-        let global = self.engine.connections.acquire().await;
+        let global = self.resources.connections.acquire().await;
+        self.check_cooldown()?;
+        if recovery && !self.attempts.dispatch_recovery() {
+            return Err(TransferError::RecoveryExhausted);
+        }
+        self.attempts.record_request();
+        if let Some(activity) = activity {
+            activity.mark_dispatched();
+        }
         let response = self
             .network
-            .open_download(self.source, self.engine.policy.protocol, range)
-            .await?;
+            .open_download(self.source, self.protocol, range)
+            .await
+            .map_err(|error| {
+                self.resources
+                    .cooldowns
+                    .observe(self.origin, &error, self.attempts);
+                TransferError::Open(error)
+            })?;
         Ok(Connection {
             response,
             _host: host,
@@ -224,12 +231,31 @@ impl<Net: Network> Transfer<'_, Net> {
         })
     }
 
-    async fn open_for_range(
+    fn check_cooldown(&self) -> Result<(), TransferError> {
+        if let Some((status, _)) = self.resources.cooldown(self.origin, Duration::ZERO) {
+            return Err(TransferError::CoolingDown(status));
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn open_for_range(
         &self,
         range: ByteRange,
+        tag: Option<&[u8]>,
+        recovery: bool,
+        activity: Option<&SegmentActivity>,
     ) -> Result<Connection<'_, impl DownloadBody>, TransferError> {
-        self.open(Some(range)).await.map_err(|error| match error {
-            TransferError::Network(FetchError::Rejected {
+        self.open(
+            Some(RangeRequest {
+                interval: range,
+                if_range: tag,
+            }),
+            recovery,
+            activity,
+        )
+        .await
+        .map_err(|error| match error {
+            TransferError::Open(FetchError::Rejected {
                 status: 206 | 416, ..
             }) => TransferError::RangeUnavailable,
             other => other,
@@ -239,54 +265,60 @@ impl<Net: Network> Transfer<'_, Net> {
     pub(crate) async fn segment<Body: DownloadBody>(
         &self,
         stage: &Mutex<&mut AtomicFile>,
-        range: ByteRange,
-        total: u64,
-        split_slow: bool,
+        expected: ResponseRange,
+        validator: Option<&RangeValidator>,
+        recovery: bool,
+        activity: &SegmentActivity,
         initial: Option<Connection<'_, Body>>,
     ) -> CopyResult {
         if let Some(connection) = initial {
             return self
-                .copy_segment(stage, range, total, split_slow, connection)
+                .copy_segment(stage, expected, validator, activity, connection)
                 .await;
         }
-        let connection = match self.open_for_range(range).await {
+        let tag = validator.map(RangeValidator::tag);
+        let connection = match self
+            .open_for_range(expected.interval, tag, recovery, Some(activity))
+            .await
+        {
             Ok(connection) => connection,
             Err(error) => {
                 return CopyResult {
-                    end: range.start,
+                    end: expected.interval.start,
+                    dispatched: activity.dispatched(),
                     result: Err(error),
                 };
             }
         };
-        self.copy_segment(stage, range, total, split_slow, connection)
+        self.copy_segment(stage, expected, validator, activity, connection)
             .await
     }
 
     async fn copy_segment(
         &self,
         stage: &Mutex<&mut AtomicFile>,
-        range: ByteRange,
-        total: u64,
-        split_slow: bool,
+        expected: ResponseRange,
+        validator: Option<&RangeValidator>,
+        activity: &SegmentActivity,
         mut connection: Connection<'_, impl DownloadBody>,
     ) -> CopyResult {
-        let expected = ResponseRange {
-            interval: range,
-            total,
-        };
         let response = &mut connection.response;
-        if response.range != Some(expected) {
+        if response.range != Some(expected)
+            || !validator
+                .is_none_or(|validator| validator.matches(response.representation.as_ref()))
+        {
             return CopyResult {
-                end: range.start,
+                end: expected.interval.start,
+                dispatched: true,
                 result: Err(TransferError::RangeUnavailable),
             };
         }
         self.copy(
             &mut response.body,
             stage,
-            range.start,
-            Some(range.end),
-            split_slow,
+            expected.interval.start,
+            Some(expected.interval.end),
+            activity,
         )
         .await
     }
@@ -297,14 +329,15 @@ impl<Net: Network> Transfer<'_, Net> {
         stage: &Mutex<&mut AtomicFile>,
         start: u64,
         end: Option<u64>,
-        restart_slow: bool,
+        activity: &SegmentActivity,
     ) -> CopyResult {
         let mut position = start;
         let result = self
-            .copy_body(body, stage, &mut position, end, restart_slow)
+            .copy_body(body, stage, &mut position, end, activity)
             .await;
         CopyResult {
             end: position,
+            dispatched: true,
             result,
         }
     }
@@ -315,21 +348,16 @@ impl<Net: Network> Transfer<'_, Net> {
         stage: &Mutex<&mut AtomicFile>,
         position: &mut u64,
         end: Option<u64>,
-        restart_slow: bool,
+        activity: &SegmentActivity,
     ) -> Result<(), TransferError> {
-        let mut speed = ReadSpeed::default();
-        while let Some((chunk, _buffer, elapsed)) = self.read(body).await? {
-            self.write_chunk(stage, position, end, &chunk).await?;
-            let slow = speed.observe(elapsed, chunk.len() as u64);
-            self.check_speed(
-                restart_slow && slow,
-                end.map_or(u64::MAX, |end| end - *position),
-            )?;
+        while let Some((chunk, _buffer)) = self.read(body).await.map_err(TransferError::Body)? {
+            self.write_chunk(stage, position, end, &chunk, activity)
+                .await?;
         }
         if end.is_some_and(|expected| expected != *position) {
-            return Err(
-                FetchError::Retryable("download ended before the declared length".into()).into(),
-            );
+            return Err(TransferError::Body(FetchError::Retryable(
+                "download ended before the declared length".into(),
+            )));
         }
         Ok(())
     }
@@ -337,11 +365,10 @@ impl<Net: Network> Transfer<'_, Net> {
     async fn read(
         &self,
         body: &mut impl DownloadBody,
-    ) -> Result<Option<(Bytes, Lease, Duration)>, FetchError> {
-        let buffer = self.engine.buffers.acquire().await;
-        let started = Instant::now();
+    ) -> Result<Option<(Bytes, Lease)>, FetchError> {
+        let buffer = self.resources.buffers.acquire().await;
         let chunk = body.next_chunk().await?;
-        Ok(chunk.map(|chunk| (chunk, buffer, started.elapsed())))
+        Ok(chunk.map(|chunk| (chunk, buffer)))
     }
 
     async fn write_chunk(
@@ -350,29 +377,58 @@ impl<Net: Network> Transfer<'_, Net> {
         position: &mut u64,
         end: Option<u64>,
         chunk: &[u8],
+        activity: &SegmentActivity,
     ) -> Result<(), TransferError> {
         let length = chunk.len() as u64;
-        self.engine
+        self.resources
             .bytes_received
             .fetch_add(length, Ordering::Relaxed);
         if end.is_some_and(|expected| expected.saturating_sub(*position) < length) {
-            return Err(TransferError::Invalid(
-                "download returned more bytes than declared".into(),
-            ));
+            return Err(TransferError::RangeUnavailable);
         }
         for bytes in chunk.chunks(BUFFER_BYTES) {
-            self.engine.bandwidth.acquire(bytes.len()).await;
+            self.resources.bandwidth.acquire(bytes.len()).await;
             write(stage, *position, bytes)?;
             *position += bytes.len() as u64;
+            activity.record_written(*position);
         }
         Ok(())
     }
+}
 
-    fn check_speed(&self, restart: bool, remainder: u64) -> Result<(), TransferError> {
-        if restart && remainder > BUFFER_BYTES as u64 && !self.engine.bandwidth.is_limited() {
-            return Err(FetchError::Retryable("download source is too slow".into()).into());
-        }
-        Ok(())
+pub(crate) struct RangeValidator {
+    resource: String,
+    tag: Bytes,
+    has_digest: bool,
+}
+
+impl RangeValidator {
+    fn tag(&self) -> &[u8] {
+        &self.tag
+    }
+
+    pub(crate) fn from_response(
+        response: &DownloadResponse<impl DownloadBody>,
+        has_digest: bool,
+    ) -> Option<Self> {
+        let representation = response.representation.as_ref()?;
+        let DownloadEtag::Strong(tag) = representation.etag.as_ref()? else {
+            return None;
+        };
+        Some(Self {
+            resource: representation.resource.clone(),
+            tag: tag.clone(),
+            has_digest,
+        })
+    }
+
+    fn matches(&self, actual: Option<&DownloadRepresentation>) -> bool {
+        actual.is_some_and(|actual| {
+            (self.has_digest || actual.resource == self.resource)
+                && actual.etag.as_ref().is_none_or(
+                    |etag| matches!(etag, DownloadEtag::Strong(tag) if *tag == self.tag),
+                )
+        })
     }
 }
 
@@ -385,24 +441,40 @@ fn write(stage: &Mutex<&mut AtomicFile>, position: u64, bytes: &[u8]) -> io::Res
 
 pub(crate) struct CopyResult {
     pub(crate) end: u64,
+    pub(crate) dispatched: bool,
     pub(crate) result: Result<(), TransferError>,
 }
 
-#[derive(Default)]
-struct ReadSpeed {
-    elapsed: Duration,
-    bytes: u64,
+pub(crate) struct SegmentActivity {
+    written: AtomicU64,
+    dispatched: AtomicBool,
 }
 
-impl ReadSpeed {
-    fn observe(&mut self, elapsed: Duration, bytes: u64) -> bool {
-        self.elapsed += elapsed;
-        self.bytes = self.bytes.saturating_add(bytes);
-        if self.elapsed < SLOW_INTERVAL {
-            return false;
+impl SegmentActivity {
+    pub(crate) fn new(start: u64, dispatched: bool) -> Self {
+        Self {
+            written: AtomicU64::new(start),
+            dispatched: AtomicBool::new(dispatched),
         }
-        let slow = (self.bytes as f64) < SLOW_BYTES_PER_SECOND as f64 * self.elapsed.as_secs_f64();
-        *self = Self::default();
-        slow
+    }
+
+    fn mark_dispatched(&self) {
+        self.dispatched.store(true, Ordering::Relaxed);
+    }
+
+    fn record_written(&self, end: u64) {
+        self.written.store(end, Ordering::Relaxed);
+    }
+
+    fn dispatched(&self) -> bool {
+        self.dispatched.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn paused(&self, status: u16) -> CopyResult {
+        CopyResult {
+            end: self.written.load(Ordering::Relaxed),
+            dispatched: self.dispatched(),
+            result: Err(TransferError::CoolingDown(status)),
+        }
     }
 }
