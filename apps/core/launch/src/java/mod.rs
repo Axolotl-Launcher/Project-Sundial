@@ -75,17 +75,16 @@ impl SystemJava {
         let mut seen = HashSet::new();
         self.chosen
             .iter()
-            .map(|(_, path)| path.clone())
-            .chain(self.candidates())
-            .filter_map(|path| JavaRuntime::inspect(&path))
+            .filter_map(|(_, path)| JavaRuntime::inspect(path))
+            .chain(
+                self.managed_candidates()
+                    .chain(self.environment_candidates())
+                    .filter_map(discovery::inspect_automatic),
+            )
+            .chain(self.registered_runtimes())
+            .chain(self.platform_runtimes())
             .filter(|runtime| seen.insert(runtime.path().to_owned()))
             .collect()
-    }
-
-    fn candidates(&self) -> impl Iterator<Item = PathBuf> + '_ {
-        self.managed_candidates()
-            .chain(self.environment_candidates())
-            .chain(self.additional_candidates())
     }
 
     /// Resolves the saved choice or the newest available runtime for a major.
@@ -136,13 +135,18 @@ impl SystemJava {
             )
     }
 
-    fn additional_candidates(&self) -> impl Iterator<Item = PathBuf> + '_ {
-        self.registered.iter().cloned().chain(
-            self.system_discovery
-                .then_some(())
-                .into_iter()
-                .flat_map(|()| discovery::system_executables()),
-        )
+    fn registered_runtimes(&self) -> impl Iterator<Item = JavaRuntime> + '_ {
+        self.registered
+            .iter()
+            .filter_map(|path| JavaRuntime::inspect(path))
+    }
+
+    fn platform_runtimes(&self) -> impl Iterator<Item = JavaRuntime> {
+        self.system_discovery
+            .then_some(())
+            .into_iter()
+            .flat_map(|()| discovery::system_executables())
+            .filter_map(discovery::inspect_automatic)
     }
 }
 
@@ -150,8 +154,11 @@ impl Java for SystemJava {
     fn executable(&self, mode: JavaMode) -> Option<PathBuf> {
         self.environment_candidates()
             .chain(self.managed_candidates())
-            .chain(self.additional_candidates())
-            .find_map(|path| self.executable_at(&path, None, mode))
+            .filter_map(discovery::inspect_automatic)
+            .chain(self.registered_runtimes())
+            .chain(self.platform_runtimes())
+            .next()
+            .map(|runtime| runtime.executable(mode))
     }
 
     fn executable_for(&self, major: u32, mode: JavaMode) -> Option<PathBuf> {

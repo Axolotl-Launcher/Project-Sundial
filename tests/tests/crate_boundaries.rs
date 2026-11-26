@@ -87,7 +87,7 @@ fn permitted_edge(owner: &str, dependency: &str, target_dir: &Path) -> bool {
 fn resource_owner(dependency: &str) -> Option<&'static str> {
     match dependency {
         "reqwest" => Some("axlauncher_network"),
-        "keyring" | "dirs" | "dirs-next" | "directories" | "directories-next" => {
+        "keyring" | "dirs" | "dirs-next" | "directories" | "directories-next" | "sysinfo" => {
             Some("axlauncher_storage")
         }
         "gpui-kit" => Some("axlauncher_ui"),

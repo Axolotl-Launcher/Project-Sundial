@@ -29,6 +29,10 @@ mod instance_paths;
 pub use instance_paths::{instance_file_index, instance_options, profile_document, stage_instance};
 mod java_paths;
 pub use java_paths::java_search_roots;
+#[cfg(windows)]
+pub use java_paths::{
+    java_exploration_roots, java_fixed_drives, java_store_runtime_root, java_working_directory,
+};
 mod paths;
 pub use paths::{
     DataDir, Directory, download_debug_batch_file, invalid_settings_path, javas_path, job_document,

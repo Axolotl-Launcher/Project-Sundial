@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use std::path::PathBuf;
+#[cfg(windows)]
+use std::path::{Component, Prefix};
 
 /// Conventional system, user and Mojang Java installation roots.
 pub fn java_search_roots() -> Vec<PathBuf> {
@@ -41,15 +43,64 @@ fn platform_roots() -> Vec<PathBuf> {
             roots.push(path.join("Minecraft Launcher/runtime"));
         }
     }
-    if let Some(data) = dirs::data_dir() {
-        roots.push(data.join(".minecraft/runtime"));
-    }
-    if let Some(local) = dirs::data_local_dir() {
-        roots.push(
-            local.join("Packages/Microsoft.4297127D64EC6_8wekyb3d8bbwe/LocalCache/Local/runtime"),
-        );
-    }
+    roots.extend(roaming_minecraft_runtime());
     roots
+}
+
+#[cfg(windows)]
+fn roaming_minecraft_runtime() -> Option<PathBuf> {
+    Some(dirs::data_dir()?.join(".minecraft/runtime"))
+}
+
+/// Fixed, mounted drive letters available for the Windows Java search.
+#[cfg(windows)]
+pub fn java_fixed_drives() -> Vec<PathBuf> {
+    sysinfo::Disks::new_with_refreshed_list()
+        .list()
+        .iter()
+        .filter(|disk| !disk.is_removable())
+        .map(sysinfo::Disk::mount_point)
+        .filter(|path| {
+            path.parent().is_none()
+                && matches!(
+                    path.components().next(),
+                    Some(Component::Prefix(prefix)) if matches!(prefix.kind(), Prefix::Disk(_))
+                )
+        })
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+/// Locations explored for Windows Java installations by directory name.
+#[cfg(windows)]
+pub fn java_exploration_roots(drives: &[PathBuf]) -> Vec<PathBuf> {
+    let mut roots: Vec<_> = roaming_minecraft_runtime()
+        .into_iter()
+        .chain(dirs::data_local_dir())
+        .chain(dirs::home_dir())
+        .collect();
+    roots.extend(drives.iter().flat_map(|drive| {
+        [
+            drive.join("Program Files"),
+            drive.join("Program Files (x86)"),
+        ]
+    }));
+    roots
+}
+
+/// Minecraft Launcher's published Microsoft Store runtime location.
+#[cfg(windows)]
+pub fn java_store_runtime_root() -> Option<PathBuf> {
+    Some(
+        dirs::data_local_dir()?
+            .join("Packages/Microsoft.4297127D64EC6_8wekyb3d8bbwe/LocalCache/Local/runtime"),
+    )
+}
+
+/// The extra directory Windows' executable search checks before PATH.
+#[cfg(windows)]
+pub fn java_working_directory() -> Option<PathBuf> {
+    std::env::current_dir().ok()
 }
 
 #[cfg(target_os = "macos")]

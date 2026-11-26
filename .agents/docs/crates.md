@@ -46,6 +46,14 @@ repairing it.
 Automatic selection uses the newest available release and build for each Java
 major. A valid saved preference overrides that default.
 
+On Windows, exploratory discovery follows PCL-CE's bounded breadth-first
+search from fixed drives, Program Files and user directories. Registry and
+Minecraft runtime locations supply additional candidates. Windows executable
+lookup covers the working directory and PATH without starting a subprocess.
+Automatic discovery excludes `WpSystem` and PCL-CE's excluded directories
+before or after resolving a path. Explicit registrations retain their own
+validation.
+
 ## Download protocol behavior
 
 File transfers use HTTP/1.1 by default, including range requests. HTTP/2 is

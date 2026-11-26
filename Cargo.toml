@@ -144,7 +144,7 @@ itertools = "0.15.0"
 regex = "1.13.2"
 serde_with = "3.25.0"
 shlex = "2.0.1"
-sysinfo = "0.40.4"
+sysinfo = { version = "0.31.4", default-features = false, features = ["disk"] }
 thiserror = "2.0.21"
 which = "8.0.6"
 windows-registry = "0.6.1"
@@ -217,7 +217,6 @@ ignored = [
   "semver",
   "serde_with",
   "shlex",
-  "sysinfo",
   "tar",
   "toml",
   "tracing",

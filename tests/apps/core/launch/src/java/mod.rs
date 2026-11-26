@@ -425,3 +425,25 @@ fn discovery_deduplicates_aliases_of_the_same_installation() {
     assert_eq!(available.len(), 1);
     assert_eq!(available[0].path(), executable);
 }
+
+#[cfg(windows)]
+#[test]
+fn a_wpsystem_runtime_is_skipped_automatically_and_available_when_registered() {
+    let temp = TempDir::new();
+    let home = temp.path().join("wPsYsTeM/launcher-runtime");
+    let executable = install_fixture(&home, "25.0.1");
+    let provider = SystemJava::with_environment(Some(home), None);
+
+    assert!(provider.discover().is_empty());
+    assert_eq!(provider.executable(JavaMode::Console), None);
+    assert_eq!(provider.executable_for(25, JavaMode::Console), None);
+    assert_eq!(
+        provider.executable_at(&executable, None, JavaMode::Console),
+        Some(executable.clone())
+    );
+    let manual = provider.with_registered(vec![executable.clone()]);
+    assert_eq!(
+        manual.executable_for(25, JavaMode::Console),
+        Some(executable)
+    );
+}
