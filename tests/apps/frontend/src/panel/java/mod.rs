@@ -53,6 +53,15 @@ fn java_panel_actions_reopen_saved_catalog_and_instance_choices() {
         [(42, path.as_path())]
     );
     assert_eq!(loaded.profile_runtime(&profile).unwrap().major(), 42);
+    let other = "another-instance".to_owned();
+    assert!(loaded.profile_preference(&other).is_none());
+    let both = Operation::Select {
+        profile: other.clone(),
+        path: Some(path.clone()),
+    }
+    .run(&data)
+    .unwrap();
+    assert_eq!(both.profile_preference(&other), Some(path.as_path()));
 
     let automatic = Operation::Select {
         profile: profile.clone(),
@@ -61,6 +70,7 @@ fn java_panel_actions_reopen_saved_catalog_and_instance_choices() {
     .run(&data)
     .unwrap();
     assert!(automatic.profile_preference(&profile).is_none());
+    assert_eq!(automatic.profile_preference(&other), Some(path.as_path()));
     let removed = Operation::Remove(path).run(&data).unwrap();
     assert!(removed.paths().next().is_none());
     assert!(removed.preferred().next().is_none());

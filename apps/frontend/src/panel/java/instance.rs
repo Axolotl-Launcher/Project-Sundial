@@ -1,17 +1,18 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Java selection for the currently displayed instance.
+//! Java selection for an instance row.
 
 use std::path::{Path, PathBuf};
 
 use axlauncher_core::desktop::java::JavaCatalog;
+use axlauncher_core::state::profile::DiscoveredProfile;
 use axlauncher_ui as gpui;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, App, Button, Context, Disableable, DropdownMenu, ElementId, Entity,
     IconName, IntoElement, Label, PopupMenu, PopupMenuItem, RenderOnce, Sizable, WeakEntity,
-    Window, v_flex,
+    Window, h_flex, v_flex,
 };
 
 use super::{JavaPanel, Operation, java_feedback, java_id, java_path_label, runtime_title};
@@ -21,14 +22,16 @@ pub(in crate::panel) struct InstancePicker {
     panel: Entity<JavaPanel>,
     profile: String,
     name: String,
+    directory: PathBuf,
 }
 
 impl InstancePicker {
-    pub(in crate::panel) fn new(panel: Entity<JavaPanel>, profile: &str, name: &str) -> Self {
+    pub(in crate::panel) fn new(panel: Entity<JavaPanel>, entry: &DiscoveredProfile) -> Self {
         Self {
             panel,
-            profile: profile.to_owned(),
-            name: name.to_owned(),
+            profile: entry.profile.id().to_owned(),
+            name: entry.profile.instance.name.clone(),
+            directory: entry.directory.clone(),
         }
     }
 
@@ -43,7 +46,7 @@ impl InstancePicker {
             scope: panel.scope,
             profile: self.profile.clone(),
         };
-        let id = ElementId::Name(format!("instance-java-menu:{}", self.profile).into());
+        let id = java_id("instance-java-menu", &self.directory);
         let trigger = Button::new(id)
             .label(title)
             .accessibility_label(label)
@@ -67,9 +70,10 @@ impl RenderOnce for InstancePicker {
         let panel = self.panel.read(cx);
         let label = format!("Java for {}", self.name);
         v_flex()
+            .id(java_id("instance-java-picker", &self.directory))
             .gap_1()
             .child(Label::new(label.clone()).text_sm().truncate())
-            .child(self.render_control(panel, label, cx))
+            .child(h_flex().child(self.render_control(panel, label, cx)))
             .children(java_feedback(panel, Some(&self.profile), cx))
     }
 }

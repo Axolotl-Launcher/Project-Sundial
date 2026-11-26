@@ -16,7 +16,7 @@ use axlauncher_ui::{
 
 use crate::instance_row;
 
-use super::{RootView, launch};
+use super::{RootView, java::InstancePicker, launch};
 
 pub(super) struct InstancesState {
     discovered: ProfileDiscovery,
@@ -165,7 +165,7 @@ impl RootView {
                         v_flex()
                             .gap_2()
                             .child(row)
-                            .when(selected, |row| row.children(self.selected_java_picker()))
+                            .child(InstancePicker::new(self.java.clone(), entry))
                     })),
             )
             .into_any_element()

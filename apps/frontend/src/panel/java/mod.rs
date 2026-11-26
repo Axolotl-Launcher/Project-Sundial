@@ -99,9 +99,10 @@ impl JavaPanel {
 
     fn feedback(&self, profile: Option<&str>) -> Option<(&str, bool)> {
         if let Some(activity) = self.active() {
-            return Some((activity.label(), false));
+            return (profile.is_none() || activity.profile() == profile)
+                .then(|| (activity.label(), false));
         }
-        if self.busy() {
+        if self.busy() && profile.is_none() {
             return Some(("Waiting to refresh the Java list…", false));
         }
         self.error
