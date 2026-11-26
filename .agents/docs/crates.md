@@ -43,6 +43,9 @@ discoverable when installation publishes their completion record. An installer
 holds a per-runtime writer lock and withdraws a damaged runtime's record before
 repairing it.
 
+Automatic selection uses the newest available release and build for each Java
+major. A valid saved preference overrides that default.
+
 ## Download protocol behavior
 
 File transfers use HTTP/1.1 by default, including range requests. HTTP/2 is

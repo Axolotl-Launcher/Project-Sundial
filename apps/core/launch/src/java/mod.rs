@@ -13,6 +13,7 @@ use axlauncher_storage::runtime_record;
 use crate::platform::{executable_in_home, managed_executable, managed_home, search_all};
 
 mod discovery;
+mod release;
 mod runtime;
 pub use runtime::JavaRuntime;
 
@@ -45,7 +46,7 @@ impl SystemJava {
         }
     }
 
-    /// Gives launcher-managed installations priority over the environment.
+    /// Includes completed launcher-managed installations in the search.
     pub fn with_runtime_roots(mut self, roots: Vec<PathBuf>) -> Self {
         self.runtime_roots = inventory(roots);
         self
@@ -92,6 +93,33 @@ impl SystemJava {
             .chain(self.additional_candidates())
     }
 
+    /// Resolves the saved choice or the newest available runtime for a major.
+    pub fn default_for<'a>(
+        &self,
+        major: u32,
+        runtimes: &'a [JavaRuntime],
+    ) -> Option<&'a JavaRuntime> {
+        let pinned = self
+            .chosen
+            .iter()
+            .filter(|(chosen_major, _)| *chosen_major == major)
+            .filter_map(|(_, path)| JavaRuntime::inspect(path))
+            .filter(|runtime| runtime.major() == major)
+            .find_map(|chosen| {
+                runtimes
+                    .iter()
+                    .find(|runtime| runtime.major() == major && runtime.path() == chosen.path())
+            });
+        pinned.or_else(|| {
+            // max_by keeps the last tie, so reverse the original discovery order.
+            runtimes
+                .iter()
+                .rev()
+                .filter(|runtime| runtime.major() == major)
+                .max_by(|left, right| left.compare_release(right))
+        })
+    }
+
     fn managed_candidates(&self) -> impl Iterator<Item = PathBuf> + '_ {
         self.runtime_roots
             .iter()
@@ -132,12 +160,8 @@ impl Java for SystemJava {
     }
 
     fn executable_for(&self, major: u32, mode: JavaMode) -> Option<PathBuf> {
-        self.chosen
-            .iter()
-            .filter(move |(chosen_major, _)| *chosen_major == major)
-            .map(|(_, path)| path.clone())
-            .chain(self.candidates())
-            .find_map(|path| self.executable_at(&path, Some(major), mode))
+        self.default_for(major, &self.discover())
+            .map(|runtime| runtime.executable(mode))
     }
 
     fn executable_at(&self, path: &Path, major: Option<u32>, mode: JavaMode) -> Option<PathBuf> {

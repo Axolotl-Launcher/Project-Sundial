@@ -192,22 +192,22 @@ fn a_major_nothing_offers_is_reported_as_absent() {
 }
 
 #[test]
-fn an_installed_runtime_is_preferred_over_the_environment() {
+fn the_newest_release_wins_across_discovery_sources() {
     let temp = TempDir::new();
-    let managed = jdk_home(&temp.path().join("managed"), "21.0.7");
+    let managed = jdk_home(&temp.path().join("managed"), "21.0.9");
     fs::write(runtime_record(&managed), b"{}").unwrap();
-    let environment = jdk_home(&temp.path().join("env"), "21.0.6");
+    let environment = jdk_home(&temp.path().join("env"), "21.0.10");
     let search_path = std::env::join_paths([environment.join("bin")]).expect("path");
 
-    let java = SystemJava::with_environment(None, Some(search_path))
-        .with_runtime_roots(vec![managed.clone()]);
+    let java =
+        SystemJava::with_environment(None, Some(search_path)).with_runtime_roots(vec![managed]);
 
     let found = java.executable_for(21, JavaMode::Console).expect("java 21");
 
     assert!(
-        found.starts_with(&managed),
+        found.starts_with(&environment),
         "expected {}, got {}",
-        managed.display(),
+        environment.display(),
         found.display()
     );
 }
@@ -232,11 +232,9 @@ fn managed_discovery_only_selects_published_installations() {
 #[test]
 fn a_chosen_runtime_wins_over_java_home_and_the_search_path() {
     let temp = TempDir::new();
-    // All three offer major 21, so the test fails if the choice is not what
-    // decided the answer.
     let chosen = jdk_home(&temp.path().join("chosen"), "21.0.7");
-    let home = jdk_home(&temp.path().join("home"), "21.0.7");
-    let on_path = jdk_home(&temp.path().join("path"), "21.0.7");
+    let home = jdk_home(&temp.path().join("home"), "21.0.8");
+    let on_path = jdk_home(&temp.path().join("path"), "21.0.9");
     let search_path = std::env::join_paths([on_path.join("bin")]).expect("path");
     let executable = chosen.join("bin").join(executable_name(JavaMode::Console));
 
@@ -244,6 +242,26 @@ fn a_chosen_runtime_wins_over_java_home_and_the_search_path() {
         .with_chosen(vec![(21, executable.clone())]);
 
     assert_eq!(java.executable_for(21, JavaMode::Console), Some(executable));
+}
+
+#[test]
+fn runtime_build_breaks_a_tie_in_java_version() {
+    let temp = TempDir::new();
+    let earlier = jdk_home(&temp.path().join("a"), "25.0.3");
+    let latest = jdk_home(&temp.path().join("b"), "25.0.3");
+    for (home, build) in [(&earlier, 9), (&latest, 10)] {
+        fs::write(
+            home.join("release"),
+            format!("JAVA_VERSION=\"25.0.3\"\nJAVA_RUNTIME_VERSION=\"25.0.3+{build}-LTS\""),
+        )
+        .unwrap();
+    }
+    let path = joined(&[&earlier.join("bin"), &latest.join("bin")]);
+    let java = SystemJava::with_environment(None, Some(path));
+    assert_eq!(
+        java.executable_for(25, JavaMode::Console),
+        Some(latest.join("bin").join(executable_name(JavaMode::Console)))
+    );
 }
 
 #[test]

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
+use std::cmp::Ordering;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -8,12 +9,14 @@ use axlauncher_spi::JavaMode;
 
 use crate::platform::{name, sibling};
 
+use super::release::JavaRelease;
+
 /// A locally inspected Java installation identified by its executable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JavaRuntime {
     executable: PathBuf,
     full_version: String,
-    major: u32,
+    version: JavaRelease,
     architecture: Option<String>,
 }
 
@@ -33,12 +36,15 @@ impl JavaRuntime {
             return None;
         }
         let release = read_release(&executable)?;
-        let version = property(&release, "JAVA_VERSION")?;
-        let major = java_major(version)?;
+        let reported_version = property(&release, "JAVA_VERSION")?;
+        let (full_version, version) = property(&release, "JAVA_RUNTIME_VERSION")
+            .into_iter()
+            .chain([reported_version])
+            .find_map(|value| Some((value, JavaRelease::parse(value)?)))?;
         Some(Self {
             executable,
-            full_version: version.to_owned(),
-            major,
+            full_version: full_version.to_owned(),
+            version,
             architecture: property(&release, "OS_ARCH").map(str::to_owned),
         })
     }
@@ -48,7 +54,7 @@ impl JavaRuntime {
     }
 
     pub fn major(&self) -> u32 {
-        self.major
+        self.version.major()
     }
 
     pub fn full_version(&self) -> &str {
@@ -57,6 +63,10 @@ impl JavaRuntime {
 
     pub fn architecture(&self) -> Option<&str> {
         self.architecture.as_deref()
+    }
+
+    pub(super) fn compare_release(&self, other: &Self) -> Ordering {
+        self.version.cmp(&other.version)
     }
 
     pub(super) fn executable(&self, mode: JavaMode) -> PathBuf {
@@ -83,18 +93,6 @@ fn property<'a>(release: &'a str, name: &str) -> Option<&'a str> {
         let (key, value) = line.split_once('=')?;
         (name == key).then(|| value.trim().trim_matches('"'))
     })
-}
-
-fn java_major(version: &str) -> Option<u32> {
-    // Java 8 and earlier used the 1.x version format.
-    version
-        .strip_prefix("1.")
-        .unwrap_or(version)
-        .split(['.', '_', '-', '+'])
-        .next()?
-        .parse::<u32>()
-        .ok()
-        .filter(|major| *major > 0)
 }
 
 fn is_executable(path: &Path) -> bool {
