@@ -8,8 +8,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use axlauncher_spi::{
-    ByteRange, DownloadBody, DownloadProtocol, DownloadResponse, FetchError, Network, RangeRequest,
-    ResponseRange,
+    ByteRange, DownloadBody, DownloadEtag, DownloadProtocol, DownloadRepresentation,
+    DownloadResponse, FetchError, Network, RangeRequest, ResponseRange,
 };
 use bytes::Bytes;
 use futures::executor::block_on;
@@ -47,11 +47,14 @@ impl Network for RangeNetwork {
 
     async fn open_download(
         &self,
-        _url: &str,
+        url: &str,
         protocol: DownloadProtocol,
         range: Option<RangeRequest<'_>>,
     ) -> Result<DownloadResponse<impl DownloadBody>, FetchError> {
         assert_eq!(protocol, self.protocol.unwrap_or_default());
+        if let Some(request) = range.filter(|request| request.interval.start != 0) {
+            assert_eq!(request.if_range, Some(b"\"version\"".as_slice()));
+        }
         let range = range.map(|request| request.interval);
         self.requests.borrow_mut().push(range);
         let total = self.length.unwrap_or(LENGTH);
@@ -72,7 +75,10 @@ impl Network for RangeNetwork {
         Ok(DownloadResponse {
             length: Some(length),
             range,
-            representation: None,
+            representation: range.map(|_| DownloadRepresentation {
+                resource: url.into(),
+                etag: Some(DownloadEtag::Strong(Bytes::from_static(b"\"version\""))),
+            }),
             body: PatternBody {
                 offset: if ignored { 0 } else { interval.start },
                 end: if ignored { total } else { interval.end },
@@ -143,7 +149,13 @@ fn the_first_known_range_is_eight_mib_and_an_interrupted_tail_resumes() {
         batch: true,
     };
 
-    block_on(engine.download(&network, job)).unwrap();
+    tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .start_paused(true)
+        .build()
+        .unwrap()
+        .block_on(engine.download(&network, job))
+        .unwrap();
 
     let requests = network.requests.into_inner();
     assert_eq!(
@@ -431,11 +443,23 @@ fn disabling_a_speed_limit_wakes_pending_reads() {
                 bytes_per_second: Some(NonZeroU64::MIN),
                 ..DownloadPolicy::default()
             });
-            let mut charge = engine.bandwidth.acquire(64 * 1024).boxed();
-            assert!(poll!(&mut charge).is_pending());
+            let root = test_tempfile::tempdir().unwrap();
+            let destination = root.path().join("file");
+            let network = IncorrectLengthNetwork(4);
+            let job = DownloadJob {
+                sources: &[DATA_SOURCE],
+                destination: &destination,
+                sha1: None,
+                sha1_alternatives: &[],
+                size: Some(4),
+                batch: true,
+            };
+            let mut download = engine.download(&network, job).boxed_local();
+            assert!(poll!(&mut download).is_pending());
             engine.set_speed_limit(None);
-            tokio::time::timeout(Duration::from_secs(1), charge)
+            tokio::time::timeout(Duration::from_secs(1), download)
                 .await
+                .unwrap()
                 .unwrap();
         });
 }

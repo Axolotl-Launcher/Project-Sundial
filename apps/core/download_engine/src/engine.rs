@@ -3,33 +3,26 @@
 
 use std::borrow::Cow;
 use std::fs::File;
-use std::io::{self, Seek};
+use std::io;
 use std::num::{NonZeroU64, NonZeroUsize};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::path::PathBuf;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-use axlauncher_network::verify_reader_any;
 use axlauncher_spi::{DownloadProtocol, FetchError, Network};
 use axlauncher_storage::AtomicFile;
-use url::Url;
+use url::{Origin, Url};
 
-use crate::resources::{BUFFER_BYTES, Bandwidth, Quota, Quotas};
-use crate::transfer::{Transfer, TransferError};
+use crate::ranges::{FileTransfer, TransferMode};
+use crate::resources::Quotas;
+use crate::retry::{Attempts, Delay, Recovery, WaitBudget, cooldown_jitter};
+use crate::transfer::{Transfer, TransferError, TransferResources};
+use crate::verify::{Verification, already_verified, has_digest, verify};
 use crate::weighted::WeightedConnections;
-use crate::{DEFAULT_CONCURRENCY, SHARED_ENGINE};
+use crate::{DEFAULT_CONCURRENCY, DownloadJob};
 
-const RETRY_DELAYS: [Duration; 4] = [
-    Duration::ZERO,
-    Duration::from_millis(400),
-    Duration::from_millis(600),
-    Duration::from_secs(1),
-];
 const DEFAULT_FILE_CONNECTIONS: NonZeroUsize = NonZeroUsize::new(16).unwrap();
 const DEFAULT_BUFFER_BUDGET: NonZeroUsize = NonZeroUsize::new(16 * 1024 * 1024).unwrap();
-
-type Verification = Arc<dyn Fn(&mut File) -> io::Result<()> + Send + Sync>;
 
 /// Limits shared by all transfers performed by one engine.
 #[derive(Debug, Clone, Copy)]
@@ -55,20 +48,6 @@ impl Default for DownloadPolicy {
     }
 }
 
-/// The ordered sources and integrity metadata for a destination.
-#[derive(Debug, Clone, Copy)]
-pub struct DownloadJob<'a> {
-    pub sources: &'a [&'a str],
-    pub destination: &'a Path,
-    /// The expected digest, verified before promotion when provided.
-    pub sha1: Option<&'a str>,
-    /// Additional digests accepted by the manifest for the same artifact.
-    pub sha1_alternatives: &'a [String],
-    pub size: Option<u64>,
-    /// Unknown-size files in a batch skip Range discovery.
-    pub batch: bool,
-}
-
 /// Usage across all current and completed jobs of an engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TransferStats {
@@ -82,12 +61,9 @@ pub struct TransferStats {
 
 /// The scheduler and shared resources for full and ranged file transfers.
 pub struct DownloadEngine {
-    pub(crate) policy: DownloadPolicy,
-    pub(crate) connections: Quota,
-    pub(crate) hosts: Quotas<String>,
-    pub(crate) buffers: Quota,
-    pub(crate) bandwidth: Bandwidth,
-    pub(crate) bytes_received: AtomicU64,
+    policy: DownloadPolicy,
+    resources: TransferResources,
+    hosts: Quotas<String>,
     destinations: Quotas<PathBuf>,
     http1_connections: WeightedConnections,
 }
@@ -101,13 +77,13 @@ impl Default for DownloadEngine {
 impl DownloadEngine {
     /// A policy instance whose jobs share connection, buffer and bandwidth quotas.
     pub fn new(policy: DownloadPolicy) -> Self {
-        let slots = (policy.buffer_bytes.get() / BUFFER_BYTES).max(1);
         Self {
-            connections: Quota::new(policy.connections),
+            resources: TransferResources::new(
+                policy.connections,
+                policy.buffer_bytes,
+                policy.bytes_per_second,
+            ),
             hosts: Quotas::default(),
-            buffers: Quota::new(NonZeroUsize::new(slots).unwrap()),
-            bandwidth: Bandwidth::new(policy.bytes_per_second),
-            bytes_received: AtomicU64::new(0),
             destinations: Quotas::default(),
             http1_connections: WeightedConnections::new(policy.connections.get()),
             policy,
@@ -116,32 +92,35 @@ impl DownloadEngine {
 
     /// The scheduler used by [`crate::download_all`] and the launcher installer.
     pub fn shared() -> &'static Self {
+        static SHARED_ENGINE: LazyLock<DownloadEngine> = LazyLock::new(DownloadEngine::default);
         &SHARED_ENGINE
     }
 
     /// Changes global connection admission immediately for queued jobs.
     pub fn set_connection_limit(&self, limit: NonZeroUsize) {
-        self.connections.set_limit(limit);
+        self.resources.set_connection_limit(limit);
         self.http1_connections.set_limit(limit.get());
     }
 
     /// `None` removes the shared bandwidth cap immediately.
     pub fn set_speed_limit(&self, limit: Option<NonZeroU64>) {
-        self.bandwidth.set_limit(limit);
+        self.resources.set_speed_limit(limit);
     }
 
     /// Takes a snapshot of active connections and received bytes.
     pub fn stats(&self) -> TransferStats {
         TransferStats {
-            active_connections: self.connections.active(),
-            connection_limit: self.connections.limit(),
+            active_connections: self.resources.active_connections(),
+            connection_limit: self.resources.connection_limit(),
             connections_per_file: self.policy.connections_per_file.get(),
             protocol: self.policy.protocol,
-            bytes_received: self.bytes_received.load(Ordering::Relaxed),
+            bytes_received: self.resources.bytes_received(),
         }
     }
 
     /// Reuses a verified file or tries its sources and promotes a verified transfer.
+    ///
+    /// Retry delays require a Tokio time driver.
     pub async fn download(
         &self,
         network: &impl Network,
@@ -172,12 +151,13 @@ impl DownloadEngine {
         let path = std::path::absolute(job.destination).map_err(|error| error.to_string())?;
         let exclusive = self.destinations.for_key(path, NonZeroUsize::MIN);
         let _lease = exclusive.acquire().await;
-        if already_verified(job, verify).await {
+        if already_verified(job, verify)
+            .await
+            .map_err(|error| error.to_string())?
+        {
             return Ok(());
         }
-        self.try_sources(network, job, verify)
-            .await
-            .map_err(|error| error.to_string())
+        self.try_sources(network, job, verify).await
     }
 
     async fn try_sources(
@@ -185,84 +165,262 @@ impl DownloadEngine {
         network: &impl Network,
         job: DownloadJob<'_>,
         verify: Option<&Verification>,
-    ) -> Result<(), TransferError> {
-        let mut sources = ordered_sources(network, job.sources, has_digest(job, verify));
-        let mut last = TransferError::Invalid("no download source supplied".into());
-        let mut rounds = RETRY_DELAYS.into_iter().enumerate();
-        while let Some((round, delay)) = rounds.next().filter(|_| !sources.is_empty()) {
-            wait_before_retry(delay).await;
-            let final_round = round + 1 == RETRY_DELAYS.len();
-            last = match self
-                .try_round(network, job, &mut sources, final_round, verify)
-                .await?
-            {
-                Some(error) => error,
-                None => return Ok(()),
-            };
-        }
-        Err(last)
-    }
-
-    async fn try_round(
-        &self,
-        network: &impl Network,
-        job: DownloadJob<'_>,
-        sources: &mut Vec<Cow<'_, str>>,
-        final_round: bool,
-        verify: Option<&Verification>,
-    ) -> Result<Option<TransferError>, TransferError> {
-        let mut last = TransferError::Invalid("no download source supplied".into());
-        for source in std::mem::take(sources) {
-            let error = match self
-                .attempt(network, job, &source, final_round, verify)
-                .await
-            {
-                Ok(()) => return Ok(None),
-                Err(error @ TransferError::Disk(_)) => return Err(error),
+    ) -> Result<(), String> {
+        let mut sources: Vec<_> = ordered_sources(network, job.sources, has_digest(job, verify))
+            .into_iter()
+            .map(Source::new)
+            .collect();
+        let mut wait = WaitBudget::default();
+        while let Some(source) = self.ready_source(&mut sources, &mut wait).await {
+            let error = match source.attempt(self, network, job, verify, &mut wait).await {
+                Ok(()) => return Ok(()),
+                Err(error @ TransferError::Disk(_)) => return Err(error.to_string()),
                 Err(error) => error,
             };
-            sources.extend(error.retryable().then_some(source));
-            last = error;
+            source.failed(error);
         }
-        Ok(Some(last))
+        Err(source_failure(&sources))
+    }
+
+    async fn ready_source<'a, 'url>(
+        &self,
+        sources: &'a mut [Source<'url>],
+        wait: &mut WaitBudget,
+    ) -> Option<&'a mut Source<'url>> {
+        let (mut index, mut priority) = self.next_candidate(sources)?;
+        while !sources[index].ready(priority, wait).await {
+            (index, priority) = self.next_candidate(sources)?;
+        }
+        Some(&mut sources[index])
+    }
+
+    fn next_candidate(&self, sources: &[Source<'_>]) -> Option<(usize, SourcePriority)> {
+        sources
+            .iter()
+            .enumerate()
+            .filter_map(|(index, source)| Some((index, source.priority(&self.resources)?)))
+            .min_by_key(|(_, priority)| (priority.delay, priority.used))
+    }
+}
+
+#[derive(Clone, Copy)]
+struct SourcePriority {
+    delay: Duration,
+    used: bool,
+    status: Option<u16>,
+}
+
+struct Source<'a> {
+    url: Cow<'a, str>,
+    origin: Option<Origin>,
+    host: Option<String>,
+    attempts: Attempts,
+    delay: Option<Delay>,
+    cooldown_jitter: Duration,
+    error: Option<TransferError>,
+    mode: TransferMode,
+    retry_integrity: bool,
+    exhausted: bool,
+    done: bool,
+}
+
+impl<'a> Source<'a> {
+    fn new(url: Cow<'a, str>) -> Self {
+        let parsed = Url::parse(&url)
+            .ok()
+            .filter(|url| matches!(url.scheme(), "http" | "https"));
+        Self {
+            url,
+            origin: parsed.as_ref().map(Url::origin),
+            host: parsed.as_ref().and_then(Url::host_str).map(str::to_owned),
+            attempts: Attempts::default(),
+            delay: None,
+            cooldown_jitter: cooldown_jitter(),
+            error: None,
+            mode: TransferMode::default(),
+            retry_integrity: false,
+            exhausted: false,
+            done: false,
+        }
     }
 
     async fn attempt(
-        &self,
+        &mut self,
+        engine: &DownloadEngine,
         network: &impl Network,
         job: DownloadJob<'_>,
-        source: &str,
-        final_round: bool,
         check: Option<&Verification>,
+        wait: &mut WaitBudget,
     ) -> Result<(), TransferError> {
-        let host = Url::parse(source)
-            .ok()
-            .filter(|url| matches!(url.scheme(), "http" | "https"))
-            .and_then(|url| url.host_str().map(str::to_owned))
-            .ok_or_else(|| FetchError::Fatal(format!("invalid download URL: {source}")))?;
-        let limit = self
+        let (Some(host), Some(origin)) = (self.host.as_ref(), self.origin.as_ref()) else {
+            return Err(TransferError::Open(FetchError::Fatal(
+                "invalid download URL".into(),
+            )));
+        };
+        let previous = self.attempts.request_count();
+        let recovery = if previous == 0 {
+            None
+        } else {
+            self.attempts.reserve()
+        };
+        debug_assert!(previous == 0 || recovery.is_some());
+        let limit = engine
             .policy
             .connections_per_host
-            .min(network.download_connection_limit(&host));
-        let host = self.hosts.for_key(host, limit);
-        let share = (self.policy.protocol == DownloadProtocol::Http1).then(|| {
-            self.http1_connections
-                .register(job.size, self.policy.connections_per_file.get())
+            .min(network.download_connection_limit(host));
+        let host = engine.hosts.for_key(host.clone(), limit);
+        let share = (engine.policy.protocol == DownloadProtocol::Http1).then(|| {
+            engine
+                .http1_connections
+                .register(job.size, engine.policy.connections_per_file.get())
         });
         let transfer = Transfer {
-            engine: self,
+            resources: &engine.resources,
+            protocol: engine.policy.protocol,
             network,
-            source,
+            source: &self.url,
+            origin,
+            attempts: &self.attempts,
             host: &host,
             share: share.as_ref(),
         };
         let mut staging = AtomicFile::new(job.destination)?;
-        transfer.run(job, &mut staging, final_round).await?;
+        let result = FileTransfer {
+            transfer: &transfer,
+            parallelism: engine.policy.connections_per_file.get(),
+            has_digest: has_digest(job, check),
+            probe_unknown: !job.batch,
+        }
+        .run(
+            job.destination,
+            job.size,
+            &mut staging,
+            &mut self.mode,
+            wait,
+        )
+        .await;
+        self.finish_recovery(recovery, previous);
         drop(share);
-        verify(&mut staging, job, check).await?;
+        result?;
+        self.verify_stage(&mut staging, job, check).await?;
         staging.commit(job.destination)?;
         Ok(())
     }
+
+    fn finish_recovery(&self, recovery: Option<Recovery<'_>>, previous: usize) {
+        if self.attempts.request_count() != previous
+            && let Some(recovery) = recovery
+        {
+            recovery.dispatch();
+        }
+    }
+
+    async fn verify_stage(
+        &mut self,
+        staging: &mut AtomicFile,
+        job: DownloadJob<'_>,
+        check: Option<&Verification>,
+    ) -> Result<(), TransferError> {
+        let result = verify(staging, job, check).await;
+        if matches!(result, Err(TransferError::Invalid(_)))
+            && matches!(self.mode, TransferMode::Ranged(_))
+        {
+            self.retry_integrity = true;
+            self.mode = TransferMode::Whole;
+        }
+        result
+    }
+
+    async fn ready(
+        &mut self,
+        SourcePriority { delay, status, .. }: SourcePriority,
+        wait: &mut WaitBudget,
+    ) -> bool {
+        if delay.is_zero() {
+            return true;
+        }
+        if wait.allows(delay) {
+            wait.wait(delay).await;
+        } else {
+            self.done = true;
+            self.exhausted = true;
+            let error = status.map_or(TransferError::RetryWaitExceeded, TransferError::CoolingDown);
+            self.error.get_or_insert(error);
+        }
+        false
+    }
+
+    fn priority(&self, resources: &TransferResources) -> Option<SourcePriority> {
+        if self.done {
+            return None;
+        }
+        let server = self
+            .origin
+            .as_ref()
+            .and_then(|origin| resources.cooldown(origin, self.cooldown_jitter));
+        let local = self.delay.map_or(Duration::ZERO, Delay::remaining);
+        let delay = server.map_or(local, |(_, remaining)| local.max(remaining));
+        Some(SourcePriority {
+            delay,
+            used: self.attempts.request_count() != 0,
+            status: server.map(|(status, _)| status),
+        })
+    }
+
+    fn failed(&mut self, error: TransferError) {
+        let cooling = matches!(error, TransferError::CoolingDown(_));
+        if error.retryable() || self.retry_integrity || cooling {
+            self.exhausted = !self.attempts.can_recover();
+            self.delay = (!self.exhausted && !error.origin_throttle())
+                .then(|| self.attempts.backoff(error.retry_hint()));
+        } else {
+            self.done = true;
+            self.exhausted = matches!(error, TransferError::RangeWaitExceeded(_));
+        }
+        self.done |= self.exhausted;
+        self.retry_integrity = false;
+        if !cooling || self.error.is_none() {
+            self.error = Some(error);
+        }
+    }
+
+    fn failure_rank(&self) -> Option<u8> {
+        Some(match self.error.as_ref()? {
+            TransferError::Invalid(_) => 4,
+            TransferError::RangeRetriesExhausted { .. }
+            | TransferError::RangeWaitExceeded(_)
+            | TransferError::Body(_) => 3,
+            TransferError::Open(FetchError::HttpRetryable { .. }) => 2,
+            TransferError::CoolingDown(_) | TransferError::RetryWaitExceeded => 0,
+            _ => 1,
+        })
+    }
+
+    fn describe_failure(&self) -> String {
+        let error = self.error.as_ref().expect("attempted source");
+        let origin = self
+            .origin
+            .as_ref()
+            .map_or_else(|| "invalid source".into(), Origin::ascii_serialization);
+        let requests = self.attempts.request_count();
+        let exhausted = if self.exhausted {
+            ", retry budget exhausted"
+        } else {
+            ""
+        };
+        format!("{error} ({origin}, {requests} requests{exhausted})")
+    }
+}
+
+fn source_failure(sources: &[Source<'_>]) -> String {
+    sources
+        .iter()
+        .filter_map(|source| Some((source.failure_rank()?, source)))
+        .max_by_key(|(rank, _)| *rank)
+        .map_or_else(
+            || "no download source supplied".into(),
+            |(_, source)| source.describe_failure(),
+        )
 }
 
 fn ordered_sources<'a>(
@@ -281,7 +439,7 @@ fn ordered_sources<'a>(
             Some(mirror) => fallback.push(Cow::Owned(mirror.url)),
             None => (),
         }
-        sources.push(Cow::Borrowed(original));
+        push_source(&mut sources, Cow::Borrowed(original));
     }
     for mirror in fallback {
         push_source(&mut sources, mirror);
@@ -292,94 +450,5 @@ fn ordered_sources<'a>(
 fn push_source<'a>(sources: &mut Vec<Cow<'a, str>>, source: Cow<'a, str>) {
     if !sources.contains(&source) {
         sources.push(source);
-    }
-}
-
-async fn wait_before_retry(delay: Duration) {
-    if !delay.is_zero() && tokio::runtime::Handle::try_current().is_ok() {
-        tokio::time::sleep(delay).await;
-    }
-}
-
-fn has_digest(job: DownloadJob<'_>, verify: Option<&Verification>) -> bool {
-    job.sha1.is_some() || !job.sha1_alternatives.is_empty() || verify.is_some()
-}
-
-async fn already_verified(job: DownloadJob<'_>, check: Option<&Verification>) -> bool {
-    if !has_digest(job, check) {
-        return false;
-    }
-    let Ok(file) = axlauncher_storage::open_for_read(job.destination) else {
-        return false;
-    };
-    verify_file(file, job, check).await.is_ok()
-}
-
-async fn verify(
-    staging: &mut AtomicFile,
-    job: DownloadJob<'_>,
-    check: Option<&Verification>,
-) -> Result<(), TransferError> {
-    if has_digest(job, check) {
-        let file = staging.rewind()?.try_clone()?;
-        return verify_file(file, job, check)
-            .await
-            .map_err(|error| verification_error(error, job.destination));
-    }
-    let length = staging.file().metadata()?.len();
-    if job.size.is_some_and(|expected| expected != length) {
-        return Err(TransferError::Invalid(format!(
-            "size mismatch for {}",
-            job.destination.display()
-        )));
-    }
-    Ok(())
-}
-
-fn verification_error(error: io::Error, destination: &Path) -> TransferError {
-    if error.kind() == io::ErrorKind::InvalidData {
-        return TransferError::Invalid(format!("{error} for {}", destination.display()));
-    }
-    TransferError::Disk(error)
-}
-
-async fn verify_file(
-    file: File,
-    job: DownloadJob<'_>,
-    check: Option<&Verification>,
-) -> io::Result<()> {
-    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
-        return check_file(file, job.sha1, job.sha1_alternatives, check);
-    };
-    let sha1 = job.sha1.map(str::to_owned);
-    let alternatives = job.sha1_alternatives.to_vec();
-    let check = check.cloned();
-    runtime
-        .spawn_blocking(move || check_file(file, sha1.as_deref(), &alternatives, check.as_ref()))
-        .await
-        .map_err(io::Error::other)?
-}
-
-fn check_file(
-    mut file: File,
-    sha1: Option<&str>,
-    alternatives: &[String],
-    check: Option<&Verification>,
-) -> io::Result<()> {
-    if (sha1.is_some() || !alternatives.is_empty())
-        && !verify_reader_any(&mut file, sha1, alternatives)?
-    {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "SHA-1 mismatch"));
-    }
-    if let Some(check) = check {
-        file.rewind()?;
-        check(&mut file)?;
-    }
-    Ok(())
-}
-
-impl From<io::Error> for TransferError {
-    fn from(error: io::Error) -> Self {
-        Self::Disk(error)
     }
 }

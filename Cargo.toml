@@ -60,6 +60,7 @@ syn = "2.0.119"
 
 async-trait = "0.1.92"
 dashmap = "6.2.1"
+fastrand = "2.5.0"
 futures = "0.3.34"
 parking_lot = "0.13.0"
 # Async runtime and tasks: network, install, scheduler.

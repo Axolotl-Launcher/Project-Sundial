@@ -608,6 +608,7 @@ dependencies = [
  "axlauncher_spi",
  "axlauncher_storage",
  "bytes",
+ "fastrand",
  "futures",
  "tempfile",
  "tokio",

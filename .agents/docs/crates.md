@@ -43,12 +43,21 @@ HTTP/1.1 downloads can split known files from 32 KiB, with an initial range
 size of at least 16 KiB. Under contention, the scheduler weights each file's
 share by its remaining bytes and applies changes as connections are released.
 HTTP/2 retains its 4 MiB range threshold and 8 MiB initial range. Only
-standalone jobs probe for an unknown size. A range retry keeps bytes already
-written when the server returns the requested interval and total size. Whole
-file transfers read to the end of the response body without comparing the
-written length with the HTTP `Content-Length` header. The staging file is
-promoted after checking SHA-1 when supplied, or the expected size when only
-size is supplied. The shared engine defaults to
+standalone jobs probe for an unknown size. A ranged transfer uses a strong
+ETag with `If-Range`, or a trusted whole-file digest. A range retry requests
+the unwritten interval and validates the returned interval, total and any
+established representation identity. Unsupported or inconsistent ranges
+trigger a whole-file transfer from a clean stage. Whole-file transfers read
+to EOF and check the manifest digest, or the expected size when only size is
+supplied, before atomically publishing the staging file.
+
+Each file has three recovery requests per source across probes, ranges and
+whole-file transfers. Retries use jittered exponential backoff. HTTP 429 and
+503 with `Retry-After` cool down the submitted origin across jobs. HTTP 429
+without a usable hint uses a short local cooldown. The engine tries ready
+alternate sources and budgets up to 30 seconds of scheduled wait per file.
+Backoff uses the Tokio time driver and releases idle connection capacity.
+The shared engine defaults to
 256 connections globally and 16 per file. The desktop setting controls how
 many files may be queued at once.
 

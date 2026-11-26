@@ -143,10 +143,6 @@ impl Bandwidth {
     fn delay(&self, count: usize) -> Option<Duration> {
         self.bucket.lock().expect("bandwidth lock").charge(count)
     }
-
-    pub(crate) fn is_limited(&self) -> bool {
-        self.bucket.lock().expect("bandwidth lock").rate.is_some()
-    }
 }
 
 impl Bucket {
