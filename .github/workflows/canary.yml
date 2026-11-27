@@ -55,8 +55,12 @@ jobs:
         # The binary embeds both worker libraries and re-executes itself; an
         # invalid worker name must reach that path and fail cleanly.
         run: |
-          output=$(./newest/bin/axlauncher --axlauncher-worker bogus /tmp/x 2>&1 || true)
+          set +e
+          output=$(./newest/bin/axlauncher --axlauncher-worker bogus /tmp/x 2>&1)
+          status=$?
+          set -e
           echo "$output"
+          test "$status" = 1
           case "$output" in
             *StartupFailed*) ;;
             *) echo "worker dispatch did not run" >&2; exit 1 ;;

@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 jobs:
-  # nix users: the wrapper and the gzip-style tree that an AppImage ships.
+  # nix users: the wrapper and the self-contained tree an AppImage ships.
   newest:
     name: Newest binary
     runs-on: ubuntu-24.04
@@ -41,6 +41,7 @@ jobs:
 
       - name: Set up the release cache
         uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        if: ${{ env.CACHIX_AUTH_TOKEN != '' }}
         with:
           name: axlmc
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
@@ -48,16 +49,21 @@ jobs:
 
       - name: Set up the build cache
         uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' }}
         with:
           name: axlmc-cache
           authToken: ${{ secrets.CACHIX_CACHE_AUTH_TOKEN }}
           skipPush: true
 
-      - name: Build and publish the crate dependencies
+      - name: Publish the crate dependencies
+        # Build output goes to its own cache so a burst of CI output cannot
+        # evict a release.
+        if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' }}
         run: |
           nix build --print-out-paths .#axlauncher-cargo-deps | cachix push axlmc-cache
 
-      - name: Build and publish the binaries
+      - name: Publish the binaries
+        if: ${{ env.CACHIX_AUTH_TOKEN != '' }}
         run: |
           nix build --print-out-paths .#axlauncher .#axlauncher-newest |
             cachix push axlmc
@@ -108,21 +114,18 @@ jobs:
         if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' }}
         run: nix build --print-out-paths .#axlauncher-legacy | cachix push axlmc-cache
 
-      - name: Collect the packaging input
-        # TODO: deb, rpm and tarball packaging goes here; the ELF and the layout
-        # contract are what a packager needs.
-        run: |
-          mkdir -p dist/bin
-          cp legacy/bin/axlauncher dist/bin/
-          printf 'TODO: deb and rpm packaging are not implemented yet.\n' > dist/README
+      - name: Archive the packaging input
+        # TODO: deb and rpm packaging goes here; the ELF and the layout contract
+        # are what a packager needs.
+        run: tar --zstd -cf axlauncher-legacy-linux-x86_64.tar.zst -C legacy .
 
       - name: Upload the packaging input
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: axlauncher-linux-x86_64
-          path: dist/
+          name: axlauncher-legacy-linux-x86_64
+          path: axlauncher-legacy-linux-x86_64.tar.zst
 
-  # Follow-up: one place for checksums and the release entry.
+  # Follow-up: one place for the checksums of everything a release ships.
   publish:
     name: Publish
     needs: [newest, legacy]
@@ -145,42 +148,3 @@ jobs:
         with:
           name: release-files
           path: out/
-
-  # The release is built against the locked inputs, so refreshing them here
-  # cannot change what was just published. The canary warms the new lock within
-  # eight hours, so the next release starts from a cache that already matches.
-  #
-  # The push needs `main` to accept the bot commit; when branch protection
-  # forbids that, open a pull request instead of pushing.
-  relock:
-    name: Refresh the lock
-    needs: publish
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions:
-      contents: write
-    steps:
-      - name: Check out the default branch
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: main
-          fetch-depth: 0
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877 # v32.1.0
-
-      - name: Update the inputs
-        run: nix flake update
-
-      - name: Commit the lock
-        run: |
-          if git diff --quiet -- flake.lock; then
-            echo "inputs are already current"
-            exit 0
-          fi
-          nix eval --raw .#axlauncher-newest.drvPath > /dev/null
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add flake.lock
-          git commit -s -m "chore(nix): refresh flake.lock after the release"
-          git push origin HEAD:main
