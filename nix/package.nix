@@ -21,14 +21,14 @@
 }:
 let
   src = lib.fileset.toSource {
-    root = ./.;
+    root = ../.;
     fileset = lib.fileset.unions [
-      ./Cargo.lock
-      ./.cargo/config.toml
+      ../Cargo.lock
+      ../.cargo/config.toml
       # apps/ui embeds the window icon with include_bytes!.
-      ./packaging/icons
-      (lib.fileset.fileFilter (file: file.name == "Cargo.toml") ./.)
-      (lib.fileset.fileFilter (file: file.hasExt "rs") ./.)
+      ../packaging/icons
+      (lib.fileset.fileFilter (file: file.name == "Cargo.toml") ../.)
+      (lib.fileset.fileFilter (file: file.hasExt "rs") ../.)
     ];
   };
 
@@ -70,7 +70,7 @@ let
       vulkan-loader
       wayland
     ];
-    cargoLock = ./Cargo.lock;
+    cargoLock = ../Cargo.lock;
     env.CARGO_NET_OFFLINE = "true";
     doCheck = false;
     # installPhase handles the three artifacts itself; crane's build-log hook
@@ -136,7 +136,7 @@ let
   # crane cannot be instantiated on the 22.11 package set, so the legacy build
   # is a plain derivation: the old stdenv links, the current toolchain
   # compiles, and crane only supplies the vendored sources.
-  vendorDir = craneLib.vendorCargoDeps { cargoLock = ./Cargo.lock; };
+  vendorDir = craneLib.vendorCargoDeps { cargoLock = ../Cargo.lock; };
 
   # A store path in the binary counts as a reference and drags the whole build
   # closure into an artifact that is meant to be store-free. Rewrite every input
@@ -226,7 +226,7 @@ let
         mkdir -p "$out/bin" "$out/libexec" "$out/lib" "$out/share"
 
         install -Dm755 ${newest}/bin/axlauncher "$out/libexec/axlauncher"
-        install -Dm755 ${./packaging/linux/portable-launcher.sh} "$out/bin/axlauncher"
+        install -Dm755 ${../packaging/linux/portable-launcher.sh} "$out/bin/axlauncher"
 
         libdirs="${pkgs.glibc}/lib:${pkgs.gcc-unwrapped.lib}/lib:${pkgs.libxkbcommon}/lib:${pkgs.libxcb}/lib"
         loader=$(readlink -f ${pkgs.glibc}/lib/ld-linux-x86-64.so.2)
@@ -273,9 +273,9 @@ let
   wrapper = pkgs.runCommand "axlauncher-${version}" { inherit meta; } ''
     mkdir -p "$out/bin"
     ln -s ${newest}/bin/axlauncher "$out/bin/axlauncher"
-    install -Dm644 ${./packaging/linux/com.axolotl.axlauncher.desktop} \
+    install -Dm644 ${../packaging/linux/com.axolotl.axlauncher.desktop} \
       "$out/share/applications/com.axolotl.axlauncher.desktop"
-    install -Dm644 ${./packaging/icons/axolotl-launcher.png} \
+    install -Dm644 ${../packaging/icons/axolotl-launcher.png} \
       "$out/share/icons/hicolor/512x512/apps/axolotl-launcher.png"
   '';
 

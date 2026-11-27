@@ -59,7 +59,9 @@ selection and session overrides.
 
 ### Nix
 
-On Linux the flake builds the published artifact from a pinned toolchain:
+On Linux the flake builds the published artifact from a pinned toolchain.
+`flake.nix` and `flake.lock` stay at the root; the derivations live in `nix/`,
+and `nix/hash.nix` holds fixed-output hashes (empty until a fetch needs one).
 
 ```bash
 nix develop                    # rust 1.100.0, node, and the native libraries
