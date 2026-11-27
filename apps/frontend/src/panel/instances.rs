@@ -6,10 +6,9 @@
 use std::path::{Path, PathBuf};
 
 use axlauncher_core::desktop::launching::LaunchJob;
+use axlauncher_core::desktop::memory;
 use axlauncher_core::domain::memory::MaximumHeap;
-use axlauncher_core::state::profile::{
-    self, DiscoveredProfile, Profile, ProfileDiscovery, discover,
-};
+use axlauncher_core::state::profile::{DiscoveredProfile, Profile, ProfileDiscovery, discover};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
@@ -209,7 +208,7 @@ impl RootView {
             return Err("This instance changed. Reopen the editor to continue.".into());
         }
         let updated =
-            profile::set_memory(directory, id, heap).map_err(|error| error.to_string())?;
+            memory::set_instance(directory, id, heap).map_err(|error| error.to_string())?;
         self.instances.update_profile(directory, updated);
         self.invalidate_launch_preview();
         cx.notify();

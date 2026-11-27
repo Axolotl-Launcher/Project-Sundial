@@ -5,8 +5,9 @@
 
 use std::path::Path;
 
+use axlauncher_core::desktop::memory;
 use axlauncher_core::domain::memory::{MaximumHeap, MemoryAllocation};
-use axlauncher_core::state::{SettingsOrigin, update_settings};
+use axlauncher_core::state::SettingsOrigin;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, Button, Context, Disableable, GroupBox, IntoElement, Label, Window,
@@ -76,10 +77,8 @@ impl RootView {
         {
             return Err("The settings location changed. Reopen the editor to continue.".into());
         }
-        let data = update_settings(root, |data| {
-            data.set_memory(heap.map_or(MemoryAllocation::Automatic, MemoryAllocation::Manual));
-        })
-        .map_err(|error| error.to_string())?;
+        let allocation = heap.map_or(MemoryAllocation::Automatic, MemoryAllocation::Manual);
+        let data = memory::set_global(root, allocation).map_err(|error| error.to_string())?;
         self.settings = Some(data);
         self.origin = Some(SettingsOrigin::Stored);
         self.invalidate_launch_preview();

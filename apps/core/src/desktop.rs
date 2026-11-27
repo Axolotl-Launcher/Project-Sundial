@@ -9,6 +9,7 @@ pub mod catalog;
 pub mod installation;
 pub mod java;
 pub mod launching;
+pub mod memory;
 pub mod sources;
 
 pub mod accounts {
