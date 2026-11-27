@@ -293,6 +293,7 @@ impl RootView {
                 self.instances
                     .replace(axlauncher_core::state::profile::discover(instances), true);
                 self.instances.select(&directory);
+                self.invalidate_inspection();
             }
             Err(error) => self.activity.error(error.to_string()),
         }
