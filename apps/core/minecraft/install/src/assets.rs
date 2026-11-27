@@ -33,7 +33,7 @@ const ASSET_OBJECT_BASE: &str = "https://resources.download.minecraft.net";
 /// read rather than guessed from a version number.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct AssetIndexDocument {
-    pub objects: BTreeMap<String, AssetObject>,
+    objects: BTreeMap<String, AssetObject>,
     #[serde(default, rename = "virtual")]
     pub virtual_map: bool,
     #[serde(default)]
@@ -67,6 +67,11 @@ impl AssetIndexDocument {
     /// The document encoded in `bytes`, as Mojang publishes it.
     pub fn parse(bytes: &[u8]) -> Result<Self, serde_json::Error> {
         serde_json::from_slice(bytes)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.objects.is_empty()
     }
 }
 
@@ -199,29 +204,29 @@ pub fn log_config(
     })
 }
 
-/// The asset objects `index` names that are absent or the wrong size under
-/// `game_root`. Multiple names for the same object share a single download.
-pub fn missing_assets(game_root: &GameDir, index: &AssetIndexDocument) -> Vec<MissingFile> {
-    let mut hashes = HashSet::new();
-    index
-        .objects
-        .values()
-        .filter_map(|object| {
-            let prefix = object.hash.get(..OBJECT_PREFIX_LEN)?;
-            let hash = &object.hash;
-            if !hashes.insert(hash) {
-                return None;
-            }
-            let path = game_root.asset_object(hash)?;
-            needs_download(&path, Some(object.size)).then(|| MissingFile {
-                url: format!("{ASSET_OBJECT_BASE}/{prefix}/{hash}"),
-                path,
-                sha1: Some(hash.clone()),
-                sha1_alternatives: Vec::new(),
-                size: Some(object.size),
-            })
-        })
-        .collect()
+impl AssetIndexDocument {
+    /// Plans one download per absent or incomplete object hash.
+    pub fn missing_assets(&self, game_root: &GameDir) -> Vec<MissingFile> {
+        let mut hashes = HashSet::new();
+        self.objects
+            .values()
+            .filter(|object| hashes.insert(&object.hash))
+            .filter_map(|object| missing_object(game_root, object))
+            .collect()
+    }
+}
+
+fn missing_object(game_root: &GameDir, object: &AssetObject) -> Option<MissingFile> {
+    let hash = &object.hash;
+    let prefix = hash.get(..OBJECT_PREFIX_LEN)?;
+    let path = game_root.asset_object(hash)?;
+    needs_download(&path, Some(object.size)).then(|| MissingFile {
+        url: format!("{ASSET_OBJECT_BASE}/{prefix}/{hash}"),
+        path,
+        sha1: Some(hash.clone()),
+        sha1_alternatives: Vec::new(),
+        size: Some(object.size),
+    })
 }
 
 /// Whether `path` is absent or has a size other than `expected_size`.
@@ -259,34 +264,44 @@ pub fn materialise_flat(
 ) -> Vec<String> {
     index
         .flat_root(game_root, index_id)
-        .map_or_else(Vec::new, |root| {
-            materialise_flat_at(game_root, &root, index)
-        })
+        .map_or_else(Vec::new, |root| index.materialise_flat_at(game_root, &root))
 }
 
-fn materialise_flat_at(
+impl AssetIndexDocument {
+    fn materialise_flat_at(&self, game_root: &GameDir, root: &Path) -> Vec<String> {
+        let mut failures = Vec::new();
+
+        for failure in self
+            .objects
+            .iter()
+            .filter_map(|(name, object)| materialise_object(game_root, root, name, object))
+        {
+            record_flat_failure(&mut failures, failure);
+        }
+        failures
+    }
+}
+
+fn record_flat_failure(failures: &mut Vec<String>, failure: String) {
+    if failures.len() < MAX_FLAT_FAILURES {
+        failures.push(failure);
+    }
+}
+
+fn materialise_object(
     game_root: &GameDir,
     root: &Path,
-    index: &AssetIndexDocument,
-) -> Vec<String> {
-    let mut failures = Vec::new();
-
-    for (name, object) in &index.objects {
-        let Some(source) = game_root.asset_object(&object.hash) else {
-            continue;
-        };
-        let destination = root.join(name.replace('/', std::path::MAIN_SEPARATOR_STR));
-        if !needs_download(&destination, Some(object.size)) {
-            continue;
-        }
-        let Err(error) = copy_object(&source, &destination) else {
-            continue;
-        };
-        if failures.len() < MAX_FLAT_FAILURES {
-            failures.push(format!("{}: {error}", destination.display()));
-        }
+    name: &str,
+    object: &AssetObject,
+) -> Option<String> {
+    let source = game_root.asset_object(&object.hash)?;
+    let destination = root.join(name.replace('/', std::path::MAIN_SEPARATOR_STR));
+    if !needs_download(&destination, Some(object.size)) {
+        return None;
     }
-    failures
+    copy_object(&source, &destination)
+        .err()
+        .map(|error| format!("{}: {error}", destination.display()))
 }
 
 /// The first missing or incomplete copy in the tree the game reads.
@@ -296,10 +311,16 @@ pub(crate) fn missing_flat_asset(
     index: &AssetIndexDocument,
 ) -> Option<PathBuf> {
     let root = index.flat_root(game_root, index_id)?;
-    index.objects.iter().find_map(|(name, object)| {
-        let path = root.join(name.replace('/', std::path::MAIN_SEPARATOR_STR));
-        needs_download(&path, Some(object.size)).then_some(path)
-    })
+    index.first_incomplete_copy(&root)
+}
+
+impl AssetIndexDocument {
+    fn first_incomplete_copy(&self, root: &Path) -> Option<PathBuf> {
+        self.objects.iter().find_map(|(name, object)| {
+            let path = root.join(name.replace('/', std::path::MAIN_SEPARATOR_STR));
+            needs_download(&path, Some(object.size)).then_some(path)
+        })
+    }
 }
 
 /// Copies one object into the flat tree, creating its parent.

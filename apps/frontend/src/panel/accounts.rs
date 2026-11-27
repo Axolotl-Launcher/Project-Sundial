@@ -5,24 +5,24 @@
 
 use std::sync::Arc;
 
-pub(crate) use axlauncher_core::desktop::accounts::DesktopAccounts;
 use axlauncher_core::desktop::accounts::{
-    Account, AccountId, AccountSnapshot, Change, SignInCommit,
+    Account, AccountId, AccountSnapshot, Change, DesktopAccounts, SignInCommit,
 };
 use axlauncher_core::launch::plan::Session;
 use axlauncher_core::launch_accounts;
+use axlauncher_core::spi::ServiceHost;
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    AsyncApp, AsyncWindowContext, Context, Entity, FocusHandle, Focusable, InputEvent, InputState,
-    Task, WeakEntity, Window,
+    App, AsyncApp, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle, Focusable,
+    InputEvent, InputState, Task, WeakEntity, Window,
 };
-
-use super::RootView;
 
 mod login;
 mod render;
 mod third_party;
+
+pub(super) const DEFAULT_PLAYER: &str = "Player";
 
 type AccountResult = (Option<AccountSnapshot>, Option<String>);
 
@@ -36,6 +36,8 @@ impl Drop for SignInCancellation {
 }
 
 pub(super) struct AccountsPanel {
+    player: Entity<InputState>,
+    fallen_proxy: Option<ServiceHost>,
     service: Option<Arc<DesktopAccounts>>,
     snapshot: Option<AccountSnapshot>,
     error: Option<String>,
@@ -49,20 +51,29 @@ pub(super) struct AccountsPanel {
     third_party: third_party::Form,
 }
 
+pub(super) struct SnapshotChanged;
+
+impl EventEmitter<SnapshotChanged> for AccountsPanel {}
+
 impl AccountsPanel {
     pub(super) fn new(
         paths: Option<&DataDir>,
+        player: Entity<InputState>,
+        fallen_proxy: Option<ServiceHost>,
         window: &mut Window,
-        cx: &mut Context<'_, RootView>,
+        cx: &mut Context<'_, AccountsPanel>,
     ) -> Self {
         let name = cx.new(|cx| InputState::new(window, cx));
         let uuid =
             cx.new(|cx| InputState::new(window, cx).placeholder("Generate from player name"));
         for input in [&name, &uuid] {
-            cx.subscribe_in(input, window, RootView::offline_form_input)
+            cx.subscribe_in(input, window, AccountsPanel::offline_form_input)
                 .detach();
         }
-        Self {
+        cx.observe(&player, |_, _, cx| cx.notify()).detach();
+        let panel = Self {
+            player,
+            fallen_proxy,
             service: service(paths),
             snapshot: None,
             error: None,
@@ -74,15 +85,49 @@ impl AccountsPanel {
             offline_trigger: cx.focus_handle(),
             login: None,
             third_party: third_party::Form::new(window, cx),
+        };
+        panel.subscribe_third_party(window, cx);
+        panel
+    }
+
+    pub(super) fn player_name(&self, cx: &App) -> String {
+        let value = self.player.read(cx).value();
+        let name = value.trim();
+        if name.is_empty() {
+            DEFAULT_PLAYER.to_owned()
+        } else {
+            name.to_owned()
         }
     }
 
-    pub(super) fn reset(
+    pub(super) fn set_fallen_proxy(
+        &mut self,
+        proxy: Option<ServiceHost>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if self.fallen_proxy != proxy {
+            self.fallen_proxy = proxy;
+            cx.notify();
+        }
+    }
+
+    pub(super) fn reload(
         &mut self,
         paths: Option<&DataDir>,
+        same_data: bool,
         window: &mut Window,
-        cx: &mut Context<'_, RootView>,
+        cx: &mut Context<'_, AccountsPanel>,
     ) {
+        if same_data {
+            self.update_paths(paths);
+        } else {
+            self.reset(paths, window, cx);
+        }
+        self.refresh_accounts(cx);
+        cx.notify();
+    }
+
+    fn reset(&mut self, paths: Option<&DataDir>, window: &mut Window, cx: &mut Context<'_, Self>) {
         if let Some(service) = &self.service {
             service.close();
         }
@@ -99,7 +144,7 @@ impl AccountsPanel {
         self.snapshot.as_ref()?.selected()
     }
 
-    pub(super) fn update_paths(&self, paths: Option<&DataDir>) {
+    fn update_paths(&self, paths: Option<&DataDir>) {
         if let (Some(service), Some(paths)) = (&self.service, paths) {
             service.update_paths(paths);
         }
@@ -126,7 +171,7 @@ fn service(paths: Option<&DataDir>) -> Option<Arc<DesktopAccounts>> {
     paths.cloned().map(DesktopAccounts::new)
 }
 
-impl RootView {
+impl AccountsPanel {
     fn observe_sign_in_commit(&self, commit: SignInCommit, cx: &mut Context<'_, Self>) {
         cx.spawn(async move |view, cx| {
             commit.settled().await;
@@ -134,17 +179,13 @@ impl RootView {
         })
         .detach();
     }
-    pub(super) fn preview_session(&self, cx: &Context<'_, Self>) -> Session {
-        let Some(account) = self.accounts.selected() else {
+    pub(super) fn preview_session(&self, cx: &App) -> Session {
+        let Some(account) = self.selected() else {
             return Session::offline(self.player_name(cx));
         };
-        let service = self
-            .accounts
-            .service
-            .as_ref()
-            .expect("saved account service");
+        let service = self.service.as_ref().expect("saved account service");
         launch_accounts::preview(account, &service.data_dir())
-            .with_fallen_proxy(self.fallen_proxy())
+            .with_fallen_proxy(self.fallen_proxy.clone())
     }
 
     pub(super) fn refresh_accounts(&mut self, cx: &mut Context<'_, Self>) {
@@ -161,22 +202,22 @@ impl RootView {
         form_window: Option<&mut Window>,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(service) = self.accounts.service.clone() else {
+        let Some(service) = self.service.clone() else {
             return;
         };
-        if self.accounts.is_busy() {
+        if self.is_busy() {
             return;
         }
-        self.accounts.working = true;
-        self.accounts.error = None;
+        self.working = true;
+        self.error = None;
         let worker = Arc::clone(&service);
         let task = cx.background_spawn(async move { apply(action, &worker).await });
         let foreground = match form_window {
             Some(window) => cx.spawn_in(window, async move |view, cx| {
-                show_offline_result(view, cx, service, task).await;
+                Self::show_offline_result(view, cx, service, task).await;
             }),
             None => cx.spawn(async move |view, cx| {
-                show_account_action(view, cx, service, task).await;
+                Self::show_account_action(view, cx, service, task).await;
             }),
         };
         foreground.detach();
@@ -189,10 +230,10 @@ impl RootView {
         (snapshot, error): AccountResult,
         cx: &mut Context<'_, Self>,
     ) {
-        if !self.accounts.is_current(service) {
+        if !self.is_current(service) {
             return;
         }
-        self.accounts.working = false;
+        self.working = false;
         self.finish_account_change(snapshot, error, cx);
     }
 
@@ -203,55 +244,51 @@ impl RootView {
         cx: &mut Context<'_, Self>,
     ) {
         if let Some(snapshot) = snapshot {
-            self.accounts.snapshot = Some(snapshot);
-            self.inspection = super::launch::Inspection::default();
+            self.snapshot = Some(snapshot);
+            cx.emit(SnapshotChanged);
         }
-        self.accounts.error = error;
+        self.error = error;
         cx.notify();
     }
 
-    pub(crate) fn sync_launch_accounts(
+    pub(super) fn sync_launch_accounts(
         &mut self,
         service: &Arc<DesktopAccounts>,
         cx: &mut Context<'_, Self>,
     ) {
-        if self.accounts.is_current(service) {
+        if self.is_current(service) {
             self.refresh_accounts(cx);
         }
     }
 
-    pub(crate) fn account_selection_pending(&self) -> bool {
-        self.accounts.working
+    pub(super) fn account_selection_pending(&self) -> bool {
+        self.working
     }
 
     fn open_offline_form(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        self.accounts.add_offline = true;
-        for input in [&self.accounts.name, &self.accounts.uuid] {
+        self.add_offline = true;
+        for input in [&self.name, &self.uuid] {
             input.update(cx, |input, cx| input.set_value("", window, cx));
         }
-        self.accounts
-            .name
-            .read(cx)
-            .focus_handle(cx)
-            .focus(window, cx);
+        self.name.read(cx).focus_handle(cx).focus(window, cx);
         cx.notify();
     }
 
     fn close_offline_form(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        if self.accounts.offline_scope.contains_focused(window, cx) {
-            self.accounts.offline_trigger.focus(window, cx);
+        if self.offline_scope.contains_focused(window, cx) {
+            self.offline_trigger.focus(window, cx);
         }
-        self.accounts.add_offline = false;
-        self.accounts.error = None;
+        self.add_offline = false;
+        self.error = None;
         cx.notify();
     }
 
     fn submit_offline_form(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        if !self.accounts.add_offline || self.accounts.is_busy() {
+        if !self.add_offline || self.is_busy() {
             return;
         }
-        let name = self.accounts.name.read(cx).value().to_string();
-        let uuid = self.accounts.uuid.read(cx).value().to_string();
+        let name = self.name.read(cx).value().to_string();
+        let uuid = self.uuid.read(cx).value().to_string();
         self.start_account_action(AccountAction::AddOffline { name, uuid }, Some(window), cx);
     }
 
@@ -262,7 +299,7 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        if self.accounts.add_offline
+        if self.add_offline
             && matches!(
                 event,
                 InputEvent::PressEnter {
@@ -282,35 +319,39 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        if self.accounts.is_current(service) && result.1.is_none() {
+        if self.is_current(service) && result.1.is_none() {
             self.close_offline_form(window, cx);
         }
         self.finish_account_action(service, result, cx);
     }
 }
 
-async fn show_account_action(
-    view: WeakEntity<RootView>,
-    cx: &mut AsyncApp,
-    service: Arc<DesktopAccounts>,
-    task: Task<AccountResult>,
-) {
-    let result = task.await;
-    let _ = view.update(cx, |view, cx| {
-        view.finish_account_action(&service, result, cx)
-    });
+impl AccountsPanel {
+    async fn show_account_action(
+        view: WeakEntity<AccountsPanel>,
+        cx: &mut AsyncApp,
+        service: Arc<DesktopAccounts>,
+        task: Task<AccountResult>,
+    ) {
+        let result = task.await;
+        let _ = view.update(cx, |view, cx| {
+            view.finish_account_action(&service, result, cx)
+        });
+    }
 }
 
-async fn show_offline_result(
-    view: WeakEntity<RootView>,
-    cx: &mut AsyncWindowContext,
-    service: Arc<DesktopAccounts>,
-    task: Task<AccountResult>,
-) {
-    let result = task.await;
-    let _ = view.update_in(cx, |view, window, cx| {
-        view.finish_offline_form(&service, result, window, cx)
-    });
+impl AccountsPanel {
+    async fn show_offline_result(
+        view: WeakEntity<AccountsPanel>,
+        cx: &mut AsyncWindowContext,
+        service: Arc<DesktopAccounts>,
+        task: Task<AccountResult>,
+    ) {
+        let result = task.await;
+        let _ = view.update_in(cx, |view, window, cx| {
+            view.finish_offline_form(&service, result, window, cx)
+        });
+    }
 }
 
 use Change as AccountAction;

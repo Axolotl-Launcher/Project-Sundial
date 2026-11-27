@@ -35,8 +35,19 @@ impl MinecraftCatalog {
         &self.latest.release
     }
 
-    pub fn versions(&self) -> &[MinecraftVersion] {
-        &self.versions
+    pub fn is_empty(&self) -> bool {
+        self.versions.is_empty()
+    }
+
+    pub fn versions(&self) -> impl Iterator<Item = &MinecraftVersion> {
+        self.versions.iter()
+    }
+
+    fn into_version(self, id: &str) -> Result<MinecraftVersion, String> {
+        self.versions
+            .into_iter()
+            .find(|entry| entry.id == id)
+            .ok_or_else(|| format!("Minecraft {id} is not in the Mojang version list."))
     }
 }
 
@@ -59,14 +70,7 @@ pub(super) async fn find_version(
     network: &impl Network,
     id: &str,
 ) -> Result<MinecraftVersion, String> {
-    fetch_catalog(network, |catalog| {
-        catalog
-            .versions
-            .into_iter()
-            .find(|entry| entry.id == id)
-            .ok_or_else(|| format!("Minecraft {id} is not in the Mojang version list."))
-    })
-    .await
+    fetch_catalog(network, |catalog| catalog.into_version(id)).await
 }
 
 async fn fetch_catalog<T>(

@@ -10,41 +10,56 @@ use axlauncher_core::desktop::downloads;
 use axlauncher_core::desktop::sources::DownloadOptions;
 use axlauncher_core::spi::DownloadProtocol;
 use axlauncher_core::spi::downloads::{DownloadJob, FileDownloader, TransferStats};
-use axlauncher_core::state::SettingsData;
+use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, AsyncApp, BackgroundExecutor, Button, ButtonVariants, Context,
-    Disableable, ElementId, Entity, GroupBox, Input, InputEvent, InputState, IntoElement, Label,
-    Task, WeakEntity, Window, h_flex, v_flex,
+    Disableable, ElementId, Entity, GroupBox, Hsla, Input, InputEvent, InputState, IntoElement,
+    Label, Render, Task, WeakEntity, Window, h_flex, v_flex,
 };
 use futures::future::{Either, select};
 use tokio::sync::oneshot;
 
-use super::RootView;
-use crate::installations::Installation;
-use crate::modpacks::ModpackImport;
-
 mod batch;
-mod sources;
 
 // Cargo Shear scans imports inside the crate but misses the mirrored tests.
 #[cfg(test)]
-use tempfile as test_tempfile;
+pub(super) use tempfile as test_tempfile;
 
 const SAMPLE_INTERVAL: Duration = Duration::from_millis(300);
 const MIB: f64 = (1024 * 1024) as f64;
-const MAX_VISIBLE_INSTALLATIONS: usize = 8;
 
 pub(super) struct DownloadDebug {
+    paths: Option<DataDir>,
+    options: DownloadOptions,
+    transfers: Vec<TransferProgress>,
+    transfers_active: bool,
     url: Entity<InputState>,
     batch: batch::BatchDebug,
-    sources: sources::DownloadSources,
     stats: TransferStats,
     sampled_at: Instant,
     bytes_per_second: f64,
     status: ProbeStatus,
     cancel: Option<oneshot::Sender<()>>,
     sampler: Option<Task<()>>,
+}
+
+pub(super) struct TransferProgress {
+    id: String,
+    message: String,
+}
+
+impl TransferProgress {
+    pub(super) fn new(id: String, message: String) -> Self {
+        Self { id, message }
+    }
+
+    fn label(&self, color: Hsla) -> Label {
+        Label::new(self.message.clone())
+            .id(ElementId::Name(self.id.clone().into()))
+            .text_sm()
+            .text_color(color)
+    }
 }
 
 enum ProbeStatus {
@@ -75,16 +90,21 @@ impl ProbeStatus {
 
 impl DownloadDebug {
     pub(super) fn new(
-        settings: Option<&SettingsData>,
+        paths: Option<DataDir>,
+        options: DownloadOptions,
         window: &mut Window,
-        cx: &mut Context<'_, RootView>,
+        cx: &mut Context<'_, DownloadDebug>,
     ) -> Self {
         let url = cx.new(|cx| InputState::new(window, cx).placeholder("https://…"));
-        cx.subscribe(&url, RootView::download_probe_event).detach();
+        cx.subscribe(&url, DownloadDebug::download_probe_event)
+            .detach();
         Self {
+            paths,
+            options,
+            transfers: Vec::new(),
+            transfers_active: false,
             url,
             batch: batch::BatchDebug::new(window, cx),
-            sources: sources::DownloadSources::new(settings, window, cx),
             stats: downloads::stats(),
             sampled_at: Instant::now(),
             bytes_per_second: 0.,
@@ -94,14 +114,29 @@ impl DownloadDebug {
         }
     }
 
-    pub(super) fn reload_sources(
+    pub(super) fn configure(
         &mut self,
-        settings: Option<&SettingsData>,
-        window: &mut Window,
-        cx: &mut Context<'_, RootView>,
+        paths: Option<DataDir>,
+        options: DownloadOptions,
+        cx: &mut Context<'_, Self>,
     ) {
-        self.sources.sync(settings, window, cx);
-        self.sources.error = None;
+        self.paths = paths;
+        self.options = options;
+        cx.notify();
+    }
+
+    pub(super) fn set_transfers(
+        &mut self,
+        transfers: Vec<TransferProgress>,
+        active: bool,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.transfers = transfers;
+        self.transfers_active = active;
+        if active {
+            self.monitor_downloads(cx);
+        }
+        cx.notify();
     }
 
     fn sample(&mut self) {
@@ -117,18 +152,7 @@ impl DownloadDebug {
     }
 }
 
-impl RootView {
-    pub(super) fn modpack_download_changed(
-        &mut self,
-        modpack: Entity<ModpackImport>,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if modpack.read(cx).install_progress().is_some() {
-            self.monitor_downloads(cx);
-        }
-        cx.notify();
-    }
-
+impl DownloadDebug {
     fn download_probe_event(
         &mut self,
         _: Entity<InputState>,
@@ -146,54 +170,47 @@ impl RootView {
         }
     }
 
-    pub(super) fn monitor_downloads(&mut self, cx: &mut Context<'_, Self>) {
-        if self.download_debug.sampler.is_some() {
+    fn monitor_downloads(&mut self, cx: &mut Context<'_, Self>) {
+        if self.sampler.is_some() {
             return;
         }
-        self.download_debug.sample();
+        self.sample();
         let executor = cx.background_executor().clone();
-        self.download_debug.sampler =
-            Some(cx.spawn(async move |view, cx| sample_until_idle(executor, view, cx).await));
+        self.sampler =
+            Some(cx.spawn(async move |view, cx| Self::sample_until_idle(executor, view, cx).await));
     }
 
     fn sample_downloads(&mut self, cx: &mut Context<'_, Self>) -> bool {
-        self.download_debug.sample();
-        self.download_debug.batch.drain_outcomes();
-        let keep_sampling = self.download_debug.status.is_running()
-            || self.download_debug.batch.is_running()
-            || self.modpack.read(cx).install_progress().is_some()
-            || self
-                .installations
-                .values()
-                .flat_map(|versions| versions.values())
-                .any(|state| matches!(state, Installation::Running(_)));
+        self.sample();
+        self.batch.drain_outcomes();
+        let keep_sampling =
+            self.status.is_running() || self.batch.is_running() || self.transfers_active;
         if !keep_sampling {
-            self.download_debug.sampler = None;
-            self.download_debug.bytes_per_second = 0.;
+            self.sampler = None;
+            self.bytes_per_second = 0.;
         }
         cx.notify();
         keep_sampling
     }
 
     fn start_download_probe(&mut self, cx: &mut Context<'_, Self>) {
-        if self.download_debug.status.is_running() {
+        if self.status.is_running() {
             return;
         }
         let Some(paths) = self.paths.as_ref() else {
             return;
         };
         let destination = paths.download_debug_file();
-        let url = self.download_debug.url.read(cx).value().trim().to_owned();
+        let url = self.url.read(cx).value().trim().to_owned();
         if url.is_empty() {
-            self.download_debug.status = ProbeStatus::Failed("Enter a download URL.".into());
+            self.status = ProbeStatus::Failed("Enter a download URL.".into());
             cx.notify();
             return;
         }
         let (cancel, cancellation) = oneshot::channel();
-        self.download_debug.status = ProbeStatus::Running;
-        self.download_debug.cancel = Some(cancel);
-        let options = DownloadOptions::from_settings(self.settings.as_ref());
-        let downloader = options.downloader(paths);
+        self.status = ProbeStatus::Running;
+        self.cancel = Some(cancel);
+        let downloader = self.options.downloader(paths);
         self.monitor_downloads(cx);
         let task = cx
             .background_spawn(async move { run_probe(url, destination, downloader, cancellation) });
@@ -206,23 +223,25 @@ impl RootView {
     }
 
     fn finish_download_probe(&mut self, status: ProbeStatus, cx: &mut Context<'_, Self>) {
-        self.download_debug.cancel = None;
-        self.download_debug.status = status;
-        self.download_debug.sample();
+        self.cancel = None;
+        self.status = status;
+        self.sample();
         cx.notify();
     }
 
     fn cancel_download_probe(&mut self, cx: &mut Context<'_, Self>) {
-        if let Some(cancel) = self.download_debug.cancel.take() {
+        if let Some(cancel) = self.cancel.take() {
             let _ = cancel.send(());
-            self.download_debug.status = ProbeStatus::Cancelling;
+            self.status = ProbeStatus::Cancelling;
             cx.notify();
         }
     }
+}
 
-    pub(super) fn render_download_debug(&self, cx: &mut Context<'_, Self>) -> AnyElement {
+impl Render for DownloadDebug {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
-        let state = &self.download_debug;
+        let state = &self;
         let stats = state.stats;
         let status_color = match state.status {
             ProbeStatus::Failed(_) => cx.theme().danger,
@@ -271,24 +290,15 @@ impl RootView {
                         column.child(Label::new(message).text_sm().text_color(status_color))
                     })
                     .child(self.render_batch_probe(cx))
-                    .children(self.render_modpack_progress(cx))
-                    .children(self.render_installation_progress(cx)),
+                    .children(self.transfers.iter().map(|progress| progress.label(muted))),
             )
             .into_any_element()
     }
+}
 
-    fn render_modpack_progress(&self, cx: &Context<'_, Self>) -> Option<Label> {
-        let (name, progress) = self.modpack.read(cx).install_progress()?;
-        Some(
-            Label::new(format!("{name} · {}", progress.message()))
-                .id(ElementId::Name("download-progress:modpack".into()))
-                .text_sm()
-                .text_color(cx.theme().muted_foreground),
-        )
-    }
-
+impl DownloadDebug {
     fn render_download_probe(&self, cx: &mut Context<'_, Self>) -> AnyElement {
-        let state = &self.download_debug;
+        let state = &self;
         let running = state.status.is_running();
         v_flex()
             .gap_1()
@@ -324,44 +334,17 @@ impl RootView {
             )
             .into_any_element()
     }
-
-    fn render_installation_progress(&self, cx: &Context<'_, Self>) -> Vec<AnyElement> {
-        let Some(root) = self.paths.as_ref().map(|paths| paths.game()) else {
-            return Vec::new();
-        };
-        let Some(versions) = self.installations.get(root.root()) else {
-            return Vec::new();
-        };
-        let mut active: Vec<_> = versions
-            .iter()
-            .filter(|(_, state)| matches!(state, Installation::Running(_)))
-            .collect();
-        active.sort_unstable_by_key(|(version, _)| version.as_str());
-        active
-            .into_iter()
-            .take(MAX_VISIBLE_INSTALLATIONS)
-            .map(|(version, state)| {
-                Label::new(format!("{version} · {}", state.message()))
-                    .id(ElementId::Name(
-                        format!("download-progress:{version}").into(),
-                    ))
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .into_any_element()
-            })
-            .collect()
-    }
 }
 
-async fn sample_until_idle(
-    executor: BackgroundExecutor,
-    view: WeakEntity<RootView>,
-    cx: &mut AsyncApp,
-) {
-    loop {
+impl DownloadDebug {
+    async fn sample_until_idle(
+        executor: BackgroundExecutor,
+        view: WeakEntity<DownloadDebug>,
+        cx: &mut AsyncApp,
+    ) {
         executor.timer(SAMPLE_INTERVAL).await;
-        if !matches!(view.update(cx, RootView::sample_downloads), Ok(true)) {
-            break;
+        while matches!(view.update(cx, DownloadDebug::sample_downloads), Ok(true)) {
+            executor.timer(SAMPLE_INTERVAL).await;
         }
     }
 }

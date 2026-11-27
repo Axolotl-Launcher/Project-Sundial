@@ -7,11 +7,11 @@ use std::path::Path;
 
 use axlauncher_core::desktop::launching::LAUNCHER_LANGUAGE;
 use axlauncher_core::domain::normalize_game_language;
-use axlauncher_core::state::{SettingsOrigin, ThemeChoice, update_settings};
+use axlauncher_core::state::{SettingsData, SettingsOrigin, ThemeChoice, update_settings};
 use axlauncher_core::storage::{DataDir, Directory, settings_path};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, AnyElement, Button, ButtonVariants, Context, Disableable, ElementId, Entity,
+    ActiveTheme, AnyElement, App, Button, ButtonVariants, Context, Disableable, ElementId, Entity,
     GroupBox, Hsla, Input, InputEvent, InputState, IntoElement, Label, Switch, Window, h_flex,
     v_flex,
 };
@@ -20,38 +20,46 @@ use crate::{describe_origin, load_at, palette_for};
 
 use super::RootView;
 
+mod sources;
+
 pub(super) struct EnvironmentState {
     game_language: Entity<InputState>,
     error: Option<String>,
     notice: Option<String>,
+    sources: sources::DownloadSources,
 }
 
 impl EnvironmentState {
     pub(super) fn new(
         game_language: &str,
+        settings: Option<&SettingsData>,
         window: &mut Window,
-        cx: &mut Context<'_, RootView>,
+        cx: &mut App,
     ) -> Self {
         let game_language = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder(format!("Follow launcher ({LAUNCHER_LANGUAGE})"))
                 .default_value(game_language.to_owned())
         });
-        cx.subscribe(&game_language, RootView::game_language_changed)
-            .detach();
         Self {
             game_language,
             error: None,
             notice: None,
+            sources: sources::DownloadSources::new(settings, window, cx),
         }
     }
 
-    pub(super) fn set_game_language(
-        &self,
-        value: String,
+    pub(super) fn reload_sources(
+        &mut self,
+        settings: Option<&SettingsData>,
         window: &mut Window,
-        cx: &mut Context<'_, RootView>,
+        cx: &mut App,
     ) {
+        self.sources.sync(settings, window, cx);
+        self.sources.error = None;
+    }
+
+    pub(super) fn set_game_language(&self, value: String, window: &mut Window, cx: &mut App) {
         self.game_language
             .update(cx, |input, cx| input.set_value(value, window, cx));
     }
@@ -86,6 +94,12 @@ fn path_row(index: usize, label: &str, path: &std::path::Path, muted: Hsla) -> A
 }
 
 impl RootView {
+    pub(super) fn subscribe_environment(&self, window: &mut Window, cx: &mut Context<'_, Self>) {
+        cx.subscribe(&self.environment.game_language, Self::game_language_changed)
+            .detach();
+        self.subscribe_sources(window, cx);
+    }
+
     fn game_language_changed(
         &mut self,
         _: Entity<InputState>,
@@ -309,9 +323,9 @@ impl RootView {
                     .set_game_language(data.default_game_language.clone(), window, cx);
                 self.theme = data.theme;
                 palette_for(self.theme).apply(cx);
-                self.settings = Some(data);
+                self.replace_settings(Some(data), cx);
                 self.origin = Some(SettingsOrigin::Stored);
-                self.download_debug
+                self.environment
                     .reload_sources(self.settings.as_ref(), window, cx);
                 self.environment.notice = Some("Settings saved.".to_string());
                 self.environment.error = None;

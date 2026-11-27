@@ -113,6 +113,12 @@ pub fn merge(parent: Version, child: Version) -> Version {
     }
 }
 
+/// Reads the version document and resolves its inheritance chain.
+pub fn load_resolved(root: &Path, id: &str) -> Result<Version, ChainError> {
+    let version = version::load(root, id).map_err(|source| ChainError::Document { source })?;
+    resolve(root, version)
+}
+
 /// The document `version` describes once everything it inherits is beneath it.
 pub fn resolve(root: &Path, version: Version) -> Result<Version, ChainError> {
     let mut visited = HashSet::new();

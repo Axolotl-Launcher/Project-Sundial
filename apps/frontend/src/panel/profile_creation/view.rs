@@ -4,18 +4,15 @@
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, Button, ButtonVariants, Context, Disableable, Div, Input, IntoElement,
-    Label, Select, SharedString, h_flex, rems, v_flex,
+    Label, Render, Select, SharedString, Window, h_flex, rems, v_flex,
 };
 
-use super::{CatalogStatus, ProfileCreation, RootView};
+use super::{CatalogStatus, ProfileCreation};
 
-impl RootView {
-    pub(in crate::panel) fn render_profile_creation(
-        &self,
-        cx: &mut Context<'_, Self>,
-    ) -> AnyElement {
-        let state = &self.profile_creation;
-        let disabled = self.paths.is_none();
+impl Render for ProfileCreation {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+        let state = self;
+        let disabled = !state.enabled;
         let has_loader = state.loader_kind(cx).is_some();
         let name = Input::new(&state.name)
             .id("new-profile-name")
@@ -57,18 +54,20 @@ impl RootView {
                             .label("Create")
                             .primary()
                             .disabled(disabled || state.profile(cx).is_none())
-                            .on_click(cx.listener(|view, _, _, cx| view.create_profile(cx))),
+                            .on_click(cx.listener(|view, _, _, cx| view.submit(cx))),
                     ),
             )
             .when(!state.manual, |column| {
-                column.child(self.catalog_feedback(cx))
+                column.child(state.catalog_feedback(cx))
             })
-            .child(self.version_mode_button(disabled, cx))
+            .child(state.version_mode_button(disabled, cx))
             .into_any_element()
     }
+}
 
+impl ProfileCreation {
     fn version_mode_button(&self, disabled: bool, cx: &mut Context<'_, Self>) -> Button {
-        let label = if self.profile_creation.manual {
+        let label = if self.manual {
             "Browse versions"
         } else {
             "Enter versions manually"
@@ -82,12 +81,12 @@ impl RootView {
     }
 
     fn catalog_feedback(&self, cx: &mut Context<'_, Self>) -> AnyElement {
-        let state = &self.profile_creation;
+        let state = self;
         let mut feedback = v_flex().gap_1();
         if let Some(status) = Self::minecraft_feedback(&state.minecraft_status, cx) {
             feedback = feedback.child(status);
         }
-        if let Some(status) = Self::loader_feedback(&state.loader_catalog.status, cx) {
+        if let Some(status) = state.loader_feedback(cx) {
             feedback = feedback.child(status);
         }
         feedback.into_any_element()
@@ -116,15 +115,14 @@ impl RootView {
             _ => None,
         }
     }
-
-    fn loader_feedback(status: &CatalogStatus, cx: &mut Context<'_, Self>) -> Option<AnyElement> {
-        match status {
-            CatalogStatus::Empty => Some(
+    fn loader_feedback(&self, cx: &mut Context<'_, Self>) -> Option<AnyElement> {
+        match self.loader_catalog.problem()? {
+            LoaderProblem::Empty => Some(
                 Label::new("This loader has no builds for the selected Minecraft version.")
                     .text_sm()
                     .into_any_element(),
             ),
-            CatalogStatus::Failed(error) => Some(retry_row(
+            LoaderProblem::Failed(error) => Some(retry_row(
                 "loader-versions-error",
                 format!("Could not load loader versions. {error}"),
                 Button::new("loader-versions-retry")
@@ -134,8 +132,30 @@ impl RootView {
                     ),
                 cx,
             )),
+        }
+    }
+}
+
+enum LoaderProblem<'a> {
+    Empty,
+    Failed(&'a str),
+}
+
+impl super::LoaderCatalog {
+    fn problem(&self) -> Option<LoaderProblem<'_>> {
+        match &self.status {
+            CatalogStatus::Empty => Some(LoaderProblem::Empty),
+            CatalogStatus::Failed(error) => Some(LoaderProblem::Failed(error)),
             _ => None,
         }
+    }
+
+    fn placeholder(&self) -> SharedString {
+        placeholder(&self.status, "Choose Minecraft first")
+    }
+
+    fn is_ready(&self) -> bool {
+        matches!(self.status, CatalogStatus::Ready)
     }
 }
 
@@ -167,13 +187,10 @@ impl ProfileCreation {
         }
         Select::new(&self.loader_version)
             .accessibility_label("Loader version")
-            .placeholder(placeholder(
-                &self.loader_catalog.status,
-                "Choose Minecraft first",
-            ))
+            .placeholder(self.loader_catalog.placeholder())
             .search_placeholder("Search loader versions")
             .menu_width(rems(17.))
-            .disabled(disabled || !matches!(self.loader_catalog.status, CatalogStatus::Ready))
+            .disabled(disabled || !self.loader_catalog.is_ready())
             .into_any_element()
     }
 }
@@ -199,7 +216,7 @@ fn retry_row(
     label_id: &'static str,
     message: String,
     button: Button,
-    cx: &Context<'_, RootView>,
+    cx: &axlauncher_ui::App,
 ) -> AnyElement {
     h_flex()
         .gap_2()

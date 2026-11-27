@@ -17,7 +17,7 @@ use axlauncher_ui::{
 use futures::{FutureExt, StreamExt};
 use tokio::sync::{mpsc, oneshot};
 
-use super::{DownloadOptions, RootView};
+use super::DownloadDebug;
 
 const RESULTS_PER_PAGE: usize = 10;
 
@@ -62,7 +62,7 @@ struct Link {
 }
 
 impl BatchDebug {
-    pub(super) fn new(window: &mut Window, cx: &mut Context<'_, RootView>) -> Self {
+    pub(super) fn new(window: &mut Window, cx: &mut App) -> Self {
         Self {
             input: cx.new(|cx| {
                 TextareaState::new(window, cx).placeholder("One HTTP or HTTPS URL per line")
@@ -115,9 +115,9 @@ impl BatchDebug {
     }
 }
 
-impl RootView {
+impl DownloadDebug {
     fn toggle_batch_probe(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        let batch = &mut self.download_debug.batch;
+        let batch = &mut self.batch;
         batch.expanded = !batch.expanded;
         if batch.expanded {
             batch.input.read(cx).focus_handle(cx).focus(window, cx);
@@ -126,7 +126,7 @@ impl RootView {
     }
 
     fn start_batch_probe(&mut self, cx: &mut Context<'_, Self>) {
-        let batch = &mut self.download_debug.batch;
+        let batch = &mut self.batch;
         if batch.is_running() {
             return;
         }
@@ -148,9 +148,8 @@ impl RootView {
             cx.notify();
             return;
         }
-        let options = DownloadOptions::from_settings(self.settings.as_ref());
-        let downloader = options.downloader(&paths);
-        let concurrency = options.concurrency();
+        let downloader = self.options.downloader(&paths);
+        let concurrency = self.options.concurrency();
         let (cancel, cancellation) = oneshot::channel();
         let (report, outcomes) = mpsc::unbounded_channel();
         batch.phase = Phase::Running;
@@ -180,7 +179,7 @@ impl RootView {
         result: Result<BatchReport, String>,
         cx: &mut Context<'_, Self>,
     ) {
-        let batch = &mut self.download_debug.batch;
+        let batch = &mut self.batch;
         batch.drain_outcomes();
         batch.outcomes = None;
         batch.cancel = None;
@@ -189,7 +188,7 @@ impl RootView {
     }
 
     fn cancel_batch_probe(&mut self, cx: &mut Context<'_, Self>) {
-        let batch = &mut self.download_debug.batch;
+        let batch = &mut self.batch;
         if let Some(cancel) = batch.cancel.take() {
             let _ = cancel.send(());
             batch.phase = Phase::Cancelling;
@@ -198,7 +197,7 @@ impl RootView {
     }
 
     pub(super) fn render_batch_probe(&self, cx: &mut Context<'_, Self>) -> AnyElement {
-        let batch = &self.download_debug.batch;
+        let batch = &self.batch;
         let toggle = Button::new("show-batch-download")
             .label(if batch.expanded {
                 "Hide batch download"
@@ -216,7 +215,7 @@ impl RootView {
     }
 
     fn render_batch_form(&self, cx: &mut Context<'_, Self>) -> AnyElement {
-        let batch = &self.download_debug.batch;
+        let batch = &self.batch;
         let running = batch.is_running();
         let color = if matches!(batch.phase, Phase::Failed(_)) {
             cx.theme().danger
@@ -253,7 +252,7 @@ impl RootView {
     }
 
     fn render_batch_actions(&self, cx: &mut Context<'_, Self>) -> impl IntoElement + use<> {
-        let batch = &self.download_debug.batch;
+        let batch = &self.batch;
         h_flex()
             .gap_2()
             .child(
@@ -274,7 +273,7 @@ impl RootView {
     }
 
     fn render_batch_results(&self, cx: &mut Context<'_, Self>) -> impl IntoElement + use<> {
-        let batch = &self.download_debug.batch;
+        let batch = &self.batch;
         let total = batch.rows.len();
         let pages = total.div_ceil(RESULTS_PER_PAGE);
         let range = result_page_range(total, batch.result_page);
@@ -319,7 +318,7 @@ impl RootView {
         _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        self.download_debug.batch.result_page = *page;
+        self.batch.result_page = *page;
         cx.notify();
     }
 }

@@ -240,7 +240,7 @@ fn missing_assets_uses_the_two_character_fan_out() {
         ..AssetIndexDocument::default()
     };
 
-    let missing = missing_assets(&GameDir::standalone(root.path()), &index);
+    let missing = index.missing_assets(&GameDir::standalone(root.path()));
 
     assert_eq!(missing.len(), 1);
     assert_eq!(
@@ -271,7 +271,11 @@ fn missing_assets_skips_a_correct_object() {
         ..AssetIndexDocument::default()
     };
 
-    assert!(missing_assets(&GameDir::standalone(root.path()), &index).is_empty());
+    assert!(
+        index
+            .missing_assets(&GameDir::standalone(root.path()))
+            .is_empty()
+    );
 }
 
 #[test]

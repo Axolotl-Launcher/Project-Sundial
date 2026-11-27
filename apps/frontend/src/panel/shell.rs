@@ -122,7 +122,7 @@ impl RootView {
 
     fn page_sections(&mut self, cx: &mut Context<'_, Self>) -> Vec<AnyElement> {
         match self.page {
-            Page::Home => vec![self.render_accounts(cx)],
+            Page::Home => vec![self.accounts.clone().into_any_element()],
             Page::Instances => vec![self.render_instances(cx)],
             Page::Settings => vec![
                 self.render_environment(cx),
@@ -132,7 +132,7 @@ impl RootView {
             ],
             Page::Debug => vec![
                 self.render_launch(cx),
-                self.render_download_debug(cx),
+                self.download_debug.clone().into_any_element(),
                 self.render_activity(cx),
             ],
         }

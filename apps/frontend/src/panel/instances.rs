@@ -21,7 +21,6 @@ use crate::instance_row;
 use super::{
     RootView,
     java::{InstancePicker, memory::open_editor},
-    launch,
 };
 
 pub(super) struct InstancesState {
@@ -116,7 +115,7 @@ impl RootView {
             return;
         }
         self.instances.selected = Some(directory);
-        self.inspection = launch::Inspection::default();
+        self.invalidate_launch_preview();
         cx.notify();
     }
 
@@ -244,9 +243,10 @@ impl RootView {
                                 .child(Label::new("No profiles found.").text_sm().text_color(muted))
                         },
                     )
-                    .child(self.render_profile_creation(cx))
+                    .child(self.profile_creation.clone())
                     .when(
-                        !profiles.instances.is_empty() && self.accounts.selected().is_none(),
+                        !profiles.instances.is_empty()
+                            && self.accounts.read(cx).selected().is_none(),
                         |column| column.child(self.offline_player()),
                     )
                     .children(profiles.instances.iter().map(|entry| {
@@ -256,10 +256,10 @@ impl RootView {
                             selected,
                             installations,
                             self.launches.get(&entry.directory),
-                            self.account_selection_pending()
+                            self.account_selection_pending(cx)
                                 || self.java_write_pending(entry.profile.id(), cx),
                             muted,
-                            cx,
+                            Self::instance_action(entry.directory.clone(), cx),
                         );
                         v_flex()
                             .gap_2()

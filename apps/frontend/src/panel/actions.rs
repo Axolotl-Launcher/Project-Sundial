@@ -7,18 +7,21 @@ use std::path::Path;
 
 use axlauncher_core::desktop::{
     installation::{InstallTarget, install_key},
-    launching::Player,
+    launching::{LaunchJob, Player},
     sources::DownloadOptions,
 };
 use axlauncher_core::install::prepare::Progress;
-use axlauncher_core::state::profile::{self, Game};
+use axlauncher_core::state::profile::Game;
 use axlauncher_core::storage::DataDir;
-use axlauncher_ui::Context;
+use axlauncher_ui::{Context, Entity};
 
-use crate::installations::{self, Installation};
-use crate::launches::{self, Launch};
+use crate::installations::{self, InstallEvent, Installation};
+use crate::launches::{self, Launch, LaunchEvent};
+use crate::modpacks::ModpackImport;
 
-use super::RootView;
+use super::{RootView, download_debug::TransferProgress};
+
+const MAX_VISIBLE_INSTALLATIONS: usize = 8;
 
 impl RootView {
     /// A vanilla profile installs its Minecraft version; a loader profile
@@ -59,9 +62,49 @@ impl RootView {
             Installation::Running(Progress::Version),
             cx,
         );
-        self.monitor_downloads(cx);
+        let directory = directory.to_path_buf();
+        let installed_paths = paths.clone();
+        let installed_directory = directory.clone();
+        let recorded_profile = target.is_loader();
+        installations::start(
+            paths,
+            directory,
+            target,
+            options,
+            cx,
+            move |view, event, cx| {
+                view.installation_event(
+                    &installed_paths,
+                    &installed_directory,
+                    &key,
+                    recorded_profile,
+                    event,
+                    cx,
+                );
+            },
+        );
+    }
 
-        installations::start(paths, directory.to_path_buf(), target, options, cx);
+    fn installation_event(
+        &mut self,
+        paths: &DataDir,
+        directory: &Path,
+        key: &str,
+        recorded_profile: bool,
+        event: InstallEvent,
+        cx: &mut Context<'_, Self>,
+    ) {
+        match event {
+            InstallEvent::Progress(progress) => self.set_installation(
+                paths.game().root(),
+                key,
+                Installation::Running(progress),
+                cx,
+            ),
+            InstallEvent::Finished(outcome) => {
+                self.finish_installation(paths, directory, key, recorded_profile, outcome, cx)
+            }
+        }
     }
 
     /// Whether this profile already has an install the button must not repeat.
@@ -77,7 +120,7 @@ impl RootView {
         }
     }
 
-    pub(crate) fn finish_installation(
+    fn finish_installation(
         &mut self,
         paths: &DataDir,
         directory: &Path,
@@ -100,7 +143,7 @@ impl RootView {
                 .instances
                 .refresh_after_install(self.paths.as_ref(), paths)
         {
-            self.inspection = super::launch::Inspection::default();
+            self.invalidate_launch_preview();
         }
         self.set_installation(paths.game().root(), key, installation, cx);
         self.refresh_java_after_install(paths, cx);
@@ -110,7 +153,7 @@ impl RootView {
         self.installations.get(root)?.get(version)
     }
 
-    pub(crate) fn set_installation(
+    fn set_installation(
         &mut self,
         root: &Path,
         version: &str,
@@ -131,11 +174,59 @@ impl RootView {
             .entry(root.to_path_buf())
             .or_default()
             .insert(version.to_owned(), installation);
+        self.publish_transfer_progress(cx);
         cx.notify();
     }
 
+    pub(super) fn modpack_download_changed(
+        &mut self,
+        _: Entity<ModpackImport>,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.publish_transfer_progress(cx);
+        cx.notify();
+    }
+
+    pub(super) fn publish_transfer_progress(&self, cx: &mut Context<'_, Self>) {
+        let modpack = self.modpack.read(cx).install_progress();
+        let active = modpack.is_some()
+            || self
+                .installations
+                .values()
+                .flat_map(|versions| versions.values())
+                .any(|state| matches!(state, Installation::Running(_)));
+        let mut transfers = modpack
+            .map(|(name, progress)| {
+                TransferProgress::new(
+                    "download-progress:modpack".into(),
+                    format!("{name} · {}", progress.message()),
+                )
+            })
+            .into_iter()
+            .collect::<Vec<_>>();
+        let game = self.paths.as_ref().map(DataDir::game);
+        if let Some(versions) = game
+            .as_ref()
+            .and_then(|game| self.installations.get(game.root()))
+        {
+            let mut running: Vec<_> = versions
+                .iter()
+                .filter(|(_, state)| matches!(state, Installation::Running(_)))
+                .collect();
+            running.sort_unstable_by_key(|(version, _)| version.as_str());
+            transfers.extend(
+                running
+                    .into_iter()
+                    .take(MAX_VISIBLE_INSTALLATIONS)
+                    .map(|(version, state)| installation_progress(version, state)),
+            );
+        }
+        self.download_debug
+            .update(cx, |debug, cx| debug.set_transfers(transfers, active, cx));
+    }
+
     pub(crate) fn launch(&mut self, directory: &Path, cx: &mut Context<'_, Self>) {
-        if self.account_selection_pending() {
+        if self.account_selection_pending(cx) {
             return;
         }
         let Some(entry) = self.instances.find(directory) else {
@@ -168,7 +259,7 @@ impl RootView {
         {
             return;
         }
-        let player = match self.accounts.selected_online() {
+        let player = match self.accounts.read(cx).selected_online() {
             Some((service, id)) => Player::Online {
                 service,
                 id,
@@ -176,12 +267,53 @@ impl RootView {
             },
             None => Player::Offline(self.preview_session(cx)),
         };
-        self.set_launch(directory, job.version_id(), Launch::Starting, cx);
-        let options = DownloadOptions::from_settings(self.settings.as_ref());
-        launches::start(job, player, options, cx);
+        self.start_launch(job, player, cx);
     }
 
-    pub(crate) fn set_launch(
+    fn start_launch(&mut self, job: LaunchJob, player: Player, cx: &mut Context<'_, Self>) {
+        let root = job.game_root().to_path_buf();
+        let directory = job.instance_directory().to_path_buf();
+        let version = job.version_id().to_owned();
+        self.set_launch(&directory, &version, Launch::Starting, cx);
+        let options = DownloadOptions::from_settings(self.settings.as_ref());
+        launches::start(job, player, options, cx, move |view, event, cx| {
+            view.launch_event(&root, &directory, &version, event, cx);
+        });
+    }
+
+    fn launch_event(
+        &mut self,
+        root: &Path,
+        directory: &Path,
+        version: &str,
+        event: LaunchEvent,
+        cx: &mut Context<'_, Self>,
+    ) {
+        match event {
+            LaunchEvent::AccountResolved(service) => self.accounts.update(cx, |accounts, cx| {
+                accounts.sync_launch_accounts(&service, cx)
+            }),
+            LaunchEvent::Status(status) => {
+                self.update_launch_status(root, directory, version, status, cx)
+            }
+        }
+    }
+
+    fn update_launch_status(
+        &mut self,
+        root: &Path,
+        directory: &Path,
+        version: &str,
+        status: Launch,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if matches!(status, Launch::NeedsInstall(_)) {
+            self.clear_completed_installation(root, directory);
+        }
+        self.set_launch(directory, version, status, cx);
+    }
+
+    fn set_launch(
         &mut self,
         directory: &Path,
         version: &str,
@@ -201,7 +333,7 @@ impl RootView {
 
     /// Forgets a completed install for the profile at `directory`, so a launch
     /// that found files missing offers Install again.
-    pub(crate) fn clear_completed_installation(&mut self, root: &Path, directory: &Path) {
+    fn clear_completed_installation(&mut self, root: &Path, directory: &Path) {
         let Some(key) = self
             .instances
             .find(directory)
@@ -218,26 +350,9 @@ impl RootView {
     }
 }
 
-impl RootView {
-    /// A profile from the desktop form, selected once its marker is on disk.
-    pub(crate) fn create_profile(&mut self, cx: &mut Context<'_, Self>) {
-        let Some(paths) = self.paths.as_ref() else {
-            return;
-        };
-        let Some((name, game)) = self.profile_creation.profile(cx) else {
-            return;
-        };
-
-        let instances = paths.instances();
-        match profile::create(&instances, &name, game) {
-            Ok(directory) => {
-                self.activity
-                    .success(format!("Created {name} at {}", directory.display()));
-                self.instances.replace(profile::discover(&instances), true);
-                self.instances.select(&directory);
-            }
-            Err(error) => self.activity.error(error.to_string()),
-        }
-        cx.notify();
-    }
+fn installation_progress(version: &str, state: &Installation) -> TransferProgress {
+    TransferProgress::new(
+        format!("download-progress:{version}"),
+        format!("{version} · {}", state.message()),
+    )
 }

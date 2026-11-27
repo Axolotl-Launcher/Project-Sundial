@@ -18,7 +18,7 @@ use axlauncher_spi::{FetchError, FetchKind, Network};
 use axlauncher_storage::GameDir;
 use futures::StreamExt;
 
-use crate::assets::{AssetIndexDocument, missing_assets};
+use crate::assets::AssetIndexDocument;
 
 /// The phase and file counts a caller can display during installation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -268,7 +268,7 @@ fn missing_files(
         target,
         include_local,
     ));
-    files.extend(missing_assets(game_root, index));
+    files.extend(index.missing_assets(game_root));
     files
 }
 

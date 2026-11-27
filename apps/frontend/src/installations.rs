@@ -3,7 +3,7 @@
 
 //! The install service's progress and outcome as seen by the desktop.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use axlauncher_core::desktop::{
     installation::{self, InstallTarget},
@@ -14,7 +14,6 @@ use axlauncher_core::storage::DataDir;
 use axlauncher_ui::{AppContext, AsyncApp, Context, WeakEntity};
 use tokio::sync::watch;
 
-use crate::RootView;
 use crate::installation_progress::{progress_message, should_report};
 
 pub(crate) enum Installation {
@@ -33,45 +32,45 @@ impl Installation {
     }
 }
 
-pub(crate) fn start(
+pub(crate) enum InstallEvent {
+    Progress(Progress),
+    Finished(Result<Option<String>, String>),
+}
+
+pub(crate) fn start<T: 'static>(
     paths: DataDir,
     directory: PathBuf,
     target: InstallTarget,
     options: DownloadOptions,
-    cx: &mut Context<'_, RootView>,
+    cx: &mut Context<'_, T>,
+    on_event: impl Fn(&mut T, InstallEvent, &mut Context<'_, T>) + 'static,
 ) {
-    let game = paths.game();
-    let key = target.key();
-    let is_loader = target.is_loader();
     let (progress, mut updates) = watch::channel(Progress::Version);
-    let task_paths = paths.clone();
-    let task_directory = directory.clone();
     let task = cx.background_spawn(async move {
-        installation::install(&task_paths, &task_directory, target, options, |stage| {
+        installation::install(&paths, &directory, target, options, |stage| {
             report_progress(&progress, stage);
         })
     });
     cx.spawn(async move |view, cx| {
-        display_progress(&mut updates, &view, cx, game.root(), &key).await;
+        stream_progress(&mut updates, &view, cx, &on_event).await;
         let outcome = task.await;
         let _ = view.update(cx, |view, cx| {
-            view.finish_installation(&paths, &directory, &key, is_loader, outcome, cx)
+            on_event(view, InstallEvent::Finished(outcome), cx)
         });
     })
     .detach();
 }
 
-async fn display_progress(
+async fn stream_progress<T: 'static>(
     updates: &mut watch::Receiver<Progress>,
-    view: &WeakEntity<RootView>,
+    view: &WeakEntity<T>,
     cx: &mut AsyncApp,
-    root: &Path,
-    id: &str,
+    on_event: &impl Fn(&mut T, InstallEvent, &mut Context<'_, T>),
 ) {
     while updates.changed().await.is_ok() {
         let progress = *updates.borrow_and_update();
         let updated = view.update(cx, |view, cx| {
-            view.set_installation(root, id, Installation::Running(progress), cx)
+            on_event(view, InstallEvent::Progress(progress), cx)
         });
         if updated.is_err() {
             return;

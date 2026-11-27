@@ -448,17 +448,6 @@ fn read_document<T: serde::de::DeserializeOwned>(root: &Path, id: &str) -> Resul
     serde_json::from_slice(&bytes).map_err(|source| VersionError::Parse { path, source })
 }
 
-/// Reads `<root>/<id>/<id>.json` and everything it inherits from.
-///
-/// A loader's profile names its vanilla version in `inheritsFrom` and carries
-/// only the fields it changes, so the document on disk is not launchable by
-/// itself. [`crate::chain::resolve`] applies the parent first and then the
-/// profile's own values, which is the order the game's format defines.
-pub fn load_resolved(root: &Path, id: &str) -> Result<Version, crate::chain::ChainError> {
-    let version = load(root, id).map_err(|source| crate::chain::ChainError::Document { source })?;
-    crate::chain::resolve(root, version)
-}
-
 #[cfg(test)]
 #[path = "../../../../../tests/apps/core/minecraft/launch/src/version.rs"]
 mod tests;

@@ -11,7 +11,7 @@ use axlauncher_ui::prelude::*;
 use axlauncher_ui::{AsyncApp, Context, Task, WeakEntity};
 use tokio::sync::mpsc;
 
-use super::{AccountSnapshot, DesktopAccounts, RootView, SignInCancellation};
+use super::{AccountSnapshot, AccountsPanel, DesktopAccounts, SignInCancellation};
 
 type LoginResult = Result<Option<AccountSnapshot>, String>;
 
@@ -28,35 +28,35 @@ pub(super) enum Stage {
     Device { url: String, code: String },
 }
 
-impl RootView {
+impl AccountsPanel {
     pub(super) fn sign_in(
         &mut self,
         method: Method,
         expected: Option<AccountId>,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(service) = self.accounts.service.clone() else {
+        let Some(service) = self.service.clone() else {
             return;
         };
-        if self.accounts.is_busy() {
+        if self.is_busy() {
             return;
         }
         let cancellation = SignInCancellation::default();
         let commit = cancellation.0.clone();
         self.observe_sign_in_commit(commit.clone(), cx);
         let (sender, events) = mpsc::unbounded_channel();
-        self.accounts.login = Some(Attempt {
+        self.login = Some(Attempt {
             stage: Stage::Starting,
             cancellation,
         });
-        self.accounts.error = None;
+        self.error = None;
         let worker = Arc::clone(&service);
-        let fallen_proxy = self.fallen_proxy();
+        let fallen_proxy = self.fallen_proxy.clone();
         let task = cx.background_spawn(async move {
             run(&worker, method, expected, fallen_proxy, &sender, &commit).await
         });
         cx.spawn(async move |view, cx| {
-            show_attempt(view, cx, service, events, task).await;
+            Self::show_attempt(view, cx, service, events, task).await;
         })
         .detach();
         cx.notify();
@@ -68,10 +68,10 @@ impl RootView {
         stage: Stage,
         cx: &mut Context<'_, Self>,
     ) {
-        if !self.accounts.is_current(service) {
+        if !self.is_current(service) {
             return;
         }
-        let Some(attempt) = &mut self.accounts.login else {
+        let Some(attempt) = &mut self.login else {
             return;
         };
         if attempt.cancellation.0.is_pending()
@@ -89,10 +89,10 @@ impl RootView {
         result: LoginResult,
         cx: &mut Context<'_, Self>,
     ) {
-        if !self.accounts.is_current(service) {
+        if !self.is_current(service) {
             return;
         }
-        self.accounts.login = None;
+        self.login = None;
         match result {
             Ok(snapshot) => self.finish_account_change(snapshot, None, cx),
             Err(error) => self.finish_account_change(None, Some(error), cx),
@@ -100,25 +100,27 @@ impl RootView {
     }
 
     pub(super) fn cancel_sign_in(&mut self, cx: &mut Context<'_, Self>) {
-        if let Some(attempt) = &self.accounts.login {
+        if let Some(attempt) = &self.login {
             attempt.cancellation.0.cancel();
         }
         cx.notify();
     }
 }
 
-async fn show_attempt(
-    view: WeakEntity<RootView>,
-    cx: &mut AsyncApp,
-    service: Arc<DesktopAccounts>,
-    mut events: mpsc::UnboundedReceiver<Stage>,
-    task: Task<LoginResult>,
-) {
-    while let Some(stage) = events.recv().await {
-        let _ = view.update(cx, |view, cx| view.show_sign_in(&service, stage, cx));
+impl AccountsPanel {
+    async fn show_attempt(
+        view: WeakEntity<AccountsPanel>,
+        cx: &mut AsyncApp,
+        service: Arc<DesktopAccounts>,
+        mut events: mpsc::UnboundedReceiver<Stage>,
+        task: Task<LoginResult>,
+    ) {
+        while let Some(stage) = events.recv().await {
+            let _ = view.update(cx, |view, cx| view.show_sign_in(&service, stage, cx));
+        }
+        let result = task.await;
+        let _ = view.update(cx, |view, cx| view.finish_sign_in(&service, result, cx));
     }
-    let result = task.await;
-    let _ = view.update(cx, |view, cx| view.finish_sign_in(&service, result, cx));
 }
 
 async fn run(

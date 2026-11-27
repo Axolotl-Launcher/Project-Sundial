@@ -10,12 +10,12 @@ use axlauncher_core::desktop::accounts::{
 };
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, AnyElement, AsyncWindowContext, Button, ButtonVariants, Context, Disableable,
+    ActiveTheme, AnyElement, App, AsyncWindowContext, Button, ButtonVariants, Context, Disableable,
     ElementId, Entity, FocusHandle, Focusable, Input, InputEvent, InputState, IntoElement, Label,
     Task, WeakEntity, Window, h_flex, v_flex,
 };
 
-use super::{DesktopAccounts, RootView, SignInCancellation};
+use super::{AccountsPanel, DesktopAccounts, SignInCancellation};
 
 type ResultState = Result<Outcome, String>;
 
@@ -48,15 +48,11 @@ pub(super) struct Form {
 }
 
 impl Form {
-    pub(super) fn new(window: &mut Window, cx: &mut Context<'_, RootView>) -> Self {
+    pub(super) fn new(window: &mut Window, cx: &mut App) -> Self {
         let url = cx
             .new(|cx| InputState::new(window, cx).placeholder("https://example.com/api/yggdrasil"));
         let username = cx.new(|cx| InputState::new(window, cx));
         let password = cx.new(|cx| InputState::new(window, cx).masked(true));
-        for input in [&url, &username, &password] {
-            cx.subscribe_in(input, window, RootView::third_party_input)
-                .detach();
-        }
         Self {
             url,
             username,
@@ -70,7 +66,7 @@ impl Form {
         }
     }
 
-    pub(super) fn reset(&mut self, window: &mut Window, cx: &mut Context<'_, RootView>) {
+    pub(super) fn reset(&mut self, window: &mut Window, cx: &mut App) {
         self.open = false;
         self.request = None;
         self.choice = None;
@@ -86,17 +82,35 @@ impl Form {
         self.request.is_some()
     }
 
-    pub(super) fn button(&self, disabled: bool, cx: &Context<'_, RootView>) -> Button {
+    fn clear_password(&self, window: &mut Window, cx: &mut App) {
+        self.password
+            .update(cx, |input, cx| input.set_value("", window, cx));
+    }
+
+    fn retain_focus_when_replacing_fields(&self, window: &mut Window, cx: &mut App) {
+        if self.focus_scope.contains_focused(window, cx) {
+            self.focus_scope.focus(window, cx);
+        }
+    }
+}
+
+impl AccountsPanel {
+    pub(super) fn third_party_button(
+        &self,
+        disabled: bool,
+        cx: &Context<'_, AccountsPanel>,
+    ) -> Button {
         Button::new("third-party-sign-in")
             .label("Third-party sign-in…")
-            .track_focus(&self.trigger)
-            .disabled(disabled || self.open)
-            .toggled(self.open)
+            .track_focus(&self.third_party.trigger)
+            .disabled(disabled || self.third_party.open)
+            .toggled(self.third_party.open)
             .on_click(cx.listener(|view, _, window, cx| view.open_third_party(None, window, cx)))
     }
 
-    pub(super) fn render(&self, cx: &Context<'_, RootView>) -> AnyElement {
+    pub(super) fn render_third_party(&self, cx: &Context<'_, AccountsPanel>) -> AnyElement {
         let saving = self
+            .third_party
             .request
             .as_ref()
             .is_some_and(|attempt| attempt.cancellation.0.is_saving());
@@ -105,15 +119,15 @@ impl Form {
         } else {
             "Contacting the sign-in server"
         };
-        let fields = match &self.choice {
+        let fields = match &self.third_party.choice {
             Some(choice) => self.render_profiles(choice, cx),
             None => self.render_fields(cx),
         };
         v_flex()
-            .track_focus(&self.focus_scope)
+            .track_focus(&self.third_party.focus_scope)
             .gap_2()
             .child(fields)
-            .when(self.is_working(), |column| {
+            .when(self.third_party.is_working(), |column| {
                 column.child(
                     Label::new(status)
                         .text_sm()
@@ -126,7 +140,8 @@ impl Form {
                         .ghost()
                         .label("Cancel")
                         .disabled(
-                            self.request
+                            self.third_party
+                                .request
                                 .as_ref()
                                 .is_some_and(|attempt| !attempt.cancellation.0.is_pending()),
                         )
@@ -138,24 +153,24 @@ impl Form {
             .into_any_element()
     }
 
-    fn render_fields(&self, cx: &Context<'_, RootView>) -> AnyElement {
-        let disabled = self.is_working();
+    fn render_fields(&self, cx: &Context<'_, AccountsPanel>) -> AnyElement {
+        let disabled = self.third_party.is_working();
         v_flex()
             .gap_2()
             .child(field(
-                &self.url,
+                &self.third_party.url,
                 "third-party-url",
                 "Yggdrasil API URL",
-                disabled || self.expected.is_some(),
+                disabled || self.third_party.expected.is_some(),
             ))
             .child(field(
-                &self.username,
+                &self.third_party.username,
                 "third-party-user",
                 "Username",
                 disabled,
             ))
             .child(field(
-                &self.password,
+                &self.third_party.password,
                 "third-party-password",
                 "Password",
                 disabled,
@@ -174,12 +189,16 @@ impl Form {
             .into_any_element()
     }
 
-    fn render_profiles(&self, choice: &ProfileChoice, cx: &Context<'_, RootView>) -> AnyElement {
+    fn render_profiles(
+        &self,
+        choice: &ProfileChoice,
+        cx: &Context<'_, AccountsPanel>,
+    ) -> AnyElement {
         let buttons = choice
             .profiles
             .iter()
             .cloned()
-            .map(|profile| profile_button(profile, self.is_working(), cx));
+            .map(|profile| Self::profile_button(profile, self.third_party.is_working(), cx));
         v_flex()
             .gap_2()
             .child(Label::new("Choose a Minecraft profile"))
@@ -187,45 +206,41 @@ impl Form {
             .into_any_element()
     }
 
-    fn clear_password(&self, window: &mut Window, cx: &mut Context<'_, RootView>) {
-        self.password
-            .update(cx, |input, cx| input.set_value("", window, cx));
+    fn profile_button(profile: Profile, disabled: bool, cx: &Context<'_, AccountsPanel>) -> Button {
+        let id = ElementId::Name(format!("third-party-profile:{}", profile.id()).into());
+        Button::new(id)
+            .label(profile.name().to_owned())
+            .disabled(disabled)
+            .on_click(cx.listener(move |view, _, window, cx| {
+                view.choose_third_party(profile.clone(), window, cx)
+            }))
     }
+}
 
-    fn retain_focus_when_replacing_fields(
-        &self,
-        window: &mut Window,
-        cx: &mut Context<'_, RootView>,
-    ) {
-        if self.focus_scope.contains_focused(window, cx) {
-            self.focus_scope.focus(window, cx);
+impl AccountsPanel {
+    pub(super) fn subscribe_third_party(&self, window: &mut Window, cx: &mut Context<'_, Self>) {
+        for input in [
+            &self.third_party.url,
+            &self.third_party.username,
+            &self.third_party.password,
+        ] {
+            cx.subscribe_in(input, window, Self::third_party_input)
+                .detach();
         }
     }
-}
 
-fn profile_button(profile: Profile, disabled: bool, cx: &Context<'_, RootView>) -> Button {
-    let id = ElementId::Name(format!("third-party-profile:{}", profile.id()).into());
-    Button::new(id)
-        .label(profile.name().to_owned())
-        .disabled(disabled)
-        .on_click(cx.listener(move |view, _, window, cx| {
-            view.choose_third_party(profile.clone(), window, cx)
-        }))
-}
-
-impl RootView {
     pub(super) fn open_third_party(
         &mut self,
         server: Option<(AccountId, String)>,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        if self.accounts.is_busy() {
+        if self.is_busy() {
             return;
         }
-        self.accounts.add_offline = false;
-        self.accounts.error = None;
-        let form = &mut self.accounts.third_party;
+        self.add_offline = false;
+        self.error = None;
+        let form = &mut self.third_party;
         form.reset(window, cx);
         form.open = true;
         let (expected, url) =
@@ -245,20 +260,20 @@ impl RootView {
     }
 
     fn close_third_party(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        let form = &mut self.accounts.third_party;
-        if let (Some(service), Some(choice)) = (&self.accounts.service, form.choice.take()) {
+        let form = &mut self.third_party;
+        if let (Some(service), Some(choice)) = (&self.service, form.choice.take()) {
             service.discard_choice(choice.id);
         }
         form.reset(window, cx);
         if form.focus_scope.contains_focused(window, cx) {
             form.trigger.focus(window, cx);
         }
-        self.accounts.error = None;
+        self.error = None;
         cx.notify();
     }
 
     fn cancel_third_party(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        let Some(attempt) = &mut self.accounts.third_party.request else {
+        let Some(attempt) = &mut self.third_party.request else {
             self.close_third_party(window, cx);
             return;
         };
@@ -285,8 +300,8 @@ impl RootView {
     }
 
     fn submit_third_party(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        let form = &self.accounts.third_party;
-        if !form.open || form.choice.is_some() || self.accounts.is_busy() {
+        let form = &self.third_party;
+        if !form.open || form.choice.is_some() || self.is_busy() {
             return;
         }
         let request = Request::SignIn {
@@ -304,10 +319,10 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        if self.accounts.is_busy() {
+        if self.is_busy() {
             return;
         }
-        let form = &mut self.accounts.third_party;
+        let form = &mut self.third_party;
         let Some(choice) = form.choice.take() else {
             return;
         };
@@ -328,21 +343,21 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(service) = self.accounts.service.clone() else {
+        let Some(service) = self.service.clone() else {
             return;
         };
         let worker = Arc::clone(&service);
-        let expected = self.accounts.third_party.expected;
-        self.accounts.error = None;
+        let expected = self.third_party.expected;
+        self.error = None;
         let cancellation = SignInCancellation::default();
         let commit = cancellation.0.clone();
         self.observe_sign_in_commit(commit.clone(), cx);
         let task =
             cx.background_spawn(async move { run(request, &worker, expected, &commit).await });
         let task = cx.spawn_in(window, async move |view, cx| {
-            show_result(view, cx, service, task).await;
+            Self::show_result(view, cx, service, task).await;
         });
-        self.accounts.third_party.request = Some(Attempt {
+        self.third_party.request = Some(Attempt {
             _task: task,
             cancellation,
         });
@@ -356,10 +371,10 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        if !self.accounts.is_current(service) {
+        if !self.is_current(service) {
             return;
         }
-        let form = &mut self.accounts.third_party;
+        let form = &mut self.third_party;
         form.request = None;
         match result {
             Ok(Outcome::Profiles(choice)) => {
@@ -371,7 +386,7 @@ impl RootView {
                 self.close_third_party(window, cx);
                 self.finish_account_change(Some(snapshot), None, cx);
             }
-            Err(error) => self.accounts.error = Some(error),
+            Err(error) => self.error = Some(error),
         }
         cx.notify();
     }
@@ -436,16 +451,18 @@ async fn run(
     }
 }
 
-async fn show_result(
-    view: WeakEntity<RootView>,
-    cx: &mut AsyncWindowContext,
-    service: Arc<DesktopAccounts>,
-    task: Task<ResultState>,
-) {
-    let result = task.await;
-    let _ = view.update_in(cx, |view, window, cx| {
-        view.finish_third_party(&service, result, window, cx)
-    });
+impl AccountsPanel {
+    async fn show_result(
+        view: WeakEntity<AccountsPanel>,
+        cx: &mut AsyncWindowContext,
+        service: Arc<DesktopAccounts>,
+        task: Task<ResultState>,
+    ) {
+        let result = task.await;
+        let _ = view.update_in(cx, |view, window, cx| {
+            view.finish_third_party(&service, result, window, cx)
+        });
+    }
 }
 
 fn field(

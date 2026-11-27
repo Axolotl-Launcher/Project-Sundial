@@ -10,11 +10,9 @@ use axlauncher_core::desktop::installation::install_key;
 use axlauncher_core::state::profile::{DiscoveredProfile, Game};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    Button, ButtonVariants, Context, Disableable, ElementId, Hsla, IntoElement, Label, StyledExt,
-    div,
+    App, Button, ButtonVariants, Disableable, ElementId, Hsla, IntoElement, Label, StyledExt, div,
 };
 
-use crate::RootView;
 use crate::installations::Installation;
 use crate::launches::Launch;
 
@@ -37,15 +35,18 @@ struct ActionState<'a> {
 /// The labels take explicit ids: `Label::new` defaults its id to the call site,
 /// so labels built in a loop would share one id and gpui's accessibility tree
 /// panics on the duplicate in debug builds.
-pub(crate) fn row(
+pub(crate) fn row<F>(
     instance: &DiscoveredProfile,
     selected: bool,
     installations: Option<&HashMap<String, Installation>>,
     launch: Option<&(String, Launch)>,
     launch_pending: bool,
     muted: Hsla,
-    cx: &mut Context<'_, RootView>,
-) -> impl IntoElement + use<> {
+    on_action: F,
+) -> impl IntoElement + use<F>
+where
+    F: Fn(InstanceAction, &mut App) + Clone + 'static,
+{
     let action = instance.profile.game().and_then(|game| {
         let version = game.effective_version();
         let install =
@@ -70,7 +71,7 @@ pub(crate) fn row(
                     recorded: game.version_id.is_some(),
                 },
                 muted,
-                cx,
+                on_action.clone(),
             )
         })
     });
@@ -81,7 +82,7 @@ pub(crate) fn row(
     .label("Select")
     .toggled(selected)
     .accessibility_label(format!("Select {}", instance.profile.instance.name))
-    .on_click(cx.listener(move |view, _, _, cx| view.select_instance(path.clone(), cx)));
+    .on_click(move |_, _, cx| on_action(InstanceAction::Select, cx));
     div()
         .h_flex()
         .justify_between()
@@ -96,6 +97,12 @@ pub(crate) fn row(
                 .child(select)
                 .children(action),
         )
+}
+
+pub(crate) enum InstanceAction {
+    Select,
+    Install(Game),
+    Launch,
 }
 
 fn description(instance: &DiscoveredProfile, muted: Hsla) -> impl IntoElement + use<> {
@@ -134,11 +141,14 @@ fn description(instance: &DiscoveredProfile, muted: Hsla) -> impl IntoElement + 
         )
 }
 
-fn instance_actions(
+fn instance_actions<F>(
     state: ActionState<'_>,
     muted: Hsla,
-    cx: &mut Context<'_, RootView>,
-) -> impl IntoElement + use<> {
+    on_action: F,
+) -> impl IntoElement + use<F>
+where
+    F: Fn(InstanceAction, &mut App) + Clone + 'static,
+{
     let ActionState {
         directory,
         game,
@@ -161,7 +171,7 @@ fn instance_actions(
     let install_button = install.and_then(|_| {
         let label = install_label(slot, recorded)?;
         let directory = directory.clone();
-        let game = game.clone();
+        let install = on_action.clone();
         Some(
             Button::new(ElementId::Name(
                 format!("install:{}", directory.display()).into(),
@@ -169,14 +179,13 @@ fn instance_actions(
             .primary()
             .disabled(busy)
             .label(label)
-            .on_click(cx.listener(move |view, _, _, cx| view.install_game(&directory, &game, cx))),
+            .on_click(move |_, _, cx| install(InstanceAction::Install(game.clone()), cx)),
         )
     });
-    let buttons = div()
-        .h_flex()
-        .gap_2()
-        .children(install_button)
-        .children(launchable.then(|| launch_button(&directory, busy || launch_pending, cx)));
+    let buttons =
+        div().h_flex().gap_2().children(install_button).children(
+            launchable.then(|| launch_button(&directory, busy || launch_pending, on_action)),
+        );
     div()
         .v_flex()
         .gap_1()
@@ -220,12 +229,16 @@ fn install_label(slot: Option<&Installation>, recorded: bool) -> Option<&'static
     }
 }
 
-fn launch_button(directory: &Path, busy: bool, cx: &mut Context<'_, RootView>) -> Button {
+fn launch_button(
+    directory: &Path,
+    busy: bool,
+    on_action: impl Fn(InstanceAction, &mut App) + 'static,
+) -> Button {
     let directory = directory.to_path_buf();
     Button::new(ElementId::Name(
         format!("launch:{}", directory.display()).into(),
     ))
     .label("Launch")
     .disabled(busy)
-    .on_click(cx.listener(move |view, _, _, cx| view.launch(&directory, cx)))
+    .on_click(move |_, _, cx| on_action(InstanceAction::Launch, cx))
 }

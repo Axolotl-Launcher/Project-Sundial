@@ -92,7 +92,7 @@ pub fn check_files(
     version_id: &str,
     target: &axlauncher_launch::Target,
 ) -> Result<(), String> {
-    let version = axlauncher_launch::version::load_resolved(&game_root.versions(), version_id)
+    let version = axlauncher_launch::chain::load_resolved(&game_root.versions(), version_id)
         .map_err(|error| error.to_string())?;
     crate::prepare::check_local_files(game_root, &version, target)
 }
