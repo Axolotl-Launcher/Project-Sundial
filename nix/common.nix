@@ -91,9 +91,10 @@ in
       export AXLAUNCHER_INSTALL_IMAGE="$PWD/target/release/libaxlauncher_install_runtime.so"
 
       # include_bytes! does not fingerprint the image contents, so a cached
-      # platform binary can retain an older worker image. Relink after the
-      # images are built.
-      cargo clean --release -p axlauncher_platform_linux
+      # platform binary can retain an older worker image. Invalidate the
+      # platform output before relinking.
+      touch platforms/entry.rs
+      rm -f target/release/axlauncher
       cargo build --locked --offline --release -p axlauncher_platform_linux --bin axlauncher
 
       ${lib.optionalString smoke ''
