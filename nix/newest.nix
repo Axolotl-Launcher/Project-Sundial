@@ -45,6 +45,9 @@ let
     # The final rpath is set after the link, where the fixup would otherwise
     # shrink it away.
     dontPatchELF = true;
+    # Worker images are compared byte-for-byte when they are loaded. Fixup must
+    # not rewrite the image outputs after the platform binary embeds them.
+    dontStrip = true;
   };
 
   # NixOS keeps the host graphics driver outside the store.
