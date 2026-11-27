@@ -153,4 +153,3 @@ jobs:
           test "$NEWEST_RESULT" = success
           test "$LEGACY_RESULT" = success
           test "$OUTPUTS_RESULT" = success
-

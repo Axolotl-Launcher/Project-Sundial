@@ -83,8 +83,9 @@ jobs:
 
       - name: Check the ELF gate
         # Runs here because this job already built the binary the check reads.
+        # `checks` is keyed by system, so the attribute path names it.
         if: ${{ inputs.isLegacy }}
-        run: nix build .#checks.legacy-elf
+        run: nix build .#checks.x86_64-linux.legacy-elf
 
       - name: Exercise worker dispatch
         # The binary embeds both worker libraries and re-executes itself; an
