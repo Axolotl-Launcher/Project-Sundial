@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use axlauncher_spi::{Java, JavaMode, LaunchCommand, LaunchError, Launcher};
 use axlauncher_storage::{GameDir, instance_options};
 
+use crate::HeapPolicy;
 use crate::chain::{self, ChainError};
 use crate::jar::JarReader;
 use crate::language::GameLanguage;
@@ -42,6 +43,8 @@ pub struct LaunchRequest {
     pub player_name: String,
     /// The initial language and the original Minecraft version it applies to.
     pub game_language: Option<GameLanguage>,
+    /// Heap defaults for this request, when the caller supplies a policy.
+    pub heap: Option<HeapPolicy>,
 }
 
 /// What a completed launch produced.
@@ -347,7 +350,10 @@ fn assemble(
         launcher_name: LAUNCHER_NAME.to_owned(),
         launcher_version: LAUNCHER_VERSION.to_owned(),
     };
-    plan::build(executable, version, &layout, session, target)
+    let heap = request
+        .heap
+        .map(|policy| policy.resolve(executable, version));
+    plan::build(executable, version, &layout, session, target, heap)
         .map_err(|source| FlowError::Plan { source })
 }
 

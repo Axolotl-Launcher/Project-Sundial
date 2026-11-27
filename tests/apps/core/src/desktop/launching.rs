@@ -147,6 +147,104 @@ fn an_unreadable_java_catalog_is_reported_and_preserved() {
     assert_eq!(std::fs::read(catalog).unwrap(), contents);
 }
 
+#[test]
+fn desktop_preview_applies_profile_then_manifest_heap_settings() {
+    use axlauncher_domain::memory::MaximumHeap;
+
+    let root = tempfile::tempdir().unwrap();
+    let data = DataDir::isolated(root.path()).unwrap();
+    let fixture = java_profile_job(&data);
+    let runtime = java::test_runtime(&root.path().join("runtime-fixture"), 42);
+    java::add(&data, &runtime).unwrap();
+    let mut settings = SettingsData::default();
+    settings.set_memory(MemoryAllocation::Manual(MaximumHeap::new(4096).unwrap()));
+    let preview = || {
+        let discovered = profile::discover(&data.instances());
+        let job = LaunchJob::for_profile(
+            &data,
+            &discovered.instances[0],
+            "Player".into(),
+            Some(&settings),
+        )
+        .unwrap();
+        let command = job.preview(&Session::offline("Player")).unwrap();
+        command
+            .args
+            .into_iter()
+            .filter(|arg| arg.starts_with("-Xms") || arg.starts_with("-Xmx"))
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(preview(), ["-Xmx4096m"]);
+    let heap = MaximumHeap::new(6144).unwrap();
+    profile::set_memory(
+        fixture.instance_directory(),
+        &fixture.profile_id,
+        Some(heap),
+    )
+    .unwrap();
+    assert_eq!(preview(), ["-Xmx6144m"]);
+    let release = runtime.parent().unwrap().parent().unwrap().join("release");
+    std::fs::write(release, "JAVA_VERSION=\"42.0.1\"\nOS_ARCH=\"i686\"\n").unwrap();
+    assert_eq!(preview(), ["-Xmx1024m"]);
+    assert_eq!(
+        profile::read(fixture.instance_directory())
+            .unwrap()
+            .unwrap()
+            .memory(),
+        Some(heap)
+    );
+    std::fs::write(
+        data.game().version_document(fixture.version_id()),
+        r#"{"id":"1.21.11","javaVersion":{"majorVersion":42},"arguments":{"jvm":["-Xmx512m"]}}"#,
+    )
+    .unwrap();
+    assert_eq!(preview(), ["-Xmx512m"]);
+}
+
+#[test]
+fn an_optifine_only_profile_uses_the_version_workload() {
+    let root = tempfile::tempdir().unwrap();
+    let data = DataDir::isolated(root.path()).unwrap();
+    let game = Game::new("1.21.11").with_loader("OptiFine", None);
+    let directory = profile::create(&data.instances(), "OptiFine", game).unwrap();
+    profile::mark_installed(&directory, "optifine-test").unwrap();
+    let profiles = profile::discover(&data.instances());
+    let job = LaunchJob::for_profile(&data, &profiles.instances[0], "Player".into(), None).unwrap();
+    assert!(matches!(
+        job.configured_launch().unwrap().1.heap,
+        Some(HeapPolicy::Automatic { enabled_mods: None })
+    ));
+}
+
+#[test]
+fn an_automatic_job_rescans_enabled_mods_for_each_launch_request() {
+    let root = tempfile::tempdir().unwrap();
+    let data = DataDir::isolated(root.path()).unwrap();
+    let game = Game::new("1.21.11").with_loader("fabric", None);
+    let directory = profile::create(&data.instances(), "Modded", game).unwrap();
+    profile::mark_installed(&directory, "fabric-test").unwrap();
+    let profiles = profile::discover(&data.instances());
+    let job = LaunchJob::for_profile(&data, &profiles.instances[0], "Player".into(), None).unwrap();
+    assert!(matches!(
+        job.configured_launch().unwrap().1.heap,
+        Some(HeapPolicy::Automatic {
+            enabled_mods: Some(0)
+        })
+    ));
+
+    let mods = directory.join("mods");
+    std::fs::create_dir(&mods).unwrap();
+    std::fs::write(mods.join("enabled.jar"), b"mod").unwrap();
+    std::fs::write(mods.join("disabled.jar.disabled"), b"mod").unwrap();
+    assert!(matches!(
+        job.configured_launch().unwrap().1.heap,
+        Some(HeapPolicy::Automatic {
+            enabled_mods: Some(1)
+        })
+    ));
+}
+
 fn java_profile_job(data: &DataDir) -> LaunchJob {
     let version = "1.21.11";
     profile::create(&data.instances(), "Fixture", Game::new(version)).unwrap();

@@ -11,7 +11,19 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use serde::{Deserialize, Deserializer, de::DeserializeOwned};
+
 const SCHEMA_KEY: &str = "schema_version";
+
+/// A malformed optional preference falls back without invalidating its document.
+pub(crate) fn read_preference<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: DeserializeOwned + Default,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).unwrap_or_default())
+}
 
 /// What a write is about to replace.
 pub(crate) enum Existing {

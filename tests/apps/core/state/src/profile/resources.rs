@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::Path;
 
-use super::{ResourceKind, scan_resources};
+use super::{ResourceKind, count_enabled_mods, scan_resources};
 use crate::test_support::TempRoot;
 
 fn put(root: &Path, relative: &str, bytes: &[u8]) {
@@ -39,6 +39,7 @@ fn mods_and_packs_keep_their_kind_and_enabled_state() {
     put(temp.path(), "resourcepacks/pack.zip", b"pack");
     put(temp.path(), "shaderpacks/shiny.zip.disabled", b"shader");
     put(temp.path(), "datapacks/data.ZIP", b"data");
+    assert_eq!(count_enabled_mods(temp.path()).unwrap(), 1);
 
     let kind =
         |name: &str, kind: ResourceKind, enabled: bool| (name.to_owned(), kind, Some(enabled));

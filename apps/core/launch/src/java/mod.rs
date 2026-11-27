@@ -14,6 +14,7 @@ use crate::platform::{executable_in_home, java_bin, managed_executable, managed_
 
 mod application;
 mod discovery;
+pub(crate) mod memory;
 mod release;
 mod runtime;
 pub use runtime::JavaRuntime;

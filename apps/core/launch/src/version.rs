@@ -210,6 +210,15 @@ impl Version {
     pub fn jar_id(&self) -> &str {
         self.jar.as_deref().unwrap_or(&self.id)
     }
+
+    pub(crate) fn uses_optifine(&self) -> bool {
+        self.libraries.iter().any(|library| {
+            library
+                .name
+                .split_once(':')
+                .is_some_and(|(group, _)| group.eq_ignore_ascii_case("optifine"))
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, Serialize)]

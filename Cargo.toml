@@ -150,7 +150,7 @@ itertools = "0.15.0"
 regex = "1.13.2"
 serde_with = "3.25.0"
 shlex = "2.0.1"
-sysinfo = { version = "0.31.4", default-features = false, features = ["disk"] }
+sysinfo = { version = "0.31.4", default-features = false }
 thiserror = "2.0.21"
 which = "8.0.6"
 windows-registry = "0.6.1"
