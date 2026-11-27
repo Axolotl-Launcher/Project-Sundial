@@ -184,12 +184,37 @@ fn desktop_preview_applies_profile_then_manifest_heap_settings() {
     )
     .unwrap();
     assert_eq!(preview(), ["-Xmx6144m"]);
+    let release = runtime.parent().unwrap().parent().unwrap().join("release");
+    std::fs::write(release, "JAVA_VERSION=\"42.0.1\"\nOS_ARCH=\"i686\"\n").unwrap();
+    assert_eq!(preview(), ["-Xmx1024m"]);
+    assert_eq!(
+        profile::read(fixture.instance_directory())
+            .unwrap()
+            .unwrap()
+            .memory(),
+        Some(heap)
+    );
     std::fs::write(
         data.game().version_document(fixture.version_id()),
         r#"{"id":"1.21.11","javaVersion":{"majorVersion":42},"arguments":{"jvm":["-Xmx512m"]}}"#,
     )
     .unwrap();
     assert_eq!(preview(), ["-Xmx512m"]);
+}
+
+#[test]
+fn an_optifine_only_profile_uses_the_version_workload() {
+    let root = tempfile::tempdir().unwrap();
+    let data = DataDir::isolated(root.path()).unwrap();
+    let game = Game::new("1.21.11").with_loader("OptiFine", None);
+    let directory = profile::create(&data.instances(), "OptiFine", game).unwrap();
+    profile::mark_installed(&directory, "optifine-test").unwrap();
+    let profiles = profile::discover(&data.instances());
+    let job = LaunchJob::for_profile(&data, &profiles.instances[0], "Player".into(), None).unwrap();
+    assert!(matches!(
+        job.configured_launch().unwrap().1.heap,
+        Some(HeapPolicy::Automatic { enabled_mods: None })
+    ));
 }
 
 #[test]

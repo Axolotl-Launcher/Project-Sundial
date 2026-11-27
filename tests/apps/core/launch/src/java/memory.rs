@@ -13,31 +13,40 @@ fn bounds(initial_mib: u32, maximum_mib: u32) -> HeapDefaults {
 #[test]
 fn automatic_heap_uses_the_pcl_workload_and_available_memory_stages() {
     let eight_gib = 8 << 30;
-    let vanilla = automatic_heap(eight_gib, None, false, false);
+    let sixteen_gib = 16 << 30;
+    let vanilla = automatic_heap(eight_gib, sixteen_gib, None, false, false);
     assert_eq!(vanilla, bounds(512, 4300));
     assert_eq!(
-        automatic_heap(eight_gib, None, true, false).maximum_mib,
+        automatic_heap(eight_gib, sixteen_gib, None, true, false).maximum_mib,
         4812
     );
     assert_eq!(
-        automatic_heap(eight_gib, Some(150), false, false),
+        automatic_heap(eight_gib, sixteen_gib, Some(150), false, false),
         bounds(1536, 6348)
     );
     assert_eq!(
-        automatic_heap(1 << 30, None, false, false).maximum_mib,
+        automatic_heap(1 << 30, sixteen_gib, None, false, false).maximum_mib,
         1024
     );
 }
 
 #[test]
-fn scarcity_and_32_bit_java_still_produce_valid_bounds() {
+fn automatic_heap_respects_available_and_total_memory() {
     assert_eq!(
-        automatic_heap(2 << 30, Some(600), false, false),
-        bounds(512, 4608)
+        automatic_heap(2 << 30, 4 << 30, Some(600), false, false),
+        bounds(512, 2048)
     );
-    assert_eq!(automatic_heap(0, None, false, false), bounds(512, 512));
     assert_eq!(
-        automatic_heap(32 << 30, Some(180), false, true),
+        automatic_heap(4 << 30, 4 << 30, Some(600), false, false),
+        bounds(1024, 3072)
+    );
+    assert_eq!(automatic_heap(0, 0, None, false, false), bounds(512, 512));
+}
+
+#[test]
+fn automatic_heap_respects_the_32_bit_java_limit() {
+    assert_eq!(
+        automatic_heap(32 << 30, 64 << 30, Some(180), false, true),
         bounds(1024, 1024)
     );
 }

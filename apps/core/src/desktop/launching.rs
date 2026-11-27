@@ -14,7 +14,7 @@ use axlauncher_launch::{
     flow::{self, VersionInspection},
     plan::Session,
 };
-use axlauncher_spi::ServiceHost;
+use axlauncher_spi::{LoaderKind, ServiceHost};
 use axlauncher_state::{
     SettingsData, javas,
     profile::{DiscoveredProfile, count_enabled_mods},
@@ -79,7 +79,7 @@ impl LaunchJob {
                 java_preference: None,
                 player_name,
                 game_language: Some(GameLanguage::new(&game.minecraft, &language)),
-                heap: Some(heap_policy(profile, settings, !game.is_vanilla())),
+                heap: Some(heap_policy(profile, settings)),
             },
             profile_id: profile.profile.id().to_owned(),
             data: data.clone(),
@@ -184,18 +184,18 @@ impl LaunchJob {
     }
 }
 
-fn heap_policy(
-    profile: &DiscoveredProfile,
-    settings: Option<&SettingsData>,
-    mod_capable: bool,
-) -> HeapPolicy {
+fn heap_policy(profile: &DiscoveredProfile, settings: Option<&SettingsData>) -> HeapPolicy {
     let preference = profile.profile.memory().map_or_else(
         || settings.map(SettingsData::memory).unwrap_or_default(),
         MemoryAllocation::Manual,
     );
+    let loader = profile.profile.game().and_then(|game| game.loader.as_ref());
+    let supports_mods = loader
+        .and_then(|loader| LoaderKind::parse(&loader.kind))
+        .is_some_and(|kind| kind != LoaderKind::OptiFine);
     match preference {
         MemoryAllocation::Automatic => HeapPolicy::Automatic {
-            enabled_mods: mod_capable.then_some(0),
+            enabled_mods: supports_mods.then_some(0),
         },
         MemoryAllocation::Manual(heap) => HeapPolicy::Manual(heap),
     }
