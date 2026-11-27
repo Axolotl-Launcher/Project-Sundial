@@ -40,6 +40,12 @@ jobs:
           path: out
           merge-multiple: true
 
+      - name: Keep what a user downloads
+        # The portable tree and the bare legacy binary are inputs to the
+        # packages job; the image and the two native formats are the products.
+        run: |
+          rm -f out/axlauncher-portable-linux-x86_64.tar.zst out/axlauncher
+
       - name: Checksum the artifacts
         run: |
           cd out
@@ -53,7 +59,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          # Everything the run produced: the bare binary, the portable tree, the
-          # deb, the rpm, the AppImage and their checksums.
           gh release create "$GITHUB_REF_NAME" out/* \
             --title "$GITHUB_REF_NAME" --generate-notes --verify-tag

@@ -16,7 +16,7 @@ nix builds the same source twice, and the difference is the glibc the link sees.
 | Attribute | Interpreter | RUNPATH | For |
 |---|---|---|---|
 | `__axlbin.newest` | nix store | store paths, plus `vulkan-loader`, `wayland` and `/run/opengl-driver/lib` | nix users, through the `axlauncher` wrapper |
-| `__axlbin.legacy` | `/lib64/ld-linux-x86-64.so.2` | `$ORIGIN/../lib` | deb, rpm, tarballs |
+| `__axlbin.legacy` | `/lib64/ld-linux-x86-64.so.2` | `$ORIGIN/../lib` | deb, rpm |
 
 `__axlbin.legacy` carries no store path, and `checks.legacy-elf` fails the build
 if one appears or if the binary needs glibc newer than 2.35 (Ubuntu 22.04).
@@ -24,9 +24,11 @@ Both variants link only `libc`, `libm`, `libgcc_s`, `libxkbcommon` and `libxcb`:
 fontconfig, FreeType, Vulkan, wayland and EGL are dlopened at runtime, so their
 versions come from the host.
 
-`packages.axlauncher-portable` bundles `__axlbin.newest` with the loader and
-libraries it links plus the keymap data, for distributions that have no nix. It
-is what an AppImage or a tarball ships.
+`packages.axlauncher-portable` bundles `__axlbin.newest` with the loader, the
+libraries it links and the keymap data. It is the AppImage payload and an
+internal build product: the release publishes the image, not the tree.
+`checks.portable` proves the tree is self-contained, since the packaging job
+only checks the layout of what it receives.
 
 ## Layout
 

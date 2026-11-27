@@ -80,7 +80,8 @@ than 2.35 (Ubuntu 22.04).
 packaging input and goes to the build cache only. The wrapper is not cached: it
 is a symlink plus two files, cheaper to build locally than to download.
 `packages.axlauncher-portable` bundles `newest` with the loader, the libraries it
-links and the keymap data, which is what an AppImage or a tarball ships.
+links and the keymap data. It is the AppImage payload and stays inside the build:
+a release publishes the image, not the tree.
 
 Build products go to a second cache, `axlmc-cache`, because a cache evicts its
 oldest entries once it exceeds its quota, and a burst of CI output would push a
