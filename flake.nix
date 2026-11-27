@@ -64,7 +64,7 @@
               "rustfmt"
             ];
           };
-          package = import ./nix/package.nix {
+          package = import ./nix {
             inherit pkgs pkgsOld toolchain;
             inherit (pkgs) lib;
             craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
