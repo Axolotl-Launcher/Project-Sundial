@@ -65,5 +65,16 @@ pkgs.runCommand "axlauncher-portable-${version}"
       exit 1
     fi
 
+    # The launcher must survive an exec that does not fall back to a shell; the
+    # probe exits 2 when the kernel rejects the file.
+    cat >probe.c <<'PROBE'
+    #include <unistd.h>
+    int main(int argc, char **argv) { execv(argv[1], &argv[1]); return 2; }
+    PROBE
+    cc -o probe probe.c
+    status=0
+    ./probe "$out/bin/axlauncher" --axlauncher-worker bogus /tmp/x || status=$?
+    test "$status" = 1
+
     install -Dm644 resolved.txt "$out/share/doc/linked-libraries.txt"
   ''

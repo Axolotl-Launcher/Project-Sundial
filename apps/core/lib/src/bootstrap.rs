@@ -79,8 +79,15 @@ fn drain_workers(accounts: Vec<Arc<Service<Reply>>>) {
     crate::downloads::wait_closed();
 }
 
+/// Set by a launcher that starts the binary through a loader instead of executing it
+/// directly, where `/proc/self/exe` names the loader rather than this image.
+const EXECUTABLE_VARIABLE: &str = "AXLAUNCHER_EXECUTABLE";
+
 /// Linux must exec the running image, even if the package has replaced its path.
 fn worker_executable() -> io::Result<PathBuf> {
+    if let Some(executable) = std::env::var_os(EXECUTABLE_VARIABLE) {
+        return Ok(PathBuf::from(executable));
+    }
     if cfg!(target_os = "linux") {
         return Ok(PathBuf::from("/proc/self/exe"));
     }

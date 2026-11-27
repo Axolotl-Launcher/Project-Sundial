@@ -43,3 +43,25 @@ fn can_reexec_after_the_installed_binary_is_replaced() {
     assert!(output.status.success(), "{report}");
     assert!(report.contains("1 passed"), "{report}");
 }
+
+const LAUNCHER_PATH_PROBE: &str = "AXLAUNCHER_TEST_LAUNCHER_PATH";
+
+#[test]
+fn the_launcher_path_variable_names_the_executable() {
+    let reported = std::env::temp_dir().join("axlauncher-launcher-path");
+    if std::env::var_os(LAUNCHER_PATH_PROBE).is_some() {
+        assert_eq!(worker_executable().unwrap(), reported);
+        return;
+    }
+
+    let status = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "bootstrap::tests::the_launcher_path_variable_names_the_executable",
+        ])
+        .env(LAUNCHER_PATH_PROBE, "1")
+        .env("AXLAUNCHER_EXECUTABLE", &reported)
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
