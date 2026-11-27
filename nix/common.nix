@@ -25,7 +25,12 @@ let
   smokeInstall = ''
     smoke_install() {
       printf '\012\000\000\000"Shutdown"' | "$1" --axlauncher-worker install "$2" > install-ready.frame
-      printf '\007\000\000\000"Ready"' | cmp - install-ready.frame
+      if printf '\007\000\000\000"Ready"' | cmp - install-ready.frame; then
+        return 0
+      fi
+      echo "The install worker did not return the expected Ready frame." >&2
+      od -An -tx1 install-ready.frame >&2
+      return 1
     }
   '';
 in
@@ -53,6 +58,9 @@ in
       # Strip the store rpath from the worker images: a worker runs under the
       # target loader.
       patchImages,
+      # The legacy dependency stage compiles a dummy launcher, so it cannot
+      # execute the worker handshake. The real artifacts run it where supported.
+      smoke ? true,
     }:
     ''
       runHook preBuild
@@ -84,9 +92,11 @@ in
 
       cargo build --locked --offline --release -p axlauncher_platform_linux --bin axlauncher
 
-      cp "$AXLAUNCHER_INSTALL_IMAGE" "$PWD/libinstall.so"
-      ${smokeInstall}
-      smoke_install "$PWD/target/release/axlauncher" "$PWD/libinstall.so"
+      ${lib.optionalString smoke ''
+        cp "$AXLAUNCHER_INSTALL_IMAGE" "$PWD/libinstall.so"
+        ${smokeInstall}
+        smoke_install "$PWD/target/release/axlauncher" "$PWD/libinstall.so"
+      ''}
 
       runHook postBuild
     '';

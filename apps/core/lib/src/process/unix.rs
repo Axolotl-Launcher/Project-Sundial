@@ -19,20 +19,22 @@ impl Tree {
 
     pub fn poll_exit(&mut self, child: &mut Child, stop: bool) -> io::Result<bool> {
         let leader = group_id(child)?;
-        if !self.leader_reaped {
-            if !leader_exited(leader)? {
-                if stop {
-                    terminate_group(leader)?;
-                }
-                return Ok(false);
-            }
-            terminate_group(leader)?;
-            self.leader_reaped = child.try_wait()?.is_some();
-        }
         if self.leader_reaped {
             return group_empty(leader);
         }
-        Ok(false)
+        let exited = leader_exited(leader)?;
+        if !exited && stop {
+            terminate_group(leader)?;
+        }
+        if !exited {
+            return Ok(false);
+        }
+        terminate_group(leader)?;
+        self.leader_reaped = child.try_wait()?.is_some();
+        if !self.leader_reaped {
+            return Ok(false);
+        }
+        group_empty(leader)
     }
 }
 

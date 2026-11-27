@@ -76,17 +76,26 @@ pkgs.runCommand "axlauncher-portable-${version}"
       PROBE
       cc -o probe probe.c
       status=0
-      ./probe "$out/bin/axlauncher" --axlauncher-worker bogus /tmp/x || status=$?
+      ./probe "$out/bin/axlauncher" --axlauncher-worker bogus /tmp/x \
+        >/dev/null 2>&1 || status=$?
       test "$status" = 1
 
       # Load the exact embedded image through the portable entry, then shut down.
+      # The bogus-worker probe above already covers exec without a shell.
       # The probe image is a build input only, not part of the portable tree.
       scratch=$(mktemp -d)
       cp ${newest.workerProbe}/java-discovery-image "$scratch/libjava-discovery.so"
-      printf '\012\000\000\000"Shutdown"' |
-        ./probe "$out/bin/axlauncher" --axlauncher-worker java-discovery \
-          "$scratch/libjava-discovery.so" > "$scratch/reply"
-      printf '\007\000\000\000"Ready"' | cmp - "$scratch/reply"
+      if ! printf '\012\000\000\000"Shutdown"' |
+        "$out/bin/axlauncher" --axlauncher-worker java-discovery \
+          "$scratch/libjava-discovery.so" > "$scratch/java-discovery.frame"; then
+        echo "The Java discovery worker exited without a handshake." >&2
+        exit 1
+      fi
+      if ! printf '\007\000\000\000"Ready"' | cmp - "$scratch/java-discovery.frame"; then
+        echo "The Java discovery worker did not return the expected Ready frame." >&2
+        od -An -tx1 "$scratch/java-discovery.frame" >&2
+        exit 1
+      fi
 
       ${smokeInstall}
       image="${newest.installImage}/libinstall.so"
