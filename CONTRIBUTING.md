@@ -80,11 +80,15 @@ than 2.35 (Ubuntu 22.04).
 packaging input and goes to the build cache only. The wrapper is not cached: it
 is a symlink plus two files, cheaper to build locally than to download.
 `packages.axlauncher-portable` bundles `newest` with the loader, the libraries it
-links and the keymap data, which is what an AppImage or a tarball ships.
+links and the keymap data. It is the AppImage payload and stays inside the build:
+a release publishes the image, not the tree.
 
 Build products go to a second cache, `axlmc-cache`, because a cache evicts its
 oldest entries once it exceeds its quota, and a burst of CI output would push a
-release out. A user who trusts flake configuration gets the substituters from
+release out. It holds two dependency stages, `axlauncher-cargo-deps` and
+`axlauncher-legacy-deps`: the two binaries share no compiler output, so each
+compiles its dependencies once per lockfile and only rebuilds the workspace
+afterwards. A user who trusts flake configuration gets the substituters from
 `flake.nix`; otherwise pass the settings explicitly:
 
 ```bash
@@ -95,9 +99,9 @@ nix run --extra-substituters https://axlmc.cachix.org \
 The workflows split by role: [`nix-cache.yml`](.github/workflows/nix-cache.yml)
 builds one binary and owns every cache token, [`linux-release.yml`](.github/workflows/linux-release.yml)
 calls it for both binaries, [`release.yml`](.github/workflows/release.yml) creates
-the GitHub release, and [`canary.yml`](.github/workflows/canary.yml) builds
-`newest` from `main` every eight hours. CI calls `nix-cache` without secrets, so
-it builds and never publishes.
+the GitHub release, and [`canary.yml`](.github/workflows/canary.yml) builds both
+binaries from `main` every eight hours to keep both dependency stages warm. CI
+calls `nix-cache` without secrets, so it builds and never publishes.
 
 The canary keeps the build cache warm for the next release.
 

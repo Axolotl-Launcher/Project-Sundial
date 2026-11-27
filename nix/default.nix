@@ -42,20 +42,22 @@ let
     inherit (common) version meta;
   };
   checks = import ./checks.nix {
-    inherit legacy pkgs;
+    legacy = legacy.binary;
+    inherit pkgs;
     inherit (common) glibcFloor;
   };
 in
 {
   bin = {
-    inherit legacy;
+    legacy = legacy.binary;
     newest = newest.binary;
   };
 
   packages = {
     axlauncher = wrapper;
     axlauncher-cargo-deps = newest.deps;
-    axlauncher-legacy = legacy;
+    axlauncher-legacy = legacy.binary;
+    axlauncher-legacy-deps = legacy.deps;
     axlauncher-newest = newest.binary;
     axlauncher-portable = portable;
   };

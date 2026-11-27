@@ -35,9 +35,13 @@ jobs:
     name: ${{ inputs.isLegacy && 'Legacy binary' || 'Newest binary' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    # `cachix` reads exactly one variable, `CACHIX_AUTH_TOKEN`, and a token
+    # belongs to one cache. Name the two secrets after their cache and map the
+    # right one onto that variable for each push, or the second cache is pushed
+    # with a token that cannot write to it.
     env:
-      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      CACHIX_CACHE_AUTH_TOKEN: ${{ secrets.CACHIX_CACHE_AUTH_TOKEN }}
+      AXLM_RELEASE_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      AXLM_BUILD_TOKEN: ${{ secrets.CACHIX_CACHE_AUTH_TOKEN }}
     steps:
       - name: Check out workspace
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,28 +54,30 @@ jobs:
           extra_nix_config: |
             accept-flake-config = true
 
-      - name: Set up the release cache
-        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
-        if: ${{ env.CACHIX_AUTH_TOKEN != '' }}
-        with:
-          name: axlmc
-          authToken: ${{ env.CACHIX_AUTH_TOKEN }}
-          skipPush: true
+      - name: Install cachix
+        # The flake already declares both caches as substituters, so the CLI is
+        # only needed for pushing.
+        if: ${{ env.AXLM_RELEASE_TOKEN != '' || env.AXLM_BUILD_TOKEN != '' }}
+        run: nix profile install --inputs-from . nixpkgs#cachix
 
-      - name: Set up the build cache
-        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
-        if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' }}
-        with:
-          name: axlmc-cache
-          authToken: ${{ env.CACHIX_CACHE_AUTH_TOKEN }}
-          skipPush: true
-
+      # The two binaries share no build output: different stdenv, different
+      # glibc. Each dependency stage is cached under its own name so that a
+      # workspace change only recompiles the workspace.
       - name: Publish the crate dependencies
         # Build output goes to its own cache so a burst of CI output cannot
         # evict a release.
-        if: ${{ !inputs.isLegacy && env.CACHIX_CACHE_AUTH_TOKEN != '' }}
+        if: ${{ !inputs.isLegacy && env.AXLM_BUILD_TOKEN != '' }}
+        env:
+          CACHIX_AUTH_TOKEN: ${{ env.AXLM_BUILD_TOKEN }}
         run: |
           nix build --print-out-paths .#axlauncher-cargo-deps | cachix push axlmc-cache
+
+      - name: Publish the legacy crate dependencies
+        if: ${{ inputs.isLegacy && env.AXLM_BUILD_TOKEN != '' }}
+        env:
+          CACHIX_AUTH_TOKEN: ${{ env.AXLM_BUILD_TOKEN }}
+        run: |
+          nix build --print-out-paths .#axlauncher-legacy-deps | cachix push axlmc-cache
 
       - name: Build
         run: |
@@ -90,6 +96,10 @@ jobs:
       - name: Exercise worker dispatch
         # The binary embeds both worker libraries and re-executes itself; an
         # invalid worker name must reach that path and fail cleanly.
+        #
+        # The legacy binary links against the distribution's libraries by design
+        # and a bare runner lacks libxkbcommon-x11, so it is covered by the ELF
+        # gate instead of a run.
         if: ${{ !inputs.isLegacy }}
         run: |
           set +e
@@ -106,13 +116,17 @@ jobs:
       - name: Publish the binary
         # The wrapper is a symlink plus two files, so building it locally is
         # cheaper than downloading it; only the binary is published.
-        if: ${{ !inputs.isLegacy && inputs.isRelease && env.CACHIX_AUTH_TOKEN != '' }}
+        if: ${{ !inputs.isLegacy && inputs.isRelease && env.AXLM_RELEASE_TOKEN != '' }}
+        env:
+          CACHIX_AUTH_TOKEN: ${{ env.AXLM_RELEASE_TOKEN }}
         run: nix build --print-out-paths .#axlauncher-newest | cachix push axlmc
 
       - name: Publish the packaging binary
         # A packaging input is not a release artifact; it only has to survive
         # long enough for the packaging job to substitute it.
-        if: ${{ inputs.isLegacy && env.CACHIX_CACHE_AUTH_TOKEN != '' }}
+        if: ${{ inputs.isLegacy && env.AXLM_BUILD_TOKEN != '' }}
+        env:
+          CACHIX_AUTH_TOKEN: ${{ env.AXLM_BUILD_TOKEN }}
         run: nix build --print-out-paths .#axlauncher-legacy | cachix push axlmc-cache
 
       - name: Archive the portable tree
@@ -128,15 +142,9 @@ jobs:
           name: axlauncher-portable-linux-x86_64
           path: axlauncher-portable-linux-x86_64.tar.zst
 
-      - name: Archive the packaging input
-        # TODO: deb and rpm packaging goes here; the ELF and the layout contract
-        # are what a packager needs.
-        if: ${{ inputs.isLegacy }}
-        run: tar --zstd -cf axlauncher-legacy-linux-x86_64.tar.zst -C binary .
-
-      - name: Upload the packaging input
+      - name: Upload the binary
         if: ${{ inputs.isLegacy }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: axlauncher-legacy-linux-x86_64
-          path: axlauncher-legacy-linux-x86_64.tar.zst
+          name: axlauncher-legacy
+          path: binary/bin/axlauncher

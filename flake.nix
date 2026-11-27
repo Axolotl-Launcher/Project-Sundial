@@ -26,7 +26,7 @@
       "https://axlmc.cachix.org"
     ];
     extra-trusted-public-keys = [
-      "axlmc-cache.cachix.org-1:MoSCGEi/XlVcmf7B3M5kXE/icVQtr2nkVCCJFOv/aFM="
+      "axlmc-cache.cachix.org-1:YuaV70KXFk+xbrhP/LMdCfh/ob6bEzEaDEtLsgWNwrM="
       "axlmc.cachix.org-1:dmsRJqFQqLMfvRveerHV3DxDCW1wq1N+TX1+dryYWZU="
     ];
   };

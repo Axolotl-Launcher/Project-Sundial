@@ -1,9 +1,12 @@
 # SPDX-FileCopyrightText: 2026 Axolotl Team
 # SPDX-License-Identifier: GPL-3.0-only
 
-# Builds the newest binary from `main` every eight hours so a broken build is
-# noticed between releases. It fills the build cache and uploads the tree; it
-# never tags, never creates a release and never writes to the release cache.
+# Builds both binaries from `main` every eight hours so a broken build is noticed
+# between releases. It fills the build cache and uploads the trees; it never
+# tags, never creates a release and never writes to the release cache.
+#
+# Both binaries run here on purpose: they share no build output, so a cache that
+# only holds one of them still leaves the other compiling from scratch.
 
 name: Canary
 
@@ -29,5 +32,9 @@ jobs:
       isLegacy: false
       isRelease: false
 
-  # `canary.yml` can carry a second job with `isLegacy: true` when the build
-  # cache has room to keep the packaging binary warm as well.
+  legacy:
+    uses: ./.github/workflows/nix-cache.yml
+    secrets: inherit
+    with:
+      isLegacy: true
+      isRelease: false
