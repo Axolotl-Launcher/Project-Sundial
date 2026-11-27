@@ -90,10 +90,49 @@ jobs:
       - name: Check the architecture
         run: node scripts/architecture.ts --allow .deslop-please.allow
 
+  # The flake builds the artifact this project ships for Linux and pushes it to
+  # the public binary cache, so a user substitutes instead of compiling.
+  nix-newest:
+    name: Nix newest
+    needs: repository
+    uses: ./.github/workflows/nix-cache.yml
+    with:
+      isLegacy: false
+    # No secrets: the pull-request gate builds and never publishes.
+
+  nix-legacy:
+    name: Nix legacy
+    needs: repository
+    uses: ./.github/workflows/nix-cache.yml
+    with:
+      isLegacy: true
+
+  nix-outputs:
+    name: Nix outputs
+    needs: [repository, nix-newest, nix-legacy]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out workspace
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877 # v32.1.0
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+
+      - name: Evaluate every output
+        # The artifacts themselves were built above; this checks that the flake
+        # still exposes every package, check, app and shell.
+        run: nix flake check --no-build
+
   ci-result:
     name: CI result
     if: ${{ !cancelled() }}
-    needs: [repository, rust, architecture]
+    needs: [repository, rust, architecture, nix-newest, nix-legacy, nix-outputs]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every check to pass
@@ -102,9 +141,15 @@ jobs:
           REPOSITORY_RESULT: ${{ needs.repository.result }}
           RUST_RESULT: ${{ needs.rust.result }}
           ARCHITECTURE_RESULT: ${{ needs.architecture.result }}
+          NEWEST_RESULT: ${{ needs.nix-newest.result }}
+          LEGACY_RESULT: ${{ needs.nix-legacy.result }}
+          OUTPUTS_RESULT: ${{ needs.nix-outputs.result }}
         run: |
-          printf '| Checks | Result |\n| --- | --- |\n| Repository | %s |\n| Desktop Rust | %s |\n| Architecture | %s |\n' \
-            "$REPOSITORY_RESULT" "$RUST_RESULT" "$ARCHITECTURE_RESULT" >> "$GITHUB_STEP_SUMMARY"
+          printf '| Checks | Result |\n| --- | --- |\n| Repository | %s |\n| Desktop Rust | %s |\n| Architecture | %s |\n| Nix newest | %s |\n| Nix legacy | %s |\n| Nix outputs | %s |\n' \
+            "$REPOSITORY_RESULT" "$RUST_RESULT" "$ARCHITECTURE_RESULT" "$NEWEST_RESULT" "$LEGACY_RESULT" "$OUTPUTS_RESULT" >> "$GITHUB_STEP_SUMMARY"
           test "$REPOSITORY_RESULT" = success
           test "$RUST_RESULT" = success
           test "$ARCHITECTURE_RESULT" = success
+          test "$NEWEST_RESULT" = success
+          test "$LEGACY_RESULT" = success
+          test "$OUTPUTS_RESULT" = success

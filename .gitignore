@@ -2,6 +2,11 @@
 /target
 **/*.rs.bk
 
+# Nix
+/result
+/result-*
+/.tmp
+
 # Node
 node_modules/
 .pnpm-store/

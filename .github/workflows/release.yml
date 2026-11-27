@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: 2026 Axolotl Team
+# SPDX-License-Identifier: GPL-3.0-only
+
+# Publishes a tag. One job per platform family; Linux is the only one today, and
+# a new platform adds a workflow beside `linux-release.yml` rather than a second
+# build recipe here.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux
+    uses: ./.github/workflows/linux-release.yml
+    secrets: inherit
+
+  publish:
+    name: Publish
+    needs: linux
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      # `--generate-notes` lists the merged pull requests in the release body.
+      pull-requests: read
+    steps:
+      - name: Download the artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: Checksum the artifacts
+        run: |
+          cd out
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create the release
+        # No checkout here: `gh` reads the repository from GH_REPO instead of
+        # discovering it from a working tree.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" out/*.tar.zst out/SHA256SUMS \
+            --title "$GITHUB_REF_NAME" --generate-notes --verify-tag

@@ -14,11 +14,12 @@ before editing for code ownership and verification.
 | Rust | 1.100.0 | pinned by `rust-toolchain.toml`; `rustup` installs it automatically |
 | Node | >= 24.22.0 | runs pnpm, Turbo, and the TypeScript scripts |
 | pnpm | 12.18.0 | pinned by `packageManager` in `package.json` |
+| nix | flakes enabled | optional; builds the artifact CI publishes for Linux |
 
 | Platform | Build requirements | Desktop binary |
 |---|---|---|
 | Windows | MSVC toolchain for Win32, DirectWrite, and DirectX | `axlauncher.exe` |
-| Linux | Fontconfig, FreeType, X11 and Wayland headers, Vulkan, D-Bus, and pkg-config. See the [CI setup](.github/actions/setup-desktop-rust/action.yml) for the Ubuntu package list. | ELF `axlauncher` |
+| Linux | Fontconfig, FreeType, X11 and Wayland headers, Vulkan, D-Bus, and pkg-config. See the [CI setup](.github/actions/setup-desktop-rust/action.yml) for the Ubuntu package list. The flake declares the same set for `nix develop`. | ELF `axlauncher` |
 | macOS | Xcode Command Line Tools for Metal. See the [packaging guide](packaging/macos/README.md) for the app bundle, signing, and notarisation. | Mach-O `axlauncher` |
 
 Install the Cargo extensions used by the checks once:
@@ -55,6 +56,55 @@ directory. Set `AXLAUNCHER_DATA_DIR` to keep data, instances, cache, and scratch
 files under one directory for development. The
 [filesystem path policy](.agents/docs/filesystem-paths.md) documents directory
 selection and session overrides.
+
+### Nix
+
+On Linux the flake builds the published artifact from a pinned toolchain.
+`flake.nix` and `flake.lock` stay at the root; the derivations live in `nix/`,
+and `nix/hash.nix` holds fixed-output hashes (empty until a fetch needs one).
+
+```bash
+nix develop                    # rust 1.100.0, node, and the native libraries
+nix build .#axlauncher         # bin/axlauncher plus the desktop entry
+nix run                        # build and launch
+nix build .#axlauncher-legacy  # ELF for traditional distributions, see packaging/linux
+```
+
+Both binaries live under `__axlbin`: `newest` links against nixpkgs' glibc and
+backs `packages.axlauncher` and the AppImage, while `legacy` links against glibc
+2.35 and replaces the store interpreter and rpath for native packages. The
+`legacy-elf` check fails when that ELF references the store or needs glibc newer
+than 2.35 (Ubuntu 22.04).
+
+`newest` is a release artifact and goes to the release cache; `legacy` is a
+packaging input and goes to the build cache only. The wrapper is not cached: it
+is a symlink plus two files, cheaper to build locally than to download.
+`packages.axlauncher-portable` bundles `newest` with the loader, the libraries it
+links and the keymap data, which is what an AppImage or a tarball ships.
+
+Build products go to a second cache, `axlmc-cache`, because a cache evicts its
+oldest entries once it exceeds its quota, and a burst of CI output would push a
+release out. A user who trusts flake configuration gets the substituters from
+`flake.nix`; otherwise pass the settings explicitly:
+
+```bash
+nix run --extra-substituters https://axlmc.cachix.org \
+  --extra-trusted-public-keys 'axlmc.cachix.org-1:dmsRJqFQqLMfvRveerHV3DxDCW1wq1N+TX1+dryYWZU='
+```
+
+The workflows split by role: [`nix-cache.yml`](.github/workflows/nix-cache.yml)
+builds one binary and owns every cache token, [`linux-release.yml`](.github/workflows/linux-release.yml)
+calls it for both binaries, [`release.yml`](.github/workflows/release.yml) creates
+the GitHub release, and [`canary.yml`](.github/workflows/canary.yml) builds
+`newest` from `main` every eight hours. CI calls `nix-cache` without secrets, so
+it builds and never publishes.
+
+The canary keeps the build cache warm for the next release.
+
+The nix build repeats the three cargo invocations that
+[`scripts/desktop.ts`](scripts/desktop.ts) performs; changing the embedded worker
+libraries means changing both, and [the Linux packaging
+notes](packaging/linux/README.md) record why.
 
 ### Cargo registry mirrors
 
