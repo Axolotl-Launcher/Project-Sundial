@@ -5,8 +5,8 @@
 
 use std::time::Duration;
 
-use axlauncher_spi::ServiceHost;
-use axlauncher_spi::auth::{AuthNetwork, Body, Request, Response, TransportError};
+use axlauncher_network_spi::ServiceHost;
+use axlauncher_network_spi::auth::{AuthNetwork, Body, Request, Response, TransportError};
 use reqwest::header::{ACCEPT, CONTENT_TYPE, USER_AGENT};
 use url::Url;
 

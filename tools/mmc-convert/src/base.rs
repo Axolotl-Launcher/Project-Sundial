@@ -6,7 +6,7 @@ use axlauncher_core::launch::{SystemJava, Target};
 use axlauncher_core::loader::provider;
 use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::spi::{LoaderRequest, ModLoader};
-use axlauncher_core::storage::{DataDir, GameDir};
+use axlauncher_core::storage::{DataDir, DataPath, GameDir};
 use axlauncher_download_engine::Direct;
 use axlauncher_modpack::GameRequirements;
 
@@ -65,8 +65,8 @@ struct LoaderInstall<'a> {
 
 impl LoaderInstall<'_> {
     async fn run(&self, provider: &impl ModLoader, request: LoaderRequest) -> Result<String> {
-        let java =
-            SystemJava::from_environment().with_runtime_roots(vec![self.data.java_versions()]);
+        let java = SystemJava::from_environment()
+            .with_runtime_roots(vec![self.data.path(DataPath::JavaVersions).to_owned()]);
         let install = loader::InstallRequest {
             network: self.network,
             downloader: &Direct(self.network),
@@ -80,8 +80,13 @@ impl LoaderInstall<'_> {
         let report = |_| {};
         let result = match install.install(report).await {
             Err(loader::LoaderInstallError::Java { required }) => {
-                runtime::install(self.network, &self.data.java_versions(), required, report)
-                    .await?;
+                runtime::install(
+                    self.network,
+                    self.data.path(DataPath::JavaVersions),
+                    required,
+                    report,
+                )
+                .await?;
                 install.install(report).await?
             }
             other => other?,

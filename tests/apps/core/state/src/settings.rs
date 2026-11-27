@@ -95,7 +95,7 @@ fn memory_defaults_to_automatic_and_manual_settings_roundtrip() {
         MemoryAllocation::Manual(heap)
     );
     let written: serde_json::Value =
-        serde_json::from_slice(&fs::read(settings_path(temp.path())).unwrap()).unwrap();
+        serde_json::from_slice(&fs::read(Document::Settings.path(temp.path())).unwrap()).unwrap();
     assert_eq!(
         written["data"]["memory"],
         serde_json::json!({"mode": "manual", "maximum_mib": 6144})

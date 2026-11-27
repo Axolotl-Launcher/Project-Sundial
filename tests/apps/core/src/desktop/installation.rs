@@ -34,20 +34,25 @@ fn preparing_shared_game_files_does_not_publish_a_staged_profile() {
     let data = DataDir::isolated(temporary.path()).unwrap();
     let id = "1.21.11";
     let game_paths = data.game();
-    let client = game_paths.client_jar(id);
+    let client = game_paths.version_path(id, axlauncher_storage::VersionPath::ClientJar);
     std::fs::create_dir_all(client.parent().unwrap()).unwrap();
     std::fs::write(client, b"jar").unwrap();
     let manifest = format!(
         r#"{{"id":"{id}","downloads":{{"client":{{"size":3,"url":"https://example.invalid/client.jar"}}}}}}"#
     );
-    std::fs::write(game_paths.version_document(id), manifest).unwrap();
-    let staged = profile::StagedProfile::new(&data.instances()).unwrap();
+    std::fs::write(
+        game_paths.version_path(id, axlauncher_storage::VersionPath::Document),
+        manifest,
+    )
+    .unwrap();
+    let profiles = data.path(axlauncher_storage::DataPath::Profiles);
+    let staged = profile::StagedProfile::new(profiles).unwrap();
     let game = Game::new(id);
     let target = InstallTarget::for_game(&game).unwrap();
 
     let version = prepare(&data, target, DownloadOptions::from_settings(None), |_| {}).unwrap();
     assert_eq!(version, id);
-    assert!(profile::discover(&data.instances()).instances.is_empty());
+    assert!(profile::discover(profiles).instances.is_empty());
     let profile = profile::Profile::new("Pack", Some(game));
     let directory = staged.publish_installed(profile, &version).unwrap();
     let saved = profile::read(&directory).unwrap().unwrap();

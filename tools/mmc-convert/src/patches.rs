@@ -6,7 +6,7 @@ use std::io;
 
 use axlauncher_core::launch::Version;
 use axlauncher_core::launch::version::{Artifact, JavaVersion, Library, LibraryDownloads};
-use axlauncher_core::storage::{DataDir, GameDir};
+use axlauncher_core::storage::{DataDir, GameDir, ScratchSpace};
 use axlauncher_modpack::MultiMcExport;
 use serde::Deserialize;
 
@@ -166,7 +166,7 @@ pub(super) fn apply(
     root: &GameDir,
     version: &mut Version,
 ) -> Result<()> {
-    let work = data.scratch()?;
+    let work = data.scratch(ScratchSpace::Task)?;
     let mut jars = jars::Overlay::new(work.path());
     for patch in patches {
         patch.apply_arguments(version)?;

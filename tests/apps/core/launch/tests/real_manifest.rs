@@ -13,7 +13,7 @@
 use std::path::{Path, PathBuf};
 
 use axlauncher_launch::{Layout, Session, Target, natives, plan, rules, version};
-use axlauncher_storage::GameDir;
+use axlauncher_storage::{GameDir, VersionPath};
 
 /// Directories a launcher's game root may live in, most specific first.
 fn candidate_roots() -> Vec<PathBuf> {
@@ -56,10 +56,11 @@ fn a_real_manifest_yields_a_complete_command() {
         return;
     };
     let target = Target::host();
+    let game = GameDir::standalone(&root);
     let mut checked = 0;
 
     for id in version_ids(&root) {
-        let Ok(document) = version::load(&root.join("versions"), &id) else {
+        let Ok(document) = version::load(&game, &id) else {
             continue;
         };
         if !is_complete(&root, &document, &target) {
@@ -96,7 +97,7 @@ fn a_real_manifest_yields_a_complete_command() {
 /// means the install is incomplete.
 fn is_complete(root: &Path, document: &version::Version, target: &Target) -> bool {
     if !GameDir::standalone(root)
-        .client_jar(document.jar_id())
+        .version_path(document.jar_id(), VersionPath::ClientJar)
         .is_file()
     {
         return false;

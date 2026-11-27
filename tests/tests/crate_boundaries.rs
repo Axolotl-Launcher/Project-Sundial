@@ -51,18 +51,39 @@ fn workspace() -> Workspace {
     serde_json::from_slice(&output.stdout).expect("Cargo workspace metadata")
 }
 
+fn provider_contract(package: &str) -> bool {
+    matches!(
+        package,
+        "axlauncher_spi" | "axlauncher_download_spi" | "axlauncher_network_spi"
+    )
+}
+
+fn core_system(package: &str, directory: &Path) -> bool {
+    package == "axlauncher_worker"
+        || provider_contract(package)
+        || directory.parent() == Some(Path::new("apps/core"))
+        || (matches!(package, "axlauncher_mod_metadata" | "axlauncher_resources")
+            && directory.parent() == Some(Path::new("apps/core/content")))
+}
+
 fn permitted_edge(owner: &str, dependency: &str, target_dir: &Path) -> bool {
     match owner {
-        "axlauncher_domain" | "axlauncher_ui" | "axlauncher_policy_tests" => false,
-        "axlauncher_spi" => dependency == "axlauncher_domain",
-        "axlauncher_core" => {
-            dependency == "axlauncher_worker" || target_dir.parent() == Some(Path::new("apps/core"))
+        "axlauncher_domain"
+        | "axlauncher_ui"
+        | "axlauncher_policy_tests"
+        | "axlauncher_storage_layout"
+        | "axlauncher_network_spi" => false,
+        "axlauncher_download_spi" => dependency == "axlauncher_network_spi",
+        "axlauncher_spi" => matches!(dependency, "axlauncher_domain" | "axlauncher_network_spi"),
+        "axlauncher_storage" => {
+            matches!(dependency, "axlauncher_spi" | "axlauncher_storage_layout")
         }
+        "axlauncher_core" => core_system(dependency, target_dir),
         "axlauncher_frontend" => matches!(
             dependency,
             "axlauncher_ui" | "axlauncher_core" | "axlauncher_modpack"
         ),
-        "axlauncher_modpack" => dependency == "axlauncher_spi",
+        "axlauncher_modpack" => provider_contract(dependency),
         "axlauncher_mmc_convert" => matches!(
             dependency,
             "axlauncher_core" | "axlauncher_modpack" | "axlauncher_download_engine"
@@ -71,7 +92,8 @@ fn permitted_edge(owner: &str, dependency: &str, target_dir: &Path) -> bool {
         | "axlauncher_platform_linux"
         | "axlauncher_platform_macos" => dependency == "axlauncher_frontend",
         _ => match dependency {
-            "axlauncher_spi" | "axlauncher_domain" => true,
+            "axlauncher_domain" => true,
+            contract if provider_contract(contract) => true,
             "axlauncher_storage" => matches!(
                 owner,
                 "axlauncher_download_engine"
@@ -104,14 +126,19 @@ fn resource_owner(dependency: &str) -> Option<&'static str> {
     match dependency {
         "reqwest" => Some("axlauncher_network"),
         "libloading" => Some("axlauncher_worker"),
-        "keyring" | "dirs" | "dirs-next" | "directories" | "directories-next" | "sysinfo"
-        | "windows-registry" => Some("axlauncher_storage"),
+        "keyring" | "sysinfo" | "windows-registry" => Some("axlauncher_storage"),
         "gpui-kit" => Some("axlauncher_ui"),
         _ => None,
     }
 }
 
 fn dependency_allowed(owner: &str, name: &str, directory: Option<&Path>) -> bool {
+    if matches!(
+        name,
+        "dirs" | "dirs-next" | "directories" | "directories-next"
+    ) {
+        return matches!(owner, "axlauncher_storage" | "axlauncher_storage_layout");
+    }
     if let Some(resource_owner) = resource_owner(name) {
         return owner == resource_owner;
     }

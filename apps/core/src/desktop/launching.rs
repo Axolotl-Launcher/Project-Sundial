@@ -14,12 +14,13 @@ use axlauncher_launch::{
     flow::{self, VersionInspection},
     plan::Session,
 };
-use axlauncher_spi::{LoaderKind, ServiceHost};
+use axlauncher_network_spi::ServiceHost;
+use axlauncher_spi::LoaderKind;
 use axlauncher_state::{
     SettingsData, javas,
     profile::{DiscoveredProfile, count_enabled_mods},
 };
-use axlauncher_storage::{DataDir, GameDir};
+use axlauncher_storage::{DataDir, DataPath, GameAccess, GameDir};
 
 use crate::launch_accounts;
 
@@ -72,7 +73,7 @@ impl LaunchJob {
                 game_root: if game.is_runtime_isolated() {
                     GameDir::isolated(&profile.directory)
                 } else {
-                    data.game()
+                    data.game().clone()
                 },
                 instance_directory: profile.directory.clone(),
                 version_id: version.to_owned(),
@@ -121,10 +122,11 @@ impl LaunchJob {
     }
 
     fn configured_java(&self) -> Result<(SystemJava, LaunchRequest), FlowError> {
-        let saved =
-            javas::load(self.data.root()).map_err(|error| FlowError::JavaConfiguration {
+        let saved = javas::load(self.data.path(DataPath::Root)).map_err(|error| {
+            FlowError::JavaConfiguration {
                 source: std::io::Error::other(error),
-            })?;
+            }
+        })?;
         let mut request = self.request.clone();
         request.java_preference = saved
             .profile_preference(&self.profile_id)
@@ -155,7 +157,13 @@ impl LaunchJob {
         let session = resolve_session(player, options, account_resolved)
             .await
             .map_err(LaunchFailure::Failed)?;
-        let lock = vanilla::launch_lock(&self.request.game_root).map_err(LaunchFailure::Failed)?;
+        let lock = self
+            .request
+            .game_root
+            .lock(GameAccess::Launch)
+            .map_err(|error| {
+                LaunchFailure::Failed(format!("Cannot lock shared game files for launch: {error}"))
+            })?;
         self.check_files()?;
         let (java, request) = self.configured_launch().map_err(launch_error)?;
 

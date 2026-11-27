@@ -3,7 +3,7 @@
 
 //! The operating system's credential store for Minecraft accounts.
 
-use axlauncher_spi::auth::{CredentialError, CredentialStore};
+use axlauncher_spi::credentials::{CredentialError, CredentialStore};
 
 const SERVICE: &str = "AXLauncher Minecraft accounts";
 

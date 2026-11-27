@@ -16,7 +16,8 @@ fn a_historical_id_with_spaces_previews_and_reaches_the_launcher() {
         .join(id)
         .join(format!("{id}.json"));
     write_file(&document, VERSION_JSON.replace(VERSION_ID, id).as_bytes());
-    let jar = axlauncher_storage::GameDir::standalone(fixture.game_root()).client_jar(id);
+    let jar = axlauncher_storage::GameDir::standalone(fixture.game_root())
+        .version_path(id, axlauncher_storage::VersionPath::ClientJar);
     write_file(&jar, b"client jar");
 
     let command = preview(&java, &request).expect("preview keeps the catalog ID");

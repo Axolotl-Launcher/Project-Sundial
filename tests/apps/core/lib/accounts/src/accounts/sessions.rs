@@ -5,7 +5,8 @@ use std::collections::VecDeque;
 use std::sync::Mutex as SyncMutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use axlauncher_spi::auth::{Body, CredentialError, Request, Response, TransportError};
+use axlauncher_network_spi::auth::{Body, Request, Response, TransportError};
+use axlauncher_spi::credentials::CredentialError;
 
 use super::*;
 use crate::accounts::microsoft::BrowserLogin;
@@ -183,7 +184,7 @@ fn cancellation_while_waiting_for_the_session_lock_prevents_persistence() {
         commit.cancel();
         drop(lock);
         assert!(matches!(saving.await, Err(AccountError::Cancelled)));
-        assert!(!data.accounts().exists());
+        assert!(!Document::path(&data).exists());
         assert!(keyring.values.lock().unwrap().is_empty());
     });
 }
@@ -304,12 +305,12 @@ fn saves_offline_identity_and_protects_an_unknown_schema() {
         ));
         assert!(keyring.values.lock().unwrap().is_empty());
         let newer = br#"{"schema_version":42,"new_fields":["keep"]}"#;
-        std::fs::write(data.accounts(), newer).unwrap();
+        std::fs::write(Document::path(&data), newer).unwrap();
         assert!(matches!(
             reopened.select(None),
             Err(AccountError::UnsupportedSchema(42))
         ));
-        assert_eq!(std::fs::read(data.accounts()).unwrap(), newer);
+        assert_eq!(std::fs::read(Document::path(&data)).unwrap(), newer);
     });
 }
 
@@ -328,7 +329,7 @@ fn saves_only_identity_in_json_and_coalesces_refresh_after_restart() {
         sign_in.all_requests_sent();
         assert!(sign_in.forms.lock().unwrap()[0].contains("code_verifier="));
         service.remember(verified, None).await.unwrap();
-        let document = std::fs::read_to_string(data.accounts()).unwrap();
+        let document = std::fs::read_to_string(Document::path(&data)).unwrap();
         assert!(!document.contains("first-refresh"));
         assert!(!document.contains("minecraft-access"));
         let reopened = AccountService::new(data, &keyring);

@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::Path;
 
 use super::test_sha2::{Digest, Sha512};
-use axlauncher_spi::auth::{AuthNetwork, Request, Response, TransportError};
+use axlauncher_network_spi::auth::{AuthNetwork, Request, Response, TransportError};
 use serde_json::{Value, json};
 use zip::{ZipWriter, write::SimpleFileOptions};
 

@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
-use axlauncher_spi::{
+use axlauncher_network_spi::{
     ByteRange, DownloadBody, DownloadEtag, DownloadProtocol, DownloadRepresentation,
     DownloadResponse, FetchError, Network, RangeRequest, ResponseRange,
 };

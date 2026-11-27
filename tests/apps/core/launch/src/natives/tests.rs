@@ -141,7 +141,7 @@ fn a_cached_classifier_extracts_into_the_shared_version_directory() {
 
     let extracted = extract_version(
         &reader,
-        &game_root,
+        game_root,
         "1.12.2",
         &[windows_classifier()],
         &target("windows", "x86_64"),
@@ -166,7 +166,7 @@ fn shared_extraction_does_not_read_a_maven_copy_of_a_cached_classifier() {
 
     let error = extract_version(
         &reader,
-        &game_root,
+        game_root,
         "1.12.2",
         &[windows_classifier()],
         &target("windows", "x86_64"),
@@ -174,7 +174,7 @@ fn shared_extraction_does_not_read_a_maven_copy_of_a_cached_classifier() {
     .expect_err("only the shared cache can supply the classifier");
 
     let cache_path = paths
-        .caches()
+        .path(axlauncher_storage::DataPath::Cache)
         .join("minecraft-natives")
         .join(format!("{CLASSIFIER_HASH}.jar"));
     assert!(matches!(error, NativeError::NotAJar { path } if path == cache_path));

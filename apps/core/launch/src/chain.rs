@@ -18,7 +18,8 @@
 //! game adds later visible instead of silently dropped.
 
 use std::collections::HashSet;
-use std::path::Path;
+
+use axlauncher_storage::GameDir;
 
 use crate::version::{self, Version};
 
@@ -114,13 +115,24 @@ pub fn merge(parent: Version, child: Version) -> Version {
 }
 
 /// The document `version` describes once everything it inherits is beneath it.
-pub fn resolve(root: &Path, version: Version) -> Result<Version, ChainError> {
+pub fn resolve(game: &GameDir, version: Version) -> Result<Version, ChainError> {
     let mut visited = HashSet::new();
-    resolve_below(root, version, &mut visited)
+    resolve_below(game, version, &mut visited)
+}
+
+/// Reads the version in a game tree and everything it inherits from.
+///
+/// A loader's profile names its vanilla version in `inheritsFrom` and carries
+/// only the fields it changes, so the document on disk is not launchable by
+/// itself. [`resolve`] applies the parent first and then the profile's own
+/// values, which is the order the game's format defines.
+pub fn load_resolved(game: &GameDir, id: &str) -> Result<Version, ChainError> {
+    let version = version::load(game, id).map_err(|source| ChainError::Document { source })?;
+    resolve(game, version)
 }
 
 fn resolve_below(
-    root: &Path,
+    game: &GameDir,
     mut version: Version,
     visited: &mut HashSet<String>,
 ) -> Result<Version, ChainError> {
@@ -133,8 +145,8 @@ fn resolve_below(
 
     if let Some(parent_id) = version.inherits_from.clone() {
         let parent =
-            version::load(root, &parent_id).map_err(|source| ChainError::Document { source })?;
-        let parent = resolve_below(root, parent, visited)?;
+            version::load(game, &parent_id).map_err(|source| ChainError::Document { source })?;
+        let parent = resolve_below(game, parent, visited)?;
         version = merge(parent, version);
     }
 

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::io::{Cursor, Write};
 
 use super::*;
-use axlauncher_spi::FetchError;
+use axlauncher_network_spi::FetchError;
 
 const MAVEN: &str = "https://maven.minecraftforge.net/net/minecraftforge/forge";
 const PROMOTIONS_BODY: &str = r#"{

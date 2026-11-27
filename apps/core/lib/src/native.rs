@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
-use axlauncher_storage::{DataDir, WorkerLibrary};
+use axlauncher_storage::{DataDir, ScratchSpace, WorkerLibrary};
 
 pub(crate) const WORKER_ARGUMENT: &str = "--axlauncher-worker";
 
@@ -32,7 +32,7 @@ impl Image {
     }
 
     pub(super) fn extract(self, data: &DataDir) -> io::Result<(tempfile::TempDir, PathBuf)> {
-        let scratch = data.worker_scratch()?;
+        let scratch = data.scratch(ScratchSpace::Worker)?;
         let path = self.kind.path(scratch.path());
         let mut file = std::fs::File::create_new(&path)?;
         file.write_all(self.bytes)?;

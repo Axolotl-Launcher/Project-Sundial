@@ -1,9 +1,10 @@
 # Filesystem path policy
 
-`axlauncher_storage` is the only owner of launcher path configuration and the
-layout of files the launcher itself places. Applications call it through
-`axlauncher_core::storage`. The crate resolves locations; document owners
-still read, validate, and write their own documents. In particular, use
+`axlauncher_storage` is the only public entry point for launcher path
+configuration and managed locations. Its internal `axlauncher_storage_layout`
+crate implements the layout. Applications call through `axlauncher_core::storage`;
+other systems never depend on layout directly. Document owners still read,
+validate, and write their own documents. In particular, use
 `state::load_settings` and `state::update_settings` for existing preferences,
 `core::desktop::accounts` for account operations, and the Java-selection APIs
 in `state` for Java preferences.
@@ -12,13 +13,11 @@ in `state` for Java preferences.
 
 | Location | Default | API |
 | --- | --- | --- |
-| System user data directory | The platform's per-user data directory | `user_data_dir()` |
-| System temporary directory | The platform's temporary directory | `user_temp_dir()` |
-| Launcher application data | `AXLauncher` under the system user data directory | `DataDir::root()` |
-| Launcher cache | `AXLauncher` under the system cache directory | `DataDir::caches()` |
-| Launcher user data (instances) | `profiles` under the application data directory | `DataDir::instances()` |
-| Launcher temporary directory | A private `AXLauncher-*` directory per operation in the system temporary directory | `DataDir::scratch()` (`DataDir::temp()` gives its parent) |
-| Worker library temporary directory | A private `AXLauncher-*` directory per worker under the launcher cache's `workers` directory | `DataDir::worker_scratch()` |
+| Launcher application data | `AXLauncher` under the system user data directory | `DataDir::path(DataPath::Root)` |
+| Launcher cache | `AXLauncher` under the system cache directory | `DataDir::path(DataPath::Cache)` |
+| Launcher user data (instances) | `profiles` under the application data directory | `DataDir::path(DataPath::Profiles)` |
+| Launcher temporary directory | A private `AXLauncher-*` directory per operation in the system temporary directory | `DataDir::scratch(ScratchSpace::Task)` (`DataPath::Temp` selects its parent) |
+| Worker library temporary directory | A private `AXLauncher-*` directory per worker under the launcher cache's `workers` directory | `DataDir::scratch(ScratchSpace::Worker)` |
 
 `DataDir::from_environment()` resolves startup defaults once. A nonempty
 `AXLAUNCHER_DATA_DIR` takes precedence over the platform defaults and keeps
@@ -47,19 +46,23 @@ isolated mode; otherwise they keep their platform defaults.
   `GameDir::isolated()` for an isolated instance and `GameDir::standalone()`
   for a supplied game tree that has no shared cache. Never infer the cache
   policy from a directory's name or parent.
+- Use `GameDir::version_path` and `GameDir::asset_path` for version and index
+  locations. Pass a `GameDir` to the version reader so it resolves both the
+  requested document and its ancestors in the same tree.
 - Use `GameDir::native_classifier_archive()` for archives selected from the
   manifest's `downloads.classifiers` map. In a shared tree, a classifier
   with a usable SHA-1 lives only in the cache. Trees without a shared cache
   and classifiers without a usable hash use the manifest's Maven path.
   Do not look for a copy in another location.
-- Put new launcher-defined path components in storage and expose an operation
-  named for the caller's intent. Data documents, managed runtimes, instance
-  markers, locks, caches, and download diagnostic outputs follow this rule.
+- Use `Document` for writer coordination and paths of transactional documents,
+  and `ManagedFile` for other fixed file locations. Acquire game-tree and
+  native extraction locks through `GameDir::lock`, never by opening a lock
+  file at the call site.
 - Create disposable scratch space through storage. Keep atomic writes,
   download staging, and profile publication beside the destination when they
   rely on a rename. The application scratch root is not a substitute for
   same-filesystem staging.
-- Extract bundled worker libraries into `DataDir::worker_scratch()` and use
+- Extract bundled worker libraries into `DataDir::scratch(ScratchSpace::Worker)` and use
   `WorkerLibrary::path` for their filenames. Native libraries require
   executable mappings; the worker cache is independent of the temporary
   location, which may use `noexec`. Report a load failure if the cache itself

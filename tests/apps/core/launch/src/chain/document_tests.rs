@@ -3,7 +3,7 @@
 
 use super::*;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
@@ -33,7 +33,7 @@ impl Drop for TempRoot {
 }
 
 fn write(root: &Path, id: &str, document: &str) {
-    let directory = root.join(id);
+    let directory = root.join("versions").join(id);
     fs::create_dir_all(&directory).expect("version directory");
     fs::write(directory.join(format!("{id}.json")), document).expect("document");
 }
@@ -63,7 +63,8 @@ fn a_profile_resolves_against_the_version_it_inherits() {
         }"#,
     );
 
-    let resolved = version::load_resolved(root.path(), "1.20.1-forge").expect("resolved");
+    let resolved =
+        load_resolved(&GameDir::standalone(root.path()), "1.20.1-forge").expect("resolved");
 
     assert_eq!(resolved.assets.as_deref(), Some("5"), "inherited");
     assert_eq!(
@@ -88,7 +89,7 @@ fn a_cycle_is_an_error_rather_than_a_hang() {
         r#"{"id": "b", "inheritsFrom": "a", "mainClass": "B"}"#,
     );
 
-    let error = version::load_resolved(root.path(), "a").expect_err("cycle");
+    let error = load_resolved(&GameDir::standalone(root.path()), "a").expect_err("cycle");
     assert!(matches!(error, ChainError::Cycle { .. }), "{error}");
 }
 
@@ -101,7 +102,8 @@ fn a_parent_that_is_absent_names_the_document_that_could_not_be_read() {
         r#"{"id": "orphan", "inheritsFrom": "missing", "mainClass": "O"}"#,
     );
 
-    let error = version::load_resolved(root.path(), "orphan").expect_err("missing parent");
+    let error =
+        load_resolved(&GameDir::standalone(root.path()), "orphan").expect_err("missing parent");
     let text = error.to_string();
     assert!(text.contains("missing"), "{text}");
 }
@@ -115,7 +117,7 @@ fn a_document_with_nothing_to_inherit_resolves_to_itself() {
         r#"{"id": "1.21", "type": "release", "mainClass": "Main", "assets": "34"}"#,
     );
 
-    let resolved = version::load_resolved(root.path(), "1.21").expect("resolved");
+    let resolved = load_resolved(&GameDir::standalone(root.path()), "1.21").expect("resolved");
     assert_eq!(resolved.id, "1.21");
     assert_eq!(resolved.main_class, "Main");
 }
@@ -134,8 +136,11 @@ fn a_profile_runs_the_jar_of_the_version_it_inherits() {
         r#"{"id":"fabric-loader-0.20.1-1.21.11","inheritsFrom":"1.21.11","mainClass":"KnotClient"}"#,
     );
 
-    let resolved =
-        version::load_resolved(root.path(), "fabric-loader-0.20.1-1.21.11").expect("resolved");
+    let resolved = load_resolved(
+        &GameDir::standalone(root.path()),
+        "fabric-loader-0.20.1-1.21.11",
+    )
+    .expect("resolved");
 
     assert_eq!(resolved.jar_id(), "1.21.11", "the vanilla client jar runs");
 }
@@ -149,7 +154,7 @@ fn a_version_with_nothing_beneath_it_runs_from_its_own_folder() {
         r#"{"id":"1.21.11","type":"release","mainClass":"Main","assets":"34"}"#,
     );
 
-    let resolved = version::load_resolved(root.path(), "1.21.11").expect("resolved");
+    let resolved = load_resolved(&GameDir::standalone(root.path()), "1.21.11").expect("resolved");
 
     assert_eq!(resolved.jar_id(), "1.21.11");
 }

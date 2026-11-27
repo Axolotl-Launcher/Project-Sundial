@@ -3,7 +3,7 @@
 
 use std::time::{Duration, SystemTime};
 
-use axlauncher_spi::{
+use axlauncher_network_spi::{
     ByteRange, DownloadBody, DownloadEtag, DownloadRepresentation, DownloadResponse, FetchError,
     RangeRequest, ResponseRange,
 };

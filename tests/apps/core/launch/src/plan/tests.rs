@@ -46,7 +46,7 @@ fn sample_library() -> crate::version::Library {
 }
 
 fn fixture(root: &Path, version_id: &str) -> (Version, Layout) {
-    let jar = GameDir::standalone(root).client_jar(version_id);
+    let jar = GameDir::standalone(root).version_path(version_id, VersionPath::ClientJar);
     fs::create_dir_all(jar.parent().expect("parent")).expect("versions");
     fs::write(&jar, b"jar").expect("client jar");
     fs::create_dir_all(root.join("libraries")).expect("libraries");
@@ -293,7 +293,8 @@ fn a_platform_specific_argument_is_included_only_on_its_platform() {
 fn a_missing_client_jar_is_an_error_naming_the_path() {
     let temp = TempDir::new();
     let (version, layout) = fixture(temp.0.as_path(), "1.21");
-    fs::remove_file(GameDir::standalone(&temp.0).client_jar("1.21")).expect("remove jar");
+    fs::remove_file(GameDir::standalone(&temp.0).version_path("1.21", VersionPath::ClientJar))
+        .expect("remove jar");
 
     let error = build(
         Path::new("java"),
@@ -352,10 +353,11 @@ fn a_loader_profile_runs_the_jar_it_inherits() {
     let temp = TempDir::new();
     let (mut version, layout) = fixture(temp.0.as_path(), "1.20.1-forge");
     let game = GameDir::standalone(&temp.0);
-    let vanilla = game.client_jar("1.20.1");
+    let vanilla = game.version_path("1.20.1", VersionPath::ClientJar);
     fs::create_dir_all(vanilla.parent().expect("parent")).expect("versions");
     fs::write(&vanilla, b"vanilla").expect("vanilla jar");
-    fs::remove_file(game.client_jar("1.20.1-forge")).expect("remove own jar");
+    fs::remove_file(game.version_path("1.20.1-forge", VersionPath::ClientJar))
+        .expect("remove own jar");
     version.jar = Some("1.20.1".into());
 
     let command = build(

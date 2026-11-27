@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use super::*;
+use axlauncher_network_spi::{FetchError, Network};
 use axlauncher_spi::LoaderFile;
 
 fn profile(id: &str) -> LoaderProfile {
@@ -25,7 +26,7 @@ fn temp() -> PathBuf {
 fn a_profile_lands_where_a_launch_looks_for_it() {
     let root = temp();
     let game = GameDir::standalone(&root);
-    let parent = game.version_document("1.21.11");
+    let parent = game.version_path("1.21.11", VersionPath::Document);
     write(
         &parent,
         br#"{"id":"1.21.11","downloads":{"client":{"url":"https://example.com/client.jar"}}}"#,
@@ -39,8 +40,8 @@ fn a_profile_lands_where_a_launch_looks_for_it() {
         placed.document,
         root.join("versions/1.21.11-0.20.1/1.21.11-0.20.1.json")
     );
-    let installed = axlauncher_launch::version::load(&root.join("versions"), &placed.version_id)
-        .expect("read merged profile");
+    let installed =
+        axlauncher_launch::version::load(&game, &placed.version_id).expect("read merged profile");
     assert_eq!(installed.main_class, "net.example.Fabric");
     assert_eq!(installed.inherits_from, None);
     assert_eq!(
@@ -167,12 +168,12 @@ struct FakeNetwork {
     responses: std::collections::BTreeMap<String, Vec<u8>>,
 }
 
-impl axlauncher_spi::Network for FakeNetwork {
-    async fn fetch(&self, url: &str) -> Result<Vec<u8>, axlauncher_spi::FetchError> {
+impl Network for FakeNetwork {
+    async fn fetch(&self, url: &str) -> Result<Vec<u8>, FetchError> {
         self.responses
             .get(url)
             .cloned()
-            .ok_or_else(|| axlauncher_spi::FetchError::Fatal(format!("unexpected URL: {url}")))
+            .ok_or_else(|| FetchError::Fatal(format!("unexpected URL: {url}")))
     }
 }
 
@@ -247,7 +248,7 @@ fn vanilla_root() -> PathBuf {
         CLIENT_JAR.len()
     );
     write(
-        &GameDir::standalone(&root).version_document("1.21.11"),
+        &GameDir::standalone(&root).version_path("1.21.11", VersionPath::Document),
         document.as_bytes(),
     )
     .expect("vanilla document");
@@ -305,7 +306,10 @@ fn installing_a_loader_writes_the_profile_and_its_files() {
     assert_eq!(installed.version_id, "fabric-loader-0.20.1-1.21.11");
     assert!(installed.prepared.is_complete(), "{:?}", installed.prepared);
     let game = GameDir::standalone(&root);
-    assert!(game.version_document(&installed.version_id).is_file());
+    assert!(
+        game.version_path(&installed.version_id, VersionPath::Document)
+            .is_file()
+    );
     assert!(root.join("libraries/example/loader.jar").is_file());
     let target = axlauncher_launch::Target::host();
     check_files(&game, &installed.version_id, &target).expect("installed loader files");

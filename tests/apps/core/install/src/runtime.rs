@@ -6,7 +6,7 @@ use std::fs;
 use std::io::Write;
 
 use super::*;
-use axlauncher_spi::{FetchError, Network};
+use axlauncher_network_spi::{FetchError, Network};
 
 const RAW_BODY: &[u8] = b"java binary";
 const PLAIN_BODY: &[u8] = b"plain file";
@@ -227,7 +227,7 @@ fn a_runtime_without_the_record_is_downloaded_again() {
 
     assert_eq!(fs::read(&installed.java).expect("java"), RAW_BODY);
     assert!(
-        axlauncher_storage::runtime_record(&directory).is_file(),
+        Document::RuntimeReceipt.path(&directory).is_file(),
         "the record is written"
     );
     let _ = fs::remove_dir_all(&root);
@@ -308,7 +308,7 @@ fn a_failed_repair_removes_the_completion_record_until_retry_succeeds() {
     };
     let root = tempfile::tempdir().unwrap();
     let (directory, responses) = install_once(platform, root.path());
-    let receipt = axlauncher_storage::runtime_record(&directory);
+    let receipt = Document::RuntimeReceipt.path(&directory);
     let damaged = home_of(&directory, platform).join("lib/plain.txt");
     fs::remove_file(&damaged).unwrap();
 
@@ -328,7 +328,7 @@ fn a_second_installer_waits_and_reuses_the_published_runtime() {
     };
     let root = tempfile::tempdir().unwrap();
     let (directory, responses) = install_once(platform, root.path());
-    let active = axlauncher_storage::try_lock_runtime(&directory).unwrap();
+    let active = Document::RuntimeReceipt.lock(&directory).unwrap();
     let network = index_only(&responses);
     let executor = tokio::runtime::Builder::new_current_thread()
         .enable_time()

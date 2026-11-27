@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use axlauncher_spi::ServiceHost;
+use axlauncher_network_spi::ServiceHost;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

@@ -13,10 +13,10 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use axlauncher_core::install::{loader, prepare};
-use axlauncher_core::launch::{Target, version};
+use axlauncher_core::launch::{Target, chain, version};
 use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::state::profile::{Game, Profile, StagedProfile};
-use axlauncher_core::storage::{AtomicFile, DataDir, GameDir, write_atomic};
+use axlauncher_core::storage::{AtomicFile, DataDir, DataPath, GameDir, VersionPath, write_atomic};
 use axlauncher_download_engine::Direct;
 use axlauncher_modpack::MultiMcExport;
 
@@ -54,7 +54,7 @@ async fn convert(input: &Path, data: &DataDir) -> Result<PathBuf> {
     let mut export = MultiMcExport::open(input)?;
     let requirements = export.base_game()?;
     let patch_set = patches::read(&mut export)?;
-    let staging = StagedProfile::new(&data.instances())?;
+    let staging = StagedProfile::new(data.path(DataPath::Profiles))?;
     export.write_game_files(|path, input| {
         let destination = staging.directory().join(path);
         let mut file = AtomicFile::new(&destination)?;
@@ -65,7 +65,7 @@ async fn convert(input: &Path, data: &DataDir) -> Result<PathBuf> {
     let target = Target::host();
     let network = ReqwestNetwork::desktop()?;
     let base_id = base::prepare(&network, data, &game_root, &requirements, &target).await?;
-    let mut effective = version::load_resolved(&game_root.versions(), &base_id)?;
+    let mut effective = chain::load_resolved(&game_root, &base_id)?;
     let mut game = Game::new(requirements.minecraft()).with_isolated_runtime();
     if let Some((kind, build)) = requirements.loader() {
         game = game.with_loader(kind.as_str(), Some(build.into()));
@@ -84,7 +84,7 @@ async fn convert(input: &Path, data: &DataDir) -> Result<PathBuf> {
     .await?;
     base::complete(checked)?;
     write_atomic(
-        &game_root.version_document(&effective.id),
+        &game_root.version_path(&effective.id, VersionPath::Document),
         &serde_json::to_vec_pretty(&effective)?,
     )?;
     loader::check_files(&game_root, &effective.id, &target)?;

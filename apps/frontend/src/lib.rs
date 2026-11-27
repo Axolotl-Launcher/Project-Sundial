@@ -14,19 +14,22 @@ use std::thread::JoinHandle;
 use axlauncher_core::BRAND_NAME;
 use axlauncher_core::state::profile::{ProfileDiscovery, discover};
 use axlauncher_core::state::{SettingsData, SettingsOrigin, ThemeChoice, load_settings};
-use axlauncher_core::storage::DataDir;
+use axlauncher_core::storage::{DataDir, DataPath};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{Bounds, Palette, TitlebarOptions, WindowBounds, WindowOptions, kit, px, size};
 
 mod file_picker;
 mod installation_progress;
 mod installations;
-mod instance_row;
 mod launches;
 mod modpacks;
 mod panel;
 
 use panel::RootView;
+
+// Cargo Shear scans imports inside the crate but misses the mirrored tests.
+#[cfg(test)]
+use tempfile as test_tempfile;
 
 const WINDOW_WIDTH: f32 = 1080.;
 const WINDOW_HEIGHT: f32 = 820.;
@@ -139,7 +142,7 @@ fn open_main_window(cx: &mut kit::App, startup: Startup) {
 
 /// A coherent settings and instance view for the selected directories.
 pub(crate) fn load_at(paths: DataDir) -> Loaded {
-    let (settings, origin, notice) = match load_settings(paths.root()) {
+    let (settings, origin, notice) = match load_settings(paths.path(DataPath::Root)) {
         Ok(loaded) => {
             let notice = settings_notice(&loaded.origin);
             (Some(loaded.data), Some(loaded.origin), notice)
@@ -147,7 +150,7 @@ pub(crate) fn load_at(paths: DataDir) -> Loaded {
         Err(error) => (None, None, Some(error.to_string())),
     };
 
-    let profiles = discover(&paths.instances());
+    let profiles = discover(paths.path(DataPath::Profiles));
 
     Loaded {
         paths: Some(paths),

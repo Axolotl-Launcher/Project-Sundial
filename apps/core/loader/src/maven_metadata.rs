@@ -4,7 +4,8 @@
 //! Published artifact versions from the Forge and NeoForge Maven indexes.
 
 use axlauncher_mc_version::{MavenArtifact, MavenBuilds, MavenTarget};
-use axlauncher_spi::{FetchKind, LoaderError, LoaderKind, Network};
+use axlauncher_network_spi::{FetchKind, Network};
+use axlauncher_spi::{LoaderError, LoaderKind};
 use serde::Deserialize;
 
 const FORGE: &str = "https://maven.minecraftforge.net/net/minecraftforge/forge";

@@ -7,10 +7,12 @@
 
 use std::path::{Path, PathBuf};
 
+use axlauncher_network_spi::{
+    ByteRange, DownloadBody, DownloadProtocol, FetchError, Network, RangeRequest,
+};
 use axlauncher_spi::{
-    ByteRange, ContentProvider, ContentSummary, DownloadBody, DownloadProtocol, FetchError,
-    InstanceRecord, Java, JavaMode, Network, RangeRequest, StateStore, Storage, StorageError,
-    Telemetry,
+    ContentProvider, ContentSummary, InstanceRecord, Java, JavaMode, StateStore, Storage,
+    StorageError, Telemetry,
 };
 use axlauncher_state::MemoryState;
 

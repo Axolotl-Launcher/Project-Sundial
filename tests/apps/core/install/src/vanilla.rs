@@ -3,9 +3,10 @@
 
 use super::*;
 use crate::vanilla::catalog::CATALOG;
-use axlauncher_spi::FetchError;
+use axlauncher_network_spi::FetchError;
 
 use futures::executor::block_on;
+use std::fs;
 
 const VERSION_URL: &str = "https://example.invalid/version.json";
 const CLIENT_URL: &str = "https://example.invalid/client.jar";
@@ -79,11 +80,7 @@ fn installation_retries_a_stale_catalog_and_corrupt_manifest_at_the_official_sou
 fn the_catalog_keeps_official_order_and_historical_categories() {
     let catalog = block_on(versions(&NetworkFixture(MANIFEST_SHA1))).unwrap();
     assert_eq!(catalog.latest_release(), "26.3");
-    let listed: Vec<_> = catalog
-        .versions()
-        .iter()
-        .map(|version| (version.id(), version.manifest_type()))
-        .collect();
+    let listed: Vec<_> = catalog.entries().collect();
     assert_eq!(
         listed,
         [
@@ -210,22 +207,6 @@ fn a_manifest_with_the_wrong_hash_is_not_saved() {
     ));
     assert!(result.unwrap_err().contains("SHA-1"));
     assert!(!root.path().join("versions").exists());
-}
-
-#[test]
-fn simultaneous_launches_share_the_game_lock_and_exclude_installation() {
-    let root = crate::test_tempfile::tempdir().unwrap();
-    let game = GameDir::standalone(root.path());
-    let first = launch_lock(&game).unwrap();
-    let second = launch_lock(&game).unwrap();
-    assert!(installation_lock(&game).is_err());
-    drop(first);
-    assert!(installation_lock(&game).is_err());
-    drop(second);
-    let install = installation_lock(&game).unwrap();
-    assert!(launch_lock(&game).is_err());
-    drop(install);
-    assert!(launch_lock(&game).is_ok());
 }
 
 #[test]

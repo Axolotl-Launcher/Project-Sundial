@@ -172,7 +172,7 @@ tweakers, or refers to an external artifact requires additional translation.
 
 | Path | Responsibility |
 |---|---|
-| `apps/core/domain` and `apps/core/spi` | Shared domain values and provider interfaces |
+| `apps/core/domain` and `apps/core/spi` | Shared domain values and launcher, network, and download provider contracts |
 | `apps/core` | System crates for installation, launch, persistence, networking, and other launcher services. The root crate re-exports these systems. |
 | `apps/ui` | Palette, theme installation, and the GPUI Kit components used by the launcher |
 | `apps/frontend` | Application state, layouts, windows, and provider selection |

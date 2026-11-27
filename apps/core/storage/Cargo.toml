@@ -12,6 +12,7 @@ license.workspace = true
 
 [dependencies]
 axlauncher_spi = { workspace = true }
+axlauncher_storage_layout = { workspace = true }
 dirs = { workspace = true }
 keyring = { workspace = true }
 sysinfo = { workspace = true, features = ["system"] }

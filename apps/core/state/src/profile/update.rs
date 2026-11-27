@@ -6,7 +6,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use axlauncher_domain::memory::MaximumHeap;
-use axlauncher_storage::lock_profile;
+use axlauncher_storage::Document;
 
 use super::{DiscoveryError, Profile, ProfileWriteError, read, save};
 
@@ -78,7 +78,7 @@ pub(super) fn update(
     directory: &Path,
     change: impl FnOnce(&mut Profile) -> Result<(), ProfileUpdateError>,
 ) -> Result<Option<Profile>, ProfileUpdateError> {
-    let _lock = match lock_profile(directory) {
+    let _lock = match Document::Profile.lock(directory).map_err(io::Error::from) {
         Ok(lock) => lock,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(source) => {

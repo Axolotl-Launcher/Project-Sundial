@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use super::*;
-use axlauncher_spi::ServiceHost;
+use axlauncher_network_spi::ServiceHost;
 
 #[test]
 fn fallen_proxy_jvm_arguments_apply_only_to_opted_in_microsoft_sessions() {

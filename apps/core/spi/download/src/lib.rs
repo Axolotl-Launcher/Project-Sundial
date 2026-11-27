@@ -1,14 +1,15 @@
 //! File transfer requests and the installation-facing download port.
 
+#![forbid(unsafe_code)]
+
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 
+use axlauncher_network_spi::DownloadProtocol;
 use futures::stream::{self, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use url::Url;
-
-use crate::DownloadProtocol;
 
 pub const DEFAULT_CONCURRENCY: usize = 256;
 pub const DEFAULT_FILE_CONNECTIONS: usize = 16;

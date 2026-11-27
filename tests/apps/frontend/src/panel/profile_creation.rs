@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use super::{
-    AUTOMATIC, CatalogStatus, LoaderCatalog, LoaderKind, LoaderVersion, loader_build_choices,
+    AUTOMATIC, LoaderCatalog, LoaderKind, LoaderVersion, loader_build_choices,
     minecraft_picker_items,
 };
 use axlauncher_core::install::vanilla;
-use axlauncher_core::spi::{FetchError, Network};
+use axlauncher_core::network_spi::{FetchError, Network};
 use axlauncher_ui::{SelectDelegate, SelectItem, SharedString};
 
 struct MinecraftCatalogNetwork;
@@ -53,11 +53,11 @@ fn a_catalog_response_uses_the_manual_game_before_the_latest_release() {
 fn a_late_loader_response_cannot_complete_a_new_selection() {
     let mut catalog = LoaderCatalog::default();
     let first = catalog.restart();
-    catalog.status = CatalogStatus::Loading;
+    catalog.loading();
     assert!(catalog.accepts(first));
 
     let second = catalog.restart();
-    catalog.status = CatalogStatus::Loading;
+    catalog.loading();
     assert!(!catalog.accepts(first));
     assert!(catalog.accepts(second));
 

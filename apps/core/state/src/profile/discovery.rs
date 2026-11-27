@@ -9,7 +9,9 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::{Profile, SCHEMA_VERSION, invalid, is_link, profile_document, read};
+use axlauncher_storage::Document;
+
+use super::{Profile, SCHEMA_VERSION, invalid, is_link, read};
 
 #[derive(Debug)]
 pub enum DiscoveryError {
@@ -136,7 +138,7 @@ fn report_duplicate_ids(instances: &[DiscoveredProfile], issues: &mut Vec<Discov
             .or_insert(&entry.directory);
         if *first != &entry.directory {
             issues.push(invalid(
-                &profile_document(&entry.directory),
+                &Document::Profile.path(&entry.directory),
                 format!("profile ID also used by {}", first.display()),
             ));
         }

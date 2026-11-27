@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 
 use super::{PackState, install_runtime};
 use axlauncher_core::desktop::downloads::{DownloadRoute, Downloads};
+use axlauncher_core::download_spi::{DEFAULT_CONCURRENCY, DownloadJob, FileDownloader};
 use axlauncher_core::network::verify_reader;
-use axlauncher_core::spi::downloads::{DEFAULT_CONCURRENCY, DownloadJob, FileDownloader};
 use axlauncher_core::state::profile::{Game, Profile, StagedProfile};
-use axlauncher_core::storage::{AtomicFile, DataDir, open_for_read};
+use axlauncher_core::storage::{AtomicFile, DataDir, DataPath, open_for_read};
 use axlauncher_modpack::{Download, InstallPlan};
 use futures::{StreamExt, stream};
 
@@ -36,7 +36,8 @@ impl StagedPack {
         Ok(Self {
             plan,
             downloads,
-            staging: StagedProfile::new(&data.instances()).map_err(|error| error.to_string())?,
+            staging: StagedProfile::new(data.path(DataPath::Profiles))
+                .map_err(|error| error.to_string())?,
             remaining,
             manual: Vec::new(),
             ready: false,

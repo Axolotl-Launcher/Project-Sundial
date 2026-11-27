@@ -2,8 +2,8 @@
 
 use std::path::PathBuf;
 
+use axlauncher_download_spi::{DownloadJob, ExtraDigest, PackOrigins, TransferStats};
 use axlauncher_network::{MirrorSettings, ReqwestNetwork};
-use axlauncher_spi::downloads::{DownloadJob, ExtraDigest, PackOrigins, TransferStats};
 use serde::{Deserialize, Serialize};
 
 mod client;

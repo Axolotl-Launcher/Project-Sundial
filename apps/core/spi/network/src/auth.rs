@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Transport for credential-bearing HTTP requests and saved refresh tokens.
+//! Transport for credential-bearing HTTP requests.
 
 use std::future::Future;
 
@@ -81,14 +81,3 @@ pub enum TransportError {
     Unavailable,
     InvalidResponse,
 }
-
-/// Stores a refresh token under an opaque launcher-generated key.
-pub trait CredentialStore {
-    fn read(&self, key: &str) -> Result<Option<String>, CredentialError>;
-    fn write(&self, key: &str, secret: &str) -> Result<(), CredentialError>;
-    fn remove(&self, key: &str) -> Result<(), CredentialError>;
-}
-
-/// The system credential store could not complete the requested operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CredentialError;

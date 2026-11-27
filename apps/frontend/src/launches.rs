@@ -2,17 +2,20 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 //! Desktop task and view state for a Minecraft process.
+//!
+//! The module starts the launch and hands the view what it observes. Presenting
+//! the result belongs to the panel that owns the row.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use axlauncher_core::desktop::{
+    accounts::DesktopAccounts,
     launching::{LaunchFailure, LaunchJob, Player},
     sources::DownloadOptions,
 };
-use axlauncher_ui::{AppContext, AsyncApp, Context, WeakEntity};
+use axlauncher_ui::{AppContext, Task};
 use tokio::sync::{oneshot, watch};
-
-use crate::RootView;
 
 pub(crate) enum Launch {
     Starting,
@@ -41,12 +44,12 @@ pub(crate) fn start(
     job: LaunchJob,
     player: Player,
     options: DownloadOptions,
-    cx: &mut Context<'_, RootView>,
-) {
-    let root = job.game_root().to_path_buf();
+    cx: &mut impl AppContext,
+) -> LaunchTask {
+    let game_root = job.game_root().to_path_buf();
     let directory = job.instance_directory().to_path_buf();
     let version = job.version_id().to_owned();
-    let (sender, mut started) = watch::channel(false);
+    let (sender, started) = watch::channel(false);
     let (settled, account) = oneshot::channel();
     let task = cx.background_spawn(async move {
         job.run(
@@ -60,42 +63,22 @@ pub(crate) fn start(
             },
         )
     });
-    cx.spawn(async move |view, cx| {
-        if let Ok(service) = account.await {
-            let _ = view.update(cx, |view, cx| view.sync_launch_accounts(&service, cx));
-        }
-        if started.changed().await.is_ok() {
-            show_running(&view, &directory, &version, cx);
-        }
-        let outcome = task.await;
-        let _ = view.update(cx, |view, cx| {
-            finish_launch(view, &root, directory, &version, outcome, cx)
-        });
-    })
-    .detach();
+    LaunchTask {
+        game_root,
+        directory,
+        version,
+        started,
+        account,
+        task,
+    }
 }
 
-fn show_running(view: &WeakEntity<RootView>, directory: &Path, version: &str, cx: &mut AsyncApp) {
-    let _ = view.update(cx, |view, cx| {
-        view.set_launch(directory, version, Launch::Running, cx)
-    });
-}
-
-fn finish_launch(
-    view: &mut RootView,
-    root: &Path,
-    directory: PathBuf,
-    version: &str,
-    outcome: Result<(), LaunchFailure>,
-    cx: &mut Context<'_, RootView>,
-) {
-    let launch = match outcome {
-        Ok(()) => Launch::Exited,
-        Err(LaunchFailure::NeedsInstall(reason)) => {
-            view.clear_completed_installation(root, &directory);
-            Launch::NeedsInstall(reason)
-        }
-        Err(LaunchFailure::Failed(reason)) => Launch::Failed(reason),
-    };
-    view.set_launch(&directory, version, launch, cx);
+/// A running launch: where it was started, what it reports, and its outcome.
+pub(crate) struct LaunchTask {
+    pub(crate) game_root: PathBuf,
+    pub(crate) directory: PathBuf,
+    pub(crate) version: String,
+    pub(crate) started: watch::Receiver<bool>,
+    pub(crate) account: oneshot::Receiver<Arc<DesktopAccounts>>,
+    pub(crate) task: Task<Result<(), LaunchFailure>>,
 }

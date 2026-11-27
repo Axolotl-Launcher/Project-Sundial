@@ -5,7 +5,7 @@
 
 use std::time::{Duration, Instant};
 
-use axlauncher_spi::auth::{AuthNetwork, Body, Request, Response, TransportError};
+use axlauncher_network_spi::auth::{AuthNetwork, Body, Request, Response, TransportError};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};

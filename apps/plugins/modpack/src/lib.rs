@@ -17,9 +17,9 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use axlauncher_download_spi::{ExtraDigest, PackOrigins};
+use axlauncher_network_spi::auth::AuthNetwork;
 use axlauncher_spi::LoaderKind;
-use axlauncher_spi::auth::AuthNetwork;
-use axlauncher_spi::downloads::{ExtraDigest, PackOrigins};
 
 use archive::{Archive, Entry};
 

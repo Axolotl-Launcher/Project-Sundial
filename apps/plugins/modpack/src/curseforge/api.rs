@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use axlauncher_spi::auth::{AuthNetwork, Body, Request};
+use axlauncher_network_spi::auth::{AuthNetwork, Body, Request, Response};
 use serde::Deserialize;
 use url::Url;
 
@@ -105,7 +105,7 @@ fn resolve_file(
 }
 
 fn decode<T: serde::de::DeserializeOwned>(
-    response: axlauncher_spi::auth::Response,
+    response: Response,
     route: &str,
 ) -> Result<Vec<T>, PackError> {
     if response.status != 200 {

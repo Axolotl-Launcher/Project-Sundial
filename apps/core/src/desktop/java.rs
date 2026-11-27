@@ -9,13 +9,13 @@ use std::path::{Path, PathBuf};
 
 use axlauncher_install::{prepare::Progress, runtime};
 use axlauncher_launch::{Java, JavaMode, JavaRuntime, SystemJava, Version, version};
-use axlauncher_spi::Network;
+use axlauncher_network_spi::Network;
 use axlauncher_state::javas::{self, Javas, JavasError};
-use axlauncher_storage::DataDir;
+use axlauncher_storage::{DataDir, DataPath};
 
 /// A recorded runtime outranks the newest discovered runtime for its major.
 pub(super) fn managed(data: &DataDir) -> SystemJava {
-    provider(data, &preferences(data.root()))
+    provider(data, &preferences(data.path(DataPath::Root)))
 }
 
 fn preferences(root: &Path) -> Javas {
@@ -29,7 +29,7 @@ pub(super) fn provider(data: &DataDir, javas: &Javas) -> SystemJava {
 }
 
 fn inspector(data: &DataDir) -> SystemJava {
-    SystemJava::for_registered_paths(vec![data.java_versions()])
+    SystemJava::for_registered_paths(vec![data.path(DataPath::JavaVersions).to_owned()])
 }
 
 fn chosen(javas: &Javas) -> Vec<(u32, PathBuf)> {
@@ -130,7 +130,7 @@ impl From<JavasError> for JavaCatalogError {
 
 /// Reads the saved list and checks its executable paths.
 pub fn list(data: &DataDir) -> Result<JavaCatalog, JavaCatalogError> {
-    Ok(catalog(data, javas::load(data.root())?))
+    Ok(catalog(data, javas::load(data.path(DataPath::Root))?))
 }
 
 fn catalog(data: &DataDir, saved: Javas) -> JavaCatalog {
@@ -157,7 +157,7 @@ pub fn discover(data: &DataDir) -> Result<JavaCatalog, JavaCatalogError> {
 
 fn scan(data: &DataDir) -> Vec<JavaRuntime> {
     SystemJava::from_environment()
-        .with_runtime_roots(vec![data.java_versions()])
+        .with_runtime_roots(vec![data.path(DataPath::JavaVersions).to_owned()])
         .discover_system()
 }
 
@@ -166,13 +166,13 @@ fn discover_with(
     only_if_empty: bool,
     scan: impl FnOnce() -> Vec<JavaRuntime>,
 ) -> Result<JavaCatalog, JavaCatalogError> {
-    let saved = javas::load(data.root())?;
+    let saved = javas::load(data.path(DataPath::Root))?;
     if only_if_empty && !saved.is_empty() {
         return Ok(catalog(data, saved));
     }
     let found = scan();
     let inspector = inspector(data);
-    let saved = javas::update(data.root(), |saved| {
+    let saved = javas::update(data.path(DataPath::Root), |saved| {
         if !only_if_empty || saved.is_empty() {
             register(&inspector, saved, &found);
         }
@@ -210,7 +210,7 @@ fn decide_preferred(saved: &mut Javas, major: u32, candidates: &[JavaRuntime]) {
 /// Registers a Java executable after checking its installation.
 pub fn add(data: &DataDir, path: &Path) -> Result<JavaRuntime, JavaCatalogError> {
     let runtime = validate(data, path, None)?;
-    javas::update(data.root(), |javas| {
+    javas::update(data.path(DataPath::Root), |javas| {
         register(&inspector(data), javas, std::slice::from_ref(&runtime));
     })?;
     Ok(runtime)
@@ -218,7 +218,7 @@ pub fn add(data: &DataDir, path: &Path) -> Result<JavaRuntime, JavaCatalogError>
 
 /// Removes a listed Java and replaces any per-major preference that pointed to it.
 pub fn remove(data: &DataDir, path: &Path) -> Result<bool, JavaCatalogError> {
-    Ok(javas::update(data.root(), |saved| {
+    Ok(javas::update(data.path(DataPath::Root), |saved| {
         let affected = saved
             .preferred()
             .find_map(|(major, selected)| (selected == path).then_some(major));
@@ -237,7 +237,7 @@ pub fn remove(data: &DataDir, path: &Path) -> Result<bool, JavaCatalogError> {
 /// Pins a listed runtime for a Java major.
 pub fn set_preferred(data: &DataDir, major: u32, path: &Path) -> Result<(), JavaCatalogError> {
     let path = validate(data, path, Some(major))?.path().to_owned();
-    javas::update(data.root(), |saved| {
+    javas::update(data.path(DataPath::Root), |saved| {
         require_registered(saved, Some(&path))?;
         saved.set_preferred(major, Some(path));
         Ok(())
@@ -251,7 +251,7 @@ pub fn set_profile_preference(
     path: Option<&Path>,
 ) -> Result<(), JavaCatalogError> {
     let path = validated_path(data, path, None)?;
-    javas::update(data.root(), |saved| {
+    javas::update(data.path(DataPath::Root), |saved| {
         require_registered(saved, path.as_deref())?;
         saved.set_profile_preference(profile_id, path);
         Ok(())
@@ -295,7 +295,7 @@ pub(super) async fn prepare_for_version(
     id: &str,
     report: impl FnMut(Progress),
 ) -> Result<(), String> {
-    let document = version::load(&data.game().versions(), id)
+    let document = version::load(data.game(), id)
         .map_err(|error| format!("Cannot read the installed Minecraft {id} manifest: {error}"))?;
     let Some(major) = missing_java(&document, |major| {
         managed(data)
@@ -326,7 +326,7 @@ pub(super) async fn provision(
     mut report: impl FnMut(Progress),
 ) -> Result<(), String> {
     report(Progress::Java);
-    let installed = runtime::install(network, &data.java_versions(), major, |stage| {
+    let installed = runtime::install(network, data.path(DataPath::JavaVersions), major, |stage| {
         report(match stage {
             Progress::Downloading { .. } => stage,
             _ => Progress::Java,

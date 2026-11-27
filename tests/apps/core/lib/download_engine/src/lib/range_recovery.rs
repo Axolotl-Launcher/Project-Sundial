@@ -6,7 +6,7 @@ use std::fs;
 use std::num::NonZeroUsize;
 use std::time::Duration;
 
-use axlauncher_spi::{
+use axlauncher_network_spi::{
     ByteRange, DownloadBody, DownloadProtocol, DownloadResponse, FetchError, Network, RangeRequest,
     ResponseRange,
 };

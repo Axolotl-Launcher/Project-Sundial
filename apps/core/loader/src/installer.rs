@@ -26,7 +26,8 @@ use std::io::{Cursor, Read};
 use std::path::Path;
 
 use axlauncher_domain::maven;
-use axlauncher_spi::{FetchKind, LoaderError, LoaderFile, LoaderKind, LoaderProfile, Network};
+use axlauncher_network_spi::{FetchKind, Network};
+use axlauncher_spi::{LoaderError, LoaderFile, LoaderKind, LoaderProfile};
 use serde_json::{Map, Value};
 
 mod forge_inline;

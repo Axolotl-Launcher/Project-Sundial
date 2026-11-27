@@ -6,7 +6,8 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use axlauncher_spi::auth::{AuthNetwork, CredentialStore};
+use axlauncher_network_spi::auth::AuthNetwork;
+use axlauncher_spi::credentials::CredentialStore;
 use axlauncher_storage::DataDir;
 use tokio::sync::Mutex;
 use uuid::Uuid;

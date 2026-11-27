@@ -7,10 +7,10 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
 
-use axlauncher_core::spi::auth::{AuthNetwork, Request, Response, TransportError};
-use axlauncher_core::spi::{FetchError, Network};
+use axlauncher_core::network_spi::auth::{AuthNetwork, Request, Response, TransportError};
+use axlauncher_core::network_spi::{FetchError, Network};
 use axlauncher_core::state::profile::{StagedProfile, discover};
-use axlauncher_core::storage::DataDir;
+use axlauncher_core::storage::{DataDir, DataPath};
 use axlauncher_modpack::{InstallPlan, ModpackPlugin, PlanOptions};
 
 use super::{ManualFile, StagedPack, download_remaining, supply_manual_files, test_zip as zip};
@@ -129,5 +129,5 @@ fn retry_only_requests_failed_pack_downloads() {
     .unwrap();
     assert_eq!(retry.calls.into_inner(), ["first.jar"]);
     assert!(pack.remaining.is_empty());
-    assert!(discover(&data.instances()).instances.is_empty());
+    assert!(discover(data.path(DataPath::Profiles)).instances.is_empty());
 }

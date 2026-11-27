@@ -10,11 +10,9 @@ use axlauncher_core::spi::{LoaderKind, LoaderVersion};
 use axlauncher_core::state::profile::Game;
 use axlauncher_ui::component::IndexPath;
 use axlauncher_ui::{
-    App, AppContext, AsyncWindowContext, Context, Entity, InputEvent, InputState, SearchableVec,
-    SelectEvent, SelectItem, SelectState, SharedString, WeakEntity, Window,
+    App, AppContext, AsyncWindowContext, Context, Entity, EventEmitter, InputEvent, InputState,
+    SearchableVec, SelectEvent, SelectItem, SelectState, SharedString, WeakEntity, Window,
 };
-
-use super::RootView;
 
 mod view;
 
@@ -76,7 +74,29 @@ impl LoaderCatalog {
     fn accepts(&self, revision: u64) -> bool {
         self.revision == revision && matches!(self.status, CatalogStatus::Loading)
     }
+
+    fn loading(&mut self) {
+        self.status = CatalogStatus::Loading;
+    }
+
+    fn is_ready(&self) -> bool {
+        matches!(self.status, CatalogStatus::Ready)
+    }
+
+    fn ready(&mut self) {
+        self.status = CatalogStatus::Ready;
+    }
+
+    fn empty(&mut self) {
+        self.status = CatalogStatus::Empty;
+    }
+
+    fn failed(&mut self, error: String) {
+        self.status = CatalogStatus::Failed(error);
+    }
 }
+
+pub(super) struct ProfileRequested(pub(super) String, pub(super) Game);
 
 pub(super) struct ProfileCreation {
     name: Entity<InputState>,
@@ -88,10 +108,19 @@ pub(super) struct ProfileCreation {
     manual: bool,
     minecraft_status: CatalogStatus,
     loader_catalog: LoaderCatalog,
+    enabled: bool,
+    options: DownloadOptions,
 }
 
+impl EventEmitter<ProfileRequested> for ProfileCreation {}
+
 impl ProfileCreation {
-    pub(super) fn new(window: &mut Window, cx: &mut Context<'_, RootView>) -> Self {
+    pub(super) fn new(
+        enabled: bool,
+        options: DownloadOptions,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Self {
         let name = cx.new(|cx| InputState::new(window, cx));
         let manual_game = cx.new(|cx| InputState::new(window, cx).placeholder("e.g. 1.21.11"));
         let manual_build = cx.new(|cx| InputState::new(window, cx).placeholder("Automatic"));
@@ -104,17 +133,17 @@ impl ProfileCreation {
             SelectState::new(SearchableVec::new(vec![]), None, window, cx).searchable(true)
         });
         for input in [&name, &manual_build] {
-            cx.subscribe(input, RootView::profile_text_changed).detach();
+            cx.subscribe(input, Self::profile_text_changed).detach();
         }
-        cx.subscribe_in(&manual_game, window, RootView::manual_game_changed)
+        cx.subscribe_in(&manual_game, window, Self::manual_game_changed)
             .detach();
         for picker in [&minecraft, &loader] {
-            cx.subscribe_in(picker, window, RootView::profile_version_changed)
+            cx.subscribe_in(picker, window, Self::profile_version_changed)
                 .detach();
         }
         cx.subscribe(&loader_version, |_, _, _: &ChoiceEvent, cx| cx.notify())
             .detach();
-        Self {
+        let mut form = Self {
             name,
             minecraft,
             loader,
@@ -124,6 +153,23 @@ impl ProfileCreation {
             manual: false,
             minecraft_status: CatalogStatus::Idle,
             loader_catalog: LoaderCatalog::default(),
+            enabled,
+            options,
+        };
+        form.load_minecraft_versions(window, cx);
+        form
+    }
+
+    pub(super) fn configure(
+        &mut self,
+        enabled: bool,
+        options: DownloadOptions,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.options = options;
+        if self.enabled != enabled {
+            self.enabled = enabled;
+            cx.notify();
         }
     }
 
@@ -131,7 +177,7 @@ impl ProfileCreation {
         LoaderKind::parse(self.loader.read(cx).selected_value()?.as_ref())
     }
 
-    pub(super) fn profile(&self, cx: &App) -> Option<(String, Game)> {
+    fn profile(&self, cx: &App) -> Option<(String, Game)> {
         let name = self.name.read(cx).value();
         let name = nonempty(&name)?.to_owned();
         let minecraft = if self.manual {
@@ -153,9 +199,15 @@ impl ProfileCreation {
             game.with_loader(kind.as_str(), nonempty(&build).map(str::to_owned)),
         ))
     }
-}
 
-impl RootView {
+    fn submit(&self, cx: &mut Context<'_, Self>) {
+        if self.enabled
+            && let Some((name, game)) = self.profile(cx)
+        {
+            cx.emit(ProfileRequested(name, game));
+        }
+    }
+
     fn profile_text_changed(
         &mut self,
         _: Entity<InputState>,
@@ -167,22 +219,15 @@ impl RootView {
         }
     }
 
-    pub(super) fn load_minecraft_versions(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<'_, Self>,
-    ) {
-        if matches!(
-            self.profile_creation.minecraft_status,
-            CatalogStatus::Loading
-        ) {
+    fn load_minecraft_versions(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
+        if matches!(self.minecraft_status, CatalogStatus::Loading) {
             return;
         }
-        self.profile_creation.minecraft_status = CatalogStatus::Loading;
-        let options = DownloadOptions::from_settings(self.settings.as_ref());
+        self.minecraft_status = CatalogStatus::Loading;
+        let options = self.options.clone();
         let task = cx.background_spawn(async move { catalog::minecraft_versions(options) });
         cx.spawn_in(window, async move |view, cx| {
-            complete_minecraft_request(view, cx, task.await);
+            Self::complete_minecraft_request(view, cx, task.await);
         })
         .detach();
         cx.notify();
@@ -194,13 +239,12 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let state = &mut self.profile_creation;
-        state.minecraft_status = match result {
-            Ok(catalog) if catalog.versions().is_empty() => CatalogStatus::Empty,
+        self.minecraft_status = match result {
+            Ok(catalog) if catalog.is_empty() => CatalogStatus::Empty,
             Ok(catalog) => {
-                let entered = state.manual_game.read(cx).value();
+                let entered = self.manual_game.read(cx).value();
                 let (items, selected) = minecraft_picker_items(&catalog, &entered);
-                set_picker(&state.minecraft, items, &selected, window, cx);
+                set_picker(&self.minecraft, items, &selected, window, cx);
                 CatalogStatus::Ready
             }
             Err(error) => CatalogStatus::Failed(error),
@@ -215,7 +259,7 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        if self.profile_creation.manual {
+        if self.manual {
             self.clear_manual_loader_build(window, cx);
             return;
         }
@@ -235,32 +279,30 @@ impl RootView {
     }
 
     fn clear_manual_loader_build(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        self.profile_creation
-            .manual_build
+        self.manual_build
             .update(cx, |input, cx| input.set_value("", window, cx));
         cx.notify();
     }
 
     fn load_loader_versions(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        let state = &mut self.profile_creation;
-        let revision = state.loader_catalog.restart();
-        state.loader_version.update(cx, |picker, cx| {
+        let revision = self.loader_catalog.restart();
+        self.loader_version.update(cx, |picker, cx| {
             picker.set_items(SearchableVec::new(vec![]), window, cx);
         });
         cx.notify();
         let (false, Some(kind), Some(game)) = (
-            state.manual,
-            state.loader_kind(cx),
-            state.minecraft.read(cx).selected_value().cloned(),
+            self.manual,
+            self.loader_kind(cx),
+            self.minecraft.read(cx).selected_value().cloned(),
         ) else {
             return;
         };
-        state.loader_catalog.status = CatalogStatus::Loading;
-        let options = DownloadOptions::from_settings(self.settings.as_ref());
+        self.loader_catalog.loading();
+        let options = self.options.clone();
         let task =
             cx.background_spawn(async move { catalog::loader_versions(options, kind, &game) });
         cx.spawn_in(window, async move |view, cx| {
-            complete_loader_request(view, cx, revision, task.await);
+            Self::complete_loader_request(view, cx, revision, task.await);
         })
         .detach();
     }
@@ -272,38 +314,36 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let state = &mut self.profile_creation;
-        if !state.loader_catalog.accepts(revision) {
+        if !self.loader_catalog.accepts(revision) {
             return;
         }
-        state.loader_catalog.status = match result {
-            Ok(versions) if versions.is_empty() => CatalogStatus::Empty,
+        match result {
+            Ok(versions) if versions.is_empty() => self.loader_catalog.empty(),
             Ok(versions) => {
                 let automatic = SharedString::from(AUTOMATIC);
                 set_picker(
-                    &state.loader_version,
-                    loader_build_choices(state.loader_kind(cx), versions),
+                    &self.loader_version,
+                    loader_build_choices(self.loader_kind(cx), versions),
                     &automatic,
                     window,
                     cx,
                 );
-                CatalogStatus::Ready
+                self.loader_catalog.ready();
             }
-            Err(error) => CatalogStatus::Failed(error),
-        };
+            Err(error) => self.loader_catalog.failed(error),
+        }
         cx.notify();
     }
 
     fn toggle_manual_versions(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        let state = &mut self.profile_creation;
-        state.manual = !state.manual;
-        if state.manual {
-            copy_selection(&state.minecraft, &state.manual_game, window, cx);
-            copy_selection(&state.loader_version, &state.manual_build, window, cx);
+        self.manual = !self.manual;
+        if self.manual {
+            copy_selection(&self.minecraft, &self.manual_game, window, cx);
+            copy_selection(&self.loader_version, &self.manual_build, window, cx);
             self.load_loader_versions(window, cx);
             return;
         }
-        if !matches!(state.minecraft_status, CatalogStatus::Ready) {
+        if !matches!(self.minecraft_status, CatalogStatus::Ready) {
             self.load_minecraft_versions(window, cx);
         }
         self.restore_manual_game(window, cx);
@@ -311,37 +351,36 @@ impl RootView {
     }
 
     fn restore_manual_game(&self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        let state = &self.profile_creation;
-        let game = state.manual_game.read(cx).value();
+        let game = self.manual_game.read(cx).value();
         let Some(game) = nonempty(&game) else {
             return;
         };
         let game = SharedString::from(game.to_owned());
-        state.minecraft.update(cx, |picker, cx| {
+        self.minecraft.update(cx, |picker, cx| {
             picker.set_selected_value(&game, window, cx)
         });
     }
-}
 
-fn complete_minecraft_request(
-    view: WeakEntity<RootView>,
-    cx: &mut AsyncWindowContext,
-    result: Result<MinecraftCatalog, String>,
-) {
-    let _ = view.update_in(cx, |view, window, cx| {
-        view.set_minecraft_versions(result, window, cx)
-    });
-}
+    fn complete_minecraft_request(
+        view: WeakEntity<Self>,
+        cx: &mut AsyncWindowContext,
+        result: Result<MinecraftCatalog, String>,
+    ) {
+        let _ = view.update_in(cx, |view, window, cx| {
+            view.set_minecraft_versions(result, window, cx)
+        });
+    }
 
-fn complete_loader_request(
-    view: WeakEntity<RootView>,
-    cx: &mut AsyncWindowContext,
-    revision: u64,
-    result: Result<Vec<LoaderVersion>, String>,
-) {
-    let _ = view.update_in(cx, |view, window, cx| {
-        view.set_loader_versions(revision, result, window, cx)
-    });
+    fn complete_loader_request(
+        view: WeakEntity<Self>,
+        cx: &mut AsyncWindowContext,
+        revision: u64,
+        result: Result<Vec<LoaderVersion>, String>,
+    ) {
+        let _ = view.update_in(cx, |view, window, cx| {
+            view.set_loader_versions(revision, result, window, cx)
+        });
+    }
 }
 
 fn set_picker(
@@ -380,14 +419,10 @@ fn minecraft_picker_items(
     let selected = nonempty(entered).unwrap_or_else(|| catalog.latest_release());
     let items = SearchableVec::new(
         catalog
-            .versions()
-            .iter()
-            .map(|version| {
-                let category = minecraft_category(version.id(), version.manifest_type());
-                Choice::new(
-                    version.id().to_owned(),
-                    format!("{} · {category}", version.id()),
-                )
+            .entries()
+            .map(|(id, manifest_type)| {
+                let category = minecraft_category(id, manifest_type);
+                Choice::new(id.to_owned(), format!("{id} · {category}"))
             })
             .collect::<Vec<_>>(),
     );

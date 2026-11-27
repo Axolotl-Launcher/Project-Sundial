@@ -1,0 +1,19 @@
+[package]
+name = "axlauncher_download_spi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Verified file download requests, outcomes and the download port"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+axlauncher_network_spi = { workspace = true }
+futures = { workspace = true }
+md-5 = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+url = { workspace = true }
+
+[lints]
+workspace = true

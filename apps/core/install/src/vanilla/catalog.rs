@@ -3,7 +3,7 @@
 
 //! The official Minecraft version catalog used by both browsing and installation.
 
-use axlauncher_spi::{FetchKind, Network};
+use axlauncher_network_spi::{FetchKind, Network};
 use serde::Deserialize;
 
 pub(super) const CATALOG: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
@@ -35,8 +35,19 @@ impl MinecraftCatalog {
         &self.latest.release
     }
 
-    pub fn versions(&self) -> &[MinecraftVersion] {
-        &self.versions
+    /// Each selectable version as its id and manifest type, in published order.
+    pub fn entries(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.versions
+            .iter()
+            .map(|version| (version.id(), version.manifest_type()))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.versions.is_empty()
+    }
+
+    fn into_version(self, id: &str) -> Option<MinecraftVersion> {
+        self.versions.into_iter().find(|entry| entry.id == id)
     }
 }
 
@@ -61,9 +72,7 @@ pub(super) async fn find_version(
 ) -> Result<MinecraftVersion, String> {
     fetch_catalog(network, |catalog| {
         catalog
-            .versions
-            .into_iter()
-            .find(|entry| entry.id == id)
+            .into_version(id)
             .ok_or_else(|| format!("Minecraft {id} is not in the Mojang version list."))
     })
     .await

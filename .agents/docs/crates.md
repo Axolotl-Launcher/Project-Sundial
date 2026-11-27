@@ -11,11 +11,11 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 
 | Resource | Direct access belongs to | Entry point for callers |
 | --- | --- | --- |
-| HTTP and DNS | `network` owns HTTP clients, DNS routing, the OAuth loopback listener and transport error classification. | Inject `Network` for metadata and downloads, or `auth::AuthNetwork` for credential-bearing exchanges. |
+| HTTP and DNS | `network` owns HTTP clients, DNS routing, the OAuth loopback listener and transport error classification. | Inject `network_spi::Network` for metadata and transfers or `network_spi::auth::AuthNetwork` for credential-bearing exchanges. |
 | Launcher data paths, blob storage and atomic writes | `storage` resolves directory defaults and overrides, and owns `DataDir`, `GameDir`, `RootedStorage` and `write_atomic`. | Use the [filesystem policy](filesystem-paths.md) and the storage path APIs rather than discovering or constructing managed locations. Use `Storage` for blobs and `write_atomic` for owned documents. |
 | Minecraft accounts and system credentials | `accounts` owns account records, Microsoft and Yggdrasil authentication, and session refresh. `storage` owns the platform credential store. | Use `core::desktop::accounts::DesktopAccounts`. The account worker receives the data root, uses the existing system store, and returns snapshots without credential references. |
 | Settings and instance manifests | `state` owns settings, `.axlprofile` creation and discovery, install status and runtime selections. | Use `load_settings` and `update_settings` for settings. Use `profile::create`, `profile::discover` and `profile::scan_resources` for instances; use `profile::mark_installed` or `profile::mark_failed` for install outcomes. `StateStore` serves the separate ID-based `InstanceRecord` API. |
-| File downloads | `download_engine` schedules connections and ranges, manages shared bandwidth and buffers, tries alternate sources and verifies files before promotion. | Inject the SPI `FileDownloader`. The desktop client uses the shared download worker; the standalone converter explicitly injects `download_engine::Direct`. |
+| File downloads | `download_engine` schedules connections and ranges, manages shared bandwidth and buffers, tries alternate sources and verifies files before promotion. | Inject `download_spi::FileDownloader`. The desktop client uses the shared download worker; the standalone converter explicitly injects `download_engine::Direct`. |
 | Installation files and asset indexes | `install` checks for missing libraries and assets, handles Minecraft metadata, and prepares the pinned third-party authentication agent. | Use `prepare::prepare` for game files and `auth_agent::prepare` for the Java agent. Both take `FileDownloader`. Java runtime acquisition uses its separate existing transport. The SPI `Installer` accepts an `InstallPlan`. Its current `StepInstaller` implementation is a stub. |
 | Embedded service libraries and processes | `worker` owns native loading, process and request lifetimes, and the local wire protocol. `storage` owns the scratch layout. | Desktop shells embed the two target artifacts and dispatch worker mode before GPUI. Desktop clients share the same process manager and never link to either implementation. |
 | Mod loader metadata services | `loader` lists versions and resolves version profiles through an injected `Network`. | `loader::provider` selects the `ModLoader` implementation for both catalog and install. `install` places the resulting profile and handles installation processors. |
@@ -107,16 +107,19 @@ lookup for the destination.
 | Cargo package | Source | Owns |
 | --- | --- | --- |
 | `axlauncher_domain` | [domain](../../apps/core/domain/src/lib.rs) | Shared domain values such as the stable `Id`. Keep these free of I/O. |
-| `axlauncher_spi` | [spi](../../apps/core/spi/src/lib.rs) | Provider traits, requests, results and errors shared across boundaries. Signatures use domain or SPI types. |
+| `axlauncher_spi` | [spi](../../apps/core/spi/src/lib.rs) | Launcher provider contracts for credentials, storage, content, loaders, version naming, Java, process launch and telemetry. |
+| `axlauncher_network_spi` | [network SPI](../../apps/core/spi/network/src/lib.rs) | Buffered network requests, incremental HTTP transfers and authenticated HTTP exchanges. This crate has no workspace dependencies. |
+| `axlauncher_download_spi` | [download SPI](../../apps/core/spi/download/src/lib.rs) | Integrity-checked file and batch downloads. Uses network SPI for the transfer protocol. |
 | `axlauncher_content` | [content](../../apps/core/content/src/lib.rs) | The installable content catalogue. `StaticProvider` implements `ContentProvider::list` and returns `ContentSummary` records. |
-| `axlauncher_resources` | [resources](../../apps/core/resources/src/lib.rs) | User-managed resource records, currently `Favorite`. Downloadable game assets belong to install. |
+| `axlauncher_resources` | [resources](../../apps/core/content/resources/src/lib.rs) | User-managed resource records, currently `Favorite`. Downloadable game assets belong to install. |
 | `axlauncher_loader` | [loader](../../apps/core/loader/src/lib.rs) | `ModLoader` providers that list versions and resolve profiles, currently Fabric, Quilt, Forge and NeoForge. |
 | `axlauncher_mc_version` | [mc_version](../../apps/core/mc_version/src/lib.rs) | Pure version classification, build matching and ordering. It does not read foreign launcher data or decide how to install or launch a version. |
-| `axlauncher_mod_metadata` | [mod_metadata](../../apps/core/mod_metadata/src/lib.rs) | Mod and loader metadata, currently the `Loader` enum. Game launch rules belong to launch. |
+| `axlauncher_mod_metadata` | [mod_metadata](../../apps/core/content/mod_metadata/src/lib.rs) | Mod and loader metadata, currently the `Loader` enum. Game launch rules belong to launch. |
 | `axlauncher_scheduler` | [scheduler](../../apps/core/scheduler/src/lib.rs) | Background work scheduling policy, currently priority `Band`. The originating system owns the work itself. |
 | `axlauncher_observability` | [observability](../../apps/core/observability/src/lib.rs) | Command metrics and diagnostic records, currently `CommandMetric`. Telemetry owns event output. |
 | `axlauncher_network` | [network](../../apps/core/network/src/lib.rs) | HTTP transport, retry classification and the shared download digest check. |
-| `axlauncher_storage` | [storage](../../apps/core/storage/src/lib.rs) | Data directory layout, filesystem primitives and the byte storage provider. Document owners define schemas. |
+| `axlauncher_storage` | [storage](../../apps/core/storage/src/lib.rs) | Public storage entry point, filesystem primitives, platform credentials and host discovery. Document owners define schemas. |
+| `axlauncher_storage_layout` | [layout](../../apps/core/storage/layout/src/lib.rs) | Storage-private implementation of directories, managed file locations and locks. Only storage may depend on it. |
 | `axlauncher_state` | [state](../../apps/core/state/src/lib.rs) | Launcher settings and instance persistence, plus the in-memory `StateStore` implementation. |
 | `axlauncher_accounts` | [accounts](../../apps/core/lib/accounts/src/lib.rs) | The account document, authentication and credential lifecycle. |
 | `axlauncher_download_engine` | [download_engine](../../apps/core/lib/download_engine/src/lib.rs) | Execution and progress reporting for file downloads. |
@@ -127,7 +130,7 @@ lookup for the destination.
 | `axlauncher_core` | [core](../../apps/core/src/lib.rs) | Application-facing system re-exports and desktop request orchestration. Delegates each operation to its owning system or SPI provider. |
 | `axlauncher_ui` | [ui](../../apps/ui/src/lib.rs) | Palette, theme installation and component re-exports. |
 | `axlauncher_frontend` | [frontend](../../apps/frontend/src/lib.rs) | Root view, interaction state, windows and UI task lifecycle. |
-| `axlauncher_modpack` | [modpack](../../apps/plugins/modpack/src/lib.rs) | Registered readers for modpack distribution inputs, plus file selection and override planning. Its only workspace dependency is SPI. |
+| `axlauncher_modpack` | [modpack](../../apps/plugins/modpack/src/lib.rs) | Registered readers for modpack distribution inputs, plus file selection and override planning. It may depend on provider contracts, never their implementations. |
 | `axlauncher_mmc_convert` | [mmc-convert](../../tools/mmc-convert/src/main.rs) | Standalone conversion of selected MultiMC exports with custom launch components into native, isolated profiles. It uses the modpack archive reader and the core facade. |
 | `axlauncher_platform_windows` | [Windows](../../platforms/windows/src/main.rs) | Windows executable entry point. |
 | `axlauncher_platform_linux` | [Linux](../../platforms/linux/src/main.rs) | Linux executable entry point. |
@@ -136,15 +139,20 @@ lookup for the destination.
 
 ## Reusing and extending interfaces
 
-1. Check the [SPI](../../apps/core/spi/src/lib.rs) and the resource owner above.
+1. Check the provider contracts in the inventory and the resource owner above.
    Reuse an existing port or function when it already has the required contract.
    Keep interfaces used inside a single system local, as launch does with `NativeReader`.
-2. For new behavior shared across systems, define the port in SPI, implement it
+2. For new behavior shared across systems, define the port in the SPI crate
+   for that role, implement it
    in its owning system and inject it into consumers. Shared domain values can
    be used directly. Keep one implementation of each parser, integrity check
    or atomic write operation in its owning crate.
-3. Core systems normally depend only on domain and SPI within the workspace.
-   State and launch may depend on storage for managed paths and atomic writes. The account
+3. Core systems normally depend only on domain and the SPI crates they use.
+   Launcher SPI uses domain and network SPI; download SPI uses network SPI.
+   App-facing code accesses the contracts through `core`, without an edge to
+   another provider implementation.
+   State and launch may depend on storage for managed paths and atomic writes. Only
+   storage may depend on its internal layout crate. The account
    and download workers use storage, network, and the shared worker protocol.
    Install uses the SPI for planned files, storage for installation paths
    and atomic writes, network for metadata digest verification and launch for

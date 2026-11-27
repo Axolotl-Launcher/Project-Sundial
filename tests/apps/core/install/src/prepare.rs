@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use super::*;
-use axlauncher_spi::Network;
+use axlauncher_network_spi::Network;
 use std::collections::BTreeMap;
 use std::fs;
 
@@ -91,7 +91,7 @@ fn an_absent_index_is_fetched_and_written() {
     ))
     .expect("index");
 
-    assert!(index.objects.is_empty());
+    assert_eq!(index, AssetIndexDocument::default());
     let path = temp.0.join("assets/indexes/34.json");
     assert_eq!(fs::read(path).expect("written index"), body);
 }
@@ -146,8 +146,9 @@ fn an_index_already_on_disk_is_not_fetched_again() {
     let temp = TempDir::new();
     let version = version_with_index("34", "https://example.test/unreachable.json");
     let path = temp.0.join("assets/indexes/34.json");
+    let cached = br#"{"objects":{"sound/a.ogg":{"hash":"a9993e364706816aba3e25717850c26c9cd0d89d","size":3}}}"#;
     fs::create_dir_all(path.parent().expect("parent")).expect("index directory");
-    fs::write(&path, br#"{"objects":{}}"#).expect("seed");
+    fs::write(&path, cached).expect("seed");
 
     // An empty network: any fetch would fail.
     let network = FakeNetwork {
@@ -160,7 +161,10 @@ fn an_index_already_on_disk_is_not_fetched_again() {
     ))
     .expect("index");
 
-    assert!(index.objects.is_empty());
+    assert_eq!(
+        index,
+        AssetIndexDocument::parse(cached).expect("cached index")
+    );
 }
 
 #[test]
@@ -219,12 +223,12 @@ fn a_version_without_an_index_prepares_nothing_from_assets() {
     ))
     .expect("index");
 
-    assert!(index.objects.is_empty());
+    assert_eq!(index, AssetIndexDocument::default());
 }
 
 #[test]
 fn summarise_counts_written_files_and_names_failures() {
-    use axlauncher_spi::downloads::DownloadOutcome;
+    use axlauncher_download_spi::DownloadOutcome;
 
     let outcomes = vec![
         DownloadOutcome {
@@ -247,7 +251,7 @@ fn summarise_counts_written_files_and_names_failures() {
 
 #[test]
 fn a_complete_pass_reports_complete() {
-    use axlauncher_spi::downloads::DownloadOutcome;
+    use axlauncher_download_spi::DownloadOutcome;
 
     let prepared = summarise(&[DownloadOutcome {
         path: PathBuf::from("a.jar"),

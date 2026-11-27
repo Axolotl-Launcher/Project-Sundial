@@ -1,8 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
+use axlauncher_network_spi::Network;
 use axlauncher_spi::{
-    LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader, Network,
+    LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader,
 };
 
 use crate::{LoaderApi, forge::ForgeApi, neoforge::NeoForgeApi};

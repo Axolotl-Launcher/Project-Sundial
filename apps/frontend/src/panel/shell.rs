@@ -5,12 +5,16 @@
 
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, AnyElement, Button, ButtonVariants, Context, Disableable, ElementId, Icon,
-    IconName, IntoElement, Label, Render, ScrollableElement, Sidebar, SidebarMenu, Sizable,
+    ActiveTheme, AnyElement, Button, ButtonVariants, Context, Disableable, ElementId, GroupBox,
+    Icon, IconName, IntoElement, Label, Render, ScrollableElement, Sidebar, SidebarMenu, Sizable,
     StyledExt, Window, div, h_flex, v_flex,
 };
 
+use crate::installations::Installation;
+
 use super::RootView;
+
+const MAX_VISIBLE_INSTALLATIONS: usize = 8;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Page {
@@ -122,7 +126,7 @@ impl RootView {
 
     fn page_sections(&mut self, cx: &mut Context<'_, Self>) -> Vec<AnyElement> {
         match self.page {
-            Page::Home => vec![self.render_accounts(cx)],
+            Page::Home => vec![self.accounts.clone().into_any_element()],
             Page::Instances => vec![self.render_instances(cx)],
             Page::Settings => vec![
                 self.render_environment(cx),
@@ -136,6 +140,57 @@ impl RootView {
                 self.render_activity(cx),
             ],
         }
+    }
+    fn render_download_debug(&self, cx: &Context<'_, Self>) -> AnyElement {
+        let muted = cx.theme().muted_foreground;
+        GroupBox::new()
+            .id("download-debug")
+            .title(Label::new("Download debug").text_sm().text_color(muted))
+            .child(
+                v_flex()
+                    .gap_3()
+                    .child(self.download_debug.clone())
+                    .children(self.render_modpack_progress(cx))
+                    .children(self.render_installation_progress(cx)),
+            )
+            .into_any_element()
+    }
+
+    fn render_modpack_progress(&self, cx: &Context<'_, Self>) -> Option<Label> {
+        let (name, progress) = self.modpack.read(cx).install_progress()?;
+        Some(
+            Label::new(format!("{name} · {}", progress.message()))
+                .id(ElementId::Name("download-progress:modpack".into()))
+                .text_sm()
+                .text_color(cx.theme().muted_foreground),
+        )
+    }
+
+    fn render_installation_progress(&self, cx: &Context<'_, Self>) -> Vec<AnyElement> {
+        let Some(root) = self.paths.as_ref().map(|paths| paths.game()) else {
+            return Vec::new();
+        };
+        let Some(versions) = self.installations.get(root.root()) else {
+            return Vec::new();
+        };
+        let mut active: Vec<_> = versions
+            .iter()
+            .filter(|(_, state)| matches!(state, Installation::Running(_)))
+            .collect();
+        active.sort_unstable_by_key(|(version, _)| version.as_str());
+        active
+            .into_iter()
+            .take(MAX_VISIBLE_INSTALLATIONS)
+            .map(|(version, state)| {
+                Label::new(format!("{version} · {}", state.message()))
+                    .id(ElementId::Name(
+                        format!("download-progress:{version}").into(),
+                    ))
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .into_any_element()
+            })
+            .collect()
     }
 }
 

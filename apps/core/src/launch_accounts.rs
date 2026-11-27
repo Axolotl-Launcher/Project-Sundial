@@ -3,9 +3,9 @@
 
 //! Turns resolved accounts into launch sessions without handling sign-in or storage.
 
+use axlauncher_download_spi::FileDownloader;
 use axlauncher_launch::plan::{Session, YggdrasilAgent};
-use axlauncher_spi::downloads::FileDownloader;
-use axlauncher_storage::DataDir;
+use axlauncher_storage::{DataDir, DataPath};
 use axlauncher_worker::accounts::{Account, AccountId, Identity};
 
 /// A session ready for Minecraft, with the verified third-party agent when needed.
@@ -46,7 +46,8 @@ pub fn preview(account: &Account, data: &DataDir) -> Session {
             let server = account
                 .server()
                 .expect("validated third-party account record");
-            let path = std::path::absolute(data.auth_agent()).unwrap_or_else(|_| data.auth_agent());
+            let agent = data.path(DataPath::AuthAgent);
+            let path = std::path::absolute(agent).unwrap_or_else(|_| agent.to_owned());
             Session::yggdrasil_preview(
                 account.name(),
                 uuid,

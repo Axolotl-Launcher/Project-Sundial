@@ -3,8 +3,9 @@
 
 use std::collections::BTreeSet;
 
+use axlauncher_download_spi::PackOrigins;
+use axlauncher_network_spi::auth::AuthNetwork;
 use axlauncher_spi::LoaderKind;
-use axlauncher_spi::auth::AuthNetwork;
 use serde::Deserialize;
 use url::Url;
 
@@ -223,7 +224,7 @@ impl Files {
             .collect();
         let mut planned = PlannedDownloads {
             files: Vec::new(),
-            origins: axlauncher_spi::downloads::PackOrigins::CurseForge,
+            origins: PackOrigins::CurseForge,
             cdn_key: None,
         };
         if pinned.is_empty() {
@@ -247,7 +248,7 @@ fn api_key() -> Option<String> {
 }
 
 fn allows_cdn(url: &Url) -> bool {
-    axlauncher_spi::downloads::PackOrigins::CurseForge.allows(url, true)
+    PackOrigins::CurseForge.allows(url, true)
 }
 
 fn cdn_url(id: u32, file_name: &str) -> String {

@@ -9,7 +9,9 @@
 
 use std::collections::BTreeMap;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+use axlauncher_storage::{GameDir, VersionPath};
 
 use axlauncher_domain::is_version_id;
 use serde::{Deserialize, Serialize};
@@ -403,9 +405,9 @@ pub struct OsRule {
     pub arch: Option<String>,
 }
 
-/// Reads `<root>/<id>/<id>.json` without resolving what it inherits.
-pub fn load(root: &Path, id: &str) -> Result<Version, VersionError> {
-    let version: Version = read_document(root, id)?;
+/// Reads the version document in a game tree without resolving its parents.
+pub fn load(game: &GameDir, id: &str) -> Result<Version, VersionError> {
+    let version: Version = read_document(game, id)?;
 
     for candidate in [
         Some(version.id.as_str()),
@@ -426,37 +428,29 @@ pub fn load(root: &Path, id: &str) -> Result<Version, VersionError> {
 }
 
 /// The original game's publication date, independent of the loader's build.
-pub(crate) fn release_time(root: &Path, id: &str) -> Result<Option<String>, VersionError> {
+pub(crate) fn release_time(game: &GameDir, id: &str) -> Result<Option<String>, VersionError> {
     #[derive(Deserialize)]
     struct Publication {
         #[serde(rename = "releaseTime")]
         release_time: Option<String>,
     }
 
-    read_document::<Publication>(root, id).map(|publication| publication.release_time)
+    read_document::<Publication>(game, id).map(|publication| publication.release_time)
 }
 
-fn read_document<T: serde::de::DeserializeOwned>(root: &Path, id: &str) -> Result<T, VersionError> {
+fn read_document<T: serde::de::DeserializeOwned>(
+    game: &GameDir,
+    id: &str,
+) -> Result<T, VersionError> {
     if !is_version_id(id) {
         return Err(VersionError::InvalidId { id: id.to_string() });
     }
-    let path = axlauncher_storage::version_document(root, id);
+    let path = game.version_path(id, VersionPath::Document);
     let bytes = std::fs::read(&path).map_err(|source| VersionError::Read {
         path: path.clone(),
         source,
     })?;
     serde_json::from_slice(&bytes).map_err(|source| VersionError::Parse { path, source })
-}
-
-/// Reads `<root>/<id>/<id>.json` and everything it inherits from.
-///
-/// A loader's profile names its vanilla version in `inheritsFrom` and carries
-/// only the fields it changes, so the document on disk is not launchable by
-/// itself. [`crate::chain::resolve`] applies the parent first and then the
-/// profile's own values, which is the order the game's format defines.
-pub fn load_resolved(root: &Path, id: &str) -> Result<Version, crate::chain::ChainError> {
-    let version = load(root, id).map_err(|source| crate::chain::ChainError::Document { source })?;
-    crate::chain::resolve(root, version)
 }
 
 #[cfg(test)]

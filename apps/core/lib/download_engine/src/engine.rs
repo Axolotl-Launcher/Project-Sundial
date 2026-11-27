@@ -9,10 +9,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-use axlauncher_spi::{
-    DownloadProtocol, FetchError, Network,
-    downloads::{DEFAULT_FILE_CONNECTIONS, TransferStats},
-};
+use axlauncher_download_spi::{DEFAULT_FILE_CONNECTIONS, TransferStats};
+use axlauncher_network_spi::{DownloadProtocol, FetchError, Network};
 use axlauncher_storage::AtomicFile;
 use url::{Origin, Url};
 

@@ -5,14 +5,15 @@
 
 use std::path::Path;
 
+use axlauncher_download_spi::FileDownloader;
 use axlauncher_install::{
     loader::{self, LoaderInstallError, LoaderInstalled},
     prepare::{Prepared, Progress},
     vanilla,
 };
 use axlauncher_launch::Target;
-use axlauncher_spi::downloads::FileDownloader;
-use axlauncher_spi::{LoaderKind, LoaderRequest, ModLoader, Network};
+use axlauncher_network_spi::Network;
+use axlauncher_spi::{LoaderKind, LoaderRequest, ModLoader};
 use axlauncher_state::profile::{self, Game};
 use axlauncher_storage::DataDir;
 
@@ -142,7 +143,7 @@ async fn download_vanilla(
     let prepared = vanilla::install(
         &network,
         &options.downloader(data),
-        &data.game(),
+        data.game(),
         id,
         &Target::host(),
         concurrency,
@@ -197,7 +198,7 @@ async fn install_loader(
         downloader,
         loader: provider,
         java: &initial_java,
-        game_root: &data.game(),
+        game_root: data.game(),
         request,
         target: &Target::host(),
         concurrency,

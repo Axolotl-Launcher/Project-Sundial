@@ -6,22 +6,24 @@
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
-use axlauncher_core::spi::downloads::{DownloadOutcome, FileDownloader, MissingFile};
-use axlauncher_core::storage::{DataDir, download_debug_batch_file};
+use axlauncher_core::download_spi::{DownloadOutcome, FileDownloader, MissingFile};
+use axlauncher_core::storage::{DataDir, ManagedFile};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, App, Button, ButtonVariants, Context, Disableable, ElementId, Entity,
-    Focusable, IntoElement, Label, Pagination, Sizable, Textarea, TextareaState, Window, div,
-    h_flex, v_flex,
+    Focusable, IntoElement, Label, Pagination, Render, Sizable, Textarea, TextareaState, Window,
+    div, h_flex, v_flex,
 };
 use futures::{FutureExt, StreamExt};
 use tokio::sync::{mpsc, oneshot};
 
-use super::{DownloadOptions, RootView};
+use super::DownloadOptions;
 
 const RESULTS_PER_PAGE: usize = 10;
 
 pub(super) struct BatchDebug {
+    paths: Option<DataDir>,
+    options: DownloadOptions,
     input: Entity<TextareaState>,
     expanded: bool,
     rows: Vec<BatchRow>,
@@ -62,8 +64,15 @@ struct Link {
 }
 
 impl BatchDebug {
-    pub(super) fn new(window: &mut Window, cx: &mut Context<'_, RootView>) -> Self {
+    pub(super) fn new(
+        paths: Option<DataDir>,
+        options: DownloadOptions,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Self {
         Self {
+            paths,
+            options,
             input: cx.new(|cx| {
                 TextareaState::new(window, cx).placeholder("One HTTP or HTTPS URL per line")
             }),
@@ -77,11 +86,33 @@ impl BatchDebug {
         }
     }
 
+    pub(super) fn configure(
+        &mut self,
+        paths: Option<DataDir>,
+        options: DownloadOptions,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let enabled_changed = self.paths.is_some() != paths.is_some();
+        self.paths = paths;
+        self.options = options;
+        if enabled_changed {
+            cx.notify();
+        }
+    }
+
     pub(super) fn is_running(&self) -> bool {
         matches!(self.phase, Phase::Running | Phase::Cancelling)
     }
 
-    pub(super) fn drain_outcomes(&mut self) {
+    pub(super) fn sample(&mut self, cx: &mut Context<'_, Self>) {
+        let previous = self.counts.saved + self.counts.failed;
+        self.drain_outcomes();
+        if previous != self.counts.saved + self.counts.failed {
+            cx.notify();
+        }
+    }
+
+    fn drain_outcomes(&mut self) {
         let Some(receiver) = &mut self.outcomes else {
             return;
         };
@@ -113,50 +144,43 @@ impl BatchDebug {
             self.rows.len()
         ))
     }
-}
-
-impl RootView {
     fn toggle_batch_probe(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
-        let batch = &mut self.download_debug.batch;
-        batch.expanded = !batch.expanded;
-        if batch.expanded {
-            batch.input.read(cx).focus_handle(cx).focus(window, cx);
+        self.expanded = !self.expanded;
+        if self.expanded {
+            self.input.read(cx).focus_handle(cx).focus(window, cx);
         }
         cx.notify();
     }
 
     fn start_batch_probe(&mut self, cx: &mut Context<'_, Self>) {
-        let batch = &mut self.download_debug.batch;
-        if batch.is_running() {
+        if self.is_running() {
             return;
         }
         let Some(paths) = self.paths.clone() else {
             return;
         };
-        let links = parse_links(&batch.input.read(cx).value());
-        batch.result_page = 1;
-        batch.rows = links
+        let links = parse_links(&self.input.read(cx).value());
+        self.result_page = 1;
+        self.rows = links
             .iter()
             .map(|link| BatchRow {
                 line: link.line,
                 result: None,
             })
             .collect();
-        batch.counts = Counts::default();
+        self.counts = Counts::default();
         if links.is_empty() {
-            batch.phase = Phase::Failed("Enter at least one download URL.".into());
+            self.phase = Phase::Failed("Enter at least one download URL.".into());
             cx.notify();
             return;
         }
-        let options = DownloadOptions::from_settings(self.settings.as_ref());
-        let downloader = options.downloader(&paths);
-        let concurrency = options.concurrency();
+        let downloader = self.options.downloader(&paths);
+        let concurrency = self.options.concurrency();
         let (cancel, cancellation) = oneshot::channel();
         let (report, outcomes) = mpsc::unbounded_channel();
-        batch.phase = Phase::Running;
-        batch.cancel = Some(cancel);
-        batch.outcomes = Some(outcomes);
-        self.monitor_downloads(cx);
+        self.phase = Phase::Running;
+        self.cancel = Some(cancel);
+        self.outcomes = Some(outcomes);
         let task = cx.background_spawn(async move {
             run_batch(
                 &paths,
@@ -180,45 +204,24 @@ impl RootView {
         result: Result<BatchReport, String>,
         cx: &mut Context<'_, Self>,
     ) {
-        let batch = &mut self.download_debug.batch;
-        batch.drain_outcomes();
-        batch.outcomes = None;
-        batch.cancel = None;
-        batch.phase = result.map_or_else(Phase::Failed, Phase::Finished);
+        self.drain_outcomes();
+        self.outcomes = None;
+        self.cancel = None;
+        self.phase = result.map_or_else(Phase::Failed, Phase::Finished);
         cx.notify();
     }
 
     fn cancel_batch_probe(&mut self, cx: &mut Context<'_, Self>) {
-        let batch = &mut self.download_debug.batch;
-        if let Some(cancel) = batch.cancel.take() {
+        if let Some(cancel) = self.cancel.take() {
             let _ = cancel.send(());
-            batch.phase = Phase::Cancelling;
+            self.phase = Phase::Cancelling;
             cx.notify();
         }
     }
 
-    pub(super) fn render_batch_probe(&self, cx: &mut Context<'_, Self>) -> AnyElement {
-        let batch = &self.download_debug.batch;
-        let toggle = Button::new("show-batch-download")
-            .label(if batch.expanded {
-                "Hide batch download"
-            } else {
-                "Batch download…"
-            })
-            .on_click(cx.listener(|view, _, window, cx| view.toggle_batch_probe(window, cx)));
-        v_flex()
-            .gap_2()
-            .child(h_flex().child(toggle))
-            .when(batch.expanded, |column| {
-                column.child(self.render_batch_form(cx))
-            })
-            .into_any_element()
-    }
-
     fn render_batch_form(&self, cx: &mut Context<'_, Self>) -> AnyElement {
-        let batch = &self.download_debug.batch;
-        let running = batch.is_running();
-        let color = if matches!(batch.phase, Phase::Failed(_)) {
+        let running = self.is_running();
+        let color = if matches!(self.phase, Phase::Failed(_)) {
             cx.theme().danger
         } else {
             cx.theme().muted_foreground
@@ -227,7 +230,7 @@ impl RootView {
             .gap_2()
             .child(Label::new("Batch URLs").text_sm())
             .child(
-                Textarea::new(&batch.input)
+                Textarea::new(&self.input)
                     .accessibility_id("download-batch-urls")
                     .aria_label("Batch URLs, one per line")
                     .w_full()
@@ -235,10 +238,10 @@ impl RootView {
                     .readonly(running),
             )
             .child(self.render_batch_actions(cx))
-            .when_some(batch.summary(), |panel, summary| {
+            .when_some(self.summary(), |panel, summary| {
                 panel.child(Label::new(summary).text_sm().text_color(color))
             })
-            .when_some(batch.output_directory(), |panel, directory| {
+            .when_some(self.output_directory(), |panel, directory| {
                 panel.child(
                     div()
                         .text_xs()
@@ -246,42 +249,40 @@ impl RootView {
                         .child(directory.display().to_string()),
                 )
             })
-            .when(!batch.rows.is_empty(), |panel| {
+            .when(!self.rows.is_empty(), |panel| {
                 panel.child(self.render_batch_results(cx))
             })
             .into_any_element()
     }
 
     fn render_batch_actions(&self, cx: &mut Context<'_, Self>) -> impl IntoElement + use<> {
-        let batch = &self.download_debug.batch;
         h_flex()
             .gap_2()
             .child(
                 Button::new("start-batch-download")
                     .label("Run batch test")
-                    .disabled(batch.is_running() || self.paths.is_none())
+                    .disabled(self.is_running() || self.paths.is_none())
                     .on_click(cx.listener(|view, _, _, cx| view.start_batch_probe(cx))),
             )
-            .when(batch.is_running(), |row| {
+            .when(self.is_running(), |row| {
                 row.child(
                     Button::new("cancel-batch-download")
                         .label("Cancel batch")
                         .ghost()
-                        .disabled(batch.cancel.is_none())
+                        .disabled(self.cancel.is_none())
                         .on_click(cx.listener(|view, _, _, cx| view.cancel_batch_probe(cx))),
                 )
             })
     }
 
     fn render_batch_results(&self, cx: &mut Context<'_, Self>) -> impl IntoElement + use<> {
-        let batch = &self.download_debug.batch;
-        let total = batch.rows.len();
+        let total = self.rows.len();
         let pages = total.div_ceil(RESULTS_PER_PAGE);
-        let range = result_page_range(total, batch.result_page);
+        let range = result_page_range(total, self.result_page);
         let muted = cx.theme().muted_foreground;
-        let rows = batch.rows[range.clone()]
+        let rows = self.rows[range.clone()]
             .iter()
-            .map(|row| row.render(&batch.phase, cx))
+            .map(|row| row.render(&self.phase, cx))
             .collect::<Vec<_>>();
         v_flex()
             .w_full()
@@ -304,7 +305,7 @@ impl RootView {
                         .child(
                             Pagination::new("batch-result-pages")
                                 .small()
-                                .current_page(batch.result_page)
+                                .current_page(self.result_page)
                                 .total_pages(pages)
                                 .on_click(cx.listener(Self::select_batch_result_page)),
                         ),
@@ -319,8 +320,26 @@ impl RootView {
         _: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        self.download_debug.batch.result_page = *page;
+        self.result_page = *page;
         cx.notify();
+    }
+}
+
+impl Render for BatchDebug {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
+        let toggle = Button::new("show-batch-download")
+            .label(if self.expanded {
+                "Hide batch download"
+            } else {
+                "Batch download…"
+            })
+            .on_click(cx.listener(|view, _, window, cx| view.toggle_batch_probe(window, cx)));
+        v_flex()
+            .gap_2()
+            .child(h_flex().child(toggle))
+            .when(self.expanded, |column| {
+                column.child(self.render_batch_form(cx))
+            })
     }
 }
 
@@ -417,7 +436,7 @@ fn run_batch(
         .into_iter()
         .map(|link| MissingFile {
             url: link.url,
-            path: download_debug_batch_file(&directory, link.line),
+            path: ManagedFile::DownloadBatchOutput(link.line).path(&directory),
             sha1: None,
             sha1_alternatives: Vec::new(),
             size: None,

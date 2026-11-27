@@ -15,7 +15,7 @@ use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
-use axlauncher_storage::GameDir;
+use axlauncher_storage::{GameAccess, GameDir, VersionPath};
 
 use crate::rules::{self, Target};
 use crate::version::{Artifact, Library};
@@ -154,26 +154,13 @@ pub(crate) fn extract_version(
     libraries: &[Library],
     target: &Target,
 ) -> Result<Extracted, NativeError> {
-    let lock_path = game_root.natives_lock(version_id);
     let library_root = game_root.libraries();
-    let lock = (|| {
-        fs::create_dir_all(
-            lock_path
-                .parent()
-                .expect("native lock is inside the game tree"),
-        )?;
-        let file = fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&lock_path)?;
-        file.lock()?;
-        Ok::<_, io::Error>(file)
-    })()
-    .map_err(|source| NativeError::Io {
-        path: lock_path,
-        source,
-    })?;
+    let lock = game_root
+        .lock(GameAccess::ExtractNatives(version_id))
+        .map_err(|error| {
+            let (path, source) = error.into_parts();
+            NativeError::Io { path, source }
+        })?;
 
     let archives = libraries.iter().filter_map(|library| {
         if let Some(artifact) = classifier_download(library, target) {
@@ -184,7 +171,8 @@ pub(crate) fn extract_version(
         }
         classpath_native(library, target).map(|artifact| library_root.join(&artifact.path))
     });
-    let extracted = extract_archives(reader, archives, &game_root.version_natives(version_id));
+    let destination = game_root.version_path(version_id, VersionPath::Natives);
+    let extracted = extract_archives(reader, archives, &destination);
     drop(lock);
     extracted
 }

@@ -6,7 +6,7 @@ use std::net::TcpListener;
 use std::time::Duration;
 
 use super::*;
-use crate::panel::download_debug::test_tempfile;
+use crate::test_tempfile;
 
 #[test]
 fn every_row_of_a_fifty_link_batch_is_reachable() {

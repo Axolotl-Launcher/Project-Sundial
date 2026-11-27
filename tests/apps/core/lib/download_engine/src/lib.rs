@@ -8,8 +8,8 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use axlauncher_spi::downloads::{DownloadOutcome, MissingFile};
-use axlauncher_spi::{DownloadMirror, FetchError};
+use axlauncher_download_spi::{DownloadOutcome, MissingFile};
+use axlauncher_network_spi::{DownloadMirror, FetchError};
 use futures::StreamExt;
 use futures::executor::block_on;
 

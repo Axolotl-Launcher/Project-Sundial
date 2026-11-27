@@ -11,11 +11,11 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+use axlauncher_download_spi::MissingFile;
 use axlauncher_launch::natives::classifier_download;
 use axlauncher_launch::rules::{self, Target};
 use axlauncher_launch::version::{Artifact, Library};
-use axlauncher_spi::downloads::MissingFile;
-use axlauncher_storage::{GameDir, write_atomic};
+use axlauncher_storage::{AssetPath, GameDir, VersionPath, write_atomic};
 use serde::Deserialize;
 
 /// How many leading hash characters select an asset object's directory.
@@ -33,7 +33,7 @@ const ASSET_OBJECT_BASE: &str = "https://resources.download.minecraft.net";
 /// read rather than guessed from a version number.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct AssetIndexDocument {
-    pub objects: BTreeMap<String, AssetObject>,
+    objects: BTreeMap<String, AssetObject>,
     #[serde(default, rename = "virtual")]
     pub virtual_map: bool,
     #[serde(default)]
@@ -47,10 +47,10 @@ impl AssetIndexDocument {
     /// in the document and would otherwise need aliases on every field.
     pub fn flat_root(&self, game_root: &GameDir, index_id: &str) -> Option<PathBuf> {
         if self.virtual_map {
-            return Some(game_root.virtual_assets(index_id));
+            return Some(game_root.asset_path(AssetPath::Virtual(index_id)));
         }
         if self.map_to_resources {
-            return Some(game_root.legacy_resources());
+            return Some(game_root.legacy_resources().to_owned());
         }
         None
     }
@@ -58,15 +58,22 @@ impl AssetIndexDocument {
 
 /// One object in an asset index.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct AssetObject {
-    pub hash: String,
-    pub size: u64,
+struct AssetObject {
+    hash: String,
+    size: u64,
 }
 
 impl AssetIndexDocument {
     /// The document encoded in `bytes`, as Mojang publishes it.
     pub fn parse(bytes: &[u8]) -> Result<Self, serde_json::Error> {
         serde_json::from_slice(bytes)
+    }
+
+    /// Each asset name and the object it maps to.
+    fn objects(&self) -> impl Iterator<Item = (&str, &AssetObject)> {
+        self.objects
+            .iter()
+            .map(|(name, object)| (name.as_str(), object))
     }
 }
 
@@ -170,7 +177,7 @@ pub fn client_jar(
     version: &axlauncher_launch::version::Version,
 ) -> Option<MissingFile> {
     let download = version.downloads.as_ref()?.client.as_ref()?;
-    let path = game_root.client_jar(version.jar_id());
+    let path = game_root.version_path(version.jar_id(), VersionPath::ClientJar);
     needs_download(&path, download.size).then(|| MissingFile {
         url: download.url.clone(),
         path,
@@ -189,7 +196,7 @@ pub fn log_config(
     version: &axlauncher_launch::version::Version,
 ) -> Option<MissingFile> {
     let client = version.logging.as_ref()?.client.as_ref()?;
-    let path = game_root.log_config(&client.file.id);
+    let path = game_root.version_path(&client.file.id, VersionPath::LogConfig);
     needs_download(&path, client.file.size).then(|| MissingFile {
         url: client.file.url.clone(),
         path,
@@ -204,9 +211,8 @@ pub fn log_config(
 pub fn missing_assets(game_root: &GameDir, index: &AssetIndexDocument) -> Vec<MissingFile> {
     let mut hashes = HashSet::new();
     index
-        .objects
-        .values()
-        .filter_map(|object| {
+        .objects()
+        .filter_map(|(_, object)| {
             let prefix = object.hash.get(..OBJECT_PREFIX_LEN)?;
             let hash = &object.hash;
             if !hashes.insert(hash) {
@@ -271,7 +277,7 @@ fn materialise_flat_at(
 ) -> Vec<String> {
     let mut failures = Vec::new();
 
-    for (name, object) in &index.objects {
+    for (name, object) in index.objects() {
         let Some(source) = game_root.asset_object(&object.hash) else {
             continue;
         };
@@ -296,7 +302,7 @@ pub(crate) fn missing_flat_asset(
     index: &AssetIndexDocument,
 ) -> Option<PathBuf> {
     let root = index.flat_root(game_root, index_id)?;
-    index.objects.iter().find_map(|(name, object)| {
+    index.objects().find_map(|(name, object)| {
         let path = root.join(name.replace('/', std::path::MAIN_SEPARATOR_STR));
         needs_download(&path, Some(object.size)).then_some(path)
     })

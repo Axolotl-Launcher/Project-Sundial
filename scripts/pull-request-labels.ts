@@ -17,6 +17,8 @@ export interface ModuleRoute {
 
 export const MODULE_ROUTES: readonly ModuleRoute[] = [
   { prefix: "apps/core/domain/", module: "domain" },
+  { prefix: "apps/core/content/resources/", module: "resources" },
+  { prefix: "apps/core/content/mod_metadata/", module: "mod-metadata" },
   { prefix: "apps/core/content/", module: "content" },
   { prefix: "apps/core/install/", module: "install" },
   { prefix: "apps/core/launch/", module: "launch" },
@@ -25,8 +27,6 @@ export const MODULE_ROUTES: readonly ModuleRoute[] = [
   { prefix: "apps/core/network/", module: "network" },
   { prefix: "apps/core/telemetry/", module: "telemetry" },
   { prefix: "apps/core/scheduler/", module: "scheduler" },
-  { prefix: "apps/core/resources/", module: "resources" },
-  { prefix: "apps/core/mod_metadata/", module: "mod-metadata" },
   { prefix: "apps/core/observability/", module: "observability" },
   { prefix: "apps/core/spi/", module: "domain" },
   { prefix: "apps/core/", module: "domain" },

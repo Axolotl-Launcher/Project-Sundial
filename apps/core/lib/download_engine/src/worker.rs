@@ -2,8 +2,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use axlauncher_download_spi::FileDownloader;
 use axlauncher_network::ReqwestNetwork;
-use axlauncher_spi::downloads::FileDownloader;
 use axlauncher_worker::downloads::{Reply, Route, Transfer};
 use axlauncher_worker::{Cancellation, Responder, serve};
 

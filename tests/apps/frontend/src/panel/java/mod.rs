@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use super::{Activity, JavaPanel, Operation, catalog_rows};
-use axlauncher_core::storage::DataDir;
+use axlauncher_core::storage::{DataDir, DataPath};
 
 #[test]
 fn returning_to_a_data_root_does_not_reuse_its_in_flight_result() {
@@ -20,14 +20,14 @@ fn returning_to_a_data_root_does_not_reuse_its_in_flight_result() {
     panel.change_paths(Some(right.clone()));
     assert!(!panel.write_pending("profile"));
     panel.begin(Activity::Loading).unwrap();
-    assert!(panel.take_completed(right.root()).is_some());
+    assert!(panel.take_completed(right.path(DataPath::Root)).is_some());
 
     panel.change_paths(Some(left.clone()));
     assert!(panel.busy());
     assert!(panel.active().is_none());
     assert!(panel.write_pending("profile"));
     assert!(!panel.write_pending("another-profile"));
-    assert!(panel.take_completed(left.root()).is_none());
+    assert!(panel.take_completed(left.path(DataPath::Root)).is_none());
     assert!(!panel.busy());
 }
 

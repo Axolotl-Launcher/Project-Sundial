@@ -4,12 +4,13 @@
 //! Desktop provider configuration from the stored source preferences.
 
 use axlauncher_network::{MirrorHosts, MirrorPreference, MirrorSettings, ReqwestNetwork};
-use axlauncher_spi::{Network, ServiceHost};
+use axlauncher_network_spi::{Network, ServiceHost};
 use axlauncher_state::{SettingsData, SourcePreference};
 use axlauncher_storage::DataDir;
 
 use super::downloads::{DownloadRoute, Downloads};
 
+#[derive(Clone)]
 pub struct DownloadOptions {
     concurrency: usize,
     mirrors: MirrorSettings,

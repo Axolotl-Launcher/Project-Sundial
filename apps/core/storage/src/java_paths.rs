@@ -40,9 +40,32 @@ fn roaming_minecraft_runtime() -> Option<PathBuf> {
     Some(dirs::data_dir()?.join(".minecraft/runtime"))
 }
 
-/// Fixed, mounted drive letters available for the Windows Java search.
+/// Platform locations for one Windows Java discovery pass.
 #[cfg(windows)]
-pub fn java_fixed_drives() -> Vec<PathBuf> {
+pub struct WindowsJavaPaths {
+    pub drives: Vec<PathBuf>,
+    pub exploration_roots: Vec<PathBuf>,
+    pub registry_homes: Vec<PathBuf>,
+    pub working_directory: Option<PathBuf>,
+    pub store_runtime_root: Option<PathBuf>,
+}
+
+#[cfg(windows)]
+impl WindowsJavaPaths {
+    pub fn discover() -> Self {
+        let drives = fixed_drives();
+        Self {
+            exploration_roots: exploration_roots(&drives),
+            registry_homes: registry_homes(),
+            working_directory: std::env::current_dir().ok(),
+            store_runtime_root: store_runtime_root(),
+            drives,
+        }
+    }
+}
+
+#[cfg(windows)]
+fn fixed_drives() -> Vec<PathBuf> {
     sysinfo::Disks::new_with_refreshed_list()
         .list()
         .iter()
@@ -61,7 +84,7 @@ pub fn java_fixed_drives() -> Vec<PathBuf> {
 
 /// Locations explored for Windows Java installations by directory name.
 #[cfg(windows)]
-pub fn java_exploration_roots(drives: &[PathBuf]) -> Vec<PathBuf> {
+fn exploration_roots(drives: &[PathBuf]) -> Vec<PathBuf> {
     let mut roots: Vec<_> = roaming_minecraft_runtime()
         .into_iter()
         .chain(dirs::data_local_dir())
@@ -78,7 +101,7 @@ pub fn java_exploration_roots(drives: &[PathBuf]) -> Vec<PathBuf> {
 
 /// Minecraft Launcher's published Microsoft Store runtime location.
 #[cfg(windows)]
-pub fn java_store_runtime_root() -> Option<PathBuf> {
+fn store_runtime_root() -> Option<PathBuf> {
     Some(
         dirs::data_local_dir()?
             .join("Packages/Microsoft.4297127D64EC6_8wekyb3d8bbwe/LocalCache/Local/runtime"),
@@ -87,7 +110,7 @@ pub fn java_store_runtime_root() -> Option<PathBuf> {
 
 /// Java homes registered by Windows installers.
 #[cfg(windows)]
-pub fn java_registry_homes() -> Vec<PathBuf> {
+fn registry_homes() -> Vec<PathBuf> {
     use windows_registry::{CURRENT_USER, LOCAL_MACHINE};
 
     [LOCAL_MACHINE, CURRENT_USER]
@@ -127,12 +150,6 @@ fn registry_installations(branch: &windows_registry::Key, value: &str) -> Vec<Pa
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
         .collect()
-}
-
-/// The extra directory Windows' executable search checks before PATH.
-#[cfg(windows)]
-pub fn java_working_directory() -> Option<PathBuf> {
-    std::env::current_dir().ok()
 }
 
 #[cfg(target_os = "macos")]

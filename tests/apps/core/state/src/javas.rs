@@ -71,7 +71,7 @@ fn register_fixture(root: &Path, index: u32) {
 #[test]
 fn another_schema_is_never_replaced() {
     let root = TempRoot::new();
-    let path = javas_path(root.path());
+    let path = Document::JavaCatalog.path(root.path());
     let document = br#"{"schema_version": 9}"#;
     fs::write(&path, document).unwrap();
 
@@ -84,7 +84,7 @@ fn another_schema_is_never_replaced() {
 fn old_automatic_choices_do_not_become_preferred_runtimes() {
     let root = TempRoot::new();
     fs::write(
-        javas_path(root.path()),
+        Document::JavaCatalog.path(root.path()),
         br#"{"schema_version":1,"chosen":[{"major_version":21,"full_version":"21.0.7","architecture":"amd64","path":"managed/bin/java"}],"discovered":{}}"#,
     )
     .unwrap();
@@ -96,7 +96,7 @@ fn old_automatic_choices_do_not_become_preferred_runtimes() {
 fn existing_manual_registrations_load_into_the_java_list() {
     let root = TempRoot::new();
     fs::write(
-        javas_path(root.path()),
+        Document::JavaCatalog.path(root.path()),
         br#"{"schema_version":1,"manual":["external/bin/java"]}"#,
     )
     .unwrap();

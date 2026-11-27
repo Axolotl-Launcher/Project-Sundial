@@ -71,13 +71,13 @@ fn a_memory_override_roundtrips_and_following_global_removes_it() {
     let saved = read(&directory).unwrap().unwrap();
     assert_eq!(saved.memory(), Some(heap));
     assert_eq!(saved.install.status, InstallStatus::Ready);
-    let raw = fs::read(profile_document(&directory)).unwrap();
+    let raw = fs::read(Document::Profile.path(&directory)).unwrap();
     let document: serde_json::Value = serde_json::from_slice(&raw).unwrap();
     assert_eq!(document["memory"], serde_json::json!({"maximum_mib": 6144}));
     assert!(set_memory(&directory, "other-id", None).is_err());
     assert_eq!(read(&directory).unwrap().unwrap().memory(), Some(heap));
     set_memory(&directory, profile.id(), None).unwrap();
-    let raw = fs::read(profile_document(&directory)).unwrap();
+    let raw = fs::read(Document::Profile.path(&directory)).unwrap();
     let document: serde_json::Value = serde_json::from_slice(&raw).unwrap();
     assert!(document.get("memory").is_none());
     assert_eq!(read(&directory).unwrap().unwrap().memory(), None);
@@ -98,7 +98,7 @@ fn an_invalid_heap_override_does_not_hide_the_instance() {
     assert_eq!(instance.profile.id(), ID);
     assert_eq!(instance.profile.memory(), None);
     assert_eq!(
-        fs::read(profile_document(&instance.directory)).unwrap(),
+        fs::read(Document::Profile.path(&instance.directory)).unwrap(),
         bytes
     );
 }

@@ -8,12 +8,12 @@ use std::path::Path;
 use axlauncher_core::desktop::launching::LAUNCHER_LANGUAGE;
 use axlauncher_core::domain::normalize_game_language;
 use axlauncher_core::state::{SettingsOrigin, ThemeChoice, update_settings};
-use axlauncher_core::storage::{DataDir, Directory, settings_path};
+use axlauncher_core::storage::{DataDir, DataPath, Directory, Document};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, AnyElement, Button, ButtonVariants, Context, Disableable, ElementId, Entity,
-    GroupBox, Hsla, Input, InputEvent, InputState, IntoElement, Label, Switch, Window, h_flex,
-    v_flex,
+    ActiveTheme, AnyElement, App, Button, ButtonVariants, Context, Disableable, ElementId, Entity,
+    GroupBox, Hsla, Input, InputEvent, InputState, IntoElement, Label, SharedString, Switch,
+    Window, h_flex, v_flex,
 };
 
 use crate::{describe_origin, load_at, palette_for};
@@ -27,18 +27,7 @@ pub(super) struct EnvironmentState {
 }
 
 impl EnvironmentState {
-    pub(super) fn new(
-        game_language: &str,
-        window: &mut Window,
-        cx: &mut Context<'_, RootView>,
-    ) -> Self {
-        let game_language = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder(format!("Follow launcher ({LAUNCHER_LANGUAGE})"))
-                .default_value(game_language.to_owned())
-        });
-        cx.subscribe(&game_language, RootView::game_language_changed)
-            .detach();
+    fn new(game_language: Entity<InputState>) -> Self {
         Self {
             game_language,
             error: None,
@@ -46,12 +35,7 @@ impl EnvironmentState {
         }
     }
 
-    pub(super) fn set_game_language(
-        &self,
-        value: String,
-        window: &mut Window,
-        cx: &mut Context<'_, RootView>,
-    ) {
+    pub(super) fn set_game_language(&self, value: String, window: &mut Window, cx: &mut App) {
         self.game_language
             .update(cx, |input, cx| input.set_value(value, window, cx));
     }
@@ -59,6 +43,39 @@ impl EnvironmentState {
     pub(super) fn clear_feedback(&mut self) {
         self.error = None;
         self.notice = None;
+    }
+
+    fn language(&self, cx: &App) -> SharedString {
+        self.game_language.read(cx).value()
+    }
+
+    fn language_input(&self, read_only: bool) -> Input {
+        Input::new(&self.game_language)
+            .id("default-game-language")
+            .aria_label("Default game language for new instances")
+            .disabled(read_only)
+    }
+
+    fn feedback(&self, cx: &App) -> impl Iterator<Item = Label> + use<> {
+        [
+            self.notice
+                .clone()
+                .map(|notice| Label::new(notice).text_xs().text_color(cx.theme().success)),
+            self.error
+                .clone()
+                .map(|error| Label::new(error).text_xs().text_color(cx.theme().danger)),
+        ]
+        .into_iter()
+        .flatten()
+    }
+
+    fn show_error(&mut self, message: impl Into<String>) {
+        self.error = Some(message.into());
+    }
+
+    fn show_saved(&mut self) {
+        self.error = None;
+        self.notice = Some("Settings saved.".into());
     }
 }
 
@@ -86,6 +103,20 @@ fn path_row(index: usize, label: &str, path: &std::path::Path, muted: Hsla) -> A
 }
 
 impl RootView {
+    pub(super) fn new_environment(
+        game_language: &str,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> EnvironmentState {
+        let input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(format!("Follow launcher ({LAUNCHER_LANGUAGE})"))
+                .default_value(game_language.to_owned())
+        });
+        cx.subscribe(&input, Self::game_language_changed).detach();
+        EnvironmentState::new(input)
+    }
+
     fn game_language_changed(
         &mut self,
         _: Entity<InputState>,
@@ -93,20 +124,16 @@ impl RootView {
         cx: &mut Context<'_, Self>,
     ) {
         if matches!(event, InputEvent::Change) {
-            self.environment.notice = None;
-            self.environment.error = None;
+            self.environment.clear_feedback();
             cx.notify();
         }
     }
 
     pub(super) fn render_environment(&mut self, cx: &mut Context<'_, Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
-        let danger = cx.theme().danger;
-        let success = cx.theme().success;
-
         let paths = self.environment_paths(muted);
         let read_only = self.settings_readonly();
-        let language = self.environment.game_language.read(cx).value();
+        let language = self.environment.language(cx);
         let save_disabled = read_only
             || self.settings.as_ref().is_some_and(|settings| {
                 settings.theme == self.theme && language.trim() == settings.default_game_language
@@ -130,12 +157,7 @@ impl RootView {
                             .text_xs()
                             .text_color(muted),
                     )
-                    .when_some(self.environment.notice.clone(), |column, notice| {
-                        column.child(Label::new(notice).text_xs().text_color(success))
-                    })
-                    .when_some(self.environment.error.clone(), |column, error| {
-                        column.child(Label::new(error).text_xs().text_color(danger))
-                    })
+                    .children(self.environment.feedback(cx))
                     .when(self.paths.is_none(), |column| {
                         column.child(
                             Label::new("Choose a data directory to enable the other sections.")
@@ -169,25 +191,26 @@ impl RootView {
     }
 
     fn environment_paths(&self, muted: Hsla) -> Vec<AnyElement> {
-        self.paths
-            .as_ref()
-            .map(|data| {
-                let game = data.game();
-                vec![
-                    ("Data root", data.root().to_path_buf()),
-                    ("Profiles", data.instances()),
-                    ("Shared game files", game.root().to_path_buf()),
-                    ("Versions", game.versions()),
-                    ("Libraries", game.libraries()),
-                    ("Assets", game.assets()),
-                    ("Settings", settings_path(data.root())),
-                ]
-            })
-            .unwrap_or_default()
-            .into_iter()
-            .enumerate()
-            .map(|(index, (label, path))| path_row(index, label, &path, muted))
-            .collect()
+        let Some(data) = &self.paths else {
+            return Vec::new();
+        };
+        let game = data.game();
+        [
+            ("Data root", data.path(DataPath::Root)),
+            ("Profiles", data.path(DataPath::Profiles)),
+            ("Shared game files", game.root()),
+            ("Versions", game.versions()),
+            ("Libraries", game.libraries()),
+            ("Assets", game.assets()),
+            (
+                "Settings",
+                &Document::Settings.path(data.path(DataPath::Root)),
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (label, path))| path_row(index, label, path, muted))
+        .collect()
     }
 
     fn settings_controls(
@@ -217,12 +240,7 @@ impl RootView {
                             .gap_1()
                             .w_48()
                             .child(Label::new("Default game language").text_sm())
-                            .child(
-                                Input::new(&self.environment.game_language)
-                                    .id("default-game-language")
-                                    .aria_label("Default game language for new instances")
-                                    .disabled(read_only),
-                            ),
+                            .child(self.environment.language_input(read_only)),
                     )
                     .child(
                         Button::new("settings-save")
@@ -248,7 +266,7 @@ impl RootView {
         let loaded = match self.load_selected_root(Path::new(&text)) {
             Ok(loaded) => loaded,
             Err(error) => {
-                self.environment.error = Some(error);
+                self.environment.show_error(error);
                 cx.notify();
                 return;
             }
@@ -277,28 +295,31 @@ impl RootView {
 
     pub(super) fn save_settings(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
         let Some(paths) = self.paths.as_ref() else {
-            self.environment.error = Some("Choose a data directory first.".to_string());
+            self.environment
+                .show_error("Choose a data directory first.");
             cx.notify();
             return;
         };
         let Some(settings) = self.settings.as_ref() else {
-            self.environment.error = Some("Settings could not be loaded.".to_string());
+            self.environment.show_error("Settings could not be loaded.");
             cx.notify();
             return;
         };
 
-        let raw_language = self.environment.game_language.read(cx).value();
+        let raw_language = self.environment.language(cx);
         let language_changed = raw_language.trim() != settings.default_game_language;
         let language = normalize_game_language(&raw_language);
         if language_changed && language.is_none() {
-            self.environment.error = Some("Enter a Minecraft language code such as zh_cn, or leave it empty to follow the launcher.".into());
-            self.environment.notice = None;
+            self.environment.clear_feedback();
+            self.environment.show_error(
+                "Enter a Minecraft language code such as zh_cn, or leave it empty to follow the launcher.",
+            );
             cx.notify();
             return;
         }
         let theme = (settings.theme != self.theme).then_some(self.theme);
         let language = language.filter(|_| language_changed);
-        let saved = update_settings(paths.root(), |data| {
+        let saved = update_settings(paths.path(DataPath::Root), |data| {
             data.theme = theme.unwrap_or(data.theme);
             data.default_game_language =
                 language.unwrap_or_else(|| std::mem::take(&mut data.default_game_language));
@@ -309,17 +330,15 @@ impl RootView {
                     .set_game_language(data.default_game_language.clone(), window, cx);
                 self.theme = data.theme;
                 palette_for(self.theme).apply(cx);
-                self.settings = Some(data);
+                self.set_settings(Some(data), cx);
                 self.origin = Some(SettingsOrigin::Stored);
-                self.download_debug
-                    .reload_sources(self.settings.as_ref(), window, cx);
-                self.environment.notice = Some("Settings saved.".to_string());
-                self.environment.error = None;
+                self.reload_sources(window, cx);
+                self.environment.show_saved();
                 self.activity.success("Saved settings");
             }
             Err(error) => {
                 let message = error.to_string();
-                self.environment.error = Some(message.clone());
+                self.environment.show_error(message.clone());
                 self.activity
                     .error(format!("Settings save failed: {message}"));
             }
@@ -334,8 +353,7 @@ impl RootView {
             ThemeChoice::Dark
         };
         palette_for(self.theme).apply(cx);
-        self.environment.notice = None;
-        self.environment.error = None;
+        self.environment.clear_feedback();
         cx.notify();
     }
 }

@@ -1,7 +1,8 @@
 use std::future::pending;
 use std::time::Duration;
 
-use axlauncher_spi::auth::{Body, CredentialError, Request, Response, TransportError};
+use axlauncher_network_spi::auth::{Body, Request, Response, TransportError};
+use axlauncher_spi::credentials::CredentialError;
 use serde_json::{Value, json};
 use tokio::sync::Notify;
 

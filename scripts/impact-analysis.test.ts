@@ -107,7 +107,8 @@ void test("module labels follow the triage script", () => {
   assert.equal(moduleOf("tests/apps/core/lib/accounts/src/lib.rs"), "domain");
   assert.equal(moduleOf("apps/core/spi/src/lib.rs"), "domain");
   assert.equal(moduleOf("tests/apps/core/spi/src/lib.rs"), "domain");
-  assert.equal(moduleOf("apps/core/mod_metadata/src/lib.rs"), "mod-metadata");
+  assert.equal(moduleOf("apps/core/content/mod_metadata/src/lib.rs"), "mod-metadata");
+  assert.equal(moduleOf("apps/core/content/resources/src/lib.rs"), "resources");
   assert.equal(moduleOf("apps/frontend/src/lib.rs"), "frontend");
   assert.equal(moduleOf("apps/ui/src/lib.rs"), "ui");
   assert.equal(moduleOf("platforms/windows/build.rs"), "platforms");

@@ -74,16 +74,16 @@ fn each_version_keeps_its_own_natives_and_game_files() {
     let layout = GameDir::standalone("root/meta");
 
     assert_eq!(
-        layout.version_document("1.20.1"),
+        layout.version_path("1.20.1", VersionPath::Document),
         Path::new("root/meta/versions/1.20.1/1.20.1.json")
     );
     assert_eq!(
-        layout.version_natives("1.20.1"),
+        layout.version_path("1.20.1", VersionPath::Natives),
         Path::new("root/meta/natives/1.20.1")
     );
     assert_ne!(
-        layout.version_natives("1.20.1"),
-        layout.version_natives("1.20.2")
+        layout.version_path("1.20.1", VersionPath::Natives),
+        layout.version_path("1.20.2", VersionPath::Natives)
     );
 }
 
@@ -92,7 +92,7 @@ fn a_virtual_asset_tree_is_named_after_its_index() {
     let layout = GameDir::standalone("root/meta");
 
     assert_eq!(
-        layout.virtual_assets("legacy"),
+        layout.asset_path(AssetPath::Virtual("legacy")),
         Path::new("root/meta/assets/virtual/legacy")
     );
 }
@@ -102,9 +102,9 @@ fn profiles_and_runtime_files_use_the_managed_layout() {
     let root = TempDir::new();
     let layout = DataDir::isolated(&root.0).unwrap();
     let game = layout.game();
-    assert_eq!(layout.instances(), root.0.join("profiles"));
+    assert_eq!(layout.path(DataPath::Profiles), root.0.join("profiles"));
     assert_eq!(
-        game.log_config("client.xml"),
+        game.version_path("client.xml", VersionPath::LogConfig),
         root.0.join("meta/log_configs/client.xml")
     );
 }
@@ -120,7 +120,7 @@ fn classifier_archives_use_the_shared_cache_only_with_a_usable_hash() {
     assert_eq!(
         game.native_classifier_archive(relative, Some(hash)),
         layout
-            .caches()
+            .path(DataPath::Cache)
             .join("minecraft-natives")
             .join(format!("{hash}.jar"))
     );
@@ -129,9 +129,35 @@ fn classifier_archives_use_the_shared_cache_only_with_a_usable_hash() {
         maven_path
     );
     assert_eq!(game.native_classifier_archive(relative, None), maven_path);
-    let isolated = GameDir::isolated(&layout.instances());
+    let isolated = GameDir::isolated(layout.path(DataPath::Profiles));
     assert_eq!(
         isolated.native_classifier_archive(relative, Some(hash)),
         isolated.libraries().join(relative)
     );
+}
+
+#[test]
+fn simultaneous_launches_share_the_game_lock_and_exclude_installation() {
+    let root = TempDir::new();
+    let game = GameDir::standalone(root.0.join("game"));
+    let first = game.lock(GameAccess::Launch).unwrap();
+    let second = game.lock(GameAccess::Launch).unwrap();
+    let busy = game.lock(GameAccess::Install).unwrap_err();
+    assert_eq!(io::Error::from(busy).kind(), io::ErrorKind::WouldBlock);
+    drop(first);
+    assert!(game.lock(GameAccess::Install).is_err());
+    drop(second);
+    let install = game.lock(GameAccess::Install).unwrap();
+    assert!(game.lock(GameAccess::Launch).is_err());
+    drop(install);
+    assert!(game.lock(GameAccess::Launch).is_ok());
+}
+
+#[test]
+fn locking_a_missing_profile_does_not_recreate_its_directory() {
+    let root = TempDir::new();
+    let instance = root.0.join("missing");
+    let error = Document::Profile.lock(&instance).unwrap_err();
+    assert_eq!(io::Error::from(error).kind(), io::ErrorKind::NotFound);
+    assert!(!instance.exists());
 }

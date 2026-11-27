@@ -12,9 +12,9 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use axlauncher_mc_version::MavenTarget;
+use axlauncher_network_spi::{FetchError, FetchKind, Network};
 use axlauncher_spi::{
-    FetchError, FetchKind, LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion,
-    ModLoader, Network,
+    LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader,
 };
 use serde::Deserialize;
 

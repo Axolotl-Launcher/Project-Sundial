@@ -5,7 +5,7 @@
 
 use std::{fs, io};
 
-use axlauncher_storage::{DataDir, write_atomic};
+use axlauncher_storage::{DataDir, DataPath, Document as ManagedDocument, write_atomic};
 use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -122,7 +122,7 @@ struct Document {
 
 impl Document {
     fn load(data: &DataDir) -> Result<Self, AccountError> {
-        match fs::read(data.accounts()) {
+        match fs::read(Self::path(data)) {
             Ok(bytes) => decode(&bytes),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Self::default()),
             Err(error) => Err(AccountError::Read(error)),
@@ -171,7 +171,7 @@ impl Document {
         data: &DataDir,
         change: impl FnOnce(&mut Self) -> Result<T, AccountError>,
     ) -> Result<T, AccountError> {
-        let _lock = data.lock_accounts().map_err(AccountError::Write)?;
+        let _lock = Self::lock(data)?;
         let mut document = Self::load(data)?;
         let output = change(&mut document)?;
         document.save(data)?;
@@ -184,7 +184,17 @@ impl Document {
             document: self,
         })
         .expect("account document serializes");
-        write_atomic(&data.accounts(), &bytes).map_err(AccountError::Write)
+        write_atomic(&Self::path(data), &bytes).map_err(AccountError::Write)
+    }
+
+    fn path(data: &DataDir) -> std::path::PathBuf {
+        ManagedDocument::Accounts.path(data.path(DataPath::Root))
+    }
+
+    fn lock(data: &DataDir) -> Result<fs::File, AccountError> {
+        ManagedDocument::Accounts
+            .lock(data.path(DataPath::Root))
+            .map_err(|error| AccountError::Write(error.into()))
     }
 }
 

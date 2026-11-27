@@ -21,7 +21,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use axlauncher_storage::{instance_file_index, write_atomic};
+use axlauncher_storage::{ManagedFile, write_atomic};
 use serde::{Deserialize, Serialize};
 
 use crate::document::{self, Existing};
@@ -178,7 +178,7 @@ impl std::error::Error for FilesError {
 
 /// The document's path inside `instance_directory`.
 pub fn path(instance_directory: &Path) -> PathBuf {
-    instance_file_index(instance_directory)
+    ManagedFile::InstanceFileIndex.path(instance_directory)
 }
 
 /// Reads an instance's file index.

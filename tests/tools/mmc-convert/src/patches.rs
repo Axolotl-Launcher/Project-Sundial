@@ -144,7 +144,7 @@ fn vanilla_jar_mods_use_the_stock_jar_after_the_profile_is_renamed() {
 fn publish(staging: StagedProfile, version: &Version) -> (PathBuf, PathBuf) {
     let game = GameDir::isolated(staging.directory());
     write_atomic(
-        &game.version_document(&version.id),
+        &game.version_path(&version.id, axlauncher_core::storage::VersionPath::Document),
         &serde_json::to_vec(version).unwrap(),
     )
     .unwrap();
