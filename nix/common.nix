@@ -90,6 +90,10 @@ in
       export AXLAUNCHER_INSTANCE_SETTINGS_IMAGE="$PWD/target/release/libaxlauncher_instance_settings.so"
       export AXLAUNCHER_INSTALL_IMAGE="$PWD/target/release/libaxlauncher_install_runtime.so"
 
+      # include_bytes! does not fingerprint the image contents, so a cached
+      # platform binary can retain an older worker image. Relink after the
+      # images are built.
+      cargo clean --release -p axlauncher_platform_linux
       cargo build --locked --offline --release -p axlauncher_platform_linux --bin axlauncher
 
       ${lib.optionalString smoke ''
