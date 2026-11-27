@@ -6,7 +6,7 @@ use crate::protocol::{self, Input, Output};
 async fn configuring_java_discovery_is_lazy_and_the_application_can_close_it() {
     let root = tempfile::tempdir().unwrap();
     let data = DataDir::isolated(root.path()).unwrap();
-    Images::new(b"", b"", b"").configure();
+    Images::new(b"", b"", b"", b"", b"").configure();
 
     let worker = WORKER.get().unwrap();
     assert!(worker.running_id().is_none());

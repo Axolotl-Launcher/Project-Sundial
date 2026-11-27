@@ -269,7 +269,7 @@ fn settings_worker_is_lazy_shared_while_busy_and_reaped_after_use() {
 #[ignore = "run node scripts/desktop.ts smoke to supply the packaged desktop executable"]
 fn mismatched_settings_image_is_refused_without_a_write() {
     let fixture = Fixture::new();
-    let wrong = Images::new(b"", b"", b"not the embedded settings image");
+    let wrong = Images::new(b"", b"", b"", b"not the embedded settings image", b"");
     let settings =
         Service::<Reply>::for_executable(wrong.instance_settings, fixture.executable.clone());
     let error = settings
