@@ -12,8 +12,8 @@ use axlauncher_core::state::profile::{DiscoveredProfile, Profile, ProfileDiscove
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, AnyElement, Button, Context, ElementId, GroupBox, Input, IntoElement, Label,
-    Sizable, Window, h_flex, v_flex,
+    ActiveTheme, AnyElement, App, Button, Context, ElementId, GroupBox, Input, IntoElement, Label,
+    Sizable, WeakEntity, Window, h_flex, v_flex,
 };
 
 use super::{
@@ -24,6 +24,8 @@ use super::{
 mod actions;
 mod instance_row;
 pub(super) mod launch;
+
+use instance_row::RowAction;
 
 pub(super) struct InstancesState {
     discovered: ProfileDiscovery,
@@ -245,9 +247,10 @@ impl RootView {
                                 .child(Label::new("No profiles found.").text_sm().text_color(muted))
                         },
                     )
-                    .child(self.render_profile_creation(cx))
+                    .child(self.profile_creation.clone())
                     .when(
-                        !profiles.instances.is_empty() && self.accounts.selected().is_none(),
+                        !profiles.instances.is_empty()
+                            && self.accounts.read(cx).selected().is_none(),
                         |column| column.child(self.offline_player()),
                     )
                     .children(profiles.instances.iter().map(|entry| {
@@ -257,10 +260,10 @@ impl RootView {
                             selected,
                             installations,
                             self.launches.get(&entry.directory),
-                            self.account_selection_pending()
+                            self.account_selection_pending(cx)
                                 || self.java_write_pending(entry.profile.id(), cx),
                             muted,
-                            cx,
+                            Self::row_listener(entry.directory.clone(), cx),
                         );
                         v_flex()
                             .gap_2()
@@ -270,6 +273,48 @@ impl RootView {
                     })),
             )
             .into_any_element()
+    }
+
+    fn row_listener(
+        directory: PathBuf,
+        cx: &Context<'_, Self>,
+    ) -> impl Fn(RowAction, &mut App) + Clone + 'static {
+        let view = cx.weak_entity();
+        move |action, cx| Self::dispatch_row_action(&view, &directory, action, cx)
+    }
+
+    fn dispatch_row_action(
+        view: &WeakEntity<Self>,
+        directory: &Path,
+        action: RowAction,
+        cx: &mut App,
+    ) {
+        let _ = view.update(cx, |view, cx| view.handle_row_action(directory, action, cx));
+    }
+
+    fn handle_row_action(
+        &mut self,
+        directory: &Path,
+        action: RowAction,
+        cx: &mut Context<'_, Self>,
+    ) {
+        match action {
+            RowAction::Select => self.select_instance(directory.to_path_buf(), cx),
+            RowAction::Launch => self.launch(directory, cx),
+            RowAction::Install => self.install_profile(directory, cx),
+        }
+    }
+
+    fn install_profile(&mut self, directory: &Path, cx: &mut Context<'_, Self>) {
+        let Some(game) = self
+            .instances
+            .find(directory)
+            .and_then(|entry| entry.profile.game())
+        else {
+            return;
+        };
+        let game = game.clone();
+        self.install_game(directory, &game, cx);
     }
 
     fn offline_player(&self) -> impl IntoElement + use<> {

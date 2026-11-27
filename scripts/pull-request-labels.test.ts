@@ -10,9 +10,13 @@ import { modulesForPaths } from "./pull-request-labels.ts";
 
 void test("a system crate maps to its module", () => {
   assert.deepEqual(modulesForPaths(["apps/core/network/src/lib.rs"]), ["network"]);
-  assert.deepEqual(modulesForPaths(["apps/core/mod_metadata/src/lib.rs"]), [
+  assert.deepEqual(modulesForPaths(["apps/core/content/mod_metadata/src/lib.rs"]), [
     "mod-metadata",
   ]);
+  assert.deepEqual(modulesForPaths(["apps/core/content/resources/src/lib.rs"]), [
+    "resources",
+  ]);
+  assert.deepEqual(modulesForPaths(["apps/core/content/src/lib.rs"]), ["content"]);
 });
 
 void test("the aggregator maps to domain", () => {

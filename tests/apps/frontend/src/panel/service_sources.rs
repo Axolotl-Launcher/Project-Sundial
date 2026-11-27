@@ -4,7 +4,7 @@
 use axlauncher_core::state::load_settings;
 
 use super::*;
-use crate::panel::download_debug::test_tempfile;
+use crate::test_tempfile;
 
 #[test]
 fn preferences_are_saved_independently_and_reloaded_for_new_downloads() {

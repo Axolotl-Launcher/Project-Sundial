@@ -4,10 +4,12 @@
 //! Install and launch actions for profiles shown in the panel.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use axlauncher_core::desktop::{
+    accounts::DesktopAccounts,
     installation::{InstallTarget, install_key},
-    launching::{LaunchFailure, Player},
+    launching::LaunchFailure,
     sources::DownloadOptions,
 };
 use axlauncher_core::install::prepare::Progress;
@@ -59,8 +61,6 @@ impl RootView {
             Installation::Running(Progress::Version),
             cx,
         );
-        self.monitor_downloads(cx);
-
         let job = installations::start(paths, directory.to_path_buf(), target, options, cx);
         cx.spawn(async move |view, cx| {
             let _ = Self::watch_installation(job, view, cx).await;
@@ -174,11 +174,12 @@ impl RootView {
             .entry(root.to_path_buf())
             .or_default()
             .insert(version.to_owned(), installation);
+        self.update_download_activity(cx);
         cx.notify();
     }
 
     pub(crate) fn launch(&mut self, directory: &Path, cx: &mut Context<'_, Self>) {
-        if self.account_selection_pending() {
+        if self.account_selection_pending(cx) {
             return;
         }
         let Some(entry) = self.instances.find(directory) else {
@@ -211,14 +212,7 @@ impl RootView {
         {
             return;
         }
-        let player = match self.accounts.selected_online() {
-            Some((service, id)) => Player::Online {
-                service,
-                id,
-                fallen_proxy: self.fallen_proxy(),
-            },
-            None => Player::Offline(self.preview_session(cx)),
-        };
+        let player = self.accounts.read(cx).player(cx);
         self.set_launch(directory, job.version_id(), Launch::Starting, cx);
         let options = DownloadOptions::from_settings(self.settings.as_ref());
         let launch = launches::start(job, player, options, cx);
@@ -248,6 +242,12 @@ impl RootView {
         let outcome = task.await;
         let _ = view.update(cx, |view, cx| {
             view.finish_launch(&game_root, &directory, &version, outcome, cx)
+        });
+    }
+
+    fn sync_launch_accounts(&mut self, service: &Arc<DesktopAccounts>, cx: &mut Context<'_, Self>) {
+        self.accounts.update(cx, |accounts, cx| {
+            accounts.sync_launch_accounts(service, cx)
         });
     }
 

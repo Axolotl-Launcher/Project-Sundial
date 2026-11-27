@@ -79,7 +79,7 @@ impl RootView {
         }
         let allocation = heap.map_or(MemoryAllocation::Automatic, MemoryAllocation::Manual);
         let data = memory::set_global(root, allocation).map_err(|error| error.to_string())?;
-        self.settings = Some(data);
+        self.set_settings(Some(data), cx);
         self.origin = Some(SettingsOrigin::Stored);
         self.invalidate_inspection();
         cx.notify();

@@ -5,6 +5,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 
 use super::*;
+use crate::test_tempfile;
 
 #[test]
 fn a_probe_saves_the_http1_response_under_the_data_root() {

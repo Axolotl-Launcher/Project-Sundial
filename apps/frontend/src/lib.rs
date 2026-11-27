@@ -27,6 +27,10 @@ mod panel;
 
 use panel::RootView;
 
+// Cargo Shear scans imports inside the crate but misses the mirrored tests.
+#[cfg(test)]
+use tempfile as test_tempfile;
+
 const WINDOW_WIDTH: f32 = 1080.;
 const WINDOW_HEIGHT: f32 = 820.;
 const WINDOW_MIN_WIDTH: f32 = 720.;

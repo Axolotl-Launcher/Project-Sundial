@@ -7,18 +7,18 @@ use axlauncher_core::desktop::accounts::{Account, AccountId, Persistence};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, Button, ButtonVariants, ClipboardItem, Context, Disableable,
-    ElementId, GroupBox, Input, IntoElement, Label, h_flex, v_flex,
+    ElementId, GroupBox, Input, IntoElement, Label, Render, Window, h_flex, v_flex,
 };
 
 use super::login::{Method, Stage};
-use super::{AccountAction, AccountSnapshot, RootView};
+use super::{AccountAction, AccountSnapshot, AccountsPanel};
 
-impl RootView {
-    pub(in crate::panel) fn render_accounts(&self, cx: &mut Context<'_, Self>) -> AnyElement {
+impl Render for AccountsPanel {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
         let danger = cx.theme().danger;
-        let selected = self.accounts.selected();
-        let unavailable = self.accounts.service.is_none() || self.accounts.is_busy();
+        let selected = self.selected();
+        let unavailable = self.service.is_none() || self.is_busy();
         let identity = selected.map_or_else(
             || {
                 format!(
@@ -35,10 +35,9 @@ impl RootView {
             },
         );
         let rows = self
-            .accounts
             .snapshot
             .as_ref()
-            .map(|snapshot| account_rows(snapshot, unavailable, cx));
+            .map(|snapshot| Self::account_rows(snapshot, unavailable, cx));
         GroupBox::new()
             .id("accounts")
             .title(Label::new("Accounts").text_sm().text_color(muted))
@@ -47,29 +46,27 @@ impl RootView {
                     .gap_3()
                     .child(Label::new(identity))
                     .child(self.account_commands(unavailable, cx))
-                    .when(self.accounts.add_offline, |panel| {
-                        panel.child(self.offline_form(cx))
-                    })
-                    .when(self.accounts.login.is_some(), |panel| {
+                    .when(self.add_offline, |panel| panel.child(self.offline_form(cx)))
+                    .when(self.login.is_some(), |panel| {
                         panel.child(self.login_status(cx))
                     })
-                    .when(self.accounts.third_party.is_open(), |panel| {
-                        panel.child(self.accounts.third_party.render(cx))
+                    .when(self.third_party.is_open(), |panel| {
+                        panel.child(self.render_third_party(cx))
                     })
-                    .when_some(self.accounts.error.clone(), |panel, error| {
+                    .when_some(self.error.clone(), |panel, error| {
                         panel.child(Label::new(error).text_sm().text_color(danger))
                     })
                     .children(rows.into_iter().flatten()),
             )
-            .into_any_element()
     }
+}
 
+impl AccountsPanel {
     fn account_commands(&self, disabled: bool, cx: &mut Context<'_, Self>) -> AnyElement {
-        let disabled = disabled || self.accounts.third_party.is_open();
+        let disabled = disabled || self.third_party.is_open();
         let temporary = self
-            .accounts
             .selected()
-            .map(|_| temporary_button(disabled, cx));
+            .map(|_| Self::temporary_button(disabled, cx));
         h_flex()
             .gap_2()
             .flex_wrap()
@@ -91,32 +88,32 @@ impl RootView {
             .child(
                 Button::new("add-offline-account")
                     .label("Add offline account…")
-                    .track_focus(&self.accounts.offline_trigger)
-                    .disabled(disabled || self.accounts.add_offline)
-                    .toggled(self.accounts.add_offline)
+                    .track_focus(&self.offline_trigger)
+                    .disabled(disabled || self.add_offline)
+                    .toggled(self.add_offline)
                     .on_click(
                         cx.listener(|view, _, window, cx| view.open_offline_form(window, cx)),
                     ),
             )
-            .child(self.accounts.third_party.button(disabled, cx))
+            .child(self.third_party_button(disabled, cx))
             .children(temporary)
             .into_any_element()
     }
 
     fn offline_form(&self, cx: &mut Context<'_, Self>) -> AnyElement {
         v_flex()
-            .track_focus(&self.accounts.offline_scope)
+            .track_focus(&self.offline_scope)
             .gap_2()
             .child(Label::new("Player name").text_sm())
             .child(
-                Input::new(&self.accounts.name)
+                Input::new(&self.name)
                     .id("saved-offline-name")
                     .aria_label("Player name")
                     .w_64(),
             )
             .child(Label::new("UUID (optional)").text_sm())
             .child(
-                Input::new(&self.accounts.uuid)
+                Input::new(&self.uuid)
                     .id("saved-offline-uuid")
                     .aria_label("UUID (optional)")
                     .w_80(),
@@ -127,7 +124,7 @@ impl RootView {
                     .child(
                         Button::new("save-offline-account")
                             .label("Add account")
-                            .disabled(self.accounts.is_busy())
+                            .disabled(self.is_busy())
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.submit_offline_form(window, cx)
                             })),
@@ -136,7 +133,7 @@ impl RootView {
                         Button::new("cancel-offline-account")
                             .ghost()
                             .label("Cancel")
-                            .disabled(self.accounts.is_busy())
+                            .disabled(self.is_busy())
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.close_offline_form(window, cx)
                             })),
@@ -146,7 +143,7 @@ impl RootView {
     }
 
     fn login_status(&self, cx: &mut Context<'_, Self>) -> AnyElement {
-        let attempt = self.accounts.login.as_ref().expect("sign-in in progress");
+        let attempt = self.login.as_ref().expect("sign-in in progress");
         let controls = if attempt.cancellation.0.is_saving() {
             Label::new("Saving account").into_any_element()
         } else {
@@ -155,9 +152,9 @@ impl RootView {
                 Stage::Browser { url } => h_flex()
                     .gap_2()
                     .child(Label::new("Continue in your browser"))
-                    .child(open_browser(url, cx))
+                    .child(Self::open_browser(url, cx))
                     .into_any_element(),
-                Stage::Device { url, code } => device_controls(url, code, cx),
+                Stage::Device { url, code } => Self::device_controls(url, code, cx),
             }
         };
         h_flex()
@@ -173,148 +170,149 @@ impl RootView {
             )
             .into_any_element()
     }
-}
-
-fn account_rows(
-    snapshot: &AccountSnapshot,
-    disabled: bool,
-    cx: &Context<'_, RootView>,
-) -> Vec<AnyElement> {
-    let selected = snapshot.selected();
-    snapshot
-        .iter()
-        .map(|account| {
-            account_row(
-                account,
-                snapshot.persistence(account.id()),
-                selected == Some(account),
-                disabled,
-                cx,
-            )
-        })
-        .collect()
-}
-
-fn account_row(
-    account: &Account,
-    persistence: Option<Persistence>,
-    selected: bool,
-    disabled: bool,
-    cx: &Context<'_, RootView>,
-) -> AnyElement {
-    let id = account.id();
-    let label = account_label(account, persistence);
-    let details = if selected {
-        format!("{label} · Selected")
-    } else {
-        label
-    };
-    let reauth = id.is_online().then(|| reauth_button(account, disabled, cx));
-    h_flex()
-        .gap_3()
-        .justify_between()
-        .flex_wrap()
-        .child(
-            Label::new(details)
-                .id(account_element("account", id))
-                .text_sm()
-                .text_color(cx.theme().muted_foreground),
-        )
-        .child(
-            h_flex()
-                .gap_2()
-                .child(
-                    Button::new(account_element("select-account", id))
-                        .label("Use account")
-                        .accessibility_label(format!(
-                            "Use {} {} account",
-                            account.name(),
-                            account_kind(id)
-                        ))
-                        .disabled(disabled || selected)
-                        .on_click(cx.listener(move |view, _, _, cx| {
-                            view.change_accounts(AccountAction::Select(Some(id)), cx)
-                        })),
+    fn account_rows(
+        snapshot: &AccountSnapshot,
+        disabled: bool,
+        cx: &Context<'_, Self>,
+    ) -> Vec<AnyElement> {
+        let selected = snapshot.selected();
+        snapshot
+            .iter()
+            .map(|account| {
+                Self::account_row(
+                    account,
+                    snapshot.persistence(account.id()),
+                    selected == Some(account),
+                    disabled,
+                    cx,
                 )
-                .children(reauth)
-                .child(
-                    Button::new(account_element("remove-account", id))
-                        .label("Remove")
-                        .accessibility_label(format!(
-                            "Remove {} {} account",
-                            account.name(),
-                            account_kind(id)
-                        ))
-                        .ghost()
-                        .disabled(disabled)
-                        .on_click(cx.listener(move |view, _, _, cx| {
-                            view.change_accounts(AccountAction::Remove(id), cx)
-                        })),
-                ),
-        )
-        .into_any_element()
-}
-
-fn reauth_button(account: &Account, disabled: bool, cx: &Context<'_, RootView>) -> Button {
-    let id = account.id();
-    let server = account.server().map(|server| (id, server.url().to_owned()));
-    Button::new(account_element("reauthenticate", id))
-        .label("Sign in again…")
-        .accessibility_label(format!("Sign in again as {}", account.name()))
-        .ghost()
-        .disabled(disabled)
-        .on_click(cx.listener(move |view, _, window, cx| {
-            reauthenticate(view, id, server.clone(), window, cx);
-        }))
-}
-
-fn reauthenticate(
-    view: &mut RootView,
-    id: AccountId,
-    server: Option<(AccountId, String)>,
-    window: &mut axlauncher_ui::Window,
-    cx: &mut Context<'_, RootView>,
-) {
-    match id {
-        AccountId::Microsoft(_) => view.sign_in(Method::Browser, Some(id), cx),
-        AccountId::Yggdrasil { .. } => view.open_third_party(server, window, cx),
-        AccountId::Offline(_) => (),
+            })
+            .collect()
     }
-}
 
-fn temporary_button(disabled: bool, cx: &Context<'_, RootView>) -> Button {
-    Button::new("use-temporary-player")
-        .label("Use temporary player")
-        .ghost()
-        .disabled(disabled)
-        .on_click(
-            cx.listener(|view, _, _, cx| view.change_accounts(AccountAction::Select(None), cx)),
-        )
-}
+    fn account_row(
+        account: &Account,
+        persistence: Option<Persistence>,
+        selected: bool,
+        disabled: bool,
+        cx: &Context<'_, Self>,
+    ) -> AnyElement {
+        let id = account.id();
+        let label = account_label(account, persistence);
+        let details = if selected {
+            format!("{label} · Selected")
+        } else {
+            label
+        };
+        let reauth = id
+            .is_online()
+            .then(|| Self::reauth_button(account, disabled, cx));
+        h_flex()
+            .gap_3()
+            .justify_between()
+            .flex_wrap()
+            .child(
+                Label::new(details)
+                    .id(account_element("account", id))
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(
+                        Button::new(account_element("select-account", id))
+                            .label("Use account")
+                            .accessibility_label(format!(
+                                "Use {} {} account",
+                                account.name(),
+                                account_kind(id)
+                            ))
+                            .disabled(disabled || selected)
+                            .on_click(cx.listener(move |view, _, _, cx| {
+                                view.change_accounts(AccountAction::Select(Some(id)), cx)
+                            })),
+                    )
+                    .children(reauth)
+                    .child(
+                        Button::new(account_element("remove-account", id))
+                            .label("Remove")
+                            .accessibility_label(format!(
+                                "Remove {} {} account",
+                                account.name(),
+                                account_kind(id)
+                            ))
+                            .ghost()
+                            .disabled(disabled)
+                            .on_click(cx.listener(move |view, _, _, cx| {
+                                view.change_accounts(AccountAction::Remove(id), cx)
+                            })),
+                    ),
+            )
+            .into_any_element()
+    }
 
-fn device_controls(url: &str, code: &str, cx: &Context<'_, RootView>) -> AnyElement {
-    let code_to_copy = code.to_owned();
-    h_flex()
-        .gap_2()
-        .child(Label::new(format!("Device code  {code}")))
-        .child(
-            Button::new("copy-device-code")
-                .ghost()
-                .label("Copy code")
-                .on_click(cx.listener(move |_, _, _, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(code_to_copy.clone()));
-                })),
-        )
-        .child(open_browser(url, cx))
-        .into_any_element()
-}
+    fn reauth_button(account: &Account, disabled: bool, cx: &Context<'_, Self>) -> Button {
+        let id = account.id();
+        let server = account.server().map(|server| (id, server.url().to_owned()));
+        Button::new(account_element("reauthenticate", id))
+            .label("Sign in again…")
+            .accessibility_label(format!("Sign in again as {}", account.name()))
+            .ghost()
+            .disabled(disabled)
+            .on_click(cx.listener(move |view, _, window, cx| {
+                view.reauthenticate(id, server.clone(), window, cx);
+            }))
+    }
 
-fn open_browser(url: &str, cx: &Context<'_, RootView>) -> Button {
-    let url = url.to_owned();
-    Button::new("open-sign-in-browser")
-        .ghost()
-        .label("Open browser")
-        .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url)))
+    fn reauthenticate(
+        &mut self,
+        id: AccountId,
+        server: Option<(AccountId, String)>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        match id {
+            AccountId::Microsoft(_) => self.sign_in(Method::Browser, Some(id), cx),
+            AccountId::Yggdrasil { .. } => self.open_third_party(server, window, cx),
+            AccountId::Offline(_) => (),
+        }
+    }
+
+    fn temporary_button(disabled: bool, cx: &Context<'_, Self>) -> Button {
+        Button::new("use-temporary-player")
+            .label("Use temporary player")
+            .ghost()
+            .disabled(disabled)
+            .on_click(
+                cx.listener(|view, _, _, cx| view.change_accounts(AccountAction::Select(None), cx)),
+            )
+    }
+
+    fn device_controls(url: &str, code: &str, cx: &Context<'_, Self>) -> AnyElement {
+        let code_to_copy = code.to_owned();
+        h_flex()
+            .gap_2()
+            .child(Label::new(format!("Device code  {code}")))
+            .child(
+                Button::new("copy-device-code")
+                    .ghost()
+                    .label("Copy code")
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(code_to_copy.clone()));
+                    })),
+            )
+            .child(Self::open_browser(url, cx))
+            .into_any_element()
+    }
+
+    fn open_browser(url: &str, cx: &Context<'_, Self>) -> Button {
+        let url = url.to_owned();
+        Button::new("open-sign-in-browser")
+            .ghost()
+            .label("Open browser")
+            .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url)))
+    }
 }
 
 fn account_label(account: &Account, persistence: Option<Persistence>) -> String {

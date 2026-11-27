@@ -8,8 +8,9 @@ use axlauncher_core::state::{
 };
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, AnyElement, Context, Disableable, Entity, GroupBox, IndexPath, IntoElement, Label,
-    Select, SelectEvent, SelectItem, SelectState, SharedString, Switch, Window, h_flex, v_flex,
+    ActiveTheme, AnyElement, App, Context, Disableable, Entity, GroupBox, IndexPath, IntoElement,
+    Label, Select, SelectEvent, SelectItem, SelectState, SharedString, Switch, Window, h_flex,
+    v_flex,
 };
 
 use super::RootView;
@@ -63,7 +64,7 @@ impl SourceField {
         self,
         settings: Option<&SettingsData>,
         window: &mut Window,
-        cx: &mut Context<'_, RootView>,
+        cx: &mut App,
     ) -> SourceSelect {
         let value = self.read(settings);
         let options = vec![
@@ -72,35 +73,19 @@ impl SourceField {
             SourceOption(SourcePreference::OfficialOnly, "Official only"),
         ];
         let index = options.iter().position(|option| option.0 == value);
-        let select = cx.new(|cx| SelectState::new(options, index.map(IndexPath::new), window, cx));
-        cx.subscribe_in(
-            &select,
-            window,
-            move |view, _, event, window, cx| match event {
-                SelectEvent::Confirm(Some(value)) => {
-                    view.save_download_source(self, *value, window, cx)
-                }
-                SelectEvent::Confirm(None) => (),
-            },
-        )
-        .detach();
-        select
+        cx.new(|cx| SelectState::new(options, index.map(IndexPath::new), window, cx))
     }
 }
 
-pub(super) struct DownloadSources {
+pub(in crate::panel) struct DownloadSources {
     metadata: SourceSelect,
     files: SourceSelect,
     maven_central: SourceSelect,
-    pub(super) error: Option<String>,
+    error: Option<String>,
 }
 
 impl DownloadSources {
-    pub(super) fn new(
-        settings: Option<&SettingsData>,
-        window: &mut Window,
-        cx: &mut Context<'_, RootView>,
-    ) -> Self {
+    fn new(settings: Option<&SettingsData>, window: &mut Window, cx: &mut App) -> Self {
         Self {
             metadata: SourceField::Metadata.select(settings, window, cx),
             files: SourceField::Files.select(settings, window, cx),
@@ -109,28 +94,29 @@ impl DownloadSources {
         }
     }
 
-    pub(super) fn sync(
-        &self,
+    fn sync(
+        &mut self,
         settings: Option<&SettingsData>,
+        error: Option<String>,
         window: &mut Window,
-        cx: &mut Context<'_, RootView>,
+        cx: &mut App,
     ) {
-        for (field, select) in [
+        for (field, select) in self.selectors() {
+            sync_select(select, field.read(settings), window, cx);
+        }
+        self.error = error;
+    }
+
+    fn selectors(&self) -> [(SourceField, &SourceSelect); 3] {
+        [
             (SourceField::Metadata, &self.metadata),
             (SourceField::Files, &self.files),
             (SourceField::MavenCentral, &self.maven_central),
-        ] {
-            sync_select(select, field.read(settings), window, cx);
-        }
+        ]
     }
 }
 
-fn sync_select(
-    select: &SourceSelect,
-    value: SourcePreference,
-    window: &mut Window,
-    cx: &mut Context<'_, RootView>,
-) {
+fn sync_select(select: &SourceSelect, value: SourcePreference, window: &mut Window, cx: &mut App) {
     if select.read(cx).selected_value() == Some(&value) {
         return;
     }
@@ -141,6 +127,46 @@ fn sync_select(
 }
 
 impl RootView {
+    pub(in crate::panel) fn new_download_sources(
+        settings: Option<&SettingsData>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> DownloadSources {
+        let sources = DownloadSources::new(settings, window, cx);
+        for (field, select) in sources.selectors() {
+            Self::watch_source(field, select, window, cx);
+        }
+        sources
+    }
+
+    fn watch_source(
+        field: SourceField,
+        select: &SourceSelect,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        cx.subscribe_in(
+            select,
+            window,
+            move |view, _, event, window, cx| match event {
+                SelectEvent::Confirm(Some(value)) => {
+                    view.save_download_source(field, *value, window, cx)
+                }
+                SelectEvent::Confirm(None) => (),
+            },
+        )
+        .detach();
+    }
+
+    pub(in crate::panel) fn reload_sources(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.download_sources
+            .sync(self.settings.as_ref(), None, window, cx);
+    }
+
     fn save_download_source(
         &mut self,
         field: SourceField,
@@ -149,12 +175,11 @@ impl RootView {
         cx: &mut Context<'_, Self>,
     ) {
         let Some(paths) = self.paths.as_ref().filter(|_| !self.settings_readonly()) else {
-            self.download_debug
-                .reload_sources(self.settings.as_ref(), window, cx);
+            self.reload_sources(window, cx);
             return;
         };
         if field.read(self.settings.as_ref()) == value {
-            self.download_debug.sources.error = None;
+            self.reload_sources(window, cx);
             cx.notify();
             return;
         }
@@ -187,15 +212,14 @@ impl RootView {
     ) {
         let error = match saved {
             Ok(settings) => {
-                self.settings = Some(settings);
+                self.set_settings(Some(settings), cx);
                 self.origin = Some(SettingsOrigin::Stored);
                 None
             }
             Err(error) => Some(format!("Could not save the source preference. {error}")),
         };
-        self.download_debug
-            .reload_sources(self.settings.as_ref(), window, cx);
-        self.download_debug.sources.error = error;
+        self.download_sources
+            .sync(self.settings.as_ref(), error, window, cx);
         cx.notify();
     }
 
@@ -203,7 +227,7 @@ impl RootView {
         &self,
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
-        let sources = &self.download_debug.sources;
+        let sources = &self.download_sources;
         let disabled = self.settings_readonly();
         GroupBox::new()
             .id("service-sources")
@@ -292,5 +316,5 @@ fn source_select(
 }
 
 #[cfg(test)]
-#[path = "../../../../../tests/apps/frontend/src/panel/download_debug/sources.rs"]
+#[path = "../../../../tests/apps/frontend/src/panel/service_sources.rs"]
 mod tests;

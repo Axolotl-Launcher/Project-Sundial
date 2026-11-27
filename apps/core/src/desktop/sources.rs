@@ -10,6 +10,7 @@ use axlauncher_storage::DataDir;
 
 use super::downloads::{DownloadRoute, Downloads};
 
+#[derive(Clone)]
 pub struct DownloadOptions {
     concurrency: usize,
     mirrors: MirrorSettings,

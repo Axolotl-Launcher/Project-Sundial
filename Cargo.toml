@@ -6,6 +6,8 @@ resolver = "3"
 members = [
   "apps/core",
   "apps/core/content",
+  "apps/core/content/mod_metadata",
+  "apps/core/content/resources",
   "apps/core/domain",
   "apps/core/install",
   "apps/core/launch",
@@ -14,10 +16,8 @@ members = [
   "apps/core/lib/download_engine",
   "apps/core/loader",
   "apps/core/mc_version",
-  "apps/core/mod_metadata",
   "apps/core/network",
   "apps/core/observability",
-  "apps/core/resources",
   "apps/core/scheduler",
   "apps/core/spi",
   "apps/core/state",
@@ -132,11 +132,11 @@ axlauncher_install = { path = "apps/core/install" }
 axlauncher_launch = { path = "apps/core/launch" }
 axlauncher_loader = { path = "apps/core/loader" }
 axlauncher_mc_version = { path = "apps/core/mc_version" }
-axlauncher_mod_metadata = { path = "apps/core/mod_metadata" }
+axlauncher_mod_metadata = { path = "apps/core/content/mod_metadata" }
 axlauncher_modpack = { path = "apps/plugins/modpack" }
 axlauncher_network = { path = "apps/core/network" }
 axlauncher_observability = { path = "apps/core/observability" }
-axlauncher_resources = { path = "apps/core/resources" }
+axlauncher_resources = { path = "apps/core/content/resources" }
 axlauncher_scheduler = { path = "apps/core/scheduler" }
 axlauncher_spi = { path = "apps/core/spi" }
 axlauncher_state = { path = "apps/core/state" }

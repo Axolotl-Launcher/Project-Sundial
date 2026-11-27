@@ -6,6 +6,9 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use axlauncher_core::desktop::sources::{DownloadOptions, fallen_proxy};
+use axlauncher_core::launch::plan::Session;
+use axlauncher_core::spi::ServiceHost;
 use axlauncher_core::state::{SettingsData, SettingsOrigin, ThemeChoice};
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
@@ -23,6 +26,7 @@ mod environment;
 mod instances;
 mod java;
 mod profile_creation;
+mod service_sources;
 mod shell;
 
 const DEFAULT_PLAYER: &str = "Player";
@@ -37,12 +41,13 @@ pub(crate) struct RootView {
     theme: ThemeChoice,
     root_input: Entity<InputState>,
     player_input: Entity<InputState>,
-    accounts: accounts::AccountsPanel,
-    profile_creation: profile_creation::ProfileCreation,
+    accounts: Entity<accounts::AccountsPanel>,
+    profile_creation: Entity<profile_creation::ProfileCreation>,
     instances: instances::InstancesState,
     java: Entity<java::JavaPanel>,
     modpack: Entity<ModpackImport>,
-    download_debug: download_debug::DownloadDebug,
+    download_debug: Entity<download_debug::DownloadDebug>,
+    download_sources: service_sources::DownloadSources,
     inspection: instances::launch::Inspection,
     installations: HashMap<PathBuf, HashMap<String, Installation>>,
     launches: HashMap<PathBuf, (String, Launch)>,
@@ -53,19 +58,19 @@ pub(crate) struct RootView {
 impl RootView {
     pub(crate) fn new(startup: Startup, window: &mut Window, cx: &mut Context<'_, Self>) -> Self {
         let Startup { palette: _, loaded } = startup;
-        let root_text = loaded
-            .paths
-            .as_ref()
-            .map(DataDir::root)
-            .map(|root| root.display().to_string())
-            .unwrap_or_default();
+        let root_text = Self::data_root_text(loaded.paths.as_ref());
         let root_input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("Data directory")
                 .default_value(root_text)
         });
         let player_input = cx.new(|cx| InputState::new(window, cx).placeholder(DEFAULT_PLAYER));
-        let profile_creation = profile_creation::ProfileCreation::new(window, cx);
+        let profile_creation = Self::new_profile_creation(
+            loaded.paths.is_some(),
+            loaded.settings.as_ref(),
+            window,
+            cx,
+        );
         cx.subscribe(&player_input, Self::player_changed).detach();
         let theme = loaded
             .settings
@@ -74,13 +79,14 @@ impl RootView {
             .unwrap_or_default();
         let modpack = Self::new_modpack_import(loaded.paths.is_some(), window, cx);
         let download_debug =
-            download_debug::DownloadDebug::new(loaded.settings.as_ref(), window, cx);
-        let accounts = accounts::AccountsPanel::new(loaded.paths.as_ref(), window, cx);
+            Self::new_download_debug(loaded.paths.clone(), loaded.settings.as_ref(), window, cx);
+        let download_sources = Self::new_download_sources(loaded.settings.as_ref(), window, cx);
+        let accounts = Self::new_accounts(&loaded, player_input.clone(), window, cx);
         let game_language = loaded
             .settings
             .as_ref()
             .map_or("", |settings| settings.default_game_language.as_str());
-        let environment = environment::EnvironmentState::new(game_language, window, cx);
+        let environment = Self::new_environment(game_language, window, cx);
         let java = Self::new_java_panel(loaded.paths.clone(), cx);
         let mut view = Self {
             page: shell::Page::Home,
@@ -98,6 +104,7 @@ impl RootView {
             java,
             modpack,
             download_debug,
+            download_sources,
             inspection: instances::launch::Inspection::default(),
             installations: HashMap::new(),
             launches: HashMap::new(),
@@ -106,9 +113,50 @@ impl RootView {
         };
 
         view.record_data_root();
-        view.refresh_accounts(cx);
-        view.load_minecraft_versions(window, cx);
         view
+    }
+
+    fn data_root_text(paths: Option<&DataDir>) -> String {
+        paths.map_or_else(String::new, |paths| paths.root().display().to_string())
+    }
+
+    fn new_accounts(
+        loaded: &Loaded,
+        player_input: Entity<InputState>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Entity<accounts::AccountsPanel> {
+        let accounts = cx.new(|cx| {
+            accounts::AccountsPanel::new(
+                loaded.paths.as_ref(),
+                player_input,
+                loaded.settings.as_ref(),
+                window,
+                cx,
+            )
+        });
+        cx.observe(&accounts, |_, _, cx| cx.notify()).detach();
+        cx.subscribe(
+            &accounts,
+            |view, _, _: &accounts::AccountSelectionChanged, _| {
+                view.invalidate_inspection();
+            },
+        )
+        .detach();
+        accounts
+    }
+
+    fn new_profile_creation(
+        enabled: bool,
+        settings: Option<&SettingsData>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Entity<profile_creation::ProfileCreation> {
+        let options = DownloadOptions::from_settings(settings);
+        let form =
+            cx.new(|cx| profile_creation::ProfileCreation::new(enabled, options, window, cx));
+        cx.subscribe(&form, Self::create_profile).detach();
+        form
     }
 
     fn new_modpack_import(
@@ -123,6 +171,32 @@ impl RootView {
         cx.observe(&modpack, Self::modpack_download_changed)
             .detach();
         modpack
+    }
+
+    fn new_download_debug(
+        paths: Option<DataDir>,
+        settings: Option<&SettingsData>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) -> Entity<download_debug::DownloadDebug> {
+        let options = DownloadOptions::from_settings(settings);
+        cx.new(|cx| download_debug::DownloadDebug::new(paths, options, window, cx))
+    }
+
+    fn modpack_download_changed(&mut self, _: Entity<ModpackImport>, cx: &mut Context<'_, Self>) {
+        self.update_download_activity(cx);
+        cx.notify();
+    }
+
+    fn update_download_activity(&self, cx: &mut Context<'_, Self>) {
+        let active = self.modpack.read(cx).install_progress().is_some()
+            || self
+                .installations
+                .values()
+                .flat_map(|versions| versions.values())
+                .any(|state| matches!(state, Installation::Running(_)));
+        self.download_debug
+            .update(cx, |debug, cx| debug.set_external_activity(active, cx));
     }
 
     fn new_java_panel(
@@ -180,13 +254,15 @@ impl RootView {
     }
 
     fn player_name(&self, cx: &Context<'_, Self>) -> String {
-        let value = self.player_input.read(cx).value();
-        let name = value.trim();
-        if name.is_empty() {
-            DEFAULT_PLAYER.to_owned()
-        } else {
-            name.to_owned()
-        }
+        self.accounts.read(cx).player_name(cx)
+    }
+
+    fn preview_session(&self, cx: &Context<'_, Self>) -> Session {
+        self.accounts.read(cx).preview_session(cx)
+    }
+
+    fn account_selection_pending(&self, cx: &Context<'_, Self>) -> bool {
+        self.accounts.read(cx).account_selection_pending()
     }
 
     /// Drops the diagnostics preview, because what it described has changed.
@@ -195,16 +271,18 @@ impl RootView {
     }
 
     /// The profile the creation form describes, once its marker is on disk.
-    pub(super) fn submit_profile_form(&mut self, cx: &mut Context<'_, Self>) {
+    fn create_profile(
+        &mut self,
+        _: Entity<profile_creation::ProfileCreation>,
+        profile_creation::ProfileRequested(name, game): &profile_creation::ProfileRequested,
+        cx: &mut Context<'_, Self>,
+    ) {
         let Some(paths) = self.paths.as_ref() else {
-            return;
-        };
-        let Some((name, game)) = self.profile_creation.profile(cx) else {
             return;
         };
 
         let instances = paths.instances();
-        match axlauncher_core::state::profile::create(&instances, &name, game) {
+        match axlauncher_core::state::profile::create(&instances, name, game.clone()) {
             Ok(directory) => {
                 self.activity
                     .success(format!("Created {name} at {}", directory.display()));
@@ -215,6 +293,20 @@ impl RootView {
             Err(error) => self.activity.error(error.to_string()),
         }
         cx.notify();
+    }
+
+    fn set_settings(&mut self, settings: Option<SettingsData>, cx: &mut Context<'_, Self>) {
+        let options = DownloadOptions::from_settings(settings.as_ref());
+        self.profile_creation.update(cx, |form, cx| {
+            form.configure(self.paths.is_some(), options.clone(), cx)
+        });
+        self.download_debug.update(cx, |debug, cx| {
+            debug.configure(self.paths.clone(), options, cx)
+        });
+        self.accounts.update(cx, |accounts, _| {
+            accounts.configure_sign_in(settings.as_ref())
+        });
+        self.settings = settings;
     }
 
     pub(super) fn reload(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
@@ -235,16 +327,12 @@ impl RootView {
         self.paths = loaded.paths;
         self.modpack
             .update(cx, |view, cx| view.set_enabled(self.paths.is_some(), cx));
-        if !same_data {
-            self.accounts.reset(self.paths.as_ref(), window, cx);
-        } else {
-            self.accounts.update_paths(self.paths.as_ref());
-        }
-        self.refresh_accounts(cx);
-        self.settings = loaded.settings;
+        self.set_settings(loaded.settings, cx);
+        self.accounts.update(cx, |accounts, cx| {
+            accounts.reload(self.paths.as_ref(), same_data, window, cx)
+        });
         self.origin = loaded.origin;
-        self.download_debug
-            .reload_sources(self.settings.as_ref(), window, cx);
+        self.reload_sources(window, cx);
         self.notice = loaded.notice;
         self.theme = self
             .settings
@@ -264,12 +352,7 @@ impl RootView {
         self.instances.replace(loaded.profiles, same_instances);
         self.invalidate_inspection();
 
-        let root_text = self
-            .paths
-            .as_ref()
-            .map(DataDir::root)
-            .map(|root| root.display().to_string())
-            .unwrap_or_default();
+        let root_text = Self::data_root_text(self.paths.as_ref());
         self.root_input
             .update(cx, |state, cx| state.set_value(root_text, window, cx));
         palette_for(self.theme).apply(cx);
@@ -343,7 +426,7 @@ impl RootView {
             )
     }
 
-    fn fallen_proxy(&self) -> Option<axlauncher_core::spi::ServiceHost> {
-        axlauncher_core::desktop::sources::fallen_proxy(self.settings.as_ref())
+    fn fallen_proxy(&self) -> Option<ServiceHost> {
+        fallen_proxy(self.settings.as_ref())
     }
 }

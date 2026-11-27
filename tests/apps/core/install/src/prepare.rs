@@ -146,8 +146,9 @@ fn an_index_already_on_disk_is_not_fetched_again() {
     let temp = TempDir::new();
     let version = version_with_index("34", "https://example.test/unreachable.json");
     let path = temp.0.join("assets/indexes/34.json");
+    let cached = br#"{"objects":{"sound/a.ogg":{"hash":"a9993e364706816aba3e25717850c26c9cd0d89d","size":3}}}"#;
     fs::create_dir_all(path.parent().expect("parent")).expect("index directory");
-    fs::write(&path, br#"{"objects":{}}"#).expect("seed");
+    fs::write(&path, cached).expect("seed");
 
     // An empty network: any fetch would fail.
     let network = FakeNetwork {
@@ -160,7 +161,10 @@ fn an_index_already_on_disk_is_not_fetched_again() {
     ))
     .expect("index");
 
-    assert_eq!(index, AssetIndexDocument::default());
+    assert_eq!(
+        index,
+        AssetIndexDocument::parse(cached).expect("cached index")
+    );
 }
 
 #[test]
