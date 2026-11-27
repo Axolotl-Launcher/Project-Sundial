@@ -19,7 +19,9 @@ See [.agents/AGENTS.md](.agents/AGENTS.md) for agent documentation and temporary
    before adding a capability or dependency. For a first build, follow [CONTRIBUTING.md](CONTRIBUTING.md#requirements)
    and run `pnpm install --frozen-lockfile`. The Rust pin is in
    [rust-toolchain.toml](rust-toolchain.toml). Node and pnpm requirements are in
-   [package.json](package.json).
+   [package.json](package.json). For cross-crate navigation, the optional local
+   CodeGraph index in [CONTRIBUTING.md](CONTRIBUTING.md#code-graph) answers
+   caller and impact questions without a file-by-file search.
 3. Before editing, search for the target's callers with `rg` and read the
    surrounding code.
 

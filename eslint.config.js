@@ -13,6 +13,7 @@ const IGNORED = [
   "target/**",
   "dist/**",
   ".turbo/**",
+  ".codegraph*/**",
 ];
 
 // Rules this repository applies to its own TypeScript. The coding rules in

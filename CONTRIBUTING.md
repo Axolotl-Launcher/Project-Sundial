@@ -262,6 +262,56 @@ pnpm file-length  # rejects any code file over 500 lines
 config before TypeScript tooling exists. It is allowlisted by exact path in
 `scripts/check-language.ts`.
 
+## Code graph
+
+[CodeGraph](https://github.com/colbymchenry/codegraph) indexes the workspace and
+answers "where is this used" questions from a symbol and import graph instead of
+a file-by-file search. It is optional: a clone without it builds and passes
+every check. It is also not a dependency of this project, so upgrading it
+changes nothing in `Cargo.lock` or `pnpm-lock.yaml`.
+
+Install it once per machine and build the index from the repository root:
+
+```bash
+npm install --global @colbymchenry/codegraph@1.6.4
+codegraph telemetry off      # this project sends no usage data
+codegraph init               # writes .codegraph/, which git ignores
+```
+
+Then wire it into your own agent. Print the entry for yours and merge it into
+that agent's config, or run `codegraph install --target=<agent> --location=local`
+and restart the agent:
+
+```bash
+codegraph install --print-config codex     # or claude, cursor, ...
+```
+
+The printed entry launches `codegraph` from `PATH`, so make sure the install
+step put it there before starting the agent. Agent configuration stays local:
+this repository commits none of it, the same way `.claude/` and `CLAUDE.md` are
+ignored.
+
+Useful during a change:
+
+```bash
+codegraph status --json                  # index size and parse errors
+codegraph explore "where are downloads retried"   # source plus call paths
+codegraph affected <changed paths> --json --depth 5 # tests that import a change
+codegraph impact <symbol> --json         # what a symbol's change reaches
+codegraph cycles --json                  # exits 1 when the project has cycles
+```
+
+On WSL, run `CODEGRAPH_DIR=.codegraph-wsl codegraph init` so Windows and WSL
+keep separate indexes; SQLite locking across a `/mnt` boundary is unreliable.
+Re-run `codegraph index` after upgrading CodeGraph, and `codegraph sync` if a
+query looks stale. Do not commit `.codegraph/` or `.codegraph-wsl/`.
+
+The [PR impact](.github/workflows/pr-impact-analysis.yml) workflow runs the same
+tool on every pull request and posts an advisory comment listing the changed
+code files, the tests that import them, and any touched import cycles. That
+comment never gates a pull request, and its affected-test list is broader than
+the tests that must actually run.
+
 ## Issues and pull requests
 
 Issue forms (`.github/ISSUE_TEMPLATE/`) ask for the platform, the affected

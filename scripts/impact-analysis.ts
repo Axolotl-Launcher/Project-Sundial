@@ -1,50 +1,76 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Turns GitNexus tool results into the stable impact-report model.
+// Builds the pull-request impact report from CodeGraph results.
+//
+// The analysis job reads the changed paths, the affected tests and the import
+// cycles from CodeGraph, then shapes them here. This module is pure, so the
+// comment job renders the same model and a test can exercise the whole
+// transformation without the tool.
 
-import {
-  highestRisk,
-  type AffectedProcess,
-  type ChangedSymbol,
-  type ImpactReport,
-  type RiskLevel,
-  type UpstreamCaller,
+import type {
+  ChangedFile,
+  ChangedFileKind,
+  ImpactReport,
+  TestGroup,
 } from "./impact-report.ts";
+import { modulesForPaths } from "./pull-request-labels.ts";
 
-export interface DetectChangesInput {
-  readonly summary?: {
-    readonly changed_count?: number;
-    readonly affected_count?: number;
-    readonly changed_files?: number;
-    readonly risk_level?: string;
-    readonly message?: string;
-  };
-  readonly changed_symbols?: readonly {
-    readonly name?: string;
-    readonly type?: string;
-    readonly filePath?: string;
-  }[];
-  readonly affected_processes?: readonly {
-    readonly name?: string;
-    readonly step_count?: number;
-    readonly changed_steps?: readonly { readonly symbol?: string }[];
-  }[];
-  readonly partial?: boolean;
-  readonly truncated?: boolean;
-  readonly error?: string;
-}
+/// How deep `codegraph affected` follows imports. A mirrored test file is one
+/// import away from its source, and one more reaches a module-level test block
+/// that names the source, so five is ample while keeping the search finite.
+export const TRAVERSAL_DEPTH = 5;
 
-export interface ImpactInput {
-  readonly target?: { readonly name?: string };
-  readonly risk?: string;
-  readonly error?: string;
-  readonly partial?: boolean;
-  readonly summary?: {
-    readonly direct?: number;
-    readonly processes_affected?: number;
-  };
-}
+/// Tests listed for one group before the rest are summarised by count.
+export const MAX_LISTED_TESTS = 10;
+
+/// Cycles listed in the comment.
+export const MAX_LISTED_CYCLES = 5;
+
+const MAX_CHANGED_FILES = 40;
+
+const TESTS_DIRECTORY = "tests";
+const TEST_ROOT = `${TESTS_DIRECTORY}/`;
+const APPS_ROOT = "apps";
+const CORE_GROUP = "core";
+const LIB_DIRECTORY = "lib";
+const SOURCE_DIRECTORY = "src";
+
+/// Positional parts of a path, named where the index arithmetic matters.
+const SEGMENT = {
+  root: 0,
+  first: 1,
+  second: 2,
+  third: 3,
+  fourth: 4,
+} as const;
+
+const SOURCE_EXTENSIONS = [
+  ".rs",
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".vue",
+  ".svelte",
+] as const;
+
+/// Sort keys that place mirrored test groups before dependent ones.
+const MIRRORED_FIRST = -1;
+const DEPENDENT_FIRST = 1;
+
+/// How many segments after the app prefix a crate directory starts.
+const CRATE_OFFSET = {
+  underApps: 1,
+  underGroup: 2,
+  underLib: 3,
+} as const;
+
+/// The files CodeGraph reports as test files that the repository does not keep
+/// under `tests/`. They are still affected, and still worth naming.
+const GENERATED_DIRECTORIES = ["node_modules/", "target/", "dist/"] as const;
 
 export interface AnalysisContext {
   readonly repository: string;
@@ -53,211 +79,224 @@ export interface AnalysisContext {
   readonly baseSha: string;
   readonly analyzedAt: string;
   readonly analyzer: string;
+  readonly traversalDepth: number;
 }
 
-const MAX_CHANGED_SYMBOLS = 30;
-const MAX_AFFECTED_PROCESSES = 20;
-const MAX_IMPACT_TARGETS = 10;
-const IMPACT_KINDS = new Set([
-  "Function",
-  "Method",
-  "Class",
-  "Interface",
-  "Struct",
-  "Enum",
-  "Trait",
-  "Const",
-]);
-
-const RISK_LEVELS: readonly RiskLevel[] = [
-  "none",
-  "low",
-  "medium",
-  "high",
-  "critical",
-  "unknown",
-];
-
-export function normalizeRisk(value: string | undefined): RiskLevel {
-  const normalized = value?.trim().toLowerCase();
-  return RISK_LEVELS.find((risk) => risk === normalized) ?? "unknown";
+/// The fields the report uses from `codegraph status --json`.
+export interface IndexSummary {
+  readonly fileCount: number;
+  readonly nodeCount: number;
+  readonly languages: readonly string[];
+  readonly filesWithParseErrors: number;
 }
 
-function symbolsFrom(input: DetectChangesInput): ChangedSymbol[] {
-  return (input.changed_symbols ?? [])
-    .slice(0, MAX_CHANGED_SYMBOLS)
-    .map((symbol) => ({
-      name: symbol.name ?? "?",
-      type: symbol.type ?? "?",
-      path: symbol.filePath ?? "?",
-    }));
+/// One import cycle as `codegraph cycles --json` reports it.
+export type Cycle = readonly string[];
+
+export interface BuildReportInput {
+  readonly context: AnalysisContext;
+  readonly changedFiles: readonly string[];
+  readonly affectedTests: readonly string[];
+  readonly affectedLookupOmitted: number;
+  readonly cycles: readonly Cycle[];
+  readonly index: IndexSummary;
+  readonly note: string | null;
 }
 
-function processesFrom(input: DetectChangesInput): AffectedProcess[] {
-  return (input.affected_processes ?? [])
-    .slice(0, MAX_AFFECTED_PROCESSES)
-    .map((process) => {
-      const steps = (process.changed_steps ?? [])
-        .map((step) => step.symbol)
-        .filter((symbol): symbol is string => symbol !== undefined);
-      return {
-        name: process.name ?? "?",
-        stepCount: process.step_count ?? 0,
-        changedSteps: steps,
-      };
+function isSourceFile(path: string): boolean {
+  return SOURCE_EXTENSIONS.some((extension) => path.endsWith(extension));
+}
+
+/// The directory a file sits in, with its trailing slash.
+export function directoryOf(path: string): string {
+  const separator = path.lastIndexOf("/");
+  return separator < 0 ? "" : path.slice(0, separator + 1);
+}
+
+/// Only a code file drives the test and cycle analysis: documentation,
+/// packaging, manifests and lockfiles are counted but never guessed at.
+export function changedFileKind(path: string): ChangedFileKind {
+  if (!isSourceFile(path)) {
+    return "other";
+  }
+  return path.startsWith(TEST_ROOT) ? "test" : "source";
+}
+
+/// The crate directory a file under `apps/` or `tests/apps/` belongs to, such
+/// as `apps/core/state`. `lib` only groups the crate sources, so it is not part
+/// of the directory; `src`, `tests`, `examples` and `benches` mark where the
+/// crate's own tree begins.
+export function crateDirectory(path: string): string | undefined {
+  const segments = path.split("/");
+  const prefixLength = segments[SEGMENT.root] === TESTS_DIRECTORY ? SEGMENT.first : 0;
+  if (segments[prefixLength] !== APPS_ROOT) {
+    return undefined;
+  }
+  const crateIndex = prefixLength + crateOffset(segments, prefixLength);
+  if (segments[crateIndex] === undefined) {
+    return undefined;
+  }
+  const end = segments.findIndex(
+    (segment, index) => index > crateIndex && CRATE_TREE_MARKERS.has(segment),
+  );
+  const last = end < 0 ? segments.length : end;
+  return segments.slice(0, last).join("/");
+}
+
+/// Where the crate directory starts, relative to the `apps` segment.
+/// `apps/<app>` is the crate itself. Under `apps/core`, `lib/<crate>` nests one
+/// level deeper, while `apps/core/src` belongs to the umbrella `core` crate
+/// rather than to a crate named `src`.
+function crateOffset(segments: readonly string[], appsIndex: number): number {
+  if (segments[appsIndex + SEGMENT.first] !== CORE_GROUP) {
+    return CRATE_OFFSET.underApps;
+  }
+  const group = segments[appsIndex + SEGMENT.second];
+  const followedBySource = segments[appsIndex + SEGMENT.third] === SOURCE_DIRECTORY;
+  if (group === LIB_DIRECTORY && !followedBySource) {
+    return CRATE_OFFSET.underLib;
+  }
+  if (group === SOURCE_DIRECTORY) {
+    return CRATE_OFFSET.underApps;
+  }
+  return CRATE_OFFSET.underGroup;
+}
+
+/// Trees inside a crate that hold its own code or tests.
+const CRATE_TREE_MARKERS = new Set(["src", "tests", "examples", "benches"]);
+
+/// The `module:` label from `scripts/pull-request-labels.ts` for a path.
+export function moduleOf(path: string): string {
+  const sourcePath = path.startsWith(`${TEST_ROOT}${APPS_ROOT}/`)
+    ? path.slice(TEST_ROOT.length)
+    : path;
+  return modulesForPaths([sourcePath])[0] ?? "repository";
+}
+
+/// The crate a mirrored test belongs to, such as `apps/core/state`.
+export function mirroredCrate(path: string): string | undefined {
+  return path.startsWith(`${TEST_ROOT}${APPS_ROOT}/`)
+    ? crateDirectory(path.slice(TEST_ROOT.length))
+    : undefined;
+}
+
+/// Groups affected tests by the crate they belong to. Mirrored tests come
+/// first, because those are the files a contributor runs directly for the
+/// change; the rest arrive through cross-crate dependencies.
+export function groupTests(
+  changedFiles: readonly string[],
+  affectedTests: readonly string[],
+): readonly TestGroup[] {
+  const mirrors = new Set<string>();
+  for (const changed of changedFiles) {
+    const crate = crateDirectory(changed);
+    if (crate !== undefined && !changed.startsWith(TEST_ROOT)) {
+      mirrors.add(crate);
+    }
+  }
+  type Group = { module: string; mirrored: boolean; crate: string; tests: string[] };
+  const groups = new Map<string, Group>();
+  for (const test of affectedTests) {
+    const crate = mirroredCrate(test);
+    /// Only the test's own crate can mirror it: an umbrella crate such as
+    /// `apps/core` does not own the tests of the crates nested under it.
+    const mirrored = crate !== undefined && mirrors.has(crate);
+    /// A crate groups its whole mirrored tree, dependencies included, so a
+    /// crate cannot appear twice with different nested directories.
+    /// A test outside the crates is grouped by its own directory, with no
+    /// trailing slash and no duplication for a root-level file.
+    const testDirectory = directoryOf(test).replace(/\/$/, "");
+    const key = crate ?? (testDirectory.length === 0 ? test : testDirectory);
+    const group = groups.get(key) ?? {
+      module: moduleOf(test),
+      mirrored,
+      crate: key,
+      tests: [],
+    };
+    group.tests.push(test);
+    groups.set(key, group);
+  }
+  return [...groups.values()]
+    .map((group) => ({
+      module: group.module,
+      mirrored: group.mirrored,
+      directory: group.mirrored ? `${group.crate.replace(/\/$/, "")}/` : group.crate,
+      tests: [...group.tests].sort(),
+    }))
+    .sort((left, right) => {
+      if (left.mirrored !== right.mirrored) {
+        return left.mirrored ? MIRRORED_FIRST : DEPENDENT_FIRST;
+      }
+      if (left.tests.length !== right.tests.length) {
+        return right.tests.length - left.tests.length;
+      }
+      return left.module.localeCompare(right.module) || left.directory.localeCompare(right.directory);
     });
 }
 
-/// The change-level risk comes from the detector's `summary.risk_level`, raised
-/// by any successful per-symbol lookup. A failed lookup is advisory: it must
-/// not downgrade the full change analysis to "unknown". A successful `unknown`
-/// lookup is also not a verdict for the whole change: it applies to that symbol
-/// and is reported in the upstream table instead.
-export function impactRisk(
-  detected: DetectChangesInput,
-  impacts: readonly ImpactInput[],
-): RiskLevel {
-  if (detected.partial === true) {
-    return "unknown";
-  }
-  const risks = [normalizeRisk(detected.summary?.risk_level)];
-  for (const impact of impacts) {
-    if (
-      impact.partial !== true &&
-      impact.error === undefined &&
-      impact.risk !== undefined &&
-      normalizeRisk(impact.risk) !== "unknown"
-    ) {
-      risks.push(normalizeRisk(impact.risk));
-    }
-  }
-  return highestRisk(risks);
-}
-
-function upstreamFrom(impacts: readonly ImpactInput[]): UpstreamCaller[] {
-  return impacts.flatMap((impact) => {
-    if (
-      impact.error !== undefined ||
-      impact.partial === true ||
-      impact.target?.name === undefined ||
-      (impact.summary?.direct ?? 0) === 0
-    ) {
-      return [];
-    }
-    return [
-      {
-        name: impact.target.name,
-        risk: normalizeRisk(impact.risk),
-        direct: impact.summary?.direct ?? 0,
-        affectedProcesses: impact.summary?.processes_affected ?? 0,
-      },
-    ];
-  });
-}
-
-/// Build the report from the GitNexus results and the pull-request context.
-export function buildReport(
-  context: AnalysisContext,
-  detected: DetectChangesInput,
-  impacts: readonly ImpactInput[],
-): ImpactReport {
-  const risk = impactRisk(detected, impacts);
-  const note = detected.error ?? detected.summary?.message ?? null;
-  const symbols = symbolsFrom(detected);
-  const processes = processesFrom(detected);
-  const partial = detected.partial === true;
-  const truncated =
-    detected.truncated === true ||
-    (detected.summary?.changed_count ?? 0) > MAX_CHANGED_SYMBOLS ||
-    (detected.summary?.affected_count ?? 0) > MAX_AFFECTED_PROCESSES ||
-    (detected.changed_symbols?.length ?? 0) > MAX_CHANGED_SYMBOLS ||
-    (detected.affected_processes?.length ?? 0) > MAX_AFFECTED_PROCESSES;
-  const callerLookupsOmitted = Math.max(
-    0,
-    eligibleTargetCount(detected) - impactTargets(detected).length,
+function kindCountsOf(paths: readonly string[]): Readonly<Record<ChangedFileKind, number>> {
+  return paths.reduce<Record<ChangedFileKind, number>>(
+    (counts, path) => ({
+      ...counts,
+      [changedFileKind(path)]: counts[changedFileKind(path)] + 1,
+    }),
+    { source: 0, test: 0, other: 0 },
   );
-  const failedImpacts = impacts.filter(
-    (impact) => impact.error !== undefined || impact.partial === true,
-  ).length;
-  const unresolvedImpacts = impacts.filter(
-    (impact) =>
-      impact.error === undefined &&
-      impact.partial !== true &&
-      normalizeRisk(impact.risk) === "unknown",
-  ).length;
-  const noteParts = [note];
-  if (failedImpacts > 0) {
-    noteParts.push(
-      `${String(failedImpacts)} per-symbol caller lookup${failedImpacts === 1 ? "" : "s"} failed; the change-level result above is still complete.`,
-    );
-  }
-  if (unresolvedImpacts > 0) {
-    noteParts.push(
-      `${String(unresolvedImpacts)} per-symbol caller lookup${unresolvedImpacts === 1 ? "" : "s"} could not resolve callers; confirm those symbols with a text search.`,
-    );
-  }
+}
 
+/// A cycle is actionable when the pull request touches it and it runs between
+/// files the repository maintains, rather than through a generated directory.
+export function touchedCycles(
+  cycles: readonly Cycle[],
+  changedFiles: readonly string[],
+): readonly Cycle[] {
+  return cycles.filter(
+    (cycle) =>
+      cycle.every(
+        (path) => !GENERATED_DIRECTORIES.some((directory) => path.startsWith(directory)),
+      ) && cycle.some((path) => changedFiles.includes(path)),
+  );
+}
+
+/// Build the report from the CodeGraph answers and the pull-request context.
+export function buildReport(input: BuildReportInput): ImpactReport {
+  const kindCounts = kindCountsOf(input.changedFiles);
+  const codeFiles = kindCounts.source + kindCounts.test;
+  const cycles = touchedCycles(input.cycles, input.changedFiles).map((cycle) => [...cycle].sort());
+  const notes = [
+    input.note,
+    codeFiles === 0
+      ? "No changed file is indexed source code, so the test and cycle sections stay empty."
+      : null,
+    input.index.filesWithParseErrors > 0
+      ? `${String(input.index.filesWithParseErrors)} indexed file(s) failed to parse, so the results can be incomplete.`
+      : null,
+  ].filter((note): note is string => note !== null);
   return {
-    ...context,
-    risk,
-    changedFiles: detected.summary?.changed_files ?? 0,
-    changedSymbols: detected.summary?.changed_count ?? symbols.length,
-    affectedProcesses: detected.summary?.affected_count ?? processes.length,
-    callerLookupLimit: MAX_IMPACT_TARGETS,
-    callerLookupsOmitted,
-    truncated,
-    partial,
-    note: noteParts.filter((part): part is string => part !== null).join("\n\n") || null,
-    symbols,
-    processes,
-    upstream: upstreamFrom(impacts),
+    ...input.context,
+    changedFileCount: input.changedFiles.length,
+    sourceFiles: kindCounts.source,
+    testFiles: kindCounts.test,
+    otherFiles: kindCounts.other,
+    changedFiles: input.changedFiles.slice(0, MAX_CHANGED_FILES).map(
+      (path): ChangedFile => ({ path, kind: changedFileKind(path) }),
+    ),
+    changedFileListingLimit: MAX_CHANGED_FILES,
+    affectedTestCount: input.affectedTests.length,
+    affectedLookupOmitted: input.affectedLookupOmitted,
+    testGroups: groupTests(input.changedFiles, input.affectedTests),
+    testListingLimit: MAX_LISTED_TESTS,
+    touchedCycleCount: cycles.length,
+    touchedCycleFileCount: new Set(cycles.flat()).size,
+    cycleListingLimit: MAX_LISTED_CYCLES,
+    cycles: cycles.slice(0, MAX_LISTED_CYCLES),
+    index: {
+      fileCount: input.index.fileCount,
+      nodeCount: input.index.nodeCount,
+      languages: input.index.languages,
+      filesWithParseErrors: input.index.filesWithParseErrors,
+    },
+    truncatedCycles: cycles.length > MAX_LISTED_CYCLES,
+    note: notes.join("\n\n") || null,
   };
-}
-
-export interface ImpactTarget {
-  readonly name: string;
-  readonly path: string | undefined;
-}
-
-/// Distinct eligible symbols, before the upstream lookup cap.
-function eligibleTargetCount(detected: DetectChangesInput): number {
-  const seen = new Set<string>();
-  for (const symbol of detected.changed_symbols ?? []) {
-    if (
-      typeof symbol.name === "string" &&
-      symbol.name.length > 0 &&
-      IMPACT_KINDS.has(symbol.type ?? "")
-    ) {
-      seen.add(`${symbol.name}\0${symbol.filePath ?? ""}`);
-    }
-  }
-  return seen.size;
-}
-
-/// Targets worth asking GitNexus to trace upstream: the changed symbols,
-/// bounded so a large pull request does not issue hundreds of queries. Methods
-/// and properties dominate a changed-symbol list but produce mostly unresolved
-/// caller lookups; functions, types and constants are what a reviewer needs.
-/// The path disambiguates common names such as `new` or `build`.
-export function impactTargets(detected: DetectChangesInput): readonly ImpactTarget[] {
-  const preferred = (detected.changed_symbols ?? []).filter((symbol) =>
-    IMPACT_KINDS.has(symbol.type ?? ""),
-  );
-  const seen = new Set<string>();
-  const targets: ImpactTarget[] = [];
-  for (const symbol of preferred) {
-    if (typeof symbol.name !== "string" || symbol.name.length === 0) {
-      continue;
-    }
-    const key = `${symbol.name}\0${symbol.filePath ?? ""}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    targets.push({ name: symbol.name, path: symbol.filePath });
-    if (targets.length === MAX_IMPACT_TARGETS) {
-      break;
-    }
-  }
-  return targets;
 }
