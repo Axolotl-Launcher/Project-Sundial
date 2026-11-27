@@ -10,7 +10,7 @@ set -eu
 
 tree=$1
 outdir=$2
-root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 version=$(grep -m1 '^version = ' "$root/Cargo.toml" | cut -d'"' -f2)
 
 # Upstream publishes the runtime under a moving tag, so the archive is checked

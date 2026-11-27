@@ -10,12 +10,14 @@ set -eu
 
 binary=$1
 outdir=$2
-root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 version=$(grep -m1 '^version = ' "$root/Cargo.toml" | cut -d'"' -f2)
 
 topdir=$(mktemp -d)
 trap 'rm -rf "$topdir"' EXIT
-mkdir -p "$topdir"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS} "$topdir/db" "$topdir/tmp"
+for directory in BUILD BUILDROOT RPMS SOURCES SPECS SRPMS db tmp; do
+  mkdir -p "$topdir/$directory"
+done
 
 install -m755 "$binary" "$topdir/SOURCES/axlauncher"
 install -m644 "$root/packaging/linux/com.axolotl.axlauncher.desktop" \
