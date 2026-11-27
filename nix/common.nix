@@ -18,7 +18,10 @@ let
     ];
   };
 
-  manifest = lib.importTOML "${src}/Cargo.toml";
+  # Read the workspace manifest from the tree, not from the filtered source:
+  # the filtered path is a derivation, and reading it would make evaluation
+  # depend on building it, which `nix flake check --no-build` refuses.
+  manifest = lib.importTOML ../Cargo.toml;
 in
 {
   inherit src;
