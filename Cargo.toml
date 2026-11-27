@@ -14,6 +14,7 @@ members = [
   "apps/core/lib",
   "apps/core/lib/accounts",
   "apps/core/lib/download_engine",
+  "apps/core/lib/java_discovery",
   "apps/core/loader",
   "apps/core/mc_version",
   "apps/core/network",

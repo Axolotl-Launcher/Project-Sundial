@@ -2,6 +2,7 @@
 
 pub mod accounts;
 pub mod downloads;
+pub mod java_discovery;
 
 mod account_client;
 mod bootstrap;

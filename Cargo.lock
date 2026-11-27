@@ -694,6 +694,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "axlauncher_java_discovery"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_launch",
+ "axlauncher_storage",
+ "axlauncher_worker",
+ "dunce",
+ "tempfile",
+]
+
+[[package]]
 name = "axlauncher_launch"
 version = "0.1.0"
 dependencies = [

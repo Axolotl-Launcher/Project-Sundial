@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 # What every artifact shares: the cargo inputs, the workspace metadata, the
-# glibc floor and the build steps for the two embedded worker libraries.
+# glibc floor and the build steps for the embedded worker libraries.
 
 { lib }:
 let
@@ -40,7 +40,7 @@ in
   # legacy build may be linked against.
   glibcFloor = "2.35";
 
-  # The platform binary embeds both worker libraries with include_bytes!, so
+  # The platform binary embeds the worker libraries with include_bytes!, so
   # their bytes are final before it links.
   buildPhase =
     {
@@ -55,14 +55,18 @@ in
         --lib --crate-type cdylib --features worker
       cargo rustc --locked --offline --release -p axlauncher_accounts \
         --lib --crate-type cdylib
+      cargo rustc --locked --offline --release -p axlauncher_java_discovery \
+        --lib --crate-type cdylib
 
       ${lib.optionalString patchImages ''
         patchelf --set-rpath "" target/release/libaxlauncher_download_engine.so
         patchelf --set-rpath "" target/release/libaxlauncher_accounts.so
+        patchelf --set-rpath "" target/release/libaxlauncher_java_discovery.so
       ''}
 
       export AXLAUNCHER_DOWNLOAD_IMAGE="$PWD/target/release/libaxlauncher_download_engine.so"
       export AXLAUNCHER_ACCOUNT_IMAGE="$PWD/target/release/libaxlauncher_accounts.so"
+      export AXLAUNCHER_JAVA_DISCOVERY_IMAGE="$PWD/target/release/libaxlauncher_java_discovery.so"
 
       cargo build --locked --offline --release -p axlauncher_platform_linux --bin axlauncher
 

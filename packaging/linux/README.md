@@ -28,6 +28,9 @@ versions come from the host.
 libraries it links plus the keymap data, for distributions that have no nix. It
 is what an AppImage or a tarball ships.
 
+The portable build checks that its wrapper can load the verified embedded Java
+discovery image and shut the worker down. The probe image is not shipped.
+
 ## Layout
 
 `$ORIGIN/../lib` fixes the layout a native package must produce:

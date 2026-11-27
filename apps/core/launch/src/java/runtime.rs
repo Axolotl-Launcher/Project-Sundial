@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use axlauncher_spi::JavaMode;
 
-use crate::platform::{name, sibling};
+use crate::platform::{excluded_from_discovery, name, sibling};
 
 use super::{application, release::JavaRelease};
 
@@ -21,6 +21,15 @@ pub struct JavaRuntime {
 }
 
 impl JavaRuntime {
+    /// Validates an automatic candidate before and after resolving its path.
+    pub fn inspect_automatic(path: &Path) -> Option<Self> {
+        if excluded_from_discovery(path) {
+            return None;
+        }
+        let runtime = Self::inspect(path)?;
+        (!excluded_from_discovery(runtime.path())).then_some(runtime)
+    }
+
     /// Reads installation metadata without starting an executable.
     pub fn inspect(path: &Path) -> Option<Self> {
         let target = dunce::canonicalize(path).ok()?;

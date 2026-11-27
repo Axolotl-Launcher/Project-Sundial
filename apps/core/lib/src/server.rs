@@ -124,7 +124,7 @@ fn send<Reply: Serialize>(reply: Output<Reply>) -> Result<(), String> {
         .map_err(|_| "The worker could not send a reply.".to_owned())
 }
 
-/// Reports a bootstrap failure before accepting any account or download requests.
+/// Reports a bootstrap failure before accepting any requests.
 pub(super) fn startup_failed(error: impl std::fmt::Display) -> i32 {
     let _ = send(Output::<()>::StartupFailed(error.to_string()));
     1

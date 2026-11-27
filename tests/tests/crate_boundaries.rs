@@ -75,6 +75,10 @@ fn permitted_edge(owner: &str, dependency: &str, target_dir: &Path) -> bool {
         | "axlauncher_network_spi" => false,
         "axlauncher_download_spi" => dependency == "axlauncher_network_spi",
         "axlauncher_spi" => matches!(dependency, "axlauncher_domain" | "axlauncher_network_spi"),
+        "axlauncher_java_discovery" => matches!(
+            dependency,
+            "axlauncher_launch" | "axlauncher_storage" | "axlauncher_worker"
+        ),
         "axlauncher_storage" => {
             matches!(dependency, "axlauncher_spi" | "axlauncher_storage_layout")
         }

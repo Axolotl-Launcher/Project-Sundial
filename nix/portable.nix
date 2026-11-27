@@ -76,5 +76,14 @@ pkgs.runCommand "axlauncher-portable-${version}"
     ./probe "$out/bin/axlauncher" --axlauncher-worker bogus /tmp/x || status=$?
     test "$status" = 1
 
+    # Load the exact embedded image through the portable entry, then shut down.
+    # The probe image is a build input only, not part of the portable tree.
+    scratch=$(mktemp -d)
+    cp ${newest.workerProbe}/java-discovery-image "$scratch/libjava-discovery.so"
+    printf '\012\000\000\000"Shutdown"' |
+      ./probe "$out/bin/axlauncher" --axlauncher-worker java-discovery \
+        "$scratch/libjava-discovery.so" > "$scratch/reply"
+    printf '\007\000\000\000"Ready"' | cmp - "$scratch/reply"
+
     install -Dm644 resolved.txt "$out/share/doc/linked-libraries.txt"
   ''

@@ -12,6 +12,7 @@ use axlauncher_launch::{Java, JavaMode, JavaRuntime, SystemJava, Version, versio
 use axlauncher_network_spi::Network;
 use axlauncher_state::javas::{self, Javas, JavasError};
 use axlauncher_storage::{DataDir, DataPath};
+use axlauncher_worker::java_discovery;
 
 /// A recorded runtime outranks the newest discovered runtime for its major.
 pub(super) fn managed(data: &DataDir) -> SystemJava {
@@ -75,6 +76,7 @@ impl JavaCatalog {
 #[derive(Debug)]
 pub enum JavaCatalogError {
     State(JavasError),
+    Discovery(String),
     InvalidRuntime {
         path: PathBuf,
         required: Option<u32>,
@@ -86,6 +88,7 @@ impl fmt::Display for JavaCatalogError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::State(error) => error.fmt(formatter),
+            Self::Discovery(error) => write!(formatter, "Could not discover Java: {error}"),
             Self::Unregistered(path) => {
                 write!(formatter, "{} is not in the Java list", path.display())
             }
@@ -117,7 +120,7 @@ impl std::error::Error for JavaCatalogError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::State(error) => Some(error),
-            Self::InvalidRuntime { .. } | Self::Unregistered(_) => None,
+            Self::Discovery(_) | Self::InvalidRuntime { .. } | Self::Unregistered(_) => None,
         }
     }
 }
@@ -147,30 +150,32 @@ fn inspect_registered(inspector: &SystemJava, saved: &Javas) -> Vec<JavaRuntime>
 
 /// Loads the Java list at application startup, discovering only when it is empty.
 pub fn startup(data: &DataDir) -> Result<JavaCatalog, JavaCatalogError> {
-    discover_with(data, true, || scan(data))
+    discover_with(data, true, || scan(data), SystemJava::from_environment)
 }
 
 /// Scans the machine and merges the results into the saved Java list.
 pub fn discover(data: &DataDir) -> Result<JavaCatalog, JavaCatalogError> {
-    discover_with(data, false, || scan(data))
+    discover_with(data, false, || scan(data), SystemJava::from_environment)
 }
 
-fn scan(data: &DataDir) -> Vec<JavaRuntime> {
-    SystemJava::from_environment()
-        .with_runtime_roots(vec![data.path(DataPath::JavaVersions).to_owned()])
-        .discover_system()
+fn scan(data: &DataDir) -> Result<Vec<PathBuf>, String> {
+    super::on_worker(java_discovery::scan(data)).map_err(|error| error.to_string())?
 }
 
 fn discover_with(
     data: &DataDir,
     only_if_empty: bool,
-    scan: impl FnOnce() -> Vec<JavaRuntime>,
+    scan: impl FnOnce() -> Result<Vec<PathBuf>, String>,
+    inspect: impl FnOnce() -> SystemJava,
 ) -> Result<JavaCatalog, JavaCatalogError> {
     let saved = javas::load(data.path(DataPath::Root))?;
     if only_if_empty && !saved.is_empty() {
         return Ok(catalog(data, saved));
     }
-    let found = scan();
+    let candidates = scan().map_err(JavaCatalogError::Discovery)?;
+    let found = inspect()
+        .with_runtime_roots(vec![data.path(DataPath::JavaVersions).to_owned()])
+        .discover_with_candidates(candidates);
     let inspector = inspector(data);
     let saved = javas::update(data.path(DataPath::Root), |saved| {
         if !only_if_empty || saved.is_empty() {

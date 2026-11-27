@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Local Java discovery and executable selection.
+//! Local Java inspection and executable selection.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -13,13 +13,12 @@ use axlauncher_storage::Document;
 use crate::platform::{executable_in_home, java_bin, managed_executable, managed_home, search_all};
 
 mod application;
-mod discovery;
 pub(crate) mod memory;
 mod release;
 mod runtime;
 pub use runtime::JavaRuntime;
 
-/// Resolves Java from registered paths and the local machine.
+/// Resolves Java from registered, environment and managed paths.
 #[derive(Debug, Clone, Default)]
 pub struct SystemJava {
     java_home: Option<PathBuf>,
@@ -75,17 +74,16 @@ impl SystemJava {
         }
     }
 
-    /// Scans conventional platform locations in addition to configured paths.
-    pub fn discover_system(&self) -> Vec<JavaRuntime> {
-        self.catalog(discovery::system_executables())
-    }
-
     /// Lists available runtimes from configured paths once per executable.
     pub fn discover(&self) -> Vec<JavaRuntime> {
-        self.catalog([])
+        self.discover_with_candidates([])
     }
 
-    fn catalog(&self, system_paths: impl IntoIterator<Item = PathBuf>) -> Vec<JavaRuntime> {
+    /// Configured paths keep priority over candidates from a completed system scan.
+    pub fn discover_with_candidates(
+        &self,
+        system_paths: impl IntoIterator<Item = PathBuf>,
+    ) -> Vec<JavaRuntime> {
         let mut seen = HashSet::new();
         self.chosen
             .iter()
@@ -135,7 +133,7 @@ impl SystemJava {
     }
 
     fn inspect_automatic(&self, path: &Path) -> Option<JavaRuntime> {
-        let runtime = discovery::inspect_automatic(path)?;
+        let runtime = JavaRuntime::inspect_automatic(path)?;
         self.completed(path, &runtime).then_some(runtime)
     }
 
