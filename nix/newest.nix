@@ -45,9 +45,6 @@ let
     # The final rpath is set after the link, where the fixup would otherwise
     # shrink it away.
     dontPatchELF = true;
-    # Worker images are compared byte-for-byte when they are loaded. Fixup must
-    # not rewrite the image outputs after the platform binary embeds them.
-    dontStrip = true;
   };
 
   # NixOS keeps the host graphics driver outside the store.
@@ -72,13 +69,14 @@ in
         "workerProbe"
         "installImage"
       ];
-      installPhase = common.installPhase + ''
-        install -Dm644 target/release/libaxlauncher_java_discovery.so \
-          "$workerProbe/java-discovery-image"
-      '';
+      installPhase = common.installPhase;
       postFixup = ''
         patchelf --add-rpath '${storeRpath}' "$out/bin/axlauncher"
         install -Dm644 libinstall.so "$installImage/libinstall.so"
+        # Install the probe after fixup so it keeps the exact bytes embedded
+        # in the platform binary.
+        install -Dm644 target/release/libaxlauncher_java_discovery.so \
+          "$workerProbe/java-discovery-image"
       '';
     }
   );
