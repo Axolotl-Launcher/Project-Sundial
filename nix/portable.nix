@@ -45,9 +45,9 @@ pkgs.runCommand "axlauncher-portable-${version}"
       for module in ${pkgs.glibc}/lib/libnss_*.so.*; do
         cp -L "$module" "$out/lib/"
       done
-      # The package publishes the data as a symlink into its own tree, which a bundle
-    # cannot follow; copy the trees it points at instead.
-    cp -rL ${pkgs.xkeyboard-config}/share/X11/xkb "$out/share/xkb"
+      # The package publishes the data as a symlink into its own tree, so a
+      # bundle copies the trees it points at instead.
+      cp -rL ${pkgs.xkeyboard-config}/share/X11/xkb "$out/share/xkb"
 
       # The copied libraries keep the store paths they were linked against; the
       # bundled loader finds everything through --library-path.
@@ -79,4 +79,6 @@ pkgs.runCommand "axlauncher-portable-${version}"
       test "$status" = 1
 
       install -Dm644 resolved.txt "$out/share/doc/linked-libraries.txt"
+      # Every step above runs only if the heredoc closed; the doc file proves it did.
+      test -f "$out/share/doc/linked-libraries.txt"
   ''

@@ -58,7 +58,7 @@ jobs:
         # The flake already declares both caches as substituters, so the CLI is
         # only needed for pushing.
         if: ${{ env.AXLM_RELEASE_TOKEN != '' || env.AXLM_BUILD_TOKEN != '' }}
-        run: nix profile install nixpkgs#cachix
+        run: nix profile install --inputs-from . nixpkgs#cachix
 
       # The two binaries share no build output: different stdenv, different
       # glibc. Each dependency stage is cached under its own name so that a

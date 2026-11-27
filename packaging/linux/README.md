@@ -49,9 +49,9 @@ takes the artifacts nix produced:
 
 | Script | Input | Output |
 |---|---|---|
-| `package-deb.sh` | the legacy binary | `axlauncher_<version>_amd64.deb` |
-| `package-rpm.sh` | the legacy binary | `axlauncher-<version>-1.x86_64.rpm` |
-| `package-appimage.sh` | the portable tree | `axlauncher-<version>-x86_64.AppImage` |
+| `package-deb.ts` | the legacy binary | `axlauncher_<version>_amd64.deb` |
+| `package-rpm.ts` | the legacy binary | `axlauncher-<version>-1.x86_64.rpm` |
+| `package-appimage.ts` | the portable tree | `axlauncher-<version>-x86_64.AppImage` |
 
 The deb and the rpm declare the distribution's libraries, since the legacy
 binary links or dlopens them. The AppImage carries its own glibc, libraries and
@@ -64,7 +64,7 @@ recorded hash.
 nix build .#axlauncher-legacy     # native ELF
 nix build .#axlauncher-portable   # self-contained tree
 
-./packaging/linux/package-deb.sh result/bin/axlauncher dist
-./packaging/linux/package-rpm.sh result/bin/axlauncher dist
-./packaging/linux/package-appimage.sh <portable-tree> dist
+node packaging/linux/package-deb.ts result/bin/axlauncher dist
+node packaging/linux/package-rpm.ts result/bin/axlauncher dist
+node packaging/linux/package-appimage.ts <portable-tree> dist
 ```
