@@ -694,6 +694,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "axlauncher_instance_settings"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_domain",
+ "axlauncher_worker",
+]
+
+[[package]]
 name = "axlauncher_java_discovery"
 version = "0.1.0"
 dependencies = [
@@ -836,6 +844,8 @@ name = "axlauncher_policy_tests"
 version = "0.1.0"
 dependencies = [
  "axlauncher_content",
+ "axlauncher_core",
+ "axlauncher_domain",
  "axlauncher_download_spi",
  "axlauncher_install",
  "axlauncher_launch",
@@ -925,6 +935,7 @@ dependencies = [
 name = "axlauncher_worker"
 version = "0.1.0"
 dependencies = [
+ "axlauncher_domain",
  "axlauncher_download_spi",
  "axlauncher_network",
  "axlauncher_network_spi",

@@ -3,16 +3,20 @@
 
 //! A shared dialog for editing a single heap preference.
 
+use std::sync::Arc;
+
+use axlauncher_core::desktop::instance_settings::EditCancellation;
 use axlauncher_core::domain::memory::MaximumHeap;
 use axlauncher_core::storage::PhysicalMemory;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, App, Button, ButtonVariants, ClickEvent, Context, Disableable, Entity, InputEvent,
-    InputState, IntoElement, Label, NumberInput, RadioGroup, Render, Slider, SliderEvent,
-    SliderState, Window, WindowExt, h_flex, v_flex,
+    ActiveTheme, App, AsyncWindowContext, Button, ButtonVariants, ClickEvent, Context, Disableable,
+    Entity, InputEvent, InputState, IntoElement, Label, NumberInput, RadioGroup, Render, Slider,
+    SliderEvent, SliderState, Task, WeakEntity, Window, WindowExt, h_flex, v_flex,
 };
 
-type Commit = dyn Fn(Option<MaximumHeap>, &mut App) -> Result<(), String>;
+type Save = Task<Result<(), String>>;
+type Commit = dyn Fn(Option<MaximumHeap>, Arc<EditCancellation>, &mut App) -> Result<Save, String>;
 
 pub(in crate::panel) fn open(
     title: String,
@@ -21,7 +25,8 @@ pub(in crate::panel) fn open(
     suggested: MaximumHeap,
     window: &mut Window,
     cx: &mut App,
-    commit: impl Fn(Option<MaximumHeap>, &mut App) -> Result<(), String> + 'static,
+    commit: impl Fn(Option<MaximumHeap>, Arc<EditCancellation>, &mut App) -> Result<Save, String>
+    + 'static,
 ) {
     let editor = cx.new(|cx| {
         MemoryEditor::new(
@@ -35,10 +40,15 @@ pub(in crate::panel) fn open(
     });
     window.open_dialog(cx, move |dialog, _, _| {
         let confirm = editor.clone();
+        let dismiss = editor.clone();
         dialog
             .title(title.clone())
             .overlay_closable(false)
-            .on_ok(move |_, _, cx| confirm.update(cx, MemoryEditor::submit))
+            .on_ok(move |_, window, cx| {
+                confirm.update(cx, |editor, cx| editor.submit(window, cx));
+                false
+            })
+            .on_close(move |_, _, cx| dismiss.update(cx, |editor, _| editor.dismiss()))
             .child(editor.clone())
     });
 }
@@ -51,6 +61,8 @@ struct MemoryEditor {
     input: Entity<InputState>,
     slider: Entity<SliderState>,
     error: Option<String>,
+    pending: Option<Arc<EditCancellation>>,
+    dismissed: bool,
 }
 
 impl MemoryEditor {
@@ -98,6 +110,8 @@ impl MemoryEditor {
             input,
             slider,
             error: None,
+            pending: None,
+            dismissed: false,
         }
     }
 
@@ -108,23 +122,68 @@ impl MemoryEditor {
     }
 
     fn save_clicked(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<'_, Self>) {
-        if self.submit(cx) {
-            window.close_dialog(cx);
-        }
+        self.submit(window, cx);
     }
 
-    fn submit(&mut self, cx: &mut Context<'_, Self>) -> bool {
+    fn submit(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
+        if self.pending.is_some() || self.dismissed {
+            return;
+        }
         let heap = self.manual.then(|| self.heap(cx)).flatten();
         if self.manual && heap.is_none() {
-            return false;
+            return;
         }
-        match (self.commit)(heap, cx) {
-            Ok(()) => true,
+        self.error = None;
+        let cancel = Arc::new(EditCancellation::default());
+        let task = match (self.commit)(heap, cancel.clone(), cx) {
+            Ok(task) => task,
             Err(error) => {
                 self.error = Some(error);
                 cx.notify();
-                false
+                return;
             }
+        };
+        self.pending = Some(cancel);
+        cx.spawn_in(window, async move |editor, cx| {
+            Self::complete_save(editor, cx, task.await);
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn complete_save(
+        editor: WeakEntity<Self>,
+        cx: &mut AsyncWindowContext,
+        result: Result<(), String>,
+    ) {
+        let _ = editor.update_in(cx, |editor, window, cx| {
+            editor.finished(result, window, cx);
+        });
+    }
+
+    fn finished(
+        &mut self,
+        result: Result<(), String>,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        self.pending = None;
+        if self.dismissed {
+            return;
+        }
+        match result {
+            Ok(()) => window.close_dialog(cx),
+            Err(error) => {
+                self.error = Some(error);
+                cx.notify();
+            }
+        }
+    }
+
+    fn dismiss(&mut self) {
+        self.dismissed = true;
+        if let Some(cancel) = &self.pending {
+            cancel.cancel();
         }
     }
 
@@ -154,6 +213,12 @@ impl MemoryEditor {
                     .accessibility_label("Maximum heap in MiB")
                     .suffix(Label::new("MiB").text_xs()),
             )
+    }
+}
+
+impl Drop for MemoryEditor {
+    fn drop(&mut self) {
+        self.dismiss();
     }
 }
 
@@ -195,13 +260,16 @@ impl Render for MemoryEditor {
                     .child(
                         Button::new("cancel-memory")
                             .label("Cancel")
-                            .on_click(|_, window, cx| window.close_dialog(cx)),
+                            .on_click(cx.listener(|editor, _, window, cx| {
+                                editor.dismiss();
+                                window.close_dialog(cx);
+                            })),
                     )
                     .child(
                         Button::new("save-memory")
                             .primary()
                             .label("Save")
-                            .disabled(invalid)
+                            .disabled(invalid || self.pending.is_some())
                             .on_click(cx.listener(Self::save_clicked)),
                     ),
             )

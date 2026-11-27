@@ -15,6 +15,8 @@ use axlauncher_worker::{Event, Images, Request, Service};
 
 #[path = "embedded_workers/java_discovery.rs"]
 mod java_discovery;
+#[path = "embedded_workers/settings.rs"]
+mod settings;
 
 const DEADLINE: Duration = Duration::from_secs(15);
 static IMAGES: OnceLock<Images> = OnceLock::new();
@@ -46,6 +48,7 @@ impl Fixture {
                     image("AXLAUNCHER_DOWNLOAD_IMAGE"),
                     image("AXLAUNCHER_ACCOUNT_IMAGE"),
                     image("AXLAUNCHER_JAVA_DISCOVERY_IMAGE"),
+                    image("AXLAUNCHER_INSTANCE_SETTINGS_IMAGE"),
                 )
             }),
         }
@@ -191,7 +194,7 @@ fn account_worker_never_reuses_sessions_across_data_roots() {
 #[ignore = "run node scripts/desktop.ts smoke to supply the packaged desktop executable"]
 fn mismatched_worker_image_is_refused_and_removed() {
     let fixture = Fixture::new();
-    let wrong = Images::new(b"", b"not the embedded library", b"");
+    let wrong = Images::new(b"", b"not the embedded library", b"", b"");
     let worker = Service::<Reply>::for_executable(wrong.accounts, fixture.executable.clone());
     let request = worker.request(
         &fixture.data,

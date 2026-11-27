@@ -18,6 +18,10 @@ const EXPORTS: &[(&str, &str)] = &[
         "apps/core/lib/java_discovery/src/worker.rs",
         "axlauncher_java_discovery_v1",
     ),
+    (
+        "apps/core/lib/instance_settings/src/worker.rs",
+        "axlauncher_instance_settings_v1",
+    ),
 ];
 
 #[test]

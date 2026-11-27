@@ -95,6 +95,7 @@ jobs:
 
       - name: Exercise worker dispatch
         # The binary embeds its worker libraries and re-executes itself; an
+        # The binary embeds worker libraries and re-executes itself; an
         # invalid worker name must reach that path and fail cleanly.
         #
         # The legacy binary links against the distribution's libraries by design

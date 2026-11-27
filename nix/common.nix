@@ -57,16 +57,20 @@ in
         --lib --crate-type cdylib
       cargo rustc --locked --offline --release -p axlauncher_java_discovery \
         --lib --crate-type cdylib
+      cargo rustc --locked --offline --release -p axlauncher_instance_settings \
+        --lib --crate-type cdylib
 
       ${lib.optionalString patchImages ''
         patchelf --set-rpath "" target/release/libaxlauncher_download_engine.so
         patchelf --set-rpath "" target/release/libaxlauncher_accounts.so
         patchelf --set-rpath "" target/release/libaxlauncher_java_discovery.so
+        patchelf --set-rpath "" target/release/libaxlauncher_instance_settings.so
       ''}
 
       export AXLAUNCHER_DOWNLOAD_IMAGE="$PWD/target/release/libaxlauncher_download_engine.so"
       export AXLAUNCHER_ACCOUNT_IMAGE="$PWD/target/release/libaxlauncher_accounts.so"
       export AXLAUNCHER_JAVA_DISCOVERY_IMAGE="$PWD/target/release/libaxlauncher_java_discovery.so"
+      export AXLAUNCHER_INSTANCE_SETTINGS_IMAGE="$PWD/target/release/libaxlauncher_instance_settings.so"
 
       cargo build --locked --offline --release -p axlauncher_platform_linux --bin axlauncher
 

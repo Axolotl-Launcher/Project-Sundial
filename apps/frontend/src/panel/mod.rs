@@ -25,6 +25,7 @@ mod download_debug;
 mod environment;
 mod instances;
 mod java;
+mod memory_edits;
 mod profile_creation;
 mod service_sources;
 mod shell;
@@ -49,6 +50,7 @@ pub(crate) struct RootView {
     download_debug: Entity<download_debug::DownloadDebug>,
     download_sources: service_sources::DownloadSources,
     inspection: instances::launch::Inspection,
+    memory_edits: memory_edits::MemoryEdits,
     installations: HashMap<PathBuf, HashMap<String, Installation>>,
     launches: HashMap<PathBuf, (String, Launch)>,
     environment: environment::EnvironmentState,
@@ -106,6 +108,7 @@ impl RootView {
             download_debug,
             download_sources,
             inspection: instances::launch::Inspection::default(),
+            memory_edits: memory_edits::MemoryEdits::default(),
             installations: HashMap::new(),
             launches: HashMap::new(),
             environment,
@@ -318,6 +321,7 @@ impl RootView {
         let Some(paths) = self.paths.clone() else {
             return;
         };
+        self.memory_edits.invalidate();
         let loaded = load_at(paths);
         self.apply_loaded(loaded, window, cx);
         self.activity.info("Reloaded settings and instances");

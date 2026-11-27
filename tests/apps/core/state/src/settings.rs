@@ -123,6 +123,59 @@ fn malformed_memory_settings_do_not_quarantine_other_preferences() {
 }
 
 #[test]
+fn heap_edits_preserve_old_v1_envelopes_and_non_memory_values() {
+    let temp = TempRoot::new();
+    let mut old = serde_json::json!({
+        "schema_version": 1, "unknown_envelope": true, "data": {
+            "unknown_preference": { "preserved": 42 },
+            "theme": "light",
+            "memory": {"mode": "manual", "maximum_mib": 15}
+        }
+    });
+    let path = seed(temp.path(), &old.to_string());
+    let memory = MemoryAllocation::Manual(axlauncher_domain::memory::MaximumHeap::new(16).unwrap());
+    let latest =
+        set_memory_if_current(temp.path(), MemoryAllocation::Automatic, memory, || true).unwrap();
+    assert_eq!(latest.theme, ThemeChoice::Light);
+    assert_eq!(latest.memory(), memory);
+    old["data"]["memory"] = serde_json::json!({"mode": "manual", "maximum_mib": 16});
+    let read = || serde_json::from_slice::<Value>(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(read(), old);
+    assert!(matches!(
+        set_memory_if_current(temp.path(), MemoryAllocation::Automatic, memory, || true),
+        Err(SettingsError::ChangedMemory)
+    ));
+    assert!(matches!(
+        set_memory_if_current(temp.path(), memory, MemoryAllocation::Automatic, || false),
+        Err(SettingsError::Cancelled)
+    ));
+    assert_eq!(read(), old);
+    set_memory_if_current(temp.path(), memory, MemoryAllocation::Automatic, || true).unwrap();
+    old["data"]["memory"] = serde_json::json!({"mode": "automatic"});
+    assert_eq!(read(), old);
+}
+
+#[test]
+fn a_heap_edit_refuses_unknown_schema_without_interpreting_its_payload() {
+    let temp = TempRoot::new();
+    let old = r#"{"schema_version":2,"data":["foreign"]}"#;
+    let path = seed(temp.path(), old);
+    assert_eq!(
+        load_settings(temp.path()).unwrap().origin,
+        SettingsOrigin::ReadOnlyOtherSchema { found: 2 }
+    );
+    assert!(matches!(
+        set_memory_if_current(
+            temp.path(),
+            MemoryAllocation::Automatic,
+            MemoryAllocation::Automatic,
+            || true
+        ),
+        Err(SettingsError::RefusedSchema { found: 2, .. })
+    ));
+    assert_eq!(fs::read_to_string(path).unwrap(), old);
+}
+#[test]
 fn an_unreadable_document_is_quarantined_and_defaults_apply() {
     let temp = TempRoot::new();
     seed(temp.path(), "{ not a document }");

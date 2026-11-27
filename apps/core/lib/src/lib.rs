@@ -2,6 +2,7 @@
 
 pub mod accounts;
 pub mod downloads;
+pub mod instance_settings;
 pub mod java_discovery;
 
 mod account_client;
@@ -11,6 +12,7 @@ mod native;
 mod path;
 mod protocol;
 mod server;
+mod settings_client;
 
 pub use account_client::DesktopAccounts;
 pub use bootstrap::Images;

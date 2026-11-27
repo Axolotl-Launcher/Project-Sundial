@@ -4,21 +4,25 @@
 //! Profile discovery, selection and desktop actions.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use axlauncher_core::desktop::launching::LaunchJob;
-use axlauncher_core::desktop::memory;
+use axlauncher_core::desktop::{
+    instance_settings::{self, EditCancellation, InstanceHeap, InstanceTarget},
+    launching::LaunchJob,
+};
 use axlauncher_core::domain::memory::MaximumHeap;
-use axlauncher_core::state::profile::{DiscoveredProfile, Profile, ProfileDiscovery, discover};
+use axlauncher_core::state::profile::{DiscoveredProfile, ProfileDiscovery, discover};
 use axlauncher_core::storage::{DataDir, DataPath};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, App, Button, Context, ElementId, GroupBox, Input, IntoElement, Label,
-    Sizable, WeakEntity, Window, h_flex, v_flex,
+    Sizable, Task, WeakEntity, Window, h_flex, v_flex,
 };
 
 use super::{
     RootView,
     java::{InstancePicker, memory::open_editor},
+    memory_edits::MemoryScope,
 };
 
 mod actions;
@@ -26,6 +30,14 @@ mod instance_row;
 pub(super) mod launch;
 
 use instance_row::RowAction;
+
+#[derive(Clone)]
+struct InstanceMemoryEdit {
+    paths: DataDir,
+    scope: MemoryScope,
+    target: Arc<InstanceTarget>,
+    expected: Option<MaximumHeap>,
+}
 
 pub(super) struct InstancesState {
     discovered: ProfileDiscovery,
@@ -83,15 +95,24 @@ impl InstancesState {
             .find(|entry| entry.directory == directory)
     }
 
-    pub(super) fn update_profile(&mut self, directory: &Path, profile: Profile) {
-        if let Some(entry) = self
+    fn refresh_heap(
+        &mut self,
+        target: &InstanceTarget,
+        expected: Option<MaximumHeap>,
+        memory: Option<MaximumHeap>,
+    ) -> Result<(), String> {
+        let entry = self
             .discovered
             .instances
             .iter_mut()
-            .find(|entry| entry.directory == directory)
-        {
-            entry.profile = profile;
+            .find(|entry| {
+                entry.directory == target.directory() && entry.profile.id() == target.id()
+            })
+            .ok_or("This instance changed. Reopen the editor to continue.")?;
+        if entry.profile.memory() == expected {
+            entry.profile.apply_heap_snapshot(memory);
         }
+        Ok(())
     }
 }
 
@@ -170,11 +191,12 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        let Some(entry) = self.instances.find(directory) else {
+        let Some((entry, paths)) = self.instances.find(directory).zip(self.paths.clone()) else {
             return;
         };
-        let directory = entry.directory.clone();
-        let id = entry.profile.id().to_owned();
+        let target = std::sync::Arc::new(InstanceTarget::new(entry, &paths));
+        let scope = self.memory_edits.scope();
+        let expected = entry.profile.memory();
         let title = format!("Memory for {}", entry.profile.instance.name);
         let suggested = self
             .settings
@@ -182,40 +204,87 @@ impl RootView {
             .and_then(|settings| settings.memory().manual_heap())
             .unwrap_or_default();
         let view = cx.weak_entity();
+        let edit = InstanceMemoryEdit {
+            paths,
+            scope,
+            target,
+            expected,
+        };
         open_editor(
             title,
             "Follow global settings",
-            entry.profile.memory(),
+            expected,
             suggested,
             window,
             cx,
-            move |heap, cx| {
-                view.update(cx, |view, cx| view.save_heap(&directory, &id, heap, cx))
-                    .map_err(|error| error.to_string())?
+            move |heap, cancel, cx| {
+                Self::start_instance_memory_edit(view.clone(), edit.clone(), heap, cancel, cx)
             },
         );
     }
 
-    fn save_heap(
+    fn commit_instance_memory_edit(
         &mut self,
-        directory: &Path,
-        id: &str,
+        edit: InstanceMemoryEdit,
         heap: Option<MaximumHeap>,
+        cancel: Arc<EditCancellation>,
         cx: &mut Context<'_, Self>,
-    ) -> Result<(), String> {
-        if self
-            .instances
-            .find(directory)
-            .is_none_or(|entry| entry.profile.id() != id)
+    ) -> Result<Task<Result<(), String>>, String> {
+        let InstanceMemoryEdit {
+            paths,
+            scope,
+            target,
+            expected,
+        } = edit;
+        if !scope.matches(&self.memory_edits.scope())
+            || self
+                .instances
+                .find(target.directory())
+                .is_none_or(|entry| entry.profile.id() != target.id())
         {
             return Err("This instance changed. Reopen the editor to continue.".into());
         }
-        let updated =
-            memory::set_instance(directory, id, heap).map_err(|error| error.to_string())?;
-        self.instances.update_profile(directory, updated);
+        let choice = heap.map_or(InstanceHeap::Inherit, |heap| {
+            InstanceHeap::ManualMib(heap.mib())
+        });
+        let selected = target.clone();
+        let edited = target;
+        Ok(self.save_memory(
+            scope,
+            cancel,
+            cx,
+            move |cancel| {
+                instance_settings::set_instance_heap(&paths, &selected, choice, cancel)
+                    .map_err(|error| error.to_string())
+            },
+            move |view, memory, cx| view.apply_instance_memory(&edited, expected, memory, cx),
+        ))
+    }
+
+    fn apply_instance_memory(
+        &mut self,
+        target: &InstanceTarget,
+        expected: Option<MaximumHeap>,
+        memory: Option<MaximumHeap>,
+        cx: &mut Context<'_, Self>,
+    ) -> Result<(), String> {
+        self.instances.refresh_heap(target, expected, memory)?;
         self.invalidate_inspection();
         cx.notify();
         Ok(())
+    }
+
+    fn start_instance_memory_edit(
+        view: WeakEntity<Self>,
+        edit: InstanceMemoryEdit,
+        heap: Option<MaximumHeap>,
+        cancel: Arc<EditCancellation>,
+        cx: &mut App,
+    ) -> Result<Task<Result<(), String>>, String> {
+        view.update(cx, |view, cx| {
+            view.commit_instance_memory_edit(edit, heap, cancel, cx)
+        })
+        .map_err(|error| error.to_string())?
     }
 
     pub(super) fn render_instances(&self, cx: &mut Context<'_, Self>) -> AnyElement {
