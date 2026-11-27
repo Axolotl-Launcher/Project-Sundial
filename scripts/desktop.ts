@@ -94,14 +94,21 @@ async function main(args: string[]): Promise<number> {
   }
   let downloads = await library("axlauncher_download_engine", profile);
   let accounts = await library("axlauncher_accounts", profile);
+  let install = await library("axlauncher_install_runtime", profile);
   const identity = process.platform === "darwin" ? process.env.AXLAUNCHER_MACOS_SIGN_IDENTITY : undefined;
   const staging = identity ? mkdtempSync(join(tmpdir(), "axlauncher-sign-")) : undefined;
   try {
     if (identity && staging) {
       downloads = sign(downloads, identity, staging);
       accounts = sign(accounts, identity, staging);
+      install = sign(install, identity, staging);
     }
-    const env = { ...process.env, AXLAUNCHER_DOWNLOAD_IMAGE: downloads, AXLAUNCHER_ACCOUNT_IMAGE: accounts };
+    const env = {
+      ...process.env,
+      AXLAUNCHER_DOWNLOAD_IMAGE: downloads,
+      AXLAUNCHER_ACCOUNT_IMAGE: accounts,
+      AXLAUNCHER_INSTALL_IMAGE: install,
+    };
     if (mode === "exec") {
       const [command, ...parameters] = rest;
       if (!command) throw new Error("Provide the command to run with embedded worker images");

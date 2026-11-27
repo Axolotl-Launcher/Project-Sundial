@@ -88,7 +88,7 @@ jobs:
         run: nix build .#checks.x86_64-linux.legacy-elf
 
       - name: Exercise worker dispatch
-        # The binary embeds both worker libraries and re-executes itself; an
+        # The binary embeds the worker libraries and re-executes itself; an
         # invalid worker name must reach that path and fail cleanly.
         if: ${{ !inputs.isLegacy }}
         run: |

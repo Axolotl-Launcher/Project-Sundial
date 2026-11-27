@@ -19,6 +19,7 @@ impl Image {
         let symbol: &[u8] = match kind {
             WorkerLibrary::Downloads => b"axlauncher_downloads_v1\0",
             WorkerLibrary::Accounts => b"axlauncher_accounts_v1\0",
+            WorkerLibrary::Install => b"axlauncher_install_v1\0",
         };
         Self {
             kind,
@@ -29,6 +30,10 @@ impl Image {
 
     pub(crate) fn matches(self, kind: &OsStr) -> bool {
         kind == self.kind.name()
+    }
+
+    pub(super) fn contains_writers(self) -> bool {
+        matches!(self.kind, WorkerLibrary::Install)
     }
 
     pub(super) fn extract(self, data: &DataDir) -> io::Result<(tempfile::TempDir, PathBuf)> {
@@ -51,6 +56,11 @@ impl Image {
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
             use std::os::windows::process::CommandExt;
             command.creation_flags(CREATE_NO_WINDOW);
+        }
+        #[cfg(unix)]
+        if self.contains_writers() {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
         }
         command
             .env_remove("CURSEFORGE_API_KEY")

@@ -53,7 +53,10 @@ fn a_bracketed_argument_becomes_a_library_path() {
     )
     .expect("resolved");
 
-    assert!(resolved.ends_with("neoform-1.20.2.zip"), "{resolved}");
+    assert!(
+        Path::new(&resolved).ends_with("neoform-1.20.2.zip"),
+        "{resolved:?}"
+    );
 }
 
 #[test]
@@ -73,7 +76,7 @@ fn launcher_values_are_available_to_a_step() {
             .find(|(key, _)| *key == name)
             .unwrap()
             .1
-            .as_str()
+            .as_os_str()
     };
 
     assert_eq!(value(SIDE), "client");

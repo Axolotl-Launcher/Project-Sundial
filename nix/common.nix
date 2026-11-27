@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 # What every artifact shares: the cargo inputs, the workspace metadata, the
-# glibc floor and the build steps for the two embedded worker libraries.
+# glibc floor and the build steps for the embedded worker libraries.
 
 { lib }:
 let
@@ -22,9 +22,15 @@ let
   # the filtered path is a derivation, and reading it would make evaluation
   # depend on building it, which `nix flake check --no-build` refuses.
   manifest = lib.importTOML ../Cargo.toml;
+  smokeInstall = ''
+    smoke_install() {
+      printf '\012\000\000\000"Shutdown"' | "$1" --axlauncher-worker install "$2" > install-ready.frame
+      printf '\007\000\000\000"Ready"' | cmp - install-ready.frame
+    }
+  '';
 in
 {
-  inherit src;
+  inherit src smokeInstall;
 
   version = manifest.workspace.package.version;
 
@@ -40,7 +46,7 @@ in
   # legacy build may be linked against.
   glibcFloor = "2.35";
 
-  # The platform binary embeds both worker libraries with include_bytes!, so
+  # The platform binary embeds worker libraries with include_bytes!, so
   # their bytes are final before it links.
   buildPhase =
     {
@@ -55,16 +61,24 @@ in
         --lib --crate-type cdylib --features worker
       cargo rustc --locked --offline --release -p axlauncher_accounts \
         --lib --crate-type cdylib
+      cargo rustc --locked --offline --release -p axlauncher_install_runtime \
+        --lib --crate-type cdylib
 
       ${lib.optionalString patchImages ''
         patchelf --set-rpath "" target/release/libaxlauncher_download_engine.so
         patchelf --set-rpath "" target/release/libaxlauncher_accounts.so
       ''}
+      patchelf --set-rpath "" target/release/libaxlauncher_install_runtime.so
 
       export AXLAUNCHER_DOWNLOAD_IMAGE="$PWD/target/release/libaxlauncher_download_engine.so"
       export AXLAUNCHER_ACCOUNT_IMAGE="$PWD/target/release/libaxlauncher_accounts.so"
+      export AXLAUNCHER_INSTALL_IMAGE="$PWD/target/release/libaxlauncher_install_runtime.so"
 
       cargo build --locked --offline --release -p axlauncher_platform_linux --bin axlauncher
+
+      cp "$AXLAUNCHER_INSTALL_IMAGE" "$PWD/libinstall.so"
+      ${smokeInstall}
+      smoke_install "$PWD/target/release/axlauncher" "$PWD/libinstall.so"
 
       runHook postBuild
     '';

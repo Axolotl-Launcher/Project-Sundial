@@ -4,79 +4,22 @@ use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
 use serde::{Serialize, de::DeserializeOwned};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::mpsc;
 use tokio::task::{JoinSet, LocalSet};
 
 use crate::protocol::{self, Input, Output};
 
-type Active = Arc<Mutex<HashMap<u64, Cancellation>>>;
-type Job<Command> = (u64, Command, Cancellation);
+mod callbacks;
+use crate::Cancellation;
+pub use callbacks::Callbacks;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Phase {
-    Pending,
-    Cancelled,
-    Committing,
-}
+type Active = Arc<Mutex<HashMap<u64, Context>>>;
+type Job<Command> = (u64, Command, Context);
 
-/// A cancellation signal that cannot interrupt a started commit.
-#[derive(Clone)]
-pub struct Cancellation(watch::Sender<Phase>);
-
-impl Default for Cancellation {
-    fn default() -> Self {
-        Self(watch::Sender::new(Phase::Pending))
-    }
-}
-
-impl Cancellation {
-    pub fn cancel(&self) {
-        self.transition(Phase::Cancelled);
-    }
-
-    pub fn is_pending(&self) -> bool {
-        *self.0.borrow() == Phase::Pending
-    }
-
-    pub fn is_saving(&self) -> bool {
-        *self.0.borrow() == Phase::Committing
-    }
-
-    pub fn begin_commit(&self) -> bool {
-        self.transition(Phase::Committing)
-    }
-
-    pub fn confirm_commit(&self) {
-        self.0.send_replace(Phase::Committing);
-    }
-
-    pub async fn cancelled(&self) {
-        let _ = self
-            .0
-            .subscribe()
-            .wait_for(|state| *state == Phase::Cancelled)
-            .await;
-    }
-
-    pub async fn settled(&self) {
-        let _ = self
-            .0
-            .subscribe()
-            .wait_for(|state| *state != Phase::Pending)
-            .await;
-    }
-
-    fn transition(&self, next: Phase) -> bool {
-        self.0.send_if_modified(|phase| transition(phase, next))
-    }
-}
-
-fn transition(phase: &mut Phase, next: Phase) -> bool {
-    if *phase != Phase::Pending {
-        return false;
-    }
-    *phase = next;
-    true
+#[derive(Clone, Default)]
+struct Context {
+    cancel: Cancellation,
+    callbacks: Callbacks,
 }
 
 /// Writes events for one request and publishes the service's idle-retention state.
@@ -138,6 +81,16 @@ where
     Handler: Fn(Command, Responder<Reply>, Cancellation) -> Work + 'static,
     Work: Future<Output = Result<(), String>> + 'static,
 {
+    serve_with_callbacks(move |command, reply, cancel, _| handle(command, reply, cancel))
+}
+
+pub fn serve_with_callbacks<Command, Reply, Handler, Work>(handle: Handler) -> i32
+where
+    Command: DeserializeOwned + Send + 'static,
+    Reply: Serialize + 'static,
+    Handler: Fn(Command, Responder<Reply>, Cancellation, Callbacks) -> Work + 'static,
+    Work: Future<Output = Result<(), String>> + 'static,
+{
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -170,13 +123,18 @@ fn read_requests<Command: DeserializeOwned>(
                 }
             }
             Ok(Some(Input::Cancel { id })) => cancel_request(&active, id),
+            Ok(Some(Input::Callback {
+                id,
+                callback,
+                response,
+            })) => callback_reply(&active, id, callback, response),
             Ok(Some(Input::Shutdown)) => break 0,
             Ok(None) => break 2,
             Err(_) => break 1,
         }
     };
-    for cancellation in active.lock().expect("worker requests").values() {
-        cancellation.cancel();
+    for context in active.lock().expect("worker requests").values() {
+        context.cancel.cancel();
     }
     status
 }
@@ -189,18 +147,24 @@ fn enqueue<Command>(
 ) -> bool {
     use std::collections::hash_map::Entry;
 
-    let cancellation = Cancellation::default();
+    let context = Context::default();
     let mut requests = active.lock().expect("worker requests");
     let Entry::Vacant(entry) = requests.entry(id) else {
         return false;
     };
-    entry.insert(cancellation.clone());
-    sender.send((id, command, cancellation)).is_ok()
+    entry.insert(context.clone());
+    sender.send((id, command, context)).is_ok()
 }
 
 fn cancel_request(active: &Active, id: u64) {
-    if let Some(cancellation) = active.lock().expect("worker requests").get(&id) {
-        cancellation.cancel();
+    if let Some(context) = active.lock().expect("worker requests").get(&id) {
+        context.cancel.cancel();
+    }
+}
+
+fn callback_reply(active: &Active, id: u64, callback: u64, response: serde_json::Value) {
+    if let Some(context) = active.lock().expect("worker requests").get(&id) {
+        context.callbacks.deliver(callback, response);
     }
 }
 
@@ -210,16 +174,16 @@ async fn dispatch<Command, Reply, Handler, Work>(
     handle: Handler,
 ) where
     Reply: Serialize + 'static,
-    Handler: Fn(Command, Responder<Reply>, Cancellation) -> Work,
+    Handler: Fn(Command, Responder<Reply>, Cancellation, Callbacks) -> Work,
     Work: Future<Output = Result<(), String>> + 'static,
 {
     let mut tasks = JoinSet::new();
     loop {
         tokio::select! {
             job = incoming.recv() => {
-                let Some((id, command, cancellation)) = job else { break };
+                let Some((id, command, context)) = job else { break };
                 let reply = Responder { id, _type: PhantomData };
-                let work = handle(command, reply, cancellation);
+                let work = handle(command, reply, context.cancel, context.callbacks);
                 let active = Arc::clone(&active);
                 tasks.spawn_local(async move {
                     let result = work.await;

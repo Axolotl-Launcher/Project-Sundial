@@ -1,21 +1,17 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Installation planning and execution.
+//! Shared installation planning, catalogs and local readiness.
 
 pub mod assets;
 pub mod auth_agent;
 pub mod loader;
 pub mod prepare;
-pub mod processors;
-pub mod runtime;
 pub mod vanilla;
 
 use axlauncher_spi::{InstallError, InstallPlan, Installer};
 
 // Cargo Shear scans imports inside the crate but misses the mirrored tests.
-#[cfg(test)]
-use sha1_smol as test_sha1;
 #[cfg(test)]
 use tempfile as test_tempfile;
 

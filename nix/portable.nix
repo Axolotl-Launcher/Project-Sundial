@@ -10,6 +10,7 @@
   pkgs,
   version,
   meta,
+  smokeInstall,
 }:
 pkgs.runCommand "axlauncher-portable-${version}"
   {
@@ -75,6 +76,14 @@ pkgs.runCommand "axlauncher-portable-${version}"
     status=0
     ./probe "$out/bin/axlauncher" --axlauncher-worker bogus /tmp/x || status=$?
     test "$status" = 1
+
+    ${smokeInstall}
+    image="${newest.installImage}/libinstall.so"
+    if readelf -d "$image" | grep -q 'NEEDED.*liblzma'; then
+      echo "The embedded installer links a non-bundled liblzma" >&2
+      exit 1
+    fi
+    smoke_install "$out/bin/axlauncher" "$image"
 
     install -Dm644 resolved.txt "$out/share/doc/linked-libraries.txt"
   ''

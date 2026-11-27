@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use super::*;
-use axlauncher_network_spi::Network;
+use axlauncher_launch::version::AssetIndex;
+use axlauncher_network_spi::{FetchError, Network};
 use std::collections::BTreeMap;
 use std::fs;
+use std::path::PathBuf;
 
 use crate::test_tempfile as tempfile;
 

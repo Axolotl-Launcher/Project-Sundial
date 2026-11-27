@@ -39,7 +39,7 @@ let
     cargoLock = ../Cargo.lock;
     env.CARGO_NET_OFFLINE = "true";
     doCheck = false;
-    # installPhase handles the three artifacts itself; crane's build-log hook
+    # installPhase handles the artifacts itself; crane's build-log hook
     # would otherwise expect `cargo build` output on stdout.
     doNotPostBuildInstallCargoBinaries = true;
     # The final rpath is set after the link, where the fixup would otherwise
@@ -64,9 +64,14 @@ in
     // {
       cargoArtifacts = deps;
       buildPhase = common.buildPhase { patchImages = false; };
+      outputs = [
+        "out"
+        "installImage"
+      ];
       inherit (common) installPhase;
       postFixup = ''
         patchelf --add-rpath '${storeRpath}' "$out/bin/axlauncher"
+        install -Dm644 libinstall.so "$installImage/libinstall.so"
       '';
     }
   );

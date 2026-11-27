@@ -16,12 +16,12 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 | Minecraft accounts and system credentials | `accounts` owns account records, Microsoft and Yggdrasil authentication, and session refresh. `storage` owns the platform credential store. | Use `core::desktop::accounts::DesktopAccounts`. The account worker receives the data root, uses the existing system store, and returns snapshots without credential references. |
 | Settings and instance manifests | `state` owns settings, `.axlprofile` creation and discovery, install status and runtime selections. | Use `load_settings` and `update_settings` for settings. Use `profile::create`, `profile::discover` and `profile::scan_resources` for instances; use `profile::mark_installed` or `profile::mark_failed` for install outcomes. `StateStore` serves the separate ID-based `InstanceRecord` API. |
 | File downloads | `download_engine` schedules connections and ranges, manages shared bandwidth and buffers, tries alternate sources and verifies files before promotion. | Inject `download_spi::FileDownloader`. The desktop client uses the shared download worker; the standalone converter explicitly injects `download_engine::Direct`. |
-| Installation files and asset indexes | `install` checks for missing libraries and assets, handles Minecraft metadata, and prepares the pinned third-party authentication agent. | Use `prepare::prepare` for game files and `auth_agent::prepare` for the Java agent. Both take `FileDownloader`. Java runtime acquisition uses its separate existing transport. The SPI `Installer` accepts an `InstallPlan`. Its current `StepInstaller` implementation is a stub. |
-| Embedded service libraries and processes | `worker` owns native loading, process and request lifetimes, and the local wire protocol. `storage` owns the scratch layout. | Desktop shells embed the two target artifacts and dispatch worker mode before GPUI. Desktop clients share the same process manager and never link to either implementation. |
-| Mod loader metadata services | `loader` lists versions and resolves version profiles through an injected `Network`. | `loader::provider` selects the `ModLoader` implementation for both catalog and install. `install` places the resulting profile and handles installation processors. |
+| Installation files and asset indexes | `install` plans missing files, exposes the game catalog and local readiness, and prepares the pinned third-party authentication agent. `install_runtime` performs game-file preparation, loader placement and managed Java provisioning. | Desktop callers use `desktop::installation`; the standalone converter injects its `Network` and `FileDownloader` directly into `install_runtime` under the storage lock. `auth_agent::prepare` remains on the host. |
+| Embedded service libraries and processes | `worker` owns native loading, process and request lifetimes, and the local wire protocol. `storage` owns the scratch layout. | Desktop shells embed the target images and dispatch worker mode before GPUI. Desktop clients share the same process manager and never link the service implementations. |
+| Mod loader metadata services | `loader` lists versions and resolves version profiles through an injected `Network`. | `loader::provider` supplies the `ModLoader` implementation. `install_runtime` places the resulting profile. |
 | Minecraft version naming | `mc_version` classifies Mojang catalog entries and matches the Maven versions published for each Forge or NeoForge game line. It has no I/O. | Call `core::mc_version::classify_java` for catalog classification. The loader uses `MavenTarget` for both listing and installation. Standalone tools may explicitly wrap `BuiltinJavaVersionParser` with the SPI fallback; the launcher installs no fallback parser. |
 | Game version documents, classpath, JARs and natives | `launch` reads version files and JARs, evaluates launch rules and extracts natives. | Use `flow::launch` for prepared installations. Installation planning reuses `version::Version`, the library model and `rules::Target` to decide what to download. |
-| Installation processors | `install` plans and runs the Java processors declared in a version profile. | Use `install::processors` for installation steps. Use `Launcher` to start a game. |
+| Installation processors | `install_runtime` starts and waits for Java processors. | The host holds the storage-owned game lock through process-tree exit and relayed download completion. Storage records unfinished processor passes per resolved version; local launch readiness rejects them. |
 | Java discovery and game processes | `launch` provides `SystemJava` and `ProcessLauncher`. | Resolve the runtime through `Java::executable`. Pass the prepared `LaunchCommand` to `Launcher::launch`. |
 | Event output | `telemetry` implements the event sink. | Call `Telemetry::record(Event)`. Command metrics belong to `observability`. |
 | Desktop UI and startup environment | `ui` directly depends on gpui-kit. `frontend` wires the window, displays the active paths, and passes directory changes to storage. | Frontend code imports components through `axlauncher_ui` and calls system APIs through `core`. Platform shells call `frontend::run`. |
@@ -124,7 +124,8 @@ lookup for the destination.
 | `axlauncher_accounts` | [accounts](../../apps/core/lib/accounts/src/lib.rs) | The account document, authentication and credential lifecycle. |
 | `axlauncher_download_engine` | [download_engine](../../apps/core/lib/download_engine/src/lib.rs) | Execution and progress reporting for file downloads. |
 | `axlauncher_worker` | [worker](../../apps/core/lib/src/lib.rs) | Verified native loading, request framing, and shared process lifetime. |
-| `axlauncher_install` | [install](../../apps/core/install/src/lib.rs) | Installation planning, metadata and preparation of game files before launch. |
+| `axlauncher_install` | [install](../../apps/core/install/src/lib.rs) | Game catalogs, shared install models, file plans, local readiness and authentication agent preparation. |
+| `axlauncher_install_runtime` | [installation](../../apps/core/lib/installation/src/lib.rs) | Game file preparation, loader placement, Java provisioning and processor execution. It relays file writes to the shared desktop download service; it does not link the download engine. |
 | `axlauncher_launch` | [launch](../../apps/core/launch/src/lib.rs) | Building and executing a command from prepared files. JAR extraction uses the crate-local `NativeReader` interface. |
 | `axlauncher_telemetry` | [telemetry](../../apps/core/telemetry/src/lib.rs) | Event sink implementation, currently `LoggingTelemetry`. |
 | `axlauncher_core` | [core](../../apps/core/src/lib.rs) | Application-facing system re-exports and desktop request orchestration. Delegates each operation to its owning system or SPI provider. |
@@ -154,9 +155,12 @@ lookup for the destination.
    State and launch may depend on storage for managed paths and atomic writes. Only
    storage may depend on its internal layout crate. The account
    and download workers use storage, network, and the shared worker protocol.
+   The protocol reuses install progress and the loader selection contract.
    Install uses the SPI for planned files, storage for installation paths
    and atomic writes, network for metadata digest verification and launch for
-   the shared version model and rules. The loader calls `mc_version` for
+   the shared version model and rules. The installation runtime reuses these
+   plans, chooses a loader provider and uses the shared Java selection rules
+   with the host's registered paths and preferences. The loader calls `mc_version` for
    Maven build resolution. Keep calls across these edges within the listed
    purposes.
 4. When ownership changes, update this guide and the
@@ -168,11 +172,15 @@ lookup for the destination.
    with replaceable providers.
 
 `unsafe_code` is denied throughout the workspace. The only exceptions are the
-verified image loader and the two versioned C ABI exports; a policy test
+verified image loader, versioned C ABI exports and the installation worker's
+platform-specific process-tree containment; a policy test
 checks the exception sites. Account workers remain live for in-flight work,
 a pending profile selection, or sessions that have no recoverable credential
 in the system store. Otherwise the last request closes the child and releases
 its scratch files. Download batches hold one worker across file requests.
+An installation worker exists only for its request. Runtime registration and
+game downloads complete through correlated host callbacks; registration returns
+the refreshed Java selection before a loader retry.
 
 ## Proposing a boundary change
 

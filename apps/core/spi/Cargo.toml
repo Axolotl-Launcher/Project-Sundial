@@ -13,6 +13,7 @@ license.workspace = true
 [dependencies]
 axlauncher_domain = { workspace = true }
 axlauncher_network_spi = { workspace = true }
+serde = { workspace = true }
 
 [lints]
 workspace = true

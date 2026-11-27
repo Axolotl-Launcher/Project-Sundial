@@ -7,6 +7,17 @@ use crate::test_tempfile as tempfile;
 use std::collections::BTreeMap;
 use std::io::Write;
 
+fn outputs_are_current(
+    processor: &Processor,
+    libraries: &Path,
+    version: &Version,
+    values: &[(&str, OsString)],
+) -> bool {
+    let game = GameDir::standalone(libraries.parent().unwrap());
+    let outputs = output_paths(processor, &game, version, values).unwrap();
+    !outputs.is_empty() && outputs.iter().all(|output| output.current(false))
+}
+
 fn target() -> Target {
     Target {
         os: "windows".into(),
@@ -170,7 +181,7 @@ fn a_digest_stated_as_a_template_is_resolved_before_the_check() {
         sides: None,
     };
     let version = version(Vec::new(), BTreeMap::new());
-    let values: Vec<(&str, String)> = vec![("PATCHED_SHA", sha1_hex(b"finished"))];
+    let values = [("PATCHED_SHA", sha1_hex(b"finished").into())];
 
     assert!(outputs_are_current(
         &processor,
@@ -236,5 +247,5 @@ fn the_classpath_appends_the_tool_when_the_profile_omits_it() {
     let classpath =
         processor_classpath(&libraries, &tool, &processor, &target()).expect("classpath");
 
-    assert_eq!(classpath, tool.display().to_string());
+    assert_eq!(classpath, tool.as_os_str());
 }

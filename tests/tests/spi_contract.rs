@@ -213,7 +213,7 @@ fn install_from(
     }))
     .map_err(|error| error.to_string())?;
 
-    let placed = axlauncher_install::loader::place(
+    let placed = axlauncher_install_runtime::loader::place(
         &axlauncher_storage::GameDir::standalone(game_root),
         &profile,
     )

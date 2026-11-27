@@ -12,6 +12,7 @@
 //! Resolution fills every name from one place, which keeps a processor from
 //! needing to know whether a value came from its profile or from the launcher.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use axlauncher_launch::version::Version;
@@ -40,15 +41,15 @@ pub(super) fn launcher_data(
     instance_directory: &Path,
     game_version: &str,
     libraries: &Path,
-) -> Vec<(&'static str, String)> {
+) -> Vec<(&'static str, OsString)> {
     let jar = axlauncher_storage::GameDir::standalone(game_root)
         .version_path(version.jar_id(), axlauncher_storage::VersionPath::ClientJar);
     vec![
-        (SIDE, CLIENT.to_string()),
-        (MINECRAFT_JAR, jar.display().to_string()),
-        (MINECRAFT_VERSION, game_version.to_string()),
-        (ROOT, instance_directory.display().to_string()),
-        (LIBRARY_DIR, libraries.display().to_string()),
+        (SIDE, CLIENT.into()),
+        (MINECRAFT_JAR, jar.into_os_string()),
+        (MINECRAFT_VERSION, game_version.into()),
+        (ROOT, instance_directory.as_os_str().to_owned()),
+        (LIBRARY_DIR, libraries.as_os_str().to_owned()),
     ]
 }
 
@@ -61,33 +62,41 @@ pub(super) fn resolve_template(
     template: &str,
     libraries: &Path,
     version: &Version,
-    values: &[(&str, String)],
-) -> Result<String, ProcessorError> {
+    values: &[(&str, OsString)],
+) -> Result<OsString, ProcessorError> {
     if let Some(coordinate) = bracket(template) {
-        return library_path(libraries, coordinate)
-            .ok_or_else(|| ProcessorError::ToolMissing {
-                coordinate: coordinate.to_string(),
-            })
-            .map(|path| path.display().to_string());
+        return coordinate_path(libraries, coordinate);
     }
 
-    let mut resolved = template.to_string();
-    for (name, value) in values {
-        resolved = resolved.replace(&format!("{{{name}}}"), value);
+    let mut resolved = OsString::new();
+    let mut remaining = template;
+    while let Some((prefix, parameter)) = remaining.split_once('{')
+        && let Some((name, suffix)) = parameter.split_once('}')
+    {
+        resolved.push(prefix);
+        if let Some((_, value)) = values.iter().find(|(key, _)| *key == name) {
+            resolved.push(value);
+        } else if let Some(value) = version.data.get(name) {
+            resolved.push(match bracket(&value.client) {
+                Some(coordinate) => coordinate_path(libraries, coordinate)?,
+                None => unquote(&value.client).into(),
+            });
+        } else {
+            let literal = OsString::from(format!("{{{name}}}"));
+            resolved.push(literal);
+        }
+        remaining = suffix;
     }
-    for (name, entry) in &version.data {
-        let value = match bracket(&entry.client) {
-            Some(coordinate) => library_path(libraries, coordinate)
-                .ok_or_else(|| ProcessorError::ToolMissing {
-                    coordinate: coordinate.to_string(),
-                })?
-                .display()
-                .to_string(),
-            None => unquote(&entry.client).to_string(),
-        };
-        resolved = resolved.replace(&format!("{{{name}}}"), &value);
-    }
+    resolved.push(remaining);
     Ok(resolved)
+}
+
+fn coordinate_path(libraries: &Path, coordinate: &str) -> Result<OsString, ProcessorError> {
+    library_path(libraries, coordinate)
+        .map(PathBuf::into_os_string)
+        .ok_or_else(|| ProcessorError::ToolMissing {
+            coordinate: coordinate.to_owned(),
+        })
 }
 
 /// The text inside `[...]`, when a template is exactly that.
@@ -111,5 +120,5 @@ pub(super) fn library_path(libraries: &Path, coordinate: &str) -> Option<PathBuf
 }
 
 #[cfg(test)]
-#[path = "../../../../../tests/apps/core/install/src/processors/templates.rs"]
+#[path = "../../../../../../tests/apps/core/lib/installation/src/processors/templates.rs"]
 mod tests;

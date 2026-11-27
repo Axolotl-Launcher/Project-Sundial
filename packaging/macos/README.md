@@ -53,7 +53,7 @@ cp packaging/icons/axolotl-launcher.icns "Axolotl Launcher.app/Contents/Resource
 
 For distribution, set `AXLAUNCHER_MACOS_SIGN_IDENTITY` to the same Developer ID
 Application identity you will use for the bundle before building. The build
-signs both libraries before embedding them so the process can load them with
+signs each worker library before embedding it so the process can load it with
 hardened runtime library validation enabled. Then sign and notarize the bundle:
 
 ```bash

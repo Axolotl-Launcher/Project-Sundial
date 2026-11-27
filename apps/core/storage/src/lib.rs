@@ -32,6 +32,7 @@ mod java_paths;
 pub use java_paths::WindowsJavaPaths;
 pub use java_paths::java_search_roots;
 mod memory;
+pub use axlauncher_storage_layout::processor_marker;
 pub use memory::PhysicalMemory;
 
 /// Replaces `path` with `bytes` by writing a sibling temporary file and renaming

@@ -60,7 +60,7 @@ jobs:
       - name: Run desktop workspace tests
         run: node scripts/desktop.ts exec cargo nextest run --workspace --profile ci --locked --no-tests=fail
 
-      - name: Exercise both embedded worker libraries
+      - name: Exercise embedded worker libraries
         run: node scripts/desktop.ts smoke
 
   # The architecture gate covers the Linux host target with default features.
