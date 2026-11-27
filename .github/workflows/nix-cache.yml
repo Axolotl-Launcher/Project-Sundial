@@ -1,0 +1,140 @@
+# SPDX-FileCopyrightText: 2026 Axolotl Team
+# SPDX-License-Identifier: GPL-3.0-only
+
+# Builds one Linux binary, caches what the build produced and uploads the tree a
+# packager or an AppImage consumes.
+#
+# Secrets live here only: a caller passes `inherit` or nothing at all, so this
+# file is the single place that knows a cache token exists. A caller that passes
+# nothing pushes nothing, which is what the pull-request gate wants.
+
+name: Nix cache
+
+on:
+  workflow_call:
+    inputs:
+      isLegacy:
+        description: Build the glibc 2.35 binary for native packaging instead of the nix one
+        type: boolean
+        default: false
+      isRelease:
+        description: Publish the binary to the release cache; only meaningful without `isLegacy`
+        type: boolean
+        default: false
+    secrets:
+      CACHIX_AUTH_TOKEN:
+        required: false
+      CACHIX_CACHE_AUTH_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ inputs.isLegacy && 'Legacy binary' || 'Newest binary' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      CACHIX_CACHE_AUTH_TOKEN: ${{ secrets.CACHIX_CACHE_AUTH_TOKEN }}
+    steps:
+      - name: Check out workspace
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877 # v32.1.0
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+
+      - name: Set up the release cache
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        if: ${{ env.CACHIX_AUTH_TOKEN != '' }}
+        with:
+          name: axlmc
+          authToken: ${{ env.CACHIX_AUTH_TOKEN }}
+          skipPush: true
+
+      - name: Set up the build cache
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' }}
+        with:
+          name: axlmc-cache
+          authToken: ${{ env.CACHIX_CACHE_AUTH_TOKEN }}
+          skipPush: true
+
+      - name: Publish the crate dependencies
+        # Build output goes to its own cache so a burst of CI output cannot
+        # evict a release.
+        if: ${{ !inputs.isLegacy && env.CACHIX_CACHE_AUTH_TOKEN != '' }}
+        run: |
+          nix build --print-out-paths .#axlauncher-cargo-deps | cachix push axlmc-cache
+
+      - name: Build
+        run: |
+          if [ "${{ inputs.isLegacy }}" = "true" ]; then
+            nix build --out-link binary .#axlauncher-legacy
+          else
+            nix build --out-link binary .#axlauncher-newest
+          fi
+
+      - name: Check the ELF gate
+        # Runs here because this job already built the binary the check reads.
+        if: ${{ inputs.isLegacy }}
+        run: nix build .#checks.legacy-elf
+
+      - name: Exercise worker dispatch
+        # The binary embeds both worker libraries and re-executes itself; an
+        # invalid worker name must reach that path and fail cleanly.
+        run: |
+          set +e
+          output=$(./binary/bin/axlauncher --axlauncher-worker bogus /tmp/x 2>&1)
+          status=$?
+          set -e
+          echo "$output"
+          test "$status" = 1
+          case "$output" in
+            *StartupFailed*) ;;
+            *) echo "worker dispatch did not run" >&2; exit 1 ;;
+          esac
+
+      - name: Publish the binary
+        # The wrapper is a symlink plus two files, so building it locally is
+        # cheaper than downloading it; only the binary is published.
+        if: ${{ !inputs.isLegacy && inputs.isRelease && env.CACHIX_AUTH_TOKEN != '' }}
+        run: nix build --print-out-paths .#axlauncher-newest | cachix push axlmc
+
+      - name: Publish the packaging binary
+        # A packaging input is not a release artifact; it only has to survive
+        # long enough for the packaging job to substitute it.
+        if: ${{ inputs.isLegacy && env.CACHIX_CACHE_AUTH_TOKEN != '' }}
+        run: nix build --print-out-paths .#axlauncher-legacy | cachix push axlmc-cache
+
+      - name: Archive the portable tree
+        if: ${{ !inputs.isLegacy }}
+        run: |
+          nix build --out-link portable .#axlauncher-portable
+          tar --zstd -cf axlauncher-portable-linux-x86_64.tar.zst -C portable .
+
+      - name: Upload the portable tree
+        if: ${{ !inputs.isLegacy }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: axlauncher-portable-linux-x86_64
+          path: axlauncher-portable-linux-x86_64.tar.zst
+
+      - name: Archive the packaging input
+        # TODO: deb and rpm packaging goes here; the ELF and the layout contract
+        # are what a packager needs.
+        if: ${{ inputs.isLegacy }}
+        run: tar --zstd -cf axlauncher-legacy-linux-x86_64.tar.zst -C binary .
+
+      - name: Upload the packaging input
+        if: ${{ inputs.isLegacy }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: axlauncher-legacy-linux-x86_64
+          path: axlauncher-legacy-linux-x86_64.tar.zst

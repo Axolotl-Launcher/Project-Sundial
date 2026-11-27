@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Axolotl Team
 # SPDX-License-Identifier: GPL-3.0-only
 
-# Builds the newest binary from `main` every eight hours, so a broken build is
-# noticed before a release. It publishes to the build cache and nothing else: no
-# tag, no release, no release-cache entry.
+# Builds the newest binary from `main` every eight hours so a broken build is
+# noticed between releases. It fills the build cache and uploads the tree; it
+# never tags, never creates a release and never writes to the release cache.
 
 name: Canary
 
@@ -22,64 +22,12 @@ permissions:
   contents: read
 
 jobs:
-  canary:
-    name: Newest binary
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    env:
-      CACHIX_CACHE_AUTH_TOKEN: ${{ secrets.CACHIX_CACHE_AUTH_TOKEN }}
-    steps:
-      - name: Check out workspace
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
+  newest:
+    uses: ./.github/workflows/nix-cache.yml
+    secrets: inherit
+    with:
+      isLegacy: false
+      isRelease: false
 
-      - name: Install Nix
-        uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877 # v32.1.0
-        with:
-          extra_nix_config: |
-            accept-flake-config = true
-
-      - name: Set up the build cache
-        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
-        if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' }}
-        with:
-          name: axlmc-cache
-          authToken: ${{ secrets.CACHIX_CACHE_AUTH_TOKEN }}
-          skipPush: true
-
-      - name: Build the newest binary
-        run: nix build --out-link newest .#axlauncher-newest
-
-      - name: Exercise worker dispatch
-        # The binary embeds both worker libraries and re-executes itself; an
-        # invalid worker name must reach that path and fail cleanly.
-        run: |
-          set +e
-          output=$(./newest/bin/axlauncher --axlauncher-worker bogus /tmp/x 2>&1)
-          status=$?
-          set -e
-          echo "$output"
-          test "$status" = 1
-          case "$output" in
-            *StartupFailed*) ;;
-            *) echo "worker dispatch did not run" >&2; exit 1 ;;
-          esac
-
-      - name: Publish to the build cache
-        # `newest` from `main` is not a release artifact, so it stays out of the
-        # release cache.
-        if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' }}
-        run: |
-          nix build --print-out-paths .#axlauncher-cargo-deps .#axlauncher-newest |
-            cachix push axlmc-cache
-
-      - name: Archive the binary
-        run: tar --zstd -cf axlauncher-canary-linux-x86_64.tar.zst -C newest .
-
-      - name: Upload the binary
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: axlauncher-canary-linux-x86_64
-          path: axlauncher-canary-linux-x86_64.tar.zst
-          retention-days: 14
+  # `canary.yml` can carry a second job with `isLegacy: true` when the build
+  # cache has room to keep the packaging binary warm as well.

@@ -76,30 +76,30 @@ backs `packages.axlauncher` and the AppImage, while `legacy` links against glibc
 `legacy-elf` check fails when that ELF references the store or needs glibc newer
 than 2.35 (Ubuntu 22.04).
 
-The wrapper and `newest` are release artifacts and go to the release cache;
-`legacy` is a packaging input and goes to the build cache only.
+`newest` is a release artifact and goes to the release cache; `legacy` is a
+packaging input and goes to the build cache only. The wrapper is not cached: it
+is a symlink plus two files, cheaper to build locally than to download.
 `packages.axlauncher-portable` bundles `newest` with the loader, the libraries it
 links and the keymap data, which is what an AppImage or a tarball ships.
 
-A release pushes the wrapper and `newest` to the public `axlmc` cache, so
-`nix run` downloads instead of compiling. Build products go to a second cache
-(`axlmc-cache` here; its name and public key are placeholders in `flake.nix`)
-because a cache evicts its oldest entries once it exceeds its quota, and a burst
-of CI output would push a release out. A user who trusts flake configuration
-gets the substituters from `flake.nix`; otherwise pass the settings explicitly:
+Build products go to a second cache, `axlmc-cache`, because a cache evicts its
+oldest entries once it exceeds its quota, and a burst of CI output would push a
+release out. A user who trusts flake configuration gets the substituters from
+`flake.nix`; otherwise pass the settings explicitly:
 
 ```bash
 nix run --extra-substituters https://axlmc.cachix.org \
   --extra-trusted-public-keys 'axlmc.cachix.org-1:dmsRJqFQqLMfvRveerHV3DxDCW1wq1N+TX1+dryYWZU='
 ```
 
-[`canary.yml`](.github/workflows/canary.yml) builds `newest` from `main` every
-eight hours, exercises worker dispatch and uploads the tree; it publishes to the
-build cache and never creates a release.
+The workflows split by role: [`nix-cache.yml`](.github/workflows/nix-cache.yml)
+builds one binary and owns every cache token, [`linux-release.yml`](.github/workflows/linux-release.yml)
+calls it for both binaries, [`release.yml`](.github/workflows/release.yml) creates
+the GitHub release, and [`canary.yml`](.github/workflows/canary.yml) builds
+`newest` from `main` every eight hours. CI calls `nix-cache` without secrets, so
+it builds and never publishes.
 
-A release refreshes `flake.lock` once its artifacts are published, so the next
-release is built against current inputs. The canary warms that lock in the
-meantime; until it has run, the next release compiles the workspace once.
+The canary keeps the build cache warm for the next release.
 
 The nix build repeats the three cargo invocations that
 [`scripts/desktop.ts`](scripts/desktop.ts) performs; changing the embedded worker

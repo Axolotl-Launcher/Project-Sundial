@@ -1,8 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Axolotl Team
 # SPDX-License-Identifier: GPL-3.0-only
 
-# Publishes the two Linux binaries on a tag. Both jobs run in parallel and only
-# the follow-up job touches the artifacts.
+# Publishes a tag. One job per platform family; Linux is the only one today, and
+# a new platform adds a workflow beside `linux-release.yml` rather than a second
+# build recipe here.
 
 name: Release
 
@@ -19,117 +20,17 @@ permissions:
   contents: read
 
 jobs:
-  # nix users: the wrapper and the self-contained tree an AppImage ships.
-  newest:
-    name: Newest binary
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    env:
-      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      CACHIX_CACHE_AUTH_TOKEN: ${{ secrets.CACHIX_CACHE_AUTH_TOKEN }}
-    steps:
-      - name: Check out workspace
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
+  linux:
+    name: Linux
+    uses: ./.github/workflows/linux-release.yml
+    secrets: inherit
 
-      - name: Install Nix
-        uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877 # v32.1.0
-        with:
-          extra_nix_config: |
-            accept-flake-config = true
-
-      - name: Set up the release cache
-        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
-        if: ${{ env.CACHIX_AUTH_TOKEN != '' }}
-        with:
-          name: axlmc
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          skipPush: true
-
-      - name: Set up the build cache
-        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
-        if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' }}
-        with:
-          name: axlmc-cache
-          authToken: ${{ secrets.CACHIX_CACHE_AUTH_TOKEN }}
-          skipPush: true
-
-      - name: Publish the crate dependencies
-        # Build output goes to its own cache so a burst of CI output cannot
-        # evict a release.
-        if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' }}
-        run: |
-          nix build --print-out-paths .#axlauncher-cargo-deps | cachix push axlmc-cache
-
-      - name: Publish the binaries
-        if: ${{ env.CACHIX_AUTH_TOKEN != '' }}
-        run: |
-          nix build --print-out-paths .#axlauncher .#axlauncher-newest |
-            cachix push axlmc
-
-      - name: Build the portable tree
-        run: nix build --out-link portable .#axlauncher-portable
-
-      - name: Archive the portable tree
-        run: |
-          tar --zstd -cf axlauncher-portable-linux-x86_64.tar.zst -C portable .
-
-      - name: Upload the portable tree
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: axlauncher-portable-linux-x86_64
-          path: axlauncher-portable-linux-x86_64.tar.zst
-
-  # Traditional distributions: a native ELF linked against glibc 2.35.
-  legacy:
-    name: Legacy binary
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    env:
-      CACHIX_CACHE_AUTH_TOKEN: ${{ secrets.CACHIX_CACHE_AUTH_TOKEN }}
-    steps:
-      - name: Check out workspace
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877 # v32.1.0
-
-      - name: Set up the build cache
-        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
-        if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' }}
-        with:
-          name: axlmc-cache
-          authToken: ${{ secrets.CACHIX_CACHE_AUTH_TOKEN }}
-          skipPush: true
-
-      - name: Build
-        run: nix build --out-link legacy .#axlauncher-legacy
-
-      - name: Publish to the build cache
-        # The packaging binary is not a release artifact; it only has to survive
-        # long enough for the packaging job to substitute it.
-        if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' }}
-        run: nix build --print-out-paths .#axlauncher-legacy | cachix push axlmc-cache
-
-      - name: Archive the packaging input
-        # TODO: deb and rpm packaging goes here; the ELF and the layout contract
-        # are what a packager needs.
-        run: tar --zstd -cf axlauncher-legacy-linux-x86_64.tar.zst -C legacy .
-
-      - name: Upload the packaging input
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: axlauncher-legacy-linux-x86_64
-          path: axlauncher-legacy-linux-x86_64.tar.zst
-
-  # Follow-up: one place for the checksums of everything a release ships.
   publish:
     name: Publish
-    needs: [newest, legacy]
+    needs: linux
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - name: Download the artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -143,8 +44,9 @@ jobs:
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
 
-      - name: Upload the release files
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: release-files
-          path: out/
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" out/*.tar.zst out/SHA256SUMS \
+            --title "$GITHUB_REF_NAME" --generate-notes --verify-tag

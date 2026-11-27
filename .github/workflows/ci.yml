@@ -92,14 +92,26 @@ jobs:
 
   # The flake builds the artifact this project ships for Linux and pushes it to
   # the public binary cache, so a user substitutes instead of compiling.
-  nix:
-    name: Nix build
+  nix-newest:
+    name: Nix newest
     needs: repository
+    uses: ./.github/workflows/nix-cache.yml
+    with:
+      isLegacy: false
+    # No secrets: the pull-request gate builds and never publishes.
+
+  nix-legacy:
+    name: Nix legacy
+    needs: repository
+    uses: ./.github/workflows/nix-cache.yml
+    with:
+      isLegacy: true
+
+  nix-outputs:
+    name: Nix outputs
+    needs: [repository, nix-newest, nix-legacy]
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    env:
-      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      CACHIX_CACHE_AUTH_TOKEN: ${{ secrets.CACHIX_CACHE_AUTH_TOKEN }}
+    timeout-minutes: 30
     steps:
       - name: Check out workspace
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -112,45 +124,15 @@ jobs:
           extra_nix_config: |
             accept-flake-config = true
 
-      - name: Set up the release cache
-        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
-        if: ${{ env.CACHIX_AUTH_TOKEN != '' }}
-        with:
-          name: axlmc
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          # Push is explicit below: only the binaries users may fetch belong in the cache.
-          skipPush: true
-
-      - name: Set up the build cache
-        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
-        if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' }}
-        with:
-          name: axlmc-cache
-          authToken: ${{ secrets.CACHIX_CACHE_AUTH_TOKEN }}
-          skipPush: true
-
-      - name: Build the crate dependencies
-        run: nix build --print-out-paths .#axlauncher-cargo-deps
-
-      - name: Publish the build cache products
-        # Build output goes to its own cache: seeded from every push so a pull
-        # request substitutes the crane build and the packaging binary instead of
-        # recompiling them, and never mixed with the release artifacts.
-        if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-        run: |
-          nix build --print-out-paths .#axlauncher-cargo-deps .#axlauncher-legacy |
-            cachix push axlmc-cache
-
-      - name: Build both binaries
-        run: nix build --print-out-paths .#axlauncher .#axlauncher-newest .#axlauncher-legacy
-
-      - name: Run the flake checks
-        run: nix flake check
+      - name: Evaluate every output
+        # The artifacts themselves were built above; this checks that the flake
+        # still exposes every package, check, app and shell.
+        run: nix flake check --no-build
 
   ci-result:
     name: CI result
     if: ${{ !cancelled() }}
-    needs: [repository, rust, architecture, nix]
+    needs: [repository, rust, architecture, nix-newest, nix-legacy, nix-outputs]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every check to pass
@@ -159,11 +141,16 @@ jobs:
           REPOSITORY_RESULT: ${{ needs.repository.result }}
           RUST_RESULT: ${{ needs.rust.result }}
           ARCHITECTURE_RESULT: ${{ needs.architecture.result }}
-          NIX_RESULT: ${{ needs.nix.result }}
+          NEWEST_RESULT: ${{ needs.nix-newest.result }}
+          LEGACY_RESULT: ${{ needs.nix-legacy.result }}
+          OUTPUTS_RESULT: ${{ needs.nix-outputs.result }}
         run: |
-          printf '| Checks | Result |\n| --- | --- |\n| Repository | %s |\n| Desktop Rust | %s |\n| Architecture | %s |\n| Nix build | %s |\n' \
-            "$REPOSITORY_RESULT" "$RUST_RESULT" "$ARCHITECTURE_RESULT" "$NIX_RESULT" >> "$GITHUB_STEP_SUMMARY"
+          printf '| Checks | Result |\n| --- | --- |\n| Repository | %s |\n| Desktop Rust | %s |\n| Architecture | %s |\n| Nix newest | %s |\n| Nix legacy | %s |\n| Nix outputs | %s |\n' \
+            "$REPOSITORY_RESULT" "$RUST_RESULT" "$ARCHITECTURE_RESULT" "$NEWEST_RESULT" "$LEGACY_RESULT" "$OUTPUTS_RESULT" >> "$GITHUB_STEP_SUMMARY"
           test "$REPOSITORY_RESULT" = success
           test "$RUST_RESULT" = success
           test "$ARCHITECTURE_RESULT" = success
-          test "$NIX_RESULT" = success
+          test "$NEWEST_RESULT" = success
+          test "$LEGACY_RESULT" = success
+          test "$OUTPUTS_RESULT" = success
+

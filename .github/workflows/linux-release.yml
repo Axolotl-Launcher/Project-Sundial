@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 Axolotl Team
+# SPDX-License-Identifier: GPL-3.0-only
+
+# The Linux half of a release: both binaries build in parallel, each through the
+# shared cache workflow. A platform workflow exists per family so that a release
+# never mixes platforms in one file.
+
+name: Linux release
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  newest:
+    uses: ./.github/workflows/nix-cache.yml
+    secrets: inherit
+    with:
+      isLegacy: false
+      isRelease: true
+
+  legacy:
+    uses: ./.github/workflows/nix-cache.yml
+    secrets: inherit
+    with:
+      isLegacy: true
+      isRelease: true

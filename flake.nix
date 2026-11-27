@@ -22,13 +22,11 @@
   # cache exceeds its quota and a burst of build output would push a release out.
   nixConfig = {
     extra-substituters = [
-      # TODO: placeholder until the build cache exists.
       "https://axlmc-cache.cachix.org"
       "https://axlmc.cachix.org"
     ];
     extra-trusted-public-keys = [
-      # TODO: placeholder until the build cache exists.
-      "axlmc-cache.cachix.org-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      "axlmc-cache.cachix.org-1:MoSCGEi/XlVcmf7B3M5kXE/icVQtr2nkVCCJFOv/aFM="
       "axlmc.cachix.org-1:dmsRJqFQqLMfvRveerHV3DxDCW1wq1N+TX1+dryYWZU="
     ];
   };
@@ -54,9 +52,6 @@
           };
           # The legacy build links against the oldest supported glibc.
           pkgsOld = import nixpkgs-old { inherit system; };
-          # The minimal profile plus the components the checks need; the default
-          # profile would add rust-docs, which is 700 MiB of toolchain no build
-          # reads.
           toolchain = pkgs.rust-bin.stable."1.100.0".minimal.override {
             extensions = [
               "clippy"
