@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use super::*;
+use axlauncher_install::loader::check_files;
 use axlauncher_network_spi::{FetchError, Network};
 use axlauncher_spi::LoaderFile;
 
@@ -49,7 +50,8 @@ fn a_profile_lands_where_a_launch_looks_for_it() {
         "1.21.11",
         "the parent's client jar runs"
     );
-    let client = crate::assets::client_jar(&game, &installed).expect("client download");
+    let client =
+        axlauncher_install::assets::client_jar(&game, &installed).expect("client download");
     assert_eq!(client.path, root.join("versions/1.21.11/1.21.11.jar"));
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -260,7 +262,7 @@ fn install_once(
     loader: &FakeLoader,
     java: &FixedJava,
     root: &Path,
-    report: impl FnMut(crate::prepare::Progress),
+    report: impl FnMut(Progress),
 ) -> Result<LoaderInstalled, LoaderInstallError> {
     let target = axlauncher_launch::Target::host();
     block_on(
@@ -356,7 +358,7 @@ fn the_progress_reports_the_loader_phase() {
     })
     .expect("install");
 
-    assert!(seen.contains(&crate::prepare::Progress::Loader), "{seen:?}");
+    assert!(seen.contains(&Progress::Loader), "{seen:?}");
     let _ = std::fs::remove_dir_all(&root);
 }
 

@@ -40,6 +40,9 @@ SPDX-License-Identifier = "GPL-3.0-only"
 [[annotations]]
 path = [
   "apps/core/lib/**",
+  "apps/core/install/src/loader.rs",
+  "apps/core/install/src/prepare.rs",
+  "apps/core/install/src/vanilla.rs",
   "apps/core/spi/download/**",
   "apps/core/spi/network/Cargo.toml",
   "apps/core/spi/network/src/lib.rs",

@@ -1,22 +1,54 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Desktop policy for choosing and provisioning Java.
+//! Desktop policy for choosing and registering Java.
 
 use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use axlauncher_install::{prepare::Progress, runtime};
-use axlauncher_launch::{Java, JavaMode, JavaRuntime, SystemJava, Version, version};
-use axlauncher_network_spi::Network;
+use axlauncher_launch::{JavaRuntime, SystemJava};
 use axlauncher_state::javas::{self, Javas, JavasError};
 use axlauncher_storage::{DataDir, DataPath};
+use axlauncher_worker::installation::JavaPaths;
 use axlauncher_worker::java_discovery;
 
 /// A recorded runtime outranks the newest discovered runtime for its major.
-pub(super) fn managed(data: &DataDir) -> SystemJava {
+#[cfg(test)]
+fn managed(data: &DataDir) -> SystemJava {
     provider(data, &preferences(data.path(DataPath::Root)))
+}
+
+pub(super) fn install_snapshot(data: &DataDir) -> JavaPaths {
+    snapshot(&preferences(data.path(DataPath::Root)))
+}
+
+fn snapshot(javas: &Javas) -> JavaPaths {
+    JavaPaths::new(
+        javas.paths().map(Path::to_path_buf).collect(),
+        chosen(javas),
+    )
+}
+
+/// Only a complete, verified managed executable can be acknowledged to the installer.
+pub(super) fn register_provisioned(
+    data: &DataDir,
+    path: &Path,
+    major: u32,
+) -> Result<JavaPaths, String> {
+    let root = data.path(DataPath::JavaVersions);
+    let runtime = validate(data, path, Some(major)).map_err(|error| error.to_string())?;
+    let canonical = |path: &Path| std::fs::canonicalize(path).map_err(|error| error.to_string());
+    if !path.starts_with(root) || !canonical(runtime.path())?.starts_with(canonical(root)?) {
+        return Err(
+            "The installer returned a Java path outside the managed runtime directory.".into(),
+        );
+    }
+    javas::update(data.path(DataPath::Root), |saved| {
+        register(&inspector(data), saved, &[runtime]);
+        snapshot(saved)
+    })
+    .map_err(|error| error.to_string())
 }
 
 fn preferences(root: &Path) -> Javas {
@@ -291,56 +323,6 @@ fn validate(
             path: path.to_owned(),
             required,
         })
-}
-
-/// A manifest with no Java requirement uses the system's default at launch.
-pub(super) async fn prepare_for_version(
-    network: &impl Network,
-    data: &DataDir,
-    id: &str,
-    report: impl FnMut(Progress),
-) -> Result<(), String> {
-    let document = version::load(data.game(), id)
-        .map_err(|error| format!("Cannot read the installed Minecraft {id} manifest: {error}"))?;
-    let Some(major) = missing_java(&document, |major| {
-        managed(data)
-            .executable_for(major, JavaMode::Windowed)
-            .is_some()
-    }) else {
-        return Ok(());
-    };
-    provision(network, data, major, report)
-        .await
-        .map_err(|error| {
-            format!(
-                "Minecraft {id} needs Java {major}, and its runtime could not be installed: {error}"
-            )
-        })
-}
-
-fn missing_java(version: &Version, available: impl FnOnce(u32) -> bool) -> Option<u32> {
-    let required = version.java_version.as_ref()?.major;
-    (!available(required)).then_some(required)
-}
-
-/// Java's named phases differ from the game's, but its file counts do not.
-pub(super) async fn provision(
-    network: &impl Network,
-    data: &DataDir,
-    major: u32,
-    mut report: impl FnMut(Progress),
-) -> Result<(), String> {
-    report(Progress::Java);
-    let installed = runtime::install(network, data.path(DataPath::JavaVersions), major, |stage| {
-        report(match stage {
-            Progress::Downloading { .. } => stage,
-            _ => Progress::Java,
-        });
-    })
-    .await
-    .map_err(|error| error.to_string())?;
-    add(data, &installed.java).map_err(|error| error.to_string())?;
-    Ok(())
 }
 
 #[cfg(test)]

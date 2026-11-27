@@ -90,39 +90,57 @@ fn permitted_edge(owner: &str, dependency: &str, target_dir: &Path) -> bool {
         "axlauncher_modpack" => provider_contract(dependency),
         "axlauncher_mmc_convert" => matches!(
             dependency,
-            "axlauncher_core" | "axlauncher_modpack" | "axlauncher_download_engine"
+            "axlauncher_core"
+                | "axlauncher_modpack"
+                | "axlauncher_download_engine"
+                | "axlauncher_install_runtime"
         ),
         "axlauncher_platform_windows"
         | "axlauncher_platform_linux"
         | "axlauncher_platform_macos" => dependency == "axlauncher_frontend",
-        _ => match dependency {
-            "axlauncher_domain" => true,
-            contract if provider_contract(contract) => true,
-            "axlauncher_storage" => matches!(
+        _ => implementation_edge(owner, dependency),
+    }
+}
+
+fn implementation_edge(owner: &str, dependency: &str) -> bool {
+    match dependency {
+        "axlauncher_domain" => true,
+        contract if provider_contract(contract) => true,
+        "axlauncher_storage" => matches!(
+            owner,
+            "axlauncher_download_engine"
+                | "axlauncher_accounts"
+                | "axlauncher_worker"
+                | "axlauncher_install"
+                | "axlauncher_install_runtime"
+                | "axlauncher_state"
+                | "axlauncher_launch"
+        ),
+        "axlauncher_launch" => {
+            matches!(owner, "axlauncher_install" | "axlauncher_install_runtime")
+        }
+        "axlauncher_install" => {
+            matches!(owner, "axlauncher_worker" | "axlauncher_install_runtime")
+        }
+        "axlauncher_loader" => owner == "axlauncher_install_runtime",
+        "axlauncher_worker" => {
+            matches!(
+                owner,
+                "axlauncher_accounts" | "axlauncher_download_engine" | "axlauncher_install_runtime"
+            )
+        }
+        "axlauncher_mc_version" => owner == "axlauncher_loader",
+        "axlauncher_network" => {
+            matches!(
                 owner,
                 "axlauncher_download_engine"
+                    | "axlauncher_install"
+                    | "axlauncher_install_runtime"
                     | "axlauncher_accounts"
                     | "axlauncher_worker"
-                    | "axlauncher_install"
-                    | "axlauncher_state"
-                    | "axlauncher_launch"
-            ),
-            "axlauncher_launch" => owner == "axlauncher_install",
-            "axlauncher_worker" => {
-                matches!(owner, "axlauncher_accounts" | "axlauncher_download_engine")
-            }
-            "axlauncher_mc_version" => owner == "axlauncher_loader",
-            "axlauncher_network" => {
-                matches!(
-                    owner,
-                    "axlauncher_download_engine"
-                        | "axlauncher_install"
-                        | "axlauncher_accounts"
-                        | "axlauncher_worker"
-                )
-            }
-            _ => false,
-        },
+            )
+        }
+        _ => false,
     }
 }
 

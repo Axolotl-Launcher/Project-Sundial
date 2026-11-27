@@ -22,6 +22,10 @@ const EXPORTS: &[(&str, &str)] = &[
         "apps/core/lib/instance_settings/src/worker.rs",
         "axlauncher_instance_settings_v1",
     ),
+    (
+        "apps/core/lib/installation/src/worker.rs",
+        "axlauncher_install_v1",
+    ),
 ];
 
 #[test]
@@ -75,12 +79,31 @@ impl Boundary<'_> {
     fn permits_loading(&self) -> bool {
         self.file == NATIVE && self.function.as_deref() == Some("invoke")
     }
+
+    fn permits_containment(&self) -> bool {
+        matches!(
+            (self.file, self.function.as_deref()),
+            (
+                "apps/core/lib/src/process/unix.rs",
+                Some("leader_exited" | "terminate_group" | "group_empty")
+            ) | (
+                "apps/core/lib/src/process/windows.rs",
+                Some("new" | "attach" | "terminate" | "empty")
+            )
+        )
+    }
 }
 
 impl<'ast> Visit<'ast> for Boundary<'_> {
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
         let previous = self.function.replace(item.sig.ident.to_string());
         visit::visit_item_fn(self, item);
+        self.function = previous;
+    }
+
+    fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
+        let previous = self.function.replace(item.sig.ident.to_string());
+        visit::visit_impl_item_fn(self, item);
         self.function = previous;
     }
 
@@ -95,7 +118,7 @@ impl<'ast> Visit<'ast> for Boundary<'_> {
             && arguments.contains("unsafe_code")
         {
             assert!(
-                self.permits_loading() || self.permits_export(),
+                self.permits_loading() || self.permits_export() || self.permits_containment(),
                 "unsafe lint override in {}",
                 self.file
             );
@@ -120,7 +143,7 @@ impl<'ast> Visit<'ast> for Boundary<'_> {
 
     fn visit_expr_unsafe(&mut self, expression: &'ast syn::ExprUnsafe) {
         assert!(
-            self.permits_loading(),
+            self.permits_loading() || self.permits_containment(),
             "unexpected unsafe block in {}",
             self.file
         );

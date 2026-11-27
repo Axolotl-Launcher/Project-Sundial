@@ -19,6 +19,7 @@ pub struct Images {
     pub accounts: Image,
     pub java_discovery: Image,
     pub instance_settings: Image,
+    pub install: Image,
 }
 
 impl Images {
@@ -27,12 +28,14 @@ impl Images {
         accounts: &'static [u8],
         java_discovery: &'static [u8],
         instance_settings: &'static [u8],
+        install: &'static [u8],
     ) -> Self {
         Self {
             downloads: Image::new(WorkerLibrary::Downloads, downloads),
             accounts: Image::new(WorkerLibrary::Accounts, accounts),
             java_discovery: Image::new(WorkerLibrary::JavaDiscovery, java_discovery),
             instance_settings: Image::new(WorkerLibrary::InstanceSettings, instance_settings),
+            install: Image::new(WorkerLibrary::Install, install),
         }
     }
 
@@ -40,17 +43,31 @@ impl Images {
     pub fn configure(self) {
         let executable =
             worker_executable().map_err(|error| format!("Could not locate the launcher: {error}"));
+        self.configure_services(executable);
+    }
+
+    /// Registers images when the launcher is invoked through a specific executable.
+    pub fn configure_for_executable(self, executable: PathBuf) {
+        self.configure_services(Ok(executable));
+    }
+
+    fn configure_services(self, executable: Result<PathBuf, String>) {
         crate::downloads::configure(self.downloads, executable.clone());
         java_discovery::configure(self.java_discovery, executable.clone());
         settings_client::configure(self.instance_settings, executable.clone());
-        account_client::configure(self.accounts, executable);
+        account_client::configure(self.accounts, executable.clone());
+        crate::installer_client::configure(self.install, executable);
     }
 
     /// Drains embedded workers off-thread, including ones already closing.
     pub fn begin_shutdown() -> JoinHandle<()> {
         let accounts = account_client::take_workers();
         let settings = settings_client::take_workers();
-        std::thread::spawn(move || drain_workers(accounts, settings))
+        let wait_installs = crate::installer_client::close();
+        std::thread::spawn(move || {
+            drain_workers(accounts, settings);
+            wait_installs();
+        })
     }
 
     /// Recognizes worker mode before opening a GUI or reading user settings.
@@ -77,6 +94,7 @@ impl Images {
             self.accounts,
             self.java_discovery,
             self.instance_settings,
+            self.install,
         ]
         .into_iter()
         .find(|image| image.matches(&kind)) else {

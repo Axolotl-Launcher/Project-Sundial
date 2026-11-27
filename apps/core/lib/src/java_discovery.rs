@@ -66,6 +66,9 @@ async fn collect(
                 paths.dedup();
                 return Ok(paths);
             }
+            Event::Disconnected => {
+                return Err("The Java discovery worker exited before completing the scan.".into());
+            }
         }
     }
     Err("The Java discovery worker closed before completing the scan.".into())

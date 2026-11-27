@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use super::*;
-use crate::vanilla::catalog::CATALOG;
+use axlauncher_install::vanilla::{check_files, versions};
 use axlauncher_network_spi::FetchError;
 
 use futures::executor::block_on;
 use std::fs;
 
+const CATALOG: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 const VERSION_URL: &str = "https://example.invalid/version.json";
 const CLIENT_URL: &str = "https://example.invalid/client.jar";
 const MANIFEST: &[u8] = br#"{"id":"26.3","downloads":{"client":{"sha1":"a9993e364706816aba3e25717850c26c9cd0d89d","size":3,"url":"https://example.invalid/client.jar"}}}"#;

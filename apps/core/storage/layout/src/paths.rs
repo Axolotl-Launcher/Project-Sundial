@@ -15,6 +15,7 @@ pub enum WorkerLibrary {
     Accounts,
     JavaDiscovery,
     InstanceSettings,
+    Install,
 }
 
 impl WorkerLibrary {
@@ -24,6 +25,7 @@ impl WorkerLibrary {
             Self::Accounts => "accounts",
             Self::JavaDiscovery => "java-discovery",
             Self::InstanceSettings => "instance-settings",
+            Self::Install => "install",
         }
     }
 

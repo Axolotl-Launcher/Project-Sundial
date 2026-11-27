@@ -6,7 +6,7 @@ name = "axlauncher_install"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Installation planning and execution: resolving what a version needs, then writing it to disk with progress and recovery."
+description = "Game installation models, catalogs, readiness and authentication agent preparation"
 repository.workspace = true
 license.workspace = true
 
@@ -18,18 +18,12 @@ axlauncher_network = { workspace = true }
 axlauncher_network_spi = { workspace = true }
 axlauncher_spi = { workspace = true }
 axlauncher_storage = { workspace = true }
-futures = { workspace = true }
 hex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-tokio = { workspace = true }
-xz2 = { workspace = true }
-zip = { workspace = true, features = ["default"] }
 
 [dev-dependencies]
-axlauncher_download_engine = { workspace = true }
-sha1_smol = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

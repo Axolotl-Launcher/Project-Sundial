@@ -13,10 +13,14 @@ use axlauncher_worker::accounts::{Action, Change, Command, Method, Reply};
 use axlauncher_worker::downloads::{Route, Transfer};
 use axlauncher_worker::{Event, Images, Request, Service};
 
+#[path = "embedded_workers/installation.rs"]
+mod installation;
 #[path = "embedded_workers/java_discovery.rs"]
 mod java_discovery;
 #[path = "embedded_workers/settings.rs"]
 mod settings;
+#[path = "../apps/core/lib/installation/tests/stand_in.rs"]
+mod stand_in;
 
 const DEADLINE: Duration = Duration::from_secs(15);
 static IMAGES: OnceLock<Images> = OnceLock::new();
@@ -49,6 +53,7 @@ impl Fixture {
                     image("AXLAUNCHER_ACCOUNT_IMAGE"),
                     image("AXLAUNCHER_JAVA_DISCOVERY_IMAGE"),
                     image("AXLAUNCHER_INSTANCE_SETTINGS_IMAGE"),
+                    image("AXLAUNCHER_INSTALL_IMAGE"),
                 )
             }),
         }
@@ -113,6 +118,9 @@ async fn finish<Reply>(request: &mut Request<Reply>) -> Result<(), String> {
     loop {
         match request.next().await.unwrap() {
             Event::Finished(result) => return result,
+            Event::Disconnected => {
+                return Err("The worker exited before completing the request.".into());
+            }
             Event::Reply(_) => (),
         }
     }
@@ -194,7 +202,7 @@ fn account_worker_never_reuses_sessions_across_data_roots() {
 #[ignore = "run node scripts/desktop.ts smoke to supply the packaged desktop executable"]
 fn mismatched_worker_image_is_refused_and_removed() {
     let fixture = Fixture::new();
-    let wrong = Images::new(b"", b"not the embedded library", b"", b"");
+    let wrong = Images::new(b"", b"not the embedded library", b"", b"", b"");
     let worker = Service::<Reply>::for_executable(wrong.accounts, fixture.executable.clone());
     let request = worker.request(
         &fixture.data,
@@ -391,6 +399,12 @@ impl Drop for LocalFile {
     }
 }
 
+impl LocalFile {
+    fn finish(&mut self) {
+        let _ = self.release.take().unwrap().send(());
+    }
+}
+
 fn local_file(stall: bool) -> (String, LocalFile) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
@@ -408,11 +422,10 @@ fn local_file(stall: bool) -> (String, LocalFile) {
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\n")
             .unwrap();
         let _ = sender.send(());
-        if stall {
-            let _ = released.recv_timeout(DEADLINE);
-        } else {
-            stream.write_all(b"abc").unwrap();
+        if stall && released.recv_timeout(DEADLINE).is_err() {
+            return;
         }
+        let _ = stream.write_all(b"abc");
     });
     (
         url,

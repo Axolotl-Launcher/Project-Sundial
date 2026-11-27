@@ -23,15 +23,21 @@
 //! Nothing here decides *what* to run; that is the profile's job. The work is
 //! stateless against disk, so a failed install can be resumed.
 
+use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::time::Duration;
 
 use axlauncher_launch::classpath;
 use axlauncher_launch::rules::Target;
 use axlauncher_launch::version::{Processor, Version};
+use axlauncher_storage::GameDir;
+use axlauncher_worker::Cancellation;
 
+mod outputs;
 mod templates;
+use outputs::{Output, output_paths};
 use templates::{launcher_data, library_path, resolve_template};
 
 /// The manifest entry a jar's entry point is read from.
@@ -72,6 +78,11 @@ pub enum ProcessorError {
         /// Why.
         source: io::Error,
     },
+    Cancelled,
+    Output {
+        path: PathBuf,
+        reason: String,
+    },
 }
 
 impl std::fmt::Display for ProcessorError {
@@ -90,6 +101,8 @@ impl std::fmt::Display for ProcessorError {
             Self::Spawn { program, source } => {
                 write!(formatter, "cannot start {}: {source}", program.display())
             }
+            Self::Cancelled => formatter.write_str("Installation cancelled."),
+            Self::Output { path, reason } => write!(formatter, "{}: {reason}", path.display()),
         }
     }
 }
@@ -103,51 +116,21 @@ impl std::error::Error for ProcessorError {
     }
 }
 
-/// What a patch run produced.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Patched {
-    /// How many steps the profile listed for the client.
-    pub applicable: usize,
-    /// How many steps ran.
-    pub ran: usize,
-    /// How many were skipped because their outputs were current.
-    pub current: usize,
+struct Step {
+    main_class: String,
+    classpath: OsString,
+    args: Vec<OsString>,
+    outputs: Vec<Output>,
 }
 
-/// One step, resolved to everything needed to start it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Step {
-    /// The tool's entry point.
-    pub main_class: String,
-    /// The JVM classpath the tool runs with, already joined.
-    pub classpath: String,
-    /// The resolved arguments.
-    pub args: Vec<String>,
-    /// Whether the files this step writes are already current, in which case a
-    /// caller may skip it.
-    pub current: bool,
-}
-
-/// Resolves the profile's client processors into runnable steps.
-///
-/// This reads the filesystem (to decide whether a step is current) but starts
-/// nothing, so it is testable against a fixture tree and a caller can report
-/// what it is about to run before running it.
-pub fn plan(
-    libraries: &Path,
-    game_root: &Path,
-    instance_directory: &Path,
+fn plan(
+    game: &GameDir,
     game_version: &str,
     version: &Version,
     target: &Target,
 ) -> Result<Vec<Step>, ProcessorError> {
-    let values = launcher_data(
-        version,
-        game_root,
-        instance_directory,
-        game_version,
-        libraries,
-    );
+    let libraries = game.libraries();
+    let values = launcher_data(version, game.root(), game.root(), game_version, libraries);
     let mut steps = Vec::new();
     for processor in &version.processors {
         if !applies(processor) {
@@ -161,7 +144,7 @@ pub fn plan(
             main_class: read_main_class(&tool)?,
             classpath: processor_classpath(libraries, &tool, processor, target)?,
             args: processor_arguments(libraries, processor, version, &values)?,
-            current: outputs_are_current(processor, libraries, version, &values),
+            outputs: output_paths(processor, game, version, &values)?,
         });
     }
     Ok(steps)
@@ -172,54 +155,77 @@ pub fn plan(
 /// `java` is the executable the game itself will run on: a tool and the game
 /// share the runtime, and a version whose tools need a newer Java than the game
 /// states is a manifest error, not something to paper over.
-pub fn run(
+pub async fn run(
     java: &Path,
-    libraries: &Path,
-    game_root: &Path,
-    working_directory: &Path,
+    game: &GameDir,
     game_version: &str,
     version: &Version,
     target: &Target,
-) -> Result<Patched, ProcessorError> {
-    let steps = plan(
-        libraries,
-        game_root,
-        working_directory,
-        game_version,
-        version,
-        target,
-    )?;
-    let mut result = Patched {
-        applicable: steps.len(),
-        ..Patched::default()
-    };
-
-    for step in steps {
-        if step.current {
-            result.current += 1;
+    retry: bool,
+    cancel: &Cancellation,
+) -> Result<(), ProcessorError> {
+    for step in plan(game, game_version, version, target)? {
+        if !cancel.is_pending() {
+            return Err(ProcessorError::Cancelled);
+        }
+        if !step.outputs.is_empty() && step.outputs.iter().all(|output| output.current(retry)) {
             continue;
         }
-        execute(java, working_directory, &step)?;
-        result.ran += 1;
+        withdraw_stale_outputs(&step, game, retry)?;
+        execute(java, game.root(), &step, cancel).await?;
+        for output in &step.outputs {
+            output.verify()?;
+        }
     }
-    Ok(result)
+    Ok(())
+}
+
+fn withdraw_stale_outputs(step: &Step, game: &GameDir, retry: bool) -> Result<(), ProcessorError> {
+    if !retry {
+        return Ok(());
+    }
+    for output in &step.outputs {
+        if output.current(true) {
+            continue;
+        }
+        output.withdraw(game)?;
+    }
+    Ok(())
 }
 
 /// Starts one resolved step and waits for it.
-fn execute(java: &Path, working_directory: &Path, step: &Step) -> Result<(), ProcessorError> {
-    let status = Command::new(java)
+async fn execute(
+    java: &Path,
+    working_directory: &Path,
+    step: &Step,
+    cancel: &Cancellation,
+) -> Result<(), ProcessorError> {
+    let mut command = Command::new(java);
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = command
         .current_dir(working_directory)
         .arg("-cp")
         .arg(&step.classpath)
         .arg(&step.main_class)
         .args(&step.args)
-        .status()
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
         .map_err(|source| ProcessorError::Spawn {
             program: java.to_path_buf(),
             source,
         })?;
 
-    if status.success() {
+    let status = wait(&mut child, cancel).await;
+    if !cancel.is_pending() {
+        Err(ProcessorError::Cancelled)
+    } else if status.success() {
         Ok(())
     } else {
         Err(ProcessorError::Failed {
@@ -229,103 +235,31 @@ fn execute(java: &Path, working_directory: &Path, step: &Step) -> Result<(), Pro
     }
 }
 
+async fn wait(child: &mut Child, cancel: &Cancellation) -> ExitStatus {
+    const POLL_INTERVAL: Duration = Duration::from_millis(20);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status,
+            Ok(None) if cancel.is_pending() => {
+                tokio::select! {
+                    () = tokio::time::sleep(POLL_INTERVAL) => (),
+                    () = cancel.cancelled() => (),
+                }
+                continue;
+            }
+            _ => (),
+        }
+        let _ = child.kill();
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
 /// Whether a step belongs to the client the launcher starts.
 fn applies(processor: &Processor) -> bool {
     match &processor.sides {
         None => true,
         Some(sides) => sides.iter().any(|side| side == CLIENT),
     }
-}
-
-/// Whether every file the step writes already exists.
-///
-/// A step with no `outputs` cannot prove it is current, so it runs: the format
-/// treats an absent list as "always run", and guessing would skip real work.
-/// One tool is the exception, because its own command line names its output:
-/// a `binarypatcher` step states `--output {PATCHED}` and nothing else, and
-/// without reading that the most expensive step would rerun on every launch.
-fn outputs_are_current(
-    processor: &Processor,
-    libraries: &Path,
-    version: &Version,
-    values: &[(&str, String)],
-) -> bool {
-    // An `outputs` map is keyed by the file the step writes and holds that
-    // file's digest as its value, so the keys are what must exist on disk. The
-    // value is the installer's own answer for what the file must contain, and a
-    // step interrupted mid-write leaves a file that exists but does not match:
-    // checking existence alone would treat that file as finished work.
-    let declared: Vec<(&String, Option<&String>)> = if processor.outputs.is_empty() {
-        inferred_outputs(processor)
-            .into_iter()
-            .map(|path| (path, None))
-            .collect()
-    } else {
-        processor
-            .outputs
-            .iter()
-            .map(|(path, sha)| (path, Some(sha)))
-            .collect()
-    };
-    if declared.is_empty() {
-        return false;
-    }
-    declared.into_iter().all(|(template, sha)| {
-        let Ok(path) = resolve_template(template, libraries, version, values) else {
-            return false;
-        };
-        // The digest is a template as well: installers state it as
-        // `{MC_SLIM_SHA}`, whose value is the hex digest the file must have.
-        let sha = sha
-            .and_then(|sha| resolve_template(sha, libraries, version, values).ok())
-            .filter(|sha| is_digest(sha));
-        output_is_current(Path::new(&path), sha.as_deref())
-    })
-}
-
-/// Whether one declared output is on disk and, when a digest was stated, matches.
-///
-/// Existence alone is not proof of finished work: a step interrupted mid-write
-/// leaves a file that exists but does not hold what the installer says it
-/// should, and a later install would skip the step that repairs it.
-fn output_is_current(path: &Path, sha: Option<&str>) -> bool {
-    if !path.is_file() {
-        return false;
-    }
-    let Some(sha) = sha else {
-        return true;
-    };
-    std::fs::read(path).is_ok_and(|bytes| axlauncher_network::verify(&bytes, sha))
-}
-
-/// Whether `value` is a bare SHA-1 digest rather than a template.
-fn is_digest(value: &str) -> bool {
-    value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
-}
-
-/// The outputs a step names on its own command line instead of in `outputs`.
-fn inferred_outputs(processor: &Processor) -> Vec<&String> {
-    if !is_binary_patcher(processor) {
-        return Vec::new();
-    }
-    processor
-        .args
-        .windows(2)
-        .filter(|pair| pair[0] == OUTPUT_FLAG)
-        .map(|pair| &pair[1])
-        .collect()
-}
-
-/// The flag a binary patcher names the jar it writes with.
-const OUTPUT_FLAG: &str = "--output";
-
-/// Whether a step runs the tool whose output argument is worth reading.
-fn is_binary_patcher(processor: &Processor) -> bool {
-    processor
-        .jar
-        .split(':')
-        .nth(1)
-        .is_some_and(|artifact| artifact.eq_ignore_ascii_case("binarypatcher"))
 }
 
 /// The classpath a step's tool runs with: the profile's list plus the tool's
@@ -342,7 +276,7 @@ fn processor_classpath(
     tool: &Path,
     processor: &Processor,
     target: &Target,
-) -> Result<String, ProcessorError> {
+) -> Result<OsString, ProcessorError> {
     let mut entries: Vec<PathBuf> = Vec::with_capacity(processor.classpath.len() + 1);
     for coordinate in &processor.classpath {
         entries.push(library_path(libraries, coordinate).ok_or_else(|| {
@@ -355,12 +289,12 @@ fn processor_classpath(
         entries.push(tool.to_path_buf());
     }
 
-    let joined = entries
+    let separator = classpath::separator(&target.os).to_string();
+    Ok(entries
         .iter()
-        .map(|entry| entry.display().to_string())
+        .map(|entry| entry.as_os_str())
         .collect::<Vec<_>>()
-        .join(&classpath::separator(&target.os).to_string());
-    Ok(joined)
+        .join(std::ffi::OsStr::new(&separator)))
 }
 
 /// The step's arguments, with every template resolved.
@@ -368,8 +302,8 @@ fn processor_arguments(
     libraries: &Path,
     processor: &Processor,
     version: &Version,
-    values: &[(&str, String)],
-) -> Result<Vec<String>, ProcessorError> {
+    values: &[(&str, OsString)],
+) -> Result<Vec<OsString>, ProcessorError> {
     processor
         .args
         .iter()
@@ -409,5 +343,5 @@ fn read_main_class(jar: &Path) -> Result<String, ProcessorError> {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/core/install/src/processors/tests.rs"]
+#[path = "../../../../../tests/apps/core/lib/installation/src/processors.rs"]
 mod tests;

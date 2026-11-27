@@ -82,5 +82,5 @@ pub(super) fn matches(directory: &Path, recorded: &Record) -> bool {
 }
 
 #[cfg(test)]
-#[path = "../../../../../tests/apps/core/install/src/runtime/record.rs"]
+#[path = "../../../../../../tests/apps/core/lib/installation/src/runtime/record.rs"]
 mod tests;

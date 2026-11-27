@@ -40,8 +40,9 @@ impl Downloads {
         }
         let network = self.network(transfer.route())?;
         let direct = Direct(&network);
-        let sources = transfer.sources();
-        let operation = direct.download(transfer.job(&sources), transfer.digest());
+        let file = transfer.file();
+        let sources = file.sources();
+        let operation = direct.download(file.job(&sources), file.digest());
         let result = self.run(operation, reply, cancel).await;
         reply.status(DownloadEngine::shared().stats());
         result

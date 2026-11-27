@@ -1,46 +1,27 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::cell::Cell;
-
 use super::*;
+use axlauncher_launch::{Java, JavaMode};
 
-fn installed_document(json: &str) -> Version {
+#[test]
+fn provisioned_java_requires_a_managed_receipt_and_returns_refreshed_preferences() {
+    use axlauncher_storage::Document;
     let root = tempfile::tempdir().unwrap();
     let data = DataDir::isolated(root.path()).unwrap();
-    let document = data
-        .game()
-        .version_path("1.21", axlauncher_storage::VersionPath::Document);
-    std::fs::create_dir_all(document.parent().unwrap()).unwrap();
-    std::fs::write(document, json).unwrap();
-    version::load(data.game(), "1.21").unwrap()
-}
-
-#[test]
-fn a_document_without_java_version_fetches_nothing() {
-    let document = installed_document(r#"{"id":"1.21"}"#);
-    let required = missing_java(&document, |_| {
-        panic!("a version stating no major must not ask")
-    });
-    assert_eq!(required, None);
-}
-
-#[test]
-fn a_major_with_a_runtime_fetches_nothing() {
-    let document = installed_document(r#"{"id":"1.21","javaVersion":{"majorVersion":21}}"#);
-    let asked = Cell::new(None);
-    let required = missing_java(&document, |major| {
-        asked.set(Some(major));
-        true
-    });
-    assert_eq!(required, None);
-    assert_eq!(asked.get(), Some(21));
-}
-
-#[test]
-fn a_major_without_a_runtime_asks_for_that_major() {
-    let document = installed_document(r#"{"id":"1.21","javaVersion":{"majorVersion":21}}"#);
-    assert_eq!(missing_java(&document, |_| false), Some(21));
+    let outside = test_runtime(&root.path().join("external"), 21);
+    assert!(register_provisioned(&data, &outside, 21).is_err());
+    let component = data.path(DataPath::JavaVersions).join("test-runtime");
+    let runtime = test_runtime(&component, 21);
+    assert!(register_provisioned(&data, &runtime, 21).is_err());
+    std::fs::write(Document::RuntimeReceipt.path(&component), "{}").unwrap();
+    assert!(register_provisioned(&data, &runtime, 17).is_err());
+    let (paths, chosen) = register_provisioned(&data, &runtime, 21)
+        .unwrap()
+        .into_paths();
+    let runtime = JavaRuntime::inspect(&runtime).unwrap();
+    assert_eq!(paths, [runtime.path()]);
+    assert_eq!(chosen, [(21, runtime.path().to_owned())]);
 }
 
 pub(in crate::desktop) fn test_runtime(home: &Path, major: u32) -> PathBuf {

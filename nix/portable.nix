@@ -10,6 +10,7 @@
   pkgs,
   version,
   meta,
+  smokeInstall,
 }:
 pkgs.runCommand "axlauncher-portable-${version}"
   {
@@ -86,6 +87,14 @@ pkgs.runCommand "axlauncher-portable-${version}"
         ./probe "$out/bin/axlauncher" --axlauncher-worker java-discovery \
           "$scratch/libjava-discovery.so" > "$scratch/reply"
       printf '\007\000\000\000"Ready"' | cmp - "$scratch/reply"
+
+      ${smokeInstall}
+      image="${newest.installImage}/libinstall.so"
+      if readelf -d "$image" | grep -q 'NEEDED.*liblzma'; then
+        echo "The embedded installer links a non-bundled liblzma" >&2
+        exit 1
+      fi
+      smoke_install "$out/bin/axlauncher" "$image"
 
       install -Dm644 resolved.txt "$out/share/doc/linked-libraries.txt"
       # Every step above runs only if the heredoc closed; the doc file proves it did.

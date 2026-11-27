@@ -23,7 +23,7 @@ use axlauncher_storage::{Document, write_atomic};
 use futures::stream::{self, StreamExt};
 use serde::Deserialize;
 
-use crate::prepare::Progress;
+use axlauncher_install::prepare::Progress;
 
 mod record;
 
@@ -482,5 +482,5 @@ fn fetch_error(url: &str, source: FetchError) -> RuntimeError {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/core/install/src/runtime.rs"]
+#[path = "../../../../../tests/apps/core/lib/installation/src/runtime.rs"]
 mod tests;

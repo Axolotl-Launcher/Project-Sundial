@@ -67,6 +67,7 @@ in
       outputs = [
         "out"
         "workerProbe"
+        "installImage"
       ];
       installPhase = common.installPhase + ''
         install -Dm644 target/release/libaxlauncher_java_discovery.so \
@@ -74,6 +75,7 @@ in
       '';
       postFixup = ''
         patchelf --add-rpath '${storeRpath}' "$out/bin/axlauncher"
+        install -Dm644 libinstall.so "$installImage/libinstall.so"
       '';
     }
   );

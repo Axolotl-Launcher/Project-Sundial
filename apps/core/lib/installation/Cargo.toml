@@ -1,0 +1,33 @@
+[package]
+name = "axlauncher_install_runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Execution of Minecraft installations in the embedded worker and standalone tools"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+axlauncher_download_spi = { workspace = true }
+axlauncher_install = { workspace = true }
+axlauncher_launch = { workspace = true }
+axlauncher_loader = { workspace = true }
+axlauncher_network = { workspace = true }
+axlauncher_network_spi = { workspace = true }
+axlauncher_spi = { workspace = true }
+axlauncher_storage = { workspace = true }
+axlauncher_worker = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+xz2 = { workspace = true, features = ["static"] }
+zip = { workspace = true, features = ["default"] }
+
+[dev-dependencies]
+axlauncher_download_engine = { workspace = true }
+sha1_smol = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

@@ -96,6 +96,7 @@ async function main(args: string[]): Promise<number> {
   let accounts = await library("axlauncher_accounts", profile);
   let javaDiscovery = await library("axlauncher_java_discovery", profile);
   let instanceSettings = await library("axlauncher_instance_settings", profile);
+  let install = await library("axlauncher_install_runtime", profile);
   const identity = process.platform === "darwin" ? process.env.AXLAUNCHER_MACOS_SIGN_IDENTITY : undefined;
   const staging = identity ? mkdtempSync(join(tmpdir(), "axlauncher-sign-")) : undefined;
   try {
@@ -104,6 +105,7 @@ async function main(args: string[]): Promise<number> {
       accounts = sign(accounts, identity, staging);
       javaDiscovery = sign(javaDiscovery, identity, staging);
       instanceSettings = sign(instanceSettings, identity, staging);
+      install = sign(install, identity, staging);
     }
     const env = {
       ...process.env,
@@ -111,6 +113,7 @@ async function main(args: string[]): Promise<number> {
       AXLAUNCHER_ACCOUNT_IMAGE: accounts,
       AXLAUNCHER_JAVA_DISCOVERY_IMAGE: javaDiscovery,
       AXLAUNCHER_INSTANCE_SETTINGS_IMAGE: instanceSettings,
+      AXLAUNCHER_INSTALL_IMAGE: install,
     };
     if (mode === "exec") {
       const [command, ...parameters] = rest;

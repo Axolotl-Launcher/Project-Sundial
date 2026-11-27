@@ -24,7 +24,9 @@ axlauncher_core = { workspace = true }
 axlauncher_domain = { workspace = true }
 axlauncher_download_spi = { workspace = true }
 axlauncher_install = { workspace = true }
+axlauncher_install_runtime = { workspace = true }
 axlauncher_launch = { workspace = true }
+axlauncher_network = { workspace = true }
 axlauncher_network_spi = { workspace = true }
 axlauncher_spi = { workspace = true }
 axlauncher_state = { workspace = true }

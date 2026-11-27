@@ -275,7 +275,7 @@ fn missing_assets_skips_a_correct_object() {
 }
 
 #[test]
-fn a_virtual_index_copies_objects_into_its_flat_tree() {
+fn a_virtual_index_plans_copies_into_its_flat_tree() {
     let root = tempfile::tempdir().unwrap();
     let hash = "0123456789abcdef0123456789abcdef01234567";
     write_file(root.path(), &format!("assets/objects/01/{hash}"), ABC);
@@ -291,17 +291,18 @@ fn a_virtual_index_copies_objects_into_its_flat_tree() {
         ..AssetIndexDocument::default()
     };
 
-    let failures = materialise_flat(&GameDir::standalone(root.path()), "legacy", &index);
-
-    assert!(failures.is_empty(), "{failures:?}");
     let flat = root
         .path()
         .join("assets/virtual/legacy/minecraft/sounds/a.ogg");
-    assert_eq!(fs::read(&flat).expect("flat copy"), ABC);
+    let game = GameDir::standalone(root.path());
+    assert_eq!(
+        missing_flat_copies(&game, "legacy", &index).collect::<Vec<_>>(),
+        [(flat, hash)]
+    );
 }
 
 #[test]
-fn a_map_to_resources_index_copies_into_resources() {
+fn a_map_to_resources_index_plans_copies_into_resources() {
     let root = tempfile::tempdir().unwrap();
     let hash = "0123456789abcdef0123456789abcdef01234567";
     write_file(root.path(), &format!("assets/objects/01/{hash}"), ABC);
@@ -317,10 +318,12 @@ fn a_map_to_resources_index_copies_into_resources() {
         ..AssetIndexDocument::default()
     };
 
-    materialise_flat(&GameDir::standalone(root.path()), "pre-1.6", &index);
-
     let flat = root.path().join("resources").join("sound").join("a.ogg");
-    assert_eq!(fs::read(&flat).expect("flat copy"), ABC);
+    let game = GameDir::standalone(root.path());
+    assert_eq!(
+        missing_flat_copies(&game, "pre-1.6", &index).collect::<Vec<_>>(),
+        [(flat, hash)]
+    );
 }
 
 #[test]
@@ -328,7 +331,11 @@ fn a_modern_index_asks_for_no_flat_tree() {
     let root = tempfile::tempdir().unwrap();
     let index = AssetIndexDocument::default();
 
-    assert!(materialise_flat(&GameDir::standalone(root.path()), "34", &index).is_empty());
+    assert!(
+        missing_flat_copies(&GameDir::standalone(root.path()), "34", &index)
+            .next()
+            .is_none()
+    );
     assert!(!root.path().join("assets/virtual").exists());
     assert!(!root.path().join("resources").exists());
 }
@@ -351,10 +358,9 @@ fn a_flat_tree_is_not_rebuilt_when_it_is_current() {
         ..AssetIndexDocument::default()
     };
 
-    materialise_flat(&GameDir::standalone(root.path()), "legacy", &index);
-
-    // The destination is untouched: it already had the right size, so a
-    // second pass did not need to read the object at all.
-    let flat = root.path().join("assets/virtual/legacy/a.ogg");
-    assert_eq!(fs::read(&flat).expect("flat copy"), ABC);
+    assert!(
+        missing_flat_copies(&GameDir::standalone(root.path()), "legacy", &index)
+            .next()
+            .is_none()
+    );
 }

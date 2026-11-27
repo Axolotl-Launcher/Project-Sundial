@@ -22,9 +22,15 @@ let
   # the filtered path is a derivation, and reading it would make evaluation
   # depend on building it, which `nix flake check --no-build` refuses.
   manifest = lib.importTOML ../Cargo.toml;
+  smokeInstall = ''
+    smoke_install() {
+      printf '\012\000\000\000"Shutdown"' | "$1" --axlauncher-worker install "$2" > install-ready.frame
+      printf '\007\000\000\000"Ready"' | cmp - install-ready.frame
+    }
+  '';
 in
 {
-  inherit src;
+  inherit src smokeInstall;
 
   version = manifest.workspace.package.version;
 
@@ -59,6 +65,8 @@ in
         --lib --crate-type cdylib
       cargo rustc --locked --offline --release -p axlauncher_instance_settings \
         --lib --crate-type cdylib
+      cargo rustc --locked --offline --release -p axlauncher_install_runtime \
+        --lib --crate-type cdylib
 
       ${lib.optionalString patchImages ''
         patchelf --set-rpath "" target/release/libaxlauncher_download_engine.so
@@ -66,13 +74,19 @@ in
         patchelf --set-rpath "" target/release/libaxlauncher_java_discovery.so
         patchelf --set-rpath "" target/release/libaxlauncher_instance_settings.so
       ''}
+      patchelf --set-rpath "" target/release/libaxlauncher_install_runtime.so
 
       export AXLAUNCHER_DOWNLOAD_IMAGE="$PWD/target/release/libaxlauncher_download_engine.so"
       export AXLAUNCHER_ACCOUNT_IMAGE="$PWD/target/release/libaxlauncher_accounts.so"
       export AXLAUNCHER_JAVA_DISCOVERY_IMAGE="$PWD/target/release/libaxlauncher_java_discovery.so"
       export AXLAUNCHER_INSTANCE_SETTINGS_IMAGE="$PWD/target/release/libaxlauncher_instance_settings.so"
+      export AXLAUNCHER_INSTALL_IMAGE="$PWD/target/release/libaxlauncher_install_runtime.so"
 
       cargo build --locked --offline --release -p axlauncher_platform_linux --bin axlauncher
+
+      cp "$AXLAUNCHER_INSTALL_IMAGE" "$PWD/libinstall.so"
+      ${smokeInstall}
+      smoke_install "$PWD/target/release/axlauncher" "$PWD/libinstall.so"
 
       runHook postBuild
     '';

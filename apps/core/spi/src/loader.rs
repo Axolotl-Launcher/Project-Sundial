@@ -23,7 +23,9 @@ use std::future::Future;
 use axlauncher_network_spi::FetchError;
 
 /// Which mod loader a provider implements.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Deserialize, serde::Serialize,
+)]
 pub enum LoaderKind {
     Fabric,
     LegacyFabric,
