@@ -28,6 +28,7 @@ static IMAGES: OnceLock<Images> = OnceLock::new();
 struct Fixture {
     root: tempfile::TempDir,
     executable: PathBuf,
+    source_executable: PathBuf,
     data: DataDir,
     images: Images,
 }
@@ -37,7 +38,7 @@ impl Fixture {
         let root = tempfile::tempdir().unwrap();
         let executable = PathBuf::from(std::env::var_os("AXLAUNCHER_SMOKE_EXE").unwrap());
         let copied = root.path().join(executable.file_name().unwrap());
-        fs::copy(executable, &copied).unwrap();
+        fs::copy(&executable, &copied).unwrap();
         assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
         let mut data = DataDir::isolated(root.path().join("profile root 雪")).unwrap();
         let temp = root.path().join("unavailable temp directory");
@@ -46,6 +47,7 @@ impl Fixture {
         Self {
             root,
             executable: copied,
+            source_executable: executable,
             data,
             images: *IMAGES.get_or_init(|| {
                 Images::new(

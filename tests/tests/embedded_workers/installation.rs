@@ -61,7 +61,7 @@ fn embedded_install_relays_files_and_drains_only_its_own_writes() {
         .unwrap();
     fixture
         .images
-        .configure_for_executable(fixture.executable.clone());
+        .configure_for_executable(fixture.source_executable.clone());
     assert!(!fixture.has_extracted_libraries());
     let launch = fixture.data.game().lock(GameAccess::Launch).unwrap();
     let downloads = Downloads::new(fixture.data.clone(), Route::default());
