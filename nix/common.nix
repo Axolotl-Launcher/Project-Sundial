@@ -84,11 +84,17 @@ in
       ''}
       patchelf --set-rpath "" target/release/libaxlauncher_install_runtime.so
 
-      export AXLAUNCHER_DOWNLOAD_IMAGE="$PWD/target/release/libaxlauncher_download_engine.so"
-      export AXLAUNCHER_ACCOUNT_IMAGE="$PWD/target/release/libaxlauncher_accounts.so"
-      export AXLAUNCHER_JAVA_DISCOVERY_IMAGE="$PWD/target/release/libaxlauncher_java_discovery.so"
-      export AXLAUNCHER_INSTANCE_SETTINGS_IMAGE="$PWD/target/release/libaxlauncher_instance_settings.so"
-      export AXLAUNCHER_INSTALL_IMAGE="$PWD/target/release/libaxlauncher_install_runtime.so"
+      cp "$PWD/target/release/libaxlauncher_download_engine.so" "$PWD/libdownload.so"
+      cp "$PWD/target/release/libaxlauncher_accounts.so" "$PWD/libaccounts.so"
+      cp "$PWD/target/release/libaxlauncher_java_discovery.so" "$PWD/libjava-discovery.so"
+      cp "$PWD/target/release/libaxlauncher_instance_settings.so" "$PWD/libinstance-settings.so"
+      cp "$PWD/target/release/libaxlauncher_install_runtime.so" "$PWD/libinstall.so"
+
+      export AXLAUNCHER_DOWNLOAD_IMAGE="$PWD/libdownload.so"
+      export AXLAUNCHER_ACCOUNT_IMAGE="$PWD/libaccounts.so"
+      export AXLAUNCHER_JAVA_DISCOVERY_IMAGE="$PWD/libjava-discovery.so"
+      export AXLAUNCHER_INSTANCE_SETTINGS_IMAGE="$PWD/libinstance-settings.so"
+      export AXLAUNCHER_INSTALL_IMAGE="$PWD/libinstall.so"
 
       # include_bytes! does not fingerprint the image contents, so a cached
       # platform binary can retain an older worker image. Invalidate the
@@ -98,7 +104,6 @@ in
       cargo build --locked --offline --release -p axlauncher_platform_linux --bin axlauncher
 
       ${lib.optionalString smoke ''
-        cp "$AXLAUNCHER_INSTALL_IMAGE" "$PWD/libinstall.so"
         ${smokeInstall}
         smoke_install "$PWD/target/release/axlauncher" "$PWD/libinstall.so"
       ''}

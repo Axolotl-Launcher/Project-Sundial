@@ -75,7 +75,7 @@ in
         install -Dm644 libinstall.so "$installImage/libinstall.so"
         # Install the probe after fixup so it keeps the exact bytes embedded
         # in the platform binary.
-        install -Dm644 target/release/libaxlauncher_java_discovery.so \
+        install -Dm644 libjava-discovery.so \
           "$workerProbe/java-discovery-image"
       '';
     }
