@@ -2,8 +2,10 @@
 
 pub mod accounts;
 pub mod downloads;
+#[path = "workers/installation.rs"]
 pub mod installation;
 pub mod instance_settings;
+#[path = "workers/java_discovery.rs"]
 pub mod java_discovery;
 
 mod account_client;
@@ -15,6 +17,7 @@ mod path;
 mod process;
 mod protocol;
 mod server;
+#[path = "workers/settings_client.rs"]
 mod settings_client;
 
 pub use account_client::DesktopAccounts;

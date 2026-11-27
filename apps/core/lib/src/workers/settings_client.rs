@@ -90,5 +90,5 @@ async fn receive(mut next: impl AsyncFnMut() -> Option<Event<Reply>>) -> Result<
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/core/lib/src/settings_client.rs"]
+#[path = "../../../../../tests/apps/core/lib/src/settings_client.rs"]
 mod tests;

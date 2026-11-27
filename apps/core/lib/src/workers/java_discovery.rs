@@ -75,5 +75,5 @@ async fn collect(
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/core/lib/src/java_discovery.rs"]
+#[path = "../../../../../tests/apps/core/lib/src/java_discovery.rs"]
 mod tests;

@@ -1,4 +1,5 @@
-//! The installation worker receives only the paths and public preferences it needs.
+//! The installation worker receives only the paths and public preferences it
+//! needs, and answers through correlated host callbacks.
 
 use std::path::PathBuf;
 
