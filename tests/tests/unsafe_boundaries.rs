@@ -5,9 +5,19 @@ use syn::visit::{self, Visit};
 use syn::{Attribute, Signature};
 
 const NATIVE: &str = "apps/core/lib/src/native.rs";
-const EXPORTS: &[&str] = &[
-    "apps/core/lib/accounts/src/worker.rs",
-    "apps/core/lib/download_engine/src/worker.rs",
+const EXPORTS: &[(&str, &str)] = &[
+    (
+        "apps/core/lib/accounts/src/worker.rs",
+        "axlauncher_accounts_v1",
+    ),
+    (
+        "apps/core/lib/download_engine/src/worker.rs",
+        "axlauncher_downloads_v1",
+    ),
+    (
+        "apps/core/lib/java_discovery/src/worker.rs",
+        "axlauncher_java_discovery_v1",
+    ),
 ];
 
 #[test]
@@ -53,11 +63,9 @@ struct Boundary<'a> {
 
 impl Boundary<'_> {
     fn permits_export(&self) -> bool {
-        EXPORTS.contains(&self.file)
-            && matches!(
-                self.function.as_deref(),
-                Some("axlauncher_accounts_v1" | "axlauncher_downloads_v1")
-            )
+        self.function
+            .as_deref()
+            .is_some_and(|function| EXPORTS.contains(&(self.file, function)))
     }
 
     fn permits_loading(&self) -> bool {

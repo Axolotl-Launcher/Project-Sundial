@@ -383,27 +383,6 @@ fn a_choice_replaced_with_a_different_major_falls_back_to_another_installation()
 }
 
 #[test]
-fn conventional_scanning_respects_the_directory_depth_and_handles_bundles() {
-    let temp = TempDir::new();
-    let nested = temp.path().join("component/platform/runtime");
-    install_fixture(&nested, "21.0.1");
-    let mac = temp.path().join("temurin.jdk/Contents/Home");
-    install_fixture(&mac, "17.0.1");
-    let mojang = temp
-        .path()
-        .join("gamma/mac-os/gamma/jre.bundle/Contents/Home");
-    install_fixture(&mojang, "21.0.1");
-    jdk_home(&temp.path().join("too/many/levels/deep"), "25.0.1");
-    let mut found = Vec::new();
-    discovery::scan(temp.path(), 3, &mut found);
-    let name = executable_name(JavaMode::Console);
-    assert_eq!(found.len(), 3);
-    assert!(found.contains(&nested.join("bin").join(name)));
-    assert!(found.contains(&mac.join("bin").join(name)));
-    assert!(found.contains(&mojang.join("bin").join(name)));
-}
-
-#[test]
 fn the_bundled_java_eight_executable_uses_the_enclosing_jdk_release() {
     let temp = TempDir::new();
     install_fixture(temp.path(), "1.8.0_392");
@@ -436,6 +415,11 @@ fn a_wpsystem_runtime_is_skipped_automatically_and_available_when_registered() {
     let provider = SystemJava::with_environment(Some(home), None);
 
     assert!(provider.discover().is_empty());
+    assert!(
+        provider
+            .discover_with_candidates([executable.clone()])
+            .is_empty()
+    );
     assert_eq!(provider.executable(JavaMode::Console), None);
     assert_eq!(provider.executable_for(25, JavaMode::Console), None);
     assert_eq!(

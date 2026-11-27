@@ -48,6 +48,7 @@ path = [
   "scripts/desktop.ts",
   "tests/apps/core/lib/**",
   "tests/tests/embedded_workers.rs",
+  "tests/tests/embedded_workers/**",
   "tests/tests/unsafe_boundaries.rs",
 ]
 SPDX-FileCopyrightText = "2026 Axolotl Team"

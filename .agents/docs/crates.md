@@ -17,12 +17,12 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 | Settings and instance manifests | `state` owns settings, `.axlprofile` creation and discovery, install status and runtime selections. | Use `load_settings` and `update_settings` for settings. Use `profile::create`, `profile::discover` and `profile::scan_resources` for instances; use `profile::mark_installed` or `profile::mark_failed` for install outcomes. `StateStore` serves the separate ID-based `InstanceRecord` API. |
 | File downloads | `download_engine` schedules connections and ranges, manages shared bandwidth and buffers, tries alternate sources and verifies files before promotion. | Inject `download_spi::FileDownloader`. The desktop client uses the shared download worker; the standalone converter explicitly injects `download_engine::Direct`. |
 | Installation files and asset indexes | `install` checks for missing libraries and assets, handles Minecraft metadata, and prepares the pinned third-party authentication agent. | Use `prepare::prepare` for game files and `auth_agent::prepare` for the Java agent. Both take `FileDownloader`. Java runtime acquisition uses its separate existing transport. The SPI `Installer` accepts an `InstallPlan`. Its current `StepInstaller` implementation is a stub. |
-| Embedded service libraries and processes | `worker` owns native loading, process and request lifetimes, and the local wire protocol. `storage` owns the scratch layout. | Desktop shells embed the two target artifacts and dispatch worker mode before GPUI. Desktop clients share the same process manager and never link to either implementation. |
+| Embedded service libraries and processes | `worker` owns native loading, process and request lifetimes, and the local wire protocol. `storage` owns the scratch layout. | Desktop shells embed the three target artifacts and dispatch worker mode before GPUI. Desktop clients share the same process manager and never link to the worker implementations. |
 | Mod loader metadata services | `loader` lists versions and resolves version profiles through an injected `Network`. | `loader::provider` selects the `ModLoader` implementation for both catalog and install. `install` places the resulting profile and handles installation processors. |
 | Minecraft version naming | `mc_version` classifies Mojang catalog entries and matches the Maven versions published for each Forge or NeoForge game line. It has no I/O. | Call `core::mc_version::classify_java` for catalog classification. The loader uses `MavenTarget` for both listing and installation. Standalone tools may explicitly wrap `BuiltinJavaVersionParser` with the SPI fallback; the launcher installs no fallback parser. |
 | Game version documents, classpath, JARs and natives | `launch` reads version files and JARs, evaluates launch rules and extracts natives. | Use `flow::launch` for prepared installations. Installation planning reuses `version::Version`, the library model and `rules::Target` to decide what to download. |
 | Installation processors | `install` plans and runs the Java processors declared in a version profile. | Use `install::processors` for installation steps. Use `Launcher` to start a game. |
-| Java discovery and game processes | `launch` provides `SystemJava` and `ProcessLauncher`. | Resolve the runtime through `Java::executable`. Pass the prepared `LaunchCommand` to `Launcher::launch`. |
+| Java runtimes and game processes | `java_discovery` enumerates system-wide candidates from storage's roots and registry results. `launch` validates paths, selects Java and provides `ProcessLauncher`. `state` owns the Java catalog. | Use `core::desktop::java` to list or discover runtimes. Resolve a runtime through `Java::executable`. Pass the prepared `LaunchCommand` to `Launcher::launch`. |
 | Event output | `telemetry` implements the event sink. | Call `Telemetry::record(Event)`. Command metrics belong to `observability`. |
 | Desktop UI and startup environment | `ui` directly depends on gpui-kit. `frontend` wires the window, displays the active paths, and passes directory changes to storage. | Frontend code imports components through `axlauncher_ui` and calls system APIs through `core`. Platform shells call `frontend::run`. |
 | Selected modpack archives | `modpack` reads the user-selected archive and interprets the manifest and payload, including portable MultiMC instance exports with standard game components. | The [modpack service](../../apps/frontend/src/modpacks/service.rs) invokes the built-in plugin, executes its typed plan through the existing system APIs, and publishes the new profile through `state`. It accepts a progress callback. The desktop view owns subscriptions and presentation. |
@@ -38,8 +38,10 @@ progress redraw throttling, and view state stay in `frontend`.
 
 State persists one local Java list, per-major preferences and machine-local
 preferences keyed by portable profile ID. Launch and installation check the
-listed executables before use. The desktop Java catalog scans through `launch`
-when requested, or at application startup if the saved list is empty. Listed
+listed executables before use. The desktop Java catalog requests the discovery
+worker explicitly or at application startup if the saved list is empty. The
+worker only returns candidate paths. Core merges them with configured and
+managed candidates through `SystemJava` after the scan succeeds. Listed
 entries have the same operations regardless of how they were added. Storage
 resolves discovery roots, Windows registry locations and the catalog paths.
 Installation registers the specific runtime it provisions for Minecraft. Every
@@ -123,6 +125,7 @@ lookup for the destination.
 | `axlauncher_state` | [state](../../apps/core/state/src/lib.rs) | Launcher settings and instance persistence, plus the in-memory `StateStore` implementation. |
 | `axlauncher_accounts` | [accounts](../../apps/core/lib/accounts/src/lib.rs) | The account document, authentication and credential lifecycle. |
 | `axlauncher_download_engine` | [download_engine](../../apps/core/lib/download_engine/src/lib.rs) | Execution and progress reporting for file downloads. |
+| `axlauncher_java_discovery` | [java_discovery](../../apps/core/lib/java_discovery/src/lib.rs) | On-demand, read-only system Java candidate enumeration in an embedded worker. |
 | `axlauncher_worker` | [worker](../../apps/core/lib/src/lib.rs) | Verified native loading, request framing, and shared process lifetime. |
 | `axlauncher_install` | [install](../../apps/core/install/src/lib.rs) | Installation planning, metadata and preparation of game files before launch. |
 | `axlauncher_launch` | [launch](../../apps/core/launch/src/lib.rs) | Building and executing a command from prepared files. JAR extraction uses the crate-local `NativeReader` interface. |
@@ -154,6 +157,9 @@ lookup for the destination.
    State and launch may depend on storage for managed paths and atomic writes. Only
    storage may depend on its internal layout crate. The account
    and download workers use storage, network, and the shared worker protocol.
+   Java discovery uses storage for system locations, launch for executable
+   probes and validation, and the shared worker protocol for its only desktop
+   interface. No production crate links to the Java discovery implementation.
    Install uses the SPI for planned files, storage for installation paths
    and atomic writes, network for metadata digest verification and launch for
    the shared version model and rules. The loader calls `mc_version` for
@@ -168,11 +174,12 @@ lookup for the destination.
    with replaceable providers.
 
 `unsafe_code` is denied throughout the workspace. The only exceptions are the
-verified image loader and the two versioned C ABI exports; a policy test
+verified image loader and the three versioned C ABI exports; a policy test
 checks the exception sites. Account workers remain live for in-flight work,
 a pending profile selection, or sessions that have no recoverable credential
 in the system store. Otherwise the last request closes the child and releases
-its scratch files. Download batches hold one worker across file requests.
+its scratch files. Download batches hold one worker across file requests. Java
+discovery stays live only while a request is pending, without a lease.
 
 ## Proposing a boundary change
 

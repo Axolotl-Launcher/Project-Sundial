@@ -111,16 +111,3 @@ fn a_native_bundled_runtime_still_ranks_above_a_foreign_standalone_runtime() {
         bundled
     );
 }
-
-#[test]
-fn a_lookalike_does_not_hide_a_jdk_under_an_unrecognized_vendor() {
-    let root = TempDir::new();
-    let vendor = root.path().join("Example Vendor");
-    let lookalike = java_in(&vendor.join("bin"), JavaMode::Console);
-    let java = install_fixture(&vendor.join("Product 21"), "21.0.7");
-    let mut paths = Vec::new();
-    discovery::scan(root.path(), 3, &mut paths);
-
-    assert!(discovery::inspect_automatic(&lookalike).is_none());
-    assert!(paths.contains(&java));
-}

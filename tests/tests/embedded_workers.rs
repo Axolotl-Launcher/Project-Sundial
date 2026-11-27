@@ -4,6 +4,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use axlauncher_download_spi::DownloadJob;
@@ -12,7 +13,11 @@ use axlauncher_worker::accounts::{Action, Change, Command, Method, Reply};
 use axlauncher_worker::downloads::{Route, Transfer};
 use axlauncher_worker::{Event, Images, Request, Service};
 
+#[path = "embedded_workers/java_discovery.rs"]
+mod java_discovery;
+
 const DEADLINE: Duration = Duration::from_secs(15);
+static IMAGES: OnceLock<Images> = OnceLock::new();
 
 struct Fixture {
     root: tempfile::TempDir,
@@ -36,10 +41,13 @@ impl Fixture {
             root,
             executable: copied,
             data,
-            images: Images::new(
-                image("AXLAUNCHER_DOWNLOAD_IMAGE"),
-                image("AXLAUNCHER_ACCOUNT_IMAGE"),
-            ),
+            images: *IMAGES.get_or_init(|| {
+                Images::new(
+                    image("AXLAUNCHER_DOWNLOAD_IMAGE"),
+                    image("AXLAUNCHER_ACCOUNT_IMAGE"),
+                    image("AXLAUNCHER_JAVA_DISCOVERY_IMAGE"),
+                )
+            }),
         }
     }
 
@@ -87,11 +95,15 @@ fn image(variable: &str) -> &'static [u8] {
 }
 
 fn run<Output>(future: impl Future<Output = Output>) -> Output {
+    run_for(DEADLINE, future)
+}
+
+fn run_for<Output>(limit: Duration, future: impl Future<Output = Output>) -> Output {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()
         .build()
         .unwrap();
-    runtime.block_on(async { tokio::time::timeout(DEADLINE, future).await.unwrap() })
+    runtime.block_on(async { tokio::time::timeout(limit, future).await.unwrap() })
 }
 
 async fn finish<Reply>(request: &mut Request<Reply>) -> Result<(), String> {
@@ -179,7 +191,7 @@ fn account_worker_never_reuses_sessions_across_data_roots() {
 #[ignore = "run node scripts/desktop.ts smoke to supply the packaged desktop executable"]
 fn mismatched_worker_image_is_refused_and_removed() {
     let fixture = Fixture::new();
-    let wrong = Images::new(b"not the embedded library", b"not the embedded library");
+    let wrong = Images::new(b"", b"not the embedded library", b"");
     let worker = Service::<Reply>::for_executable(wrong.accounts, fixture.executable.clone());
     let request = worker.request(
         &fixture.data,

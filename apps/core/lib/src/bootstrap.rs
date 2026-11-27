@@ -9,19 +9,26 @@ use axlauncher_storage::WorkerLibrary;
 use crate::account_client;
 use crate::accounts::Reply;
 use crate::client::Service;
+use crate::java_discovery;
 use crate::native::{self, Image, WORKER_ARGUMENT};
 
 #[derive(Clone, Copy)]
 pub struct Images {
     pub downloads: Image,
     pub accounts: Image,
+    pub java_discovery: Image,
 }
 
 impl Images {
-    pub const fn new(downloads: &'static [u8], accounts: &'static [u8]) -> Self {
+    pub const fn new(
+        downloads: &'static [u8],
+        accounts: &'static [u8],
+        java_discovery: &'static [u8],
+    ) -> Self {
         Self {
             downloads: Image::new(WorkerLibrary::Downloads, downloads),
             accounts: Image::new(WorkerLibrary::Accounts, accounts),
+            java_discovery: Image::new(WorkerLibrary::JavaDiscovery, java_discovery),
         }
     }
 
@@ -30,10 +37,11 @@ impl Images {
         let executable =
             worker_executable().map_err(|error| format!("Could not locate the launcher: {error}"));
         crate::downloads::configure(self.downloads, executable.clone());
+        java_discovery::configure(self.java_discovery, executable.clone());
         account_client::configure(self.accounts, executable);
     }
 
-    /// Drains download and account workers off-thread, including ones already closing.
+    /// Drains embedded workers off-thread, including ones already closing.
     pub fn begin_shutdown() -> JoinHandle<()> {
         let accounts = account_client::take_workers();
         std::thread::spawn(move || drain_workers(accounts))
@@ -58,7 +66,7 @@ impl Images {
         else {
             return crate::server::startup_failed("invalid worker arguments");
         };
-        let Some(image) = [self.downloads, self.accounts]
+        let Some(image) = [self.downloads, self.accounts, self.java_discovery]
             .into_iter()
             .find(|image| image.matches(&kind))
         else {
@@ -70,6 +78,7 @@ impl Images {
 
 fn drain_workers(accounts: Vec<Arc<Service<Reply>>>) {
     crate::downloads::close();
+    java_discovery::close();
     for worker in &accounts {
         worker.close();
     }
@@ -77,6 +86,7 @@ fn drain_workers(accounts: Vec<Arc<Service<Reply>>>) {
         worker.close_and_wait();
     }
     crate::downloads::wait_closed();
+    java_discovery::wait_closed();
 }
 
 /// A launcher that starts the binary through a loader sets this, because

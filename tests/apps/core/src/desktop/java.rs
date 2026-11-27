@@ -61,6 +61,14 @@ pub(in crate::desktop) fn test_runtime(home: &Path, major: u32) -> PathBuf {
     path
 }
 
+fn scan_paths(
+    data: &DataDir,
+    only_if_empty: bool,
+    scan: impl FnOnce() -> Result<Vec<PathBuf>, String>,
+) -> Result<JavaCatalog, JavaCatalogError> {
+    discover_with(data, only_if_empty, scan, SystemJava::default)
+}
+
 #[test]
 fn a_registered_runtime_is_listed_and_used_for_automatic_selection() {
     let root = tempfile::tempdir().unwrap();
@@ -128,8 +136,10 @@ fn discovery_chooses_after_merging_the_whole_batch_and_keeps_existing_preference
     let other = test_runtime(&root.path().join("other"), 43);
     let [earlier, latest, other] =
         [earlier, latest, other].map(|path| JavaRuntime::inspect(&path).unwrap());
-    let initial = discover_with(&data, true, || {
-        vec![earlier.clone(), latest.clone(), other.clone()]
+    let initial = scan_paths(&data, true, || {
+        Ok([&earlier, &latest, &other]
+            .map(|runtime| runtime.path().to_owned())
+            .into())
     })
     .unwrap();
     assert_eq!(
@@ -138,7 +148,7 @@ fn discovery_chooses_after_merging_the_whole_batch_and_keeps_existing_preference
     );
 
     set_preferred(&data, 42, earlier.path()).unwrap();
-    let repeated = discover_with(&data, false, || vec![latest.clone()]).unwrap();
+    let repeated = scan_paths(&data, false, || Ok(vec![latest.path().to_owned()])).unwrap();
     assert_eq!(repeated.preferred().next(), Some((42, earlier.path())));
     assert!(remove(&data, earlier.path()).unwrap());
     let remaining = list(&data).unwrap();
@@ -175,16 +185,17 @@ fn startup_scans_only_for_an_empty_saved_list() {
     let data = DataDir::isolated(root.path()).unwrap();
     let path = test_runtime(&root.path().join("system"), 25);
     let runtime = JavaRuntime::inspect(&path).unwrap();
-    let startup = discover_with(&data, true, || vec![runtime.clone()]).unwrap();
+    let startup = scan_paths(&data, true, || Ok(vec![path.clone()])).unwrap();
     assert_eq!(startup.preferred().next(), Some((25, runtime.path())));
     std::fs::remove_file(&path).unwrap();
 
-    let loaded = discover_with(&data, true, || {
+    let loaded = scan_paths(&data, true, || {
         panic!("the unavailable entry is still listed")
     })
     .unwrap();
     assert_eq!(loaded.paths().collect::<Vec<_>>(), [runtime.path()]);
     assert!(loaded.available().is_empty());
+    assert!(super::startup(&data).unwrap() == loaded);
     assert!(remove(&data, runtime.path()).unwrap());
     assert!(list(&data).unwrap().paths().next().is_none());
 }
@@ -202,7 +213,7 @@ fn adding_a_newer_runtime_keeps_the_preference_until_it_is_removed() {
     )
     .unwrap();
     let newer = JavaRuntime::inspect(&path).unwrap();
-    let added = discover_with(&data, false, || vec![newer.clone()]).unwrap();
+    let added = scan_paths(&data, false, || Ok(vec![path])).unwrap();
     assert_eq!(added.preferred().next(), Some((25, first.path())));
     assert!(remove(&data, newer.path()).unwrap());
     assert_eq!(
@@ -230,9 +241,9 @@ fn startup_merges_only_if_no_other_writer_populated_the_list() {
     let data = DataDir::isolated(root.path()).unwrap();
     let path = test_runtime(&root.path().join("concurrent"), 42);
     let discovered = test_runtime(&root.path().join("discovered"), 43);
-    let catalog = discover_with(&data, true, || {
+    let catalog = scan_paths(&data, true, || {
         add(&data, &path).unwrap();
-        vec![JavaRuntime::inspect(&discovered).unwrap()]
+        Ok(vec![discovered])
     })
     .unwrap();
     assert_eq!(catalog.available().len(), 1);
@@ -263,12 +274,7 @@ fn a_removed_runtime_stays_out_of_launch_selection_until_rediscovered() {
     assert!(list(&data).unwrap().available().is_empty());
     assert_eq!(managed(&data).executable_for(42, JavaMode::Console), None);
 
-    let found = discover_with(&data, false, || {
-        SystemJava::default()
-            .with_runtime_roots(vec![data.path(DataPath::JavaVersions).to_owned()])
-            .discover()
-    })
-    .unwrap();
+    let found = scan_paths(&data, false, || Ok(Vec::new())).unwrap();
     assert_eq!(found.preferred().next(), Some((42, java.path())));
     assert_eq!(
         managed(&data).executable(JavaMode::Console).as_deref(),
@@ -324,7 +330,13 @@ fn bundled_java_is_a_fallback_for_new_preferences_and_can_be_pinned() {
     .unwrap();
     let [bundled, standalone] =
         [bundled, standalone].map(|path| JavaRuntime::inspect(&path).unwrap());
-    let catalog = discover_with(&data, true, || vec![bundled.clone(), standalone.clone()]).unwrap();
+    let catalog = scan_paths(&data, true, || {
+        Ok(vec![
+            bundled.path().to_owned(),
+            standalone.path().to_owned(),
+        ])
+    })
+    .unwrap();
     assert_eq!(catalog.preferred().next(), Some((25, standalone.path())));
 
     set_preferred(&data, 25, bundled.path()).unwrap();
@@ -340,4 +352,79 @@ fn bundled_java_is_a_fallback_for_new_preferences_and_can_be_pinned() {
         list(&data).unwrap().preferred().next(),
         Some((25, bundled.path()))
     );
+}
+
+#[test]
+fn a_successful_explicit_scan_merges_system_environment_and_completed_managed_paths() {
+    let root = tempfile::tempdir().unwrap();
+    let data = DataDir::isolated(root.path()).unwrap();
+    let prior = add(&data, &test_runtime(&root.path().join("prior"), 17)).unwrap();
+    let from_home = root.path().join("a home");
+    let from_environment = test_runtime(&from_home, 21);
+    let managed_root = data.path(DataPath::JavaVersions);
+    let completed = managed_root.join("complete");
+    let managed_path = test_runtime(&completed, 25);
+    std::fs::write(
+        axlauncher_storage::Document::RuntimeReceipt.path(&completed),
+        b"{}",
+    )
+    .unwrap();
+    let incomplete = test_runtime(&managed_root.join("incomplete"), 26);
+    let supplied = test_runtime(&root.path().join("system"), 42);
+    let expected = [from_environment.as_path(), &managed_path, &supplied]
+        .map(|path| JavaRuntime::inspect(path).unwrap());
+
+    let catalog = discover_with(
+        &data,
+        false,
+        || Ok(vec![from_environment, incomplete, supplied]),
+        || SystemJava::with_environment(Some(from_home), None),
+    )
+    .unwrap();
+    assert_eq!(
+        catalog.preferred().collect::<Vec<_>>(),
+        [
+            (17, prior.path()),
+            (21, expected[0].path()),
+            (25, expected[1].path()),
+            (42, expected[2].path()),
+        ]
+    );
+    assert_eq!(catalog.paths().count(), 4);
+}
+
+#[test]
+fn an_unavailable_worker_never_falls_back_to_scanning_on_startup() {
+    let root = tempfile::tempdir().unwrap();
+    let data = DataDir::isolated(root.path()).unwrap();
+    assert!(matches!(
+        startup(&data),
+        Err(JavaCatalogError::Discovery(error)) if error.contains("unavailable")
+    ));
+    assert!(
+        !axlauncher_storage::Document::JavaCatalog
+            .path(data.path(DataPath::Root))
+            .exists()
+    );
+}
+
+#[test]
+fn a_failed_or_cancelled_scan_never_changes_the_catalog() {
+    let root = tempfile::tempdir().unwrap();
+    let data = DataDir::isolated(root.path()).unwrap();
+    let path = add(&data, &test_runtime(&root.path().join("saved"), 21)).unwrap();
+    set_profile_preference(&data, "profile", Some(path.path())).unwrap();
+    let document = axlauncher_storage::Document::JavaCatalog.path(data.path(DataPath::Root));
+    let before = std::fs::read(&document).unwrap();
+
+    for error in ["The worker exited.", "Java discovery cancelled."] {
+        let outcome = discover_with(
+            &data,
+            false,
+            || Err(error.into()),
+            || panic!("do not inspect or merge candidates on failure"),
+        );
+        assert!(matches!(outcome, Err(JavaCatalogError::Discovery(message)) if message == error));
+        assert_eq!(std::fs::read(&document).unwrap(), before);
+    }
 }
