@@ -97,6 +97,9 @@ jobs:
     needs: repository
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    env:
+      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      CACHIX_CACHE_AUTH_TOKEN: ${{ secrets.CACHIX_CACHE_AUTH_TOKEN }}
     steps:
       - name: Check out workspace
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -109,22 +112,32 @@ jobs:
           extra_nix_config: |
             accept-flake-config = true
 
-      - name: Set up the binary cache
+      - name: Set up the release cache
         uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        if: ${{ env.CACHIX_AUTH_TOKEN != '' }}
         with:
           name: axlmc
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           # Push is explicit below: only the binaries users may fetch belong in the cache.
           skipPush: true
 
+      - name: Set up the build cache
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' }}
+        with:
+          name: axlmc-cache
+          authToken: ${{ secrets.CACHIX_CACHE_AUTH_TOKEN }}
+          skipPush: true
+
       - name: Build the crate dependencies
         run: nix build --print-out-paths .#axlauncher-cargo-deps
 
       - name: Publish the crate dependencies
-        # Seeded from every push so a pull request substitutes the crane build
-        # instead of recompiling the workspace.
-        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-        run: nix build --print-out-paths .#axlauncher-cargo-deps | cachix push axlmc
+        # Build output goes to its own cache: seeded from every push so a pull
+        # request substitutes the crane build instead of recompiling the
+        # workspace, and never mixed with the release artifacts.
+        if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        run: nix build --print-out-paths .#axlauncher-cargo-deps | cachix push axlmc-cache
 
       - name: Build both binaries
         run: nix build --print-out-paths .#axlauncher .#axlauncher-newest .#axlauncher-legacy

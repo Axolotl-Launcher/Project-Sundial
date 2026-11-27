@@ -16,9 +16,19 @@
 
   # The public binary cache. `nixConfig` is applied only with
   # `--accept-flake-config`; CONTRIBUTING.md documents the explicit flags.
+  #
+  # Two caches: `axlmc` keeps release artifacts, and a separate one takes the
+  # rebuildable CI products, because cachix evicts the oldest entries once a
+  # cache exceeds its quota and a burst of build output would push a release out.
   nixConfig = {
-    extra-substituters = [ "https://axlmc.cachix.org" ];
+    extra-substituters = [
+      # TODO: placeholder until the build cache exists.
+      "https://axlmc-cache.cachix.org"
+      "https://axlmc.cachix.org"
+    ];
     extra-trusted-public-keys = [
+      # TODO: placeholder until the build cache exists.
+      "axlmc-cache.cachix.org-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
       "axlmc.cachix.org-1:dmsRJqFQqLMfvRveerHV3DxDCW1wq1N+TX1+dryYWZU="
     ];
   };

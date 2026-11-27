@@ -78,8 +78,11 @@ than 2.35 (Ubuntu 22.04). Only `newest` and the wrapper are pushed to the cache;
 what an AppImage or a tarball ships.
 
 A release pushes the wrapper and `newest` to the public `axlmc` cache, so
-`nix run` downloads instead of compiling. A user who trusts flake configuration
-gets the substituter from `flake.nix`; otherwise pass the settings explicitly:
+`nix run` downloads instead of compiling. Build products go to a second cache
+(`axlmc-cache` here; its name and public key are placeholders in `flake.nix`)
+because a cache evicts its oldest entries once it exceeds its quota, and a burst
+of CI output would push a release out. A user who trusts flake configuration
+gets the substituters from `flake.nix`; otherwise pass the settings explicitly:
 
 ```bash
 nix run --extra-substituters https://axlmc.cachix.org \
