@@ -145,3 +145,42 @@ jobs:
         with:
           name: release-files
           path: out/
+
+  # The release is built against the locked inputs, so refreshing them here
+  # cannot change what was just published. The canary warms the new lock within
+  # eight hours, so the next release starts from a cache that already matches.
+  #
+  # The push needs `main` to accept the bot commit; when branch protection
+  # forbids that, open a pull request instead of pushing.
+  relock:
+    name: Refresh the lock
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877 # v32.1.0
+
+      - name: Update the inputs
+        run: nix flake update
+
+      - name: Commit the lock
+        run: |
+          if git diff --quiet -- flake.lock; then
+            echo "inputs are already current"
+            exit 0
+          fi
+          nix eval --raw .#axlauncher-newest.drvPath > /dev/null
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add flake.lock
+          git commit -s -m "chore(nix): refresh flake.lock after the release"
+          git push origin HEAD:main

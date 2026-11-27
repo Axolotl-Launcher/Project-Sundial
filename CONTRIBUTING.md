@@ -95,6 +95,10 @@ nix run --extra-substituters https://axlmc.cachix.org \
 eight hours, exercises worker dispatch and uploads the tree; it publishes to the
 build cache and never creates a release.
 
+A release refreshes `flake.lock` once its artifacts are published, so the next
+release is built against current inputs. The canary warms that lock in the
+meantime; until it has run, the next release compiles the workspace once.
+
 The nix build repeats the three cargo invocations that
 [`scripts/desktop.ts`](scripts/desktop.ts) performs; changing the embedded worker
 libraries means changing both, and [the Linux packaging
