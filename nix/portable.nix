@@ -40,6 +40,9 @@ pkgs.runCommand "axlauncher-portable-${version}"
         while read -r file; do
           cp -L "$file" "$out/lib/$(basename "$file")"
         done
+      # Store copies inherit read-only permissions; the worker pass may add
+      # another file with an existing name.
+      chmod -R u+w "$out/lib"
 
       # Workers are loaded after the platform binary and can need libraries the
       # binary itself does not list. Collect those dependencies before dropping
@@ -53,7 +56,7 @@ pkgs.runCommand "axlauncher-portable-${version}"
         fi
         sed -n 's/^ *[^ ]* => \([^ ]*\) (0x[0-9a-f]*)$/\1/p' worker-store.txt |
           while read -r file; do
-            cp -L "$file" "$out/lib/$(basename "$file")"
+            cp -Lf "$file" "$out/lib/$(basename "$file")"
           done
       done
       cp -L "$loader" "$out/lib/ld-linux-x86-64.so.2"
