@@ -3,10 +3,8 @@
 
 //! Concurrent file downloads with digest verification and atomic writes.
 
-use axlauncher_spi::{
-    Network,
-    downloads::{ExtraDigest, FileDownloader},
-};
+use axlauncher_download_spi::{ExtraDigest, FileDownloader};
+use axlauncher_network_spi::Network;
 
 mod engine;
 mod ranges;
@@ -18,8 +16,8 @@ mod weighted;
 #[cfg(feature = "worker")]
 mod worker;
 
-pub use axlauncher_spi::DownloadProtocol;
-pub use axlauncher_spi::downloads::{DEFAULT_CONCURRENCY, DownloadJob, TransferStats};
+pub use axlauncher_download_spi::{DEFAULT_CONCURRENCY, DownloadJob, TransferStats};
+pub use axlauncher_network_spi::DownloadProtocol;
 pub use engine::{DownloadEngine, DownloadPolicy};
 
 // Cargo Shear scans imports inside the crate but misses the mirrored tests.

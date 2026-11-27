@@ -6,7 +6,7 @@ use super::{
     minecraft_picker_items,
 };
 use axlauncher_core::install::vanilla;
-use axlauncher_core::spi::{FetchError, Network};
+use axlauncher_core::network_spi::{FetchError, Network};
 use axlauncher_ui::{SelectDelegate, SelectItem, SharedString};
 
 struct MinecraftCatalogNetwork;

@@ -20,8 +20,10 @@ path = "apps/core/launch/tests/real_manifest.rs"
 
 [dev-dependencies]
 axlauncher_content = { workspace = true }
+axlauncher_download_spi = { workspace = true }
 axlauncher_install = { workspace = true }
 axlauncher_launch = { workspace = true }
+axlauncher_network_spi = { workspace = true }
 axlauncher_spi = { workspace = true }
 axlauncher_state = { workspace = true }
 axlauncher_storage = { workspace = true }

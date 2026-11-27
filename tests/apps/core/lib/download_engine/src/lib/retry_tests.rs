@@ -8,8 +8,10 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::time::Duration;
 
-use axlauncher_spi::downloads::MissingFile;
-use axlauncher_spi::{DownloadBody, DownloadResponse, FetchError, RangeRequest, ResponseRange};
+use axlauncher_download_spi::MissingFile;
+use axlauncher_network_spi::{
+    DownloadBody, DownloadResponse, FetchError, RangeRequest, ResponseRange,
+};
 use bytes::Bytes;
 use futures::{FutureExt, StreamExt, poll};
 use tokio::time::Instant;

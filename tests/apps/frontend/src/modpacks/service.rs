@@ -3,9 +3,8 @@ use std::io::Write;
 use std::path::Path;
 
 use axlauncher_core::loader;
-use axlauncher_core::spi::{
-    FetchError, LoaderError, LoaderKind, LoaderRequest, ModLoader, Network,
-};
+use axlauncher_core::network_spi::{FetchError, Network};
+use axlauncher_core::spi::{LoaderError, LoaderKind, LoaderRequest, ModLoader};
 
 const MAVEN: &str = "https://maven.neoforged.net/releases/net/neoforged/forge";
 const COORDINATE: &str = "1.20.1-47.1.5";

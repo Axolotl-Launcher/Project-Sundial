@@ -18,8 +18,8 @@ fn is_display_and_error<E: Display + Error>() {}
 
 #[test]
 fn every_port_error_is_display_and_error() {
-    is_display::<axlauncher_spi::FetchError>();
-    is_error::<axlauncher_spi::FetchError>();
+    is_display::<axlauncher_network_spi::FetchError>();
+    is_error::<axlauncher_network_spi::FetchError>();
 
     is_display::<axlauncher_spi::StorageError>();
     is_error::<axlauncher_spi::StorageError>();
@@ -33,7 +33,7 @@ fn every_port_error_is_display_and_error() {
     is_display::<axlauncher_spi::LoaderError>();
     is_error::<axlauncher_spi::LoaderError>();
 
-    is_display_and_error::<axlauncher_spi::FetchError>();
+    is_display_and_error::<axlauncher_network_spi::FetchError>();
     is_display_and_error::<axlauncher_spi::StorageError>();
     is_display_and_error::<axlauncher_spi::InstallError>();
     is_display_and_error::<axlauncher_spi::LaunchError>();
@@ -42,10 +42,10 @@ fn every_port_error_is_display_and_error() {
 
 #[test]
 fn a_port_error_reads_as_a_sentence() {
-    let fatal = axlauncher_spi::FetchError::Fatal("no route to host".into());
+    let fatal = axlauncher_network_spi::FetchError::Fatal("no route to host".into());
     assert_eq!(fatal.to_string(), "no route to host");
 
-    let retryable = axlauncher_spi::FetchError::Retryable("timed out".into());
+    let retryable = axlauncher_network_spi::FetchError::Retryable("timed out".into());
     assert!(retryable.to_string().contains("timed out"));
 
     let exited = axlauncher_spi::LaunchError::Exited { code: Some(3) };
@@ -62,7 +62,7 @@ fn a_port_error_reads_as_a_sentence() {
 fn a_loader_error_names_the_loader_and_keeps_its_cause() {
     let unavailable = axlauncher_spi::LoaderError::Unavailable {
         loader: axlauncher_spi::LoaderKind::Fabric,
-        source: axlauncher_spi::FetchError::Retryable("timed out".into()),
+        source: axlauncher_network_spi::FetchError::Retryable("timed out".into()),
     };
     assert!(unavailable.to_string().contains("fabric"));
     assert!(unavailable.to_string().contains("timed out"));

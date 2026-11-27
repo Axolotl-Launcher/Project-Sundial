@@ -6,8 +6,9 @@
 //! Minecraft version conventions select the repository and interpret its
 //! listing. This provider owns the network requests and installer document.
 
+use axlauncher_network_spi::Network;
 use axlauncher_spi::{
-    LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader, Network,
+    LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader,
 };
 
 use crate::{installer, maven_metadata};

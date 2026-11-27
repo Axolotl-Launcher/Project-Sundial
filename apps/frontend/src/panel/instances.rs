@@ -9,7 +9,7 @@ use axlauncher_core::desktop::launching::LaunchJob;
 use axlauncher_core::desktop::memory;
 use axlauncher_core::domain::memory::MaximumHeap;
 use axlauncher_core::state::profile::{DiscoveredProfile, Profile, ProfileDiscovery, discover};
-use axlauncher_core::storage::DataDir;
+use axlauncher_core::storage::{DataDir, DataPath};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, App, Button, Context, ElementId, GroupBox, Input, IntoElement, Label,
@@ -58,11 +58,11 @@ impl InstancesState {
         current: Option<&DataDir>,
         job: &DataDir,
     ) -> bool {
-        let instances = job.instances();
-        if current.map(DataDir::instances).as_ref() != Some(&instances) {
+        let instances = job.path(DataPath::Profiles);
+        if current.map(|paths| paths.path(DataPath::Profiles)) != Some(instances) {
             return false;
         }
-        self.replace(discover(&instances), true);
+        self.replace(discover(instances), true);
         true
     }
 

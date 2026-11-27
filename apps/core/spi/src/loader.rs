@@ -20,7 +20,7 @@
 use std::fmt;
 use std::future::Future;
 
-use crate::FetchError;
+use axlauncher_network_spi::FetchError;
 
 /// Which mod loader a provider implements.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

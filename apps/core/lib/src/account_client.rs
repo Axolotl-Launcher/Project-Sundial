@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::{Event, Image, Service};
-use axlauncher_spi::ServiceHost;
-use axlauncher_storage::DataDir;
+use axlauncher_network_spi::ServiceHost;
+use axlauncher_storage::{DataDir, DataPath};
 
 use crate::accounts::{
     AccountId, AccountSnapshot, Action, Change, ChoiceId, Command, Identity, Reply, SignInCommit,
@@ -51,7 +51,7 @@ impl DesktopAccounts {
 
     pub fn update_paths(&self, data: &DataDir) {
         let mut previous = self.data.lock().expect("account paths");
-        assert_eq!(previous.root(), data.root());
+        assert_eq!(previous.path(DataPath::Root), data.path(DataPath::Root));
         *previous = data.clone();
     }
 
@@ -65,7 +65,7 @@ impl DesktopAccounts {
         if let Some(worker) = &self.worker {
             let data = self.data_dir();
             worker.notify_if_running(Command::new(
-                data.root().to_path_buf(),
+                data.path(DataPath::Root).to_path_buf(),
                 Action::DiscardChoice(choice),
             ));
         }
@@ -128,7 +128,7 @@ impl DesktopAccounts {
             .as_ref()
             .ok_or("The embedded account worker is unavailable.")?;
         let data = self.data_dir();
-        let command = Command::new(data.root().to_path_buf(), action);
+        let command = Command::new(data.path(DataPath::Root).to_path_buf(), action);
         let mut request = worker.request(&data, command)?;
         let mut final_reply = None;
         loop {

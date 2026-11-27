@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use axlauncher_core::desktop::java::JavaCatalog;
 use axlauncher_core::launch::JavaRuntime;
-use axlauncher_core::storage::DataDir;
+use axlauncher_core::storage::{DataDir, DataPath};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, App, Button, ButtonVariants, Context, Disableable, ElementId,
@@ -60,7 +60,7 @@ impl JavaPanel {
     }
 
     fn change_paths(&mut self, paths: Option<DataDir>) {
-        if self.root() != paths.as_ref().map(DataDir::root) {
+        if self.root() != paths.as_ref().map(|paths| paths.path(DataPath::Root)) {
             self.scope += 1;
             self.catalog = None;
             self.error = None;
@@ -70,7 +70,7 @@ impl JavaPanel {
     }
 
     fn root(&self) -> Option<&Path> {
-        self.paths.as_ref().map(DataDir::root)
+        self.paths.as_ref().map(|paths| paths.path(DataPath::Root))
     }
 
     fn current(&self) -> Option<&(u64, Activity)> {
@@ -115,8 +115,10 @@ impl JavaPanel {
     fn begin(&mut self, activity: Activity) -> Option<DataDir> {
         let paths = self.paths.clone().filter(|_| !self.busy())?;
         self.error = None;
-        self.in_flight
-            .insert(paths.root().to_owned(), (self.scope, activity));
+        self.in_flight.insert(
+            paths.path(DataPath::Root).to_owned(),
+            (self.scope, activity),
+        );
         Some(paths)
     }
 
@@ -141,7 +143,7 @@ impl JavaPanel {
         if refreshing {
             cx.emit(JavaEvent::RefreshStarted);
         }
-        let root = paths.root().to_owned();
+        let root = paths.path(DataPath::Root).to_owned();
         let task = cx.background_spawn(async move { operation.run(&paths) });
         cx.spawn(async move |view, cx| {
             let outcome = task.await;
@@ -191,7 +193,7 @@ impl JavaPanel {
         let Some(paths) = self.begin(Activity::ChoosingFile) else {
             return;
         };
-        let root = paths.root().to_owned();
+        let root = paths.path(DataPath::Root).to_owned();
         let selection = choose_file("Choose a Java executable", cx);
         cx.spawn(async move |view, cx| {
             let outcome = selection.await;

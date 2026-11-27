@@ -172,7 +172,7 @@ impl Fixture {
     }
 
     fn client_jar(&self) -> PathBuf {
-        GameDir::standalone(self.game_root()).client_jar(VERSION_ID)
+        GameDir::standalone(self.game_root()).version_path(VERSION_ID, VersionPath::ClientJar)
     }
 
     fn request(&self) -> LaunchRequest {

@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use axlauncher_spi::{Java, JavaMode, LaunchCommand, LaunchError, Launcher};
-use axlauncher_storage::{GameDir, instance_options};
+use axlauncher_storage::{GameDir, ManagedFile, VersionPath};
 
 use crate::HeapPolicy;
 use crate::chain::{self, ChainError};
@@ -220,9 +220,9 @@ fn prepare_game_language(request: &LaunchRequest) -> Result<(), FlowError> {
     let Some(language) = &request.game_language else {
         return Ok(());
     };
-    let time = version::release_time(&request.game_root.versions(), language.minecraft())
+    let time = version::release_time(&request.game_root, language.minecraft())
         .map_err(|source| FlowError::VersionDocument { source })?;
-    let path = instance_options(&request.instance_directory);
+    let path = ManagedFile::InstanceOptions.path(&request.instance_directory);
     language
         .apply(time.as_deref(), &path)
         .map_err(|source| FlowError::GameOptions { path, source })
@@ -271,11 +271,10 @@ pub fn inspect_version(
 /// its own it names no asset index, no client jar and no vanilla libraries, so
 /// launching it unresolved would start the game with nothing to run.
 fn load_version(request: &LaunchRequest) -> Result<(Version, Option<String>), FlowError> {
-    let root = request.game_root.versions();
-    let document = version::load(&root, &request.version_id)
+    let document = version::load(&request.game_root, &request.version_id)
         .map_err(|source| FlowError::VersionDocument { source })?;
     let parent = document.inherits_from.clone();
-    let version = chain::resolve(&root, document).map_err(|source| match source {
+    let version = chain::resolve(&request.game_root, document).map_err(|source| match source {
         ChainError::Document { source } => FlowError::VersionDocument { source },
         other => FlowError::Chain { source: other },
     })?;
@@ -313,7 +312,9 @@ fn java_executable(
 
 /// The shared directory for this version's unpacked natives.
 fn natives_directory(request: &LaunchRequest) -> PathBuf {
-    request.game_root.version_natives(&request.version_id)
+    request
+        .game_root
+        .version_path(&request.version_id, VersionPath::Natives)
 }
 
 /// The number of native files unpacked into the instance's natives directory.

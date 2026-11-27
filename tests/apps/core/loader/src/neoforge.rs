@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use super::*;
-use axlauncher_spi::{FetchError, FetchKind, Network};
+use axlauncher_network_spi::{FetchError, FetchKind, Network};
 
 const MAVEN: &str = "https://maven.neoforged.net/releases/net/neoforged/neoforge";
 const LEGACY_MAVEN: &str = "https://maven.neoforged.net/releases/net/neoforged/forge";

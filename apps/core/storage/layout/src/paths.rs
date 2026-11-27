@@ -30,16 +30,6 @@ impl WorkerLibrary {
     }
 }
 
-/// The system's per-user application data directory.
-pub fn user_data_dir() -> Option<PathBuf> {
-    dirs::data_dir()
-}
-
-/// The temporary directory reported by the operating system.
-pub fn user_temp_dir() -> PathBuf {
-    std::env::temp_dir()
-}
-
 /// Locations that can be overridden for the current launcher session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Directory {
@@ -47,6 +37,25 @@ pub enum Directory {
     AppCache,
     UserData,
     AppTemp,
+}
+
+/// A fixed location resolved against the active data-directory snapshot.
+#[derive(Clone, Copy)]
+pub enum DataPath {
+    Root,
+    Cache,
+    Profiles,
+    Temp,
+    JavaVersions,
+    DownloadProbe,
+    AuthAgent,
+}
+
+/// Selects the root for a private, automatically removed directory.
+#[derive(Clone, Copy)]
+pub enum ScratchSpace {
+    Task,
+    Worker,
 }
 
 /// Resolved launcher directories that a worker can keep for its entire operation.
@@ -59,6 +68,7 @@ pub struct DataDir {
 struct DirectoryConfig {
     defaults: Defaults,
     overrides: Overrides,
+    paths: ResolvedPaths,
 }
 
 #[derive(Debug, Clone)]
@@ -76,14 +86,59 @@ struct Overrides {
     temp: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone)]
+struct ResolvedPaths {
+    data: PathBuf,
+    caches: PathBuf,
+    instances: PathBuf,
+    temp: PathBuf,
+    game: GameDir,
+    java_versions: PathBuf,
+    download_debug_file: PathBuf,
+    auth_agent: PathBuf,
+}
+
+impl ResolvedPaths {
+    fn new(defaults: &Defaults, overrides: &Overrides) -> Self {
+        let data = overrides.data.as_ref().unwrap_or(&defaults.data).clone();
+        let caches = overrides
+            .cache
+            .as_ref()
+            .or(defaults.cache.as_ref())
+            .cloned()
+            .unwrap_or_else(|| data.join("caches"));
+        let temp = overrides
+            .temp
+            .as_ref()
+            .or(defaults.temp.as_ref())
+            .cloned()
+            .unwrap_or_else(|| data.join("tmp"));
+        let instances = overrides
+            .instances
+            .clone()
+            .unwrap_or_else(|| data.join("profiles"));
+        let game = GameDir::shared(data.join("meta"), caches.join("minecraft-natives"));
+        Self {
+            java_versions: data.join("java"),
+            download_debug_file: caches.join("download-debug.bin"),
+            auth_agent: game.root().join("authlib-injector-1.2.8.jar"),
+            data,
+            caches,
+            instances,
+            temp,
+            game,
+        }
+    }
+}
+
 impl DataDir {
     /// Startup uses an isolated root when set; otherwise it uses platform directories.
     pub fn from_environment() -> io::Result<Self> {
         Self::resolve(
             std::env::var_os(DATA_DIR_ENV),
-            user_data_dir,
+            dirs::data_dir,
             dirs::cache_dir,
-            user_temp_dir,
+            std::env::temp_dir,
         )
     }
 
@@ -116,10 +171,13 @@ impl DataDir {
     }
 
     fn new(defaults: Defaults) -> Self {
+        let overrides = Overrides::default();
+        let paths = ResolvedPaths::new(&defaults, &overrides);
         Self {
             config: Arc::new(DirectoryConfig {
                 defaults,
-                overrides: Overrides::default(),
+                overrides,
+                paths,
             }),
         }
     }
@@ -127,105 +185,51 @@ impl DataDir {
     /// `None` restores the default. Invalid input leaves the snapshot unchanged.
     pub fn set_directory(&mut self, directory: Directory, path: Option<&Path>) -> io::Result<()> {
         let path = path.map(absolute_directory).transpose()?;
-        let overrides = &mut Arc::make_mut(&mut self.config).overrides;
+        let config = Arc::make_mut(&mut self.config);
         match directory {
-            Directory::AppData => overrides.data = path,
-            Directory::AppCache => overrides.cache = path,
-            Directory::UserData => overrides.instances = path,
-            Directory::AppTemp => overrides.temp = path,
+            Directory::AppData => config.overrides.data = path,
+            Directory::AppCache => config.overrides.cache = path,
+            Directory::UserData => config.overrides.instances = path,
+            Directory::AppTemp => config.overrides.temp = path,
         }
+        config.paths = ResolvedPaths::new(&config.defaults, &config.overrides);
         Ok(())
     }
 
-    pub fn root(&self) -> &Path {
-        self.config
-            .overrides
-            .data
-            .as_deref()
-            .unwrap_or(&self.config.defaults.data)
-    }
-
-    pub fn caches(&self) -> PathBuf {
-        self.config
-            .overrides
-            .cache
-            .as_ref()
-            .or(self.config.defaults.cache.as_ref())
-            .cloned()
-            .unwrap_or_else(|| self.root().join("caches"))
-    }
-
-    /// The launcher-managed user data directory: one folder per instance.
-    pub fn instances(&self) -> PathBuf {
-        self.config
-            .overrides
-            .instances
-            .clone()
-            .unwrap_or_else(|| self.root().join("profiles"))
-    }
-
-    /// The parent of private scratch directories.
-    pub fn temp(&self) -> PathBuf {
-        self.config
-            .overrides
-            .temp
-            .as_ref()
-            .or(self.config.defaults.temp.as_ref())
-            .cloned()
-            .unwrap_or_else(|| self.root().join("tmp"))
+    pub fn path(&self, location: DataPath) -> &Path {
+        let paths = &self.config.paths;
+        match location {
+            DataPath::Root => &paths.data,
+            DataPath::Cache => &paths.caches,
+            DataPath::Profiles => &paths.instances,
+            DataPath::Temp => &paths.temp,
+            DataPath::JavaVersions => &paths.java_versions,
+            DataPath::DownloadProbe => &paths.download_debug_file,
+            DataPath::AuthAgent => &paths.auth_agent,
+        }
     }
 
     /// A private scratch directory removed when the returned handle is dropped.
-    pub fn scratch(&self) -> io::Result<tempfile::TempDir> {
-        private_scratch(&self.temp())
-    }
-
-    /// A private worker-library directory under the launcher cache.
-    pub fn worker_scratch(&self) -> io::Result<tempfile::TempDir> {
-        private_scratch(&self.caches().join("workers"))
+    pub fn scratch(&self, space: ScratchSpace) -> io::Result<tempfile::TempDir> {
+        match space {
+            ScratchSpace::Task => private_scratch(self.path(DataPath::Temp)),
+            ScratchSpace::Worker => private_scratch(&self.path(DataPath::Cache).join("workers")),
+        }
     }
 
     /// The same game files and native archive cache serve installation and launch.
-    pub fn game(&self) -> GameDir {
-        GameDir::shared(
-            self.root().join("meta"),
-            self.caches().join("minecraft-natives"),
-        )
-    }
-
-    pub fn java_versions(&self) -> PathBuf {
-        self.root().join("java")
-    }
-
-    pub fn jobs(&self) -> PathBuf {
-        self.root().join("jobs")
-    }
-
-    pub fn download_debug_file(&self) -> PathBuf {
-        self.caches().join("download-debug.bin")
+    pub fn game(&self) -> &GameDir {
+        &self.config.paths.game
     }
 
     /// A unique cache directory that keeps the outputs of one development test.
     pub fn new_download_debug_batch(&self) -> io::Result<PathBuf> {
-        let batches = self.caches().join("download-debug-batches");
+        let batches = self.path(DataPath::Cache).join("download-debug-batches");
         fs::create_dir_all(&batches)?;
         tempfile::Builder::new()
             .prefix("batch-")
             .tempdir_in(batches)
             .map(tempfile::TempDir::keep)
-    }
-
-    pub fn accounts(&self) -> PathBuf {
-        self.root().join("accounts.json")
-    }
-
-    pub fn auth_agent(&self) -> PathBuf {
-        self.game().root().join("authlib-injector-1.2.8.jar")
-    }
-
-    /// Account writers hold this across a read-modify-write operation.
-    pub fn lock_accounts(&self) -> io::Result<fs::File> {
-        lock_document(self.root(), "accounts.lock")
     }
 }
 
@@ -276,70 +280,6 @@ fn absolute_directory(path: &Path) -> io::Result<PathBuf> {
     }
 }
 
-pub fn settings_path(data: &Path) -> PathBuf {
-    data.join("settings.json")
-}
-
-pub fn settings_lock_path(data: &Path) -> PathBuf {
-    data.join("settings.lock")
-}
-
-pub fn invalid_settings_path(data: &Path) -> PathBuf {
-    data.join("settings.json.invalid")
-}
-
-pub fn javas_path(data: &Path) -> PathBuf {
-    data.join("javas.json")
-}
-
-/// Serializes Java catalog edits for one data directory across processes.
-pub fn lock_javas(data: &Path) -> io::Result<fs::File> {
-    lock_document(data, "javas.lock")
-}
-
-/// Serializes updates to an existing instance marker across processes.
-pub fn lock_profile(directory: &Path) -> io::Result<fs::File> {
-    let file = open_lock_file(directory, ".axlprofile.lock")?;
-    file.lock()?;
-    Ok(file)
-}
-
-fn lock_document(root: &Path, name: &str) -> io::Result<fs::File> {
-    fs::create_dir_all(root)?;
-    let file = open_lock_file(root, name)?;
-    file.lock()?;
-    Ok(file)
-}
-
-fn open_lock_file(root: &Path, name: &str) -> io::Result<fs::File> {
-    fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(root.join(name))
-}
-
-/// Managed runtime installers hold an exclusive, nonblocking writer lock.
-pub fn try_lock_runtime(runtime: &Path) -> io::Result<fs::File> {
-    fs::create_dir_all(runtime)?;
-    let file = open_lock_file(runtime, ".axlauncher-install.lock")?;
-    file.try_lock()?;
-    Ok(file)
-}
-
-pub fn runtime_record(runtime: &Path) -> PathBuf {
-    runtime.join(".axlauncher-complete")
-}
-
-pub fn job_document(jobs: &Path, id: &str) -> PathBuf {
-    jobs.join(format!("{id}.json"))
-}
-
-pub fn download_debug_batch_file(batch: &Path, line: usize) -> PathBuf {
-    batch.join(format!("{line}.bin"))
-}
-
 #[cfg(test)]
-#[path = "../../../../tests/apps/core/storage/src/paths.rs"]
+#[path = "../../../../../tests/apps/core/storage/layout/src/paths.rs"]
 mod tests;

@@ -18,8 +18,8 @@ use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use axlauncher_network::verify;
-use axlauncher_spi::{FetchError, FetchKind, Network};
-use axlauncher_storage::{try_lock_runtime, write_atomic};
+use axlauncher_network_spi::{FetchError, FetchKind, Network};
+use axlauncher_storage::{Document, write_atomic};
 use futures::stream::{self, StreamExt};
 use serde::Deserialize;
 
@@ -234,7 +234,10 @@ pub async fn install(
 
 async fn wait_for_runtime(directory: &Path) -> Result<fs::File, RuntimeError> {
     loop {
-        match try_lock_runtime(directory) {
+        match Document::RuntimeReceipt
+            .lock(directory)
+            .map_err(io::Error::from)
+        {
             Ok(lock) => return Ok(lock),
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 tokio::time::sleep(LOCK_RETRY_DELAY).await;

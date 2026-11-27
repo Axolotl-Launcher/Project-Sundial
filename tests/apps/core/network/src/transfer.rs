@@ -5,7 +5,7 @@ use super::*;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 
-use axlauncher_spi::{DownloadProtocol, Network};
+use axlauncher_network_spi::{DownloadProtocol, Network};
 
 use crate::ReqwestNetwork;
 

@@ -4,8 +4,9 @@
 use std::cell::RefCell;
 use std::fs;
 
-use axlauncher_spi::{
-    ByteRange, DownloadEtag, DownloadRepresentation, DownloadResponse, RangeRequest, ResponseRange,
+use axlauncher_network_spi::{
+    ByteRange, DownloadEtag, DownloadRepresentation, DownloadResponse, FetchError, RangeRequest,
+    ResponseRange,
 };
 use bytes::Bytes;
 
@@ -211,10 +212,7 @@ fn assert_range_protocol_fallback(failure: RangeFailure) {
 }
 
 impl RangeFailure {
-    fn respond(
-        self,
-        range: RangeRequest<'_>,
-    ) -> Result<DownloadResponse<Body>, axlauncher_spi::FetchError> {
+    fn respond(self, range: RangeRequest<'_>) -> Result<DownloadResponse<Body>, FetchError> {
         let mut response = partial(range, representation(PRIMARY, Some(OLD_TAG)));
         if range.interval.start == 0 {
             return Ok(response);
@@ -227,7 +225,7 @@ impl RangeFailure {
                 return Ok(response);
             }
         };
-        Err(axlauncher_spi::FetchError::Rejected {
+        Err(FetchError::Rejected {
             status,
             body: Vec::new(),
         })

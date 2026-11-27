@@ -12,7 +12,7 @@ use axlauncher_core::desktop::accounts::{
 use axlauncher_core::desktop::{launching::Player, sources::fallen_proxy};
 use axlauncher_core::launch::plan::Session;
 use axlauncher_core::launch_accounts;
-use axlauncher_core::spi::ServiceHost;
+use axlauncher_core::network_spi::ServiceHost;
 use axlauncher_core::state::SettingsData;
 use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;

@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use axlauncher_core::desktop::accounts::{AccountId, Action, Reply, SignInCommit};
-use axlauncher_core::spi::ServiceHost;
+use axlauncher_core::network_spi::ServiceHost;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{AsyncApp, Context, Task, WeakEntity};
 use tokio::sync::mpsc;

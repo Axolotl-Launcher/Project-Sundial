@@ -6,8 +6,8 @@
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
-use axlauncher_core::spi::downloads::{DownloadOutcome, FileDownloader, MissingFile};
-use axlauncher_core::storage::{DataDir, download_debug_batch_file};
+use axlauncher_core::download_spi::{DownloadOutcome, FileDownloader, MissingFile};
+use axlauncher_core::storage::{DataDir, ManagedFile};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, App, Button, ButtonVariants, Context, Disableable, ElementId, Entity,
@@ -436,7 +436,7 @@ fn run_batch(
         .into_iter()
         .map(|link| MissingFile {
             url: link.url,
-            path: download_debug_batch_file(&directory, link.line),
+            path: ManagedFile::DownloadBatchOutput(link.line).path(&directory),
             sha1: None,
             sha1_alternatives: Vec::new(),
             size: None,

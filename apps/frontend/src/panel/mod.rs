@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 
 use axlauncher_core::desktop::sources::{DownloadOptions, fallen_proxy};
 use axlauncher_core::launch::plan::Session;
-use axlauncher_core::spi::ServiceHost;
+use axlauncher_core::network_spi::ServiceHost;
 use axlauncher_core::state::{SettingsData, SettingsOrigin, ThemeChoice};
-use axlauncher_core::storage::DataDir;
+use axlauncher_core::storage::{DataDir, DataPath};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{Context, Entity, InputEvent, InputState, Window};
 
@@ -117,7 +117,9 @@ impl RootView {
     }
 
     fn data_root_text(paths: Option<&DataDir>) -> String {
-        paths.map_or_else(String::new, |paths| paths.root().display().to_string())
+        paths.map_or_else(String::new, |paths| {
+            paths.path(DataPath::Root).display().to_string()
+        })
     }
 
     fn new_accounts(
@@ -236,7 +238,9 @@ impl RootView {
     }
 
     fn refresh_java_after_install(&mut self, paths: &DataDir, cx: &mut Context<'_, Self>) {
-        if self.paths.as_ref().map(DataDir::root) == Some(paths.root()) {
+        if self.paths.as_ref().map(|paths| paths.path(DataPath::Root))
+            == Some(paths.path(DataPath::Root))
+        {
             self.java.update(cx, java::JavaPanel::refresh);
         }
     }
@@ -281,13 +285,13 @@ impl RootView {
             return;
         };
 
-        let instances = paths.instances();
-        match axlauncher_core::state::profile::create(&instances, name, game.clone()) {
+        let instances = paths.path(DataPath::Profiles);
+        match axlauncher_core::state::profile::create(instances, name, game.clone()) {
             Ok(directory) => {
                 self.activity
                     .success(format!("Created {name} at {}", directory.display()));
                 self.instances
-                    .replace(axlauncher_core::state::profile::discover(&instances), true);
+                    .replace(axlauncher_core::state::profile::discover(instances), true);
                 self.instances.select(&directory);
             }
             Err(error) => self.activity.error(error.to_string()),
@@ -322,8 +326,10 @@ impl RootView {
     fn apply_loaded(&mut self, loaded: Loaded, window: &mut Window, cx: &mut Context<'_, Self>) {
         let previous = self.paths.as_ref();
         let current = loaded.paths.as_ref();
-        let same_data = previous.map(DataDir::root) == current.map(DataDir::root);
-        let same_instances = previous.map(DataDir::instances) == current.map(DataDir::instances);
+        let same_data = previous.map(|paths| paths.path(DataPath::Root))
+            == current.map(|paths| paths.path(DataPath::Root));
+        let same_instances = previous.map(|paths| paths.path(DataPath::Profiles))
+            == current.map(|paths| paths.path(DataPath::Profiles));
         self.paths = loaded.paths;
         self.modpack
             .update(cx, |view, cx| view.set_enabled(self.paths.is_some(), cx));
@@ -410,9 +416,10 @@ impl RootView {
 
     fn record_data_root(&mut self) {
         match &self.paths {
-            Some(paths) => self
-                .activity
-                .info(format!("Data root: {}", paths.root().display())),
+            Some(paths) => self.activity.info(format!(
+                "Data root: {}",
+                paths.path(DataPath::Root).display()
+            )),
             None => self.activity.error("Data root unknown"),
         }
     }

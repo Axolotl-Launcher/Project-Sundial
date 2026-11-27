@@ -6,8 +6,8 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use axlauncher_spi::downloads::DownloadJob;
-use axlauncher_storage::{DataDir, Directory};
+use axlauncher_download_spi::DownloadJob;
+use axlauncher_storage::{DataDir, DataPath, Directory, Document};
 use axlauncher_worker::accounts::{Action, Change, Command, Method, Reply};
 use axlauncher_worker::downloads::{Route, Transfer};
 use axlauncher_worker::{Event, Images, Request, Service};
@@ -55,7 +55,7 @@ impl Fixture {
         worker
             .request(
                 &self.data,
-                Command::new(self.data.root().to_path_buf(), action),
+                Command::new(self.data.path(DataPath::Root).to_path_buf(), action),
             )
             .unwrap()
     }
@@ -72,7 +72,7 @@ impl Fixture {
     }
 
     fn has_extracted_libraries(&self) -> bool {
-        match fs::read_dir(self.data.caches().join("workers")) {
+        match fs::read_dir(self.data.path(DataPath::Cache).join("workers")) {
             Ok(mut entries) => entries.next().is_some(),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
             Err(error) => panic!("could not inspect worker scratch: {error}"),
@@ -147,7 +147,12 @@ fn account_worker_never_reuses_sessions_across_data_roots() {
     run(assert_account(&mut add));
 
     let other = DataDir::isolated(fixture.root.path().join("other profile")).unwrap();
-    let action = || Command::new(other.root().to_path_buf(), Action::Change(Change::Read));
+    let action = || {
+        Command::new(
+            other.path(DataPath::Root).to_path_buf(),
+            Action::Change(Change::Read),
+        )
+    };
     let mut wrong_root = worker.request(&other, action()).unwrap();
     assert!(
         run(finish(&mut wrong_root))
@@ -179,7 +184,7 @@ fn mismatched_worker_image_is_refused_and_removed() {
     let request = worker.request(
         &fixture.data,
         Command::new(
-            fixture.data.root().to_path_buf(),
+            fixture.data.path(DataPath::Root).to_path_buf(),
             Action::Change(Change::Read),
         ),
     );
@@ -187,7 +192,11 @@ fn mismatched_worker_image_is_refused_and_removed() {
     assert!(error.contains("worker library does not match the embedded image"));
     assert!(error.contains("restart the launcher"));
     assert!(!fixture.has_extracted_libraries());
-    assert!(!fixture.data.accounts().exists());
+    assert!(
+        !Document::Accounts
+            .path(fixture.data.path(DataPath::Root))
+            .exists()
+    );
 }
 
 async fn assert_account(read: &mut Request<Reply>) {
@@ -226,7 +235,11 @@ fn cancelling_browser_sign_in_releases_the_callback_and_account_worker() {
         });
         fixture.wait_for_cleanup();
     }
-    assert!(!fixture.data.accounts().exists());
+    assert!(
+        !Document::Accounts
+            .path(fixture.data.path(DataPath::Root))
+            .exists()
+    );
 }
 
 #[test]
@@ -234,9 +247,10 @@ fn cancelling_browser_sign_in_releases_the_callback_and_account_worker() {
 fn downloads_share_a_worker_and_cancel_without_publishing() {
     let fixture = Fixture::new();
     let worker = fixture.downloads();
-    fs::create_dir_all(fixture.data.root()).unwrap();
-    let destination = fixture.data.root().join("complete.bin");
-    let cancelled = fixture.data.root().join("cancelled.bin");
+    let root = fixture.data.path(DataPath::Root);
+    fs::create_dir_all(root).unwrap();
+    let destination = root.join("complete.bin");
+    let cancelled = root.join("cancelled.bin");
     fs::write(&cancelled, b"previous").unwrap();
     let (url, server) = local_file(false);
     let (slow, stalled) = local_file(true);
@@ -255,7 +269,7 @@ fn downloads_share_a_worker_and_cancel_without_publishing() {
     run(finish(&mut first)).unwrap();
     assert_eq!(fs::read(destination).unwrap(), b"abc");
     assert_eq!(fs::read(cancelled).unwrap(), b"previous");
-    assert_eq!(fs::read_dir(fixture.data.root()).unwrap().count(), 3);
+    assert_eq!(fs::read_dir(root).unwrap().count(), 3);
     drop(hold);
     drop((server, stalled));
     fixture.wait_for_cleanup();
@@ -266,7 +280,7 @@ fn downloads_share_a_worker_and_cancel_without_publishing() {
 fn crashed_worker_fails_the_request_and_the_next_request_starts_a_new_worker() {
     let fixture = Fixture::new();
     let worker = fixture.downloads();
-    let destination = fixture.data.root().join("recovered.bin");
+    let destination = fixture.data.path(DataPath::Root).join("recovered.bin");
     let (url, stalled) = local_file(true);
     let mut first = worker
         .request(&fixture.data, transfer(&url, &destination))
@@ -296,7 +310,7 @@ fn crashed_worker_fails_the_request_and_the_next_request_starts_a_new_worker() {
 fn worker_shutdown_reaps_a_live_download_before_removing_its_library() {
     let fixture = Fixture::new();
     let worker = fixture.downloads();
-    let destination = fixture.data.root().join("interrupted.bin");
+    let destination = fixture.data.path(DataPath::Root).join("interrupted.bin");
     let (url, stalled) = local_file(true);
     let mut request = worker
         .request(&fixture.data, transfer(&url, &destination))

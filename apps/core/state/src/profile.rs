@@ -10,7 +10,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use axlauncher_domain::memory::MaximumHeap;
-use axlauncher_storage::{profile_document, write_atomic};
+use axlauncher_storage::{Document, write_atomic};
 
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -159,7 +159,7 @@ impl<'de> Visitor<'de> for ContentFiles {
 
 /// A missing marker means the directory is not an `.axlprofile` instance.
 pub fn read(directory: &Path) -> Result<Option<Profile>, DiscoveryError> {
-    let path = profile_document(directory);
+    let path = Document::Profile.path(directory);
     let metadata = match fs::symlink_metadata(&path) {
         Ok(metadata) => metadata,
         Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -368,7 +368,7 @@ impl std::error::Error for ProfileWriteError {
 pub fn save(directory: &Path, profile: &Profile) -> Result<(), ProfileWriteError> {
     validate(profile).map_err(|reason| ProfileWriteError::Invalid { reason })?;
 
-    let path = profile_document(directory);
+    let path = Document::Profile.path(directory);
     let existing = match fs::symlink_metadata(&path) {
         Ok(metadata) => {
             if !metadata.is_file() || is_link(&metadata) {

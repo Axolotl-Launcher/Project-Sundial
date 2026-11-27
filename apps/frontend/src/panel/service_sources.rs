@@ -6,6 +6,7 @@ use std::path::Path;
 use axlauncher_core::state::{
     SettingsData, SettingsError, SettingsOrigin, SourcePreference, update_settings,
 };
+use axlauncher_core::storage::DataPath;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, App, Context, Disableable, Entity, GroupBox, IndexPath, IntoElement,
@@ -184,7 +185,7 @@ impl RootView {
             return;
         }
 
-        let saved = field.save(paths.root(), value);
+        let saved = field.save(paths.path(DataPath::Root), value);
         self.finish_source_save(saved, window, cx);
     }
 
@@ -197,7 +198,9 @@ impl RootView {
         let Some(paths) = self.paths.as_ref().filter(|_| !self.settings_readonly()) else {
             return;
         };
-        let saved = update_settings(paths.root(), |settings| settings.use_fallen_proxy = enabled);
+        let saved = update_settings(paths.path(DataPath::Root), |settings| {
+            settings.use_fallen_proxy = enabled;
+        });
         if saved.is_ok() {
             self.invalidate_inspection();
         }

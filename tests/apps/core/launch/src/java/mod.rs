@@ -196,7 +196,7 @@ fn a_major_nothing_offers_is_reported_as_absent() {
 fn the_newest_release_wins_across_discovery_sources() {
     let temp = TempDir::new();
     let managed = jdk_home(&temp.path().join("managed"), "21.0.9");
-    fs::write(runtime_record(&managed), b"{}").unwrap();
+    fs::write(Document::RuntimeReceipt.path(&managed), b"{}").unwrap();
     let environment = jdk_home(&temp.path().join("env"), "21.0.10");
     let search_path = std::env::join_paths([environment.join("bin")]).expect("path");
 
@@ -218,7 +218,7 @@ fn managed_discovery_only_selects_published_installations() {
     let temp = TempDir::new();
     let managed = jdk_home(temp.path(), "21.0.7");
     let java = SystemJava::default().with_runtime_roots(vec![temp.path().to_owned()]);
-    let receipt = runtime_record(&managed);
+    let receipt = Document::RuntimeReceipt.path(&managed);
 
     assert!(java.discover().is_empty());
     assert!(java.executable_for(21, JavaMode::Console).is_none());
@@ -340,7 +340,7 @@ fn a_chosen_runtime_follows_the_requested_mode() {
 fn a_version_without_a_stated_major_prefers_the_environment() {
     let temp = TempDir::new();
     let managed = jdk_home(&temp.path().join("managed"), "21.0.7");
-    fs::write(runtime_record(&managed), b"{}").unwrap();
+    fs::write(Document::RuntimeReceipt.path(&managed), b"{}").unwrap();
     let environment = jdk_home(&temp.path().join("env"), "8.0.392");
     let search_path = std::env::join_paths([environment.join("bin")]).expect("path");
 

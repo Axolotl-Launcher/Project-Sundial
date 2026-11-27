@@ -6,8 +6,8 @@
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-use axlauncher_spi::downloads::{DownloadJob, FileDownloader};
-use axlauncher_storage::{DataDir, open_for_read};
+use axlauncher_download_spi::{DownloadJob, FileDownloader};
+use axlauncher_storage::{DataDir, DataPath, open_for_read};
 use sha2::{Digest, Sha256};
 
 const URL: &str = "https://authlib-injector.yushi.moe/artifact/56/authlib-injector-1.2.8.jar";
@@ -17,7 +17,8 @@ const SIZE: u64 = 349_681;
 
 /// A verified Java agent in the shared game directory.
 pub async fn prepare(downloader: &impl FileDownloader, data: &DataDir) -> Result<PathBuf, String> {
-    let path = std::path::absolute(data.auth_agent()).map_err(|error| error.to_string())?;
+    let path =
+        std::path::absolute(data.path(DataPath::AuthAgent)).map_err(|error| error.to_string())?;
     if path.to_string_lossy().contains('=') {
         return Err(
             "Choose a launcher data directory without '=' to use third-party accounts.".into(),

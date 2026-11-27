@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use axlauncher_core::launch::Version;
 use axlauncher_core::launch::version::{Downloads, GameDownload};
-use axlauncher_core::storage::{AtomicFile, GameDir};
+use axlauncher_core::storage::{AtomicFile, GameDir, VersionPath};
 use axlauncher_modpack::MultiMcExport;
 use zip::write::SimpleFileOptions;
 use zip::{ZipArchive, ZipWriter};
@@ -64,9 +64,9 @@ impl<'a> Overlay<'a> {
                 main.copy(export, "libraries", &path)?;
                 path
             }
-            None => root.client_jar(version.jar_id()),
+            None => root.version_path(version.jar_id(), VersionPath::ClientJar),
         };
-        let destination = root.client_jar(&version.id);
+        let destination = root.version_path(&version.id, VersionPath::ClientJar);
         let size = assemble(&destination, &base, &self.layers)?;
         version.jar = Some(version.id.clone());
         version.downloads = Some(Downloads {

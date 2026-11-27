@@ -35,7 +35,10 @@ SPDX-License-Identifier = "GPL-3.0-only"
 [[annotations]]
 path = [
   "apps/core/lib/**",
-  "apps/core/spi/src/downloads.rs",
+  "apps/core/spi/download/**",
+  "apps/core/spi/network/Cargo.toml",
+  "apps/core/spi/network/src/lib.rs",
+  "apps/core/spi/src/credentials.rs",
   "platforms/entry.rs",
   "scripts/desktop.ts",
   "tests/apps/core/lib/**",
@@ -48,10 +51,8 @@ SPDX-License-Identifier = "GPL-3.0-only"
 [[annotations]]
 path = [
   ".agents/docs/filesystem-paths.md",
-  "apps/core/storage/src/game_dir.rs",
-  "apps/core/storage/src/instance_paths.rs",
-  "apps/core/storage/src/paths.rs",
-  "tests/apps/core/storage/src/paths.rs",
+  "apps/core/storage/layout/**",
+  "tests/apps/core/storage/layout/**",
   "tests/apps/frontend/src/panel/instances.rs",
   "tests/tests/filesystem_paths.rs",
   "tests/tests/filesystem_paths/rules.rs",

@@ -9,6 +9,7 @@ license.workspace = true
 
 [dependencies]
 axlauncher_network = { workspace = true }
+axlauncher_network_spi = { workspace = true }
 axlauncher_spi = { workspace = true }
 axlauncher_storage = { workspace = true }
 axlauncher_worker = { workspace = true }

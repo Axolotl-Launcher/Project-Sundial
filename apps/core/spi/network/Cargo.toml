@@ -1,0 +1,15 @@
+[package]
+name = "axlauncher_network_spi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Metadata, HTTP transfer and authentication transport contracts"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+bytes = { workspace = true }
+serde = { workspace = true }
+
+[lints]
+workspace = true

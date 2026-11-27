@@ -8,10 +8,12 @@ use super::*;
 fn installed_document(json: &str) -> Version {
     let root = tempfile::tempdir().unwrap();
     let data = DataDir::isolated(root.path()).unwrap();
-    let document = data.game().version_document("1.21");
+    let document = data
+        .game()
+        .version_path("1.21", axlauncher_storage::VersionPath::Document);
     std::fs::create_dir_all(document.parent().unwrap()).unwrap();
     std::fs::write(document, json).unwrap();
-    version::load(&data.game().versions(), "1.21").unwrap()
+    version::load(data.game(), "1.21").unwrap()
 }
 
 #[test]
@@ -162,7 +164,7 @@ fn invalid_paths_and_wrong_major_preferences_leave_the_catalog_untouched() {
             ..
         }
     ));
-    let saved = javas::load(data.root()).unwrap();
+    let saved = javas::load(data.path(DataPath::Root)).unwrap();
     assert_eq!(saved.paths().count(), 0);
     assert_eq!(saved.preferred().count(), 0);
 }
@@ -241,14 +243,18 @@ fn startup_merges_only_if_no_other_writer_populated_the_list() {
 fn a_removed_runtime_stays_out_of_launch_selection_until_rediscovered() {
     let root = tempfile::tempdir().unwrap();
     let data = DataDir::isolated(root.path()).unwrap();
-    let component = data.java_versions().join("component");
+    let component = data.path(DataPath::JavaVersions).join("component");
     let home = if cfg!(target_os = "macos") {
         component.join("jre.bundle/Contents/Home")
     } else {
         component.clone()
     };
     let path = test_runtime(&home, 42);
-    std::fs::write(axlauncher_storage::runtime_record(&component), b"{}").unwrap();
+    std::fs::write(
+        axlauncher_storage::Document::RuntimeReceipt.path(&component),
+        b"{}",
+    )
+    .unwrap();
 
     assert_eq!(managed(&data).executable(JavaMode::Console), None);
     let java = add(&data, &path).unwrap();
@@ -259,7 +265,7 @@ fn a_removed_runtime_stays_out_of_launch_selection_until_rediscovered() {
 
     let found = discover_with(&data, false, || {
         SystemJava::default()
-            .with_runtime_roots(vec![data.java_versions()])
+            .with_runtime_roots(vec![data.path(DataPath::JavaVersions).to_owned()])
             .discover()
     })
     .unwrap();

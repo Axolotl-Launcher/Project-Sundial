@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use axlauncher_launch::{ChainError, Version, resolve};
 use axlauncher_spi::LoaderProfile;
-use axlauncher_storage::{GameDir, write_atomic};
+use axlauncher_storage::{GameDir, VersionPath, write_atomic};
 
 /// Longest version id accepted; long enough for any loader's own scheme.
 const MAX_ID_LEN: usize = 120;
@@ -92,7 +92,7 @@ pub fn check_files(
     version_id: &str,
     target: &axlauncher_launch::Target,
 ) -> Result<(), String> {
-    let version = axlauncher_launch::chain::load_resolved(&game_root.versions(), version_id)
+    let version = axlauncher_launch::chain::load_resolved(game_root, version_id)
         .map_err(|error| error.to_string())?;
     crate::prepare::check_local_files(game_root, &version, target)
 }
@@ -103,7 +103,7 @@ pub fn check_files(
 /// resolved profile and the client JAR that installation will prepare for it.
 pub fn place(game_root: &GameDir, profile: &LoaderProfile) -> Result<Placed, PlaceError> {
     check_id(&profile.version_id)?;
-    let document = game_root.version_document(&profile.version_id);
+    let document = game_root.version_path(&profile.version_id, VersionPath::Document);
     let files = profile
         .files
         .iter()
@@ -161,8 +161,8 @@ fn resolve_document(game_root: &GameDir, profile: &LoaderProfile) -> Result<Vec<
     // and the parent's otherwise, defaulting to the profile's own id last.
     // Overwriting `jar` here would discard the parent's, which is the jar a
     // Fabric or Quilt profile must run.
-    let resolved = resolve(&game_root.versions(), version)
-        .map_err(|source| PlaceError::Inheritance { source })?;
+    let resolved =
+        resolve(game_root, version).map_err(|source| PlaceError::Inheritance { source })?;
     serde_json::to_vec(&resolved).map_err(document_error)
 }
 
@@ -289,8 +289,8 @@ impl std::error::Error for LoaderInstallError {
 /// decision rather than seven positional arguments.
 pub struct InstallRequest<
     'a,
-    N: axlauncher_spi::Network,
-    D: axlauncher_spi::downloads::FileDownloader,
+    N: axlauncher_network_spi::Network,
+    D: axlauncher_download_spi::FileDownloader,
     L: axlauncher_spi::ModLoader,
     J: axlauncher_spi::Java,
 > {
@@ -306,8 +306,8 @@ pub struct InstallRequest<
 
 impl<N, D, L, J> InstallRequest<'_, N, D, L, J>
 where
-    N: axlauncher_spi::Network,
-    D: axlauncher_spi::downloads::FileDownloader,
+    N: axlauncher_network_spi::Network,
+    D: axlauncher_download_spi::FileDownloader,
     L: axlauncher_spi::ModLoader,
     J: axlauncher_spi::Java,
 {
@@ -333,12 +333,11 @@ where
             .map_err(LoaderInstallError::Provider)?;
         let placed = place(self.game_root, &profile).map_err(LoaderInstallError::Place)?;
 
-        let version =
-            axlauncher_launch::version::load(&self.game_root.versions(), &placed.version_id)
-                .map_err(|source| LoaderInstallError::Document {
-                    id: placed.version_id.clone(),
-                    source,
-                })?;
+        let version = axlauncher_launch::version::load(self.game_root, &placed.version_id)
+            .map_err(|source| LoaderInstallError::Document {
+                id: placed.version_id.clone(),
+                source,
+            })?;
 
         let prepared = crate::prepare::prepare_reporting(
             self.network,
@@ -419,7 +418,7 @@ fn run_processors(
         .ok_or(LoaderInstallError::Java { required })?;
     crate::processors::run(
         &executable,
-        &game_root.libraries(),
+        game_root.libraries(),
         game_root.root(),
         game_root.root(),
         game_version,

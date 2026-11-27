@@ -11,11 +11,11 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+use axlauncher_download_spi::MissingFile;
 use axlauncher_launch::natives::classifier_download;
 use axlauncher_launch::rules::{self, Target};
 use axlauncher_launch::version::{Artifact, Library};
-use axlauncher_spi::downloads::MissingFile;
-use axlauncher_storage::{GameDir, write_atomic};
+use axlauncher_storage::{AssetPath, GameDir, VersionPath, write_atomic};
 use serde::Deserialize;
 
 /// How many leading hash characters select an asset object's directory.
@@ -47,10 +47,10 @@ impl AssetIndexDocument {
     /// in the document and would otherwise need aliases on every field.
     pub fn flat_root(&self, game_root: &GameDir, index_id: &str) -> Option<PathBuf> {
         if self.virtual_map {
-            return Some(game_root.virtual_assets(index_id));
+            return Some(game_root.asset_path(AssetPath::Virtual(index_id)));
         }
         if self.map_to_resources {
-            return Some(game_root.legacy_resources());
+            return Some(game_root.legacy_resources().to_owned());
         }
         None
     }
@@ -177,7 +177,7 @@ pub fn client_jar(
     version: &axlauncher_launch::version::Version,
 ) -> Option<MissingFile> {
     let download = version.downloads.as_ref()?.client.as_ref()?;
-    let path = game_root.client_jar(version.jar_id());
+    let path = game_root.version_path(version.jar_id(), VersionPath::ClientJar);
     needs_download(&path, download.size).then(|| MissingFile {
         url: download.url.clone(),
         path,
@@ -196,7 +196,7 @@ pub fn log_config(
     version: &axlauncher_launch::version::Version,
 ) -> Option<MissingFile> {
     let client = version.logging.as_ref()?.client.as_ref()?;
-    let path = game_root.log_config(&client.file.id);
+    let path = game_root.version_path(&client.file.id, VersionPath::LogConfig);
     needs_download(&path, client.file.size).then(|| MissingFile {
         url: client.file.url.clone(),
         path,

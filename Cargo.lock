@@ -569,6 +569,7 @@ name = "axlauncher_accounts"
 version = "0.1.0"
 dependencies = [
  "axlauncher_network",
+ "axlauncher_network_spi",
  "axlauncher_spi",
  "axlauncher_storage",
  "axlauncher_worker",
@@ -588,6 +589,7 @@ dependencies = [
 name = "axlauncher_content"
 version = "0.1.0"
 dependencies = [
+ "axlauncher_network_spi",
  "axlauncher_spi",
 ]
 
@@ -597,12 +599,14 @@ version = "0.1.0"
 dependencies = [
  "axlauncher_content",
  "axlauncher_domain",
+ "axlauncher_download_spi",
  "axlauncher_install",
  "axlauncher_launch",
  "axlauncher_loader",
  "axlauncher_mc_version",
  "axlauncher_mod_metadata",
  "axlauncher_network",
+ "axlauncher_network_spi",
  "axlauncher_observability",
  "axlauncher_resources",
  "axlauncher_scheduler",
@@ -626,8 +630,9 @@ dependencies = [
 name = "axlauncher_download_engine"
 version = "0.1.0"
 dependencies = [
+ "axlauncher_download_spi",
  "axlauncher_network",
- "axlauncher_spi",
+ "axlauncher_network_spi",
  "axlauncher_storage",
  "axlauncher_worker",
  "bytes",
@@ -635,6 +640,18 @@ dependencies = [
  "futures",
  "tempfile",
  "tokio",
+ "url",
+]
+
+[[package]]
+name = "axlauncher_download_spi"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_network_spi",
+ "futures",
+ "md-5",
+ "serde",
+ "sha2 0.11.1",
  "url",
 ]
 
@@ -658,8 +675,10 @@ version = "0.1.0"
 dependencies = [
  "axlauncher_domain",
  "axlauncher_download_engine",
+ "axlauncher_download_spi",
  "axlauncher_launch",
  "axlauncher_network",
+ "axlauncher_network_spi",
  "axlauncher_spi",
  "axlauncher_storage",
  "futures",
@@ -679,6 +698,7 @@ name = "axlauncher_launch"
 version = "0.1.0"
 dependencies = [
  "axlauncher_domain",
+ "axlauncher_network_spi",
  "axlauncher_spi",
  "axlauncher_storage",
  "dunce",
@@ -693,6 +713,7 @@ version = "0.1.0"
 dependencies = [
  "axlauncher_domain",
  "axlauncher_mc_version",
+ "axlauncher_network_spi",
  "axlauncher_spi",
  "quick-xml",
  "serde",
@@ -730,6 +751,8 @@ version = "0.1.0"
 name = "axlauncher_modpack"
 version = "0.1.0"
 dependencies = [
+ "axlauncher_download_spi",
+ "axlauncher_network_spi",
  "axlauncher_spi",
  "futures",
  "hex",
@@ -747,7 +770,7 @@ dependencies = [
 name = "axlauncher_network"
 version = "0.1.0"
 dependencies = [
- "axlauncher_spi",
+ "axlauncher_network_spi",
  "bytes",
  "futures",
  "hex",
@@ -761,6 +784,14 @@ dependencies = [
  "sha1_smol",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "axlauncher_network_spi"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "serde",
 ]
 
 [[package]]
@@ -794,8 +825,10 @@ name = "axlauncher_policy_tests"
 version = "0.1.0"
 dependencies = [
  "axlauncher_content",
+ "axlauncher_download_spi",
  "axlauncher_install",
  "axlauncher_launch",
+ "axlauncher_network_spi",
  "axlauncher_spi",
  "axlauncher_state",
  "axlauncher_storage",
@@ -824,12 +857,7 @@ name = "axlauncher_spi"
 version = "0.1.0"
 dependencies = [
  "axlauncher_domain",
- "bytes",
- "futures",
- "md-5",
- "serde",
- "sha2 0.11.1",
- "url",
+ "axlauncher_network_spi",
 ]
 
 [[package]]
@@ -851,11 +879,20 @@ name = "axlauncher_storage"
 version = "0.1.0"
 dependencies = [
  "axlauncher_spi",
+ "axlauncher_storage_layout",
  "dirs 6.0.0",
  "keyring",
  "sysinfo",
  "tempfile",
  "windows-registry 0.6.1",
+]
+
+[[package]]
+name = "axlauncher_storage_layout"
+version = "0.1.0"
+dependencies = [
+ "dirs 6.0.0",
+ "tempfile",
 ]
 
 [[package]]
@@ -877,8 +914,9 @@ dependencies = [
 name = "axlauncher_worker"
 version = "0.1.0"
 dependencies = [
+ "axlauncher_download_spi",
  "axlauncher_network",
- "axlauncher_spi",
+ "axlauncher_network_spi",
  "axlauncher_storage",
  "futures",
  "libloading",

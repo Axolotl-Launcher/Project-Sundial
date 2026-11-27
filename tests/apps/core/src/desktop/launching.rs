@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use axlauncher_state::profile::{self, Game, InstallStatus, Profile, StagedProfile};
-use axlauncher_storage::Directory;
+use axlauncher_storage::{Directory, Document, VersionPath};
 
 use super::*;
 
@@ -14,8 +14,9 @@ fn a_launch_job_retains_the_directory_snapshot_used_for_installation() {
     paths
         .set_directory(Directory::AppCache, Some(&install_cache))
         .unwrap();
-    profile::create(&paths.instances(), "Fixture", Game::new("1.21.11")).unwrap();
-    let discovered = profile::discover(&paths.instances());
+    let profiles = paths.path(DataPath::Profiles);
+    profile::create(profiles, "Fixture", Game::new("1.21.11")).unwrap();
+    let discovered = profile::discover(profiles);
     let entry = &discovered.instances[0];
     let job = LaunchJob::for_profile(&paths, entry, "Player".into(), None).unwrap();
     let hash = "a9993e364706816aba3e25717850c26c9cd0d89d";
@@ -33,26 +34,26 @@ fn a_launch_job_retains_the_directory_snapshot_used_for_installation() {
             .native_classifier_archive(Path::new("native.jar"), Some(hash)),
         expected
     );
-    assert_ne!(job.request.game_root, paths.game());
+    assert_ne!(&job.request.game_root, paths.game());
 }
 
 #[test]
 fn a_converted_profile_keeps_its_isolated_runtime_after_publication() {
     let root = tempfile::tempdir().unwrap();
     let data = DataDir::isolated(root.path()).unwrap();
-    let instances = data.instances();
-    let staged = StagedProfile::new(&instances).unwrap();
+    let instances = data.path(DataPath::Profiles);
+    let staged = StagedProfile::new(instances).unwrap();
     let game = Game::new("1.20.1").with_isolated_runtime();
     let version = "axolotl-converted";
     let runtime = GameDir::isolated(staged.directory());
     std::fs::create_dir(runtime.root()).unwrap();
     std::fs::write(runtime.root().join("kept"), b"converted files").unwrap();
-    assert!(profile::discover(&instances).instances.is_empty());
+    assert!(profile::discover(instances).instances.is_empty());
 
     let directory = staged
         .publish_installed(Profile::new("Converted", Some(game)), version)
         .unwrap();
-    let discovered = profile::discover(&instances);
+    let discovered = profile::discover(instances);
     let entry = &discovered.instances[0];
     let job = LaunchJob::for_profile(&data, entry, "Player".into(), None).unwrap();
     assert_eq!(entry.profile.install.status, InstallStatus::Ready);
@@ -70,13 +71,14 @@ fn a_profile_without_game_files_needs_install_and_starts_nothing() {
     let root = tempfile::tempdir().unwrap();
     let data = DataDir::isolated(root.path()).unwrap();
     let game = Game::new("1.21.11");
-    profile::create(&data.instances(), "Fixture", game).unwrap();
-    let discovered = profile::discover(&data.instances());
+    let profiles = data.path(DataPath::Profiles);
+    profile::create(profiles, "Fixture", game).unwrap();
+    let discovered = profile::discover(profiles);
     let job = LaunchJob::for_profile(&data, &discovered.instances[0], "Player".into(), None)
         .expect("vanilla profile has a version");
     assert_eq!(job.game_root(), data.game().root());
     assert_eq!(job.version_id(), "1.21.11");
-    assert!(job.instance_directory().starts_with(data.instances()));
+    assert!(job.instance_directory().starts_with(profiles));
 
     let failure = job
         .run(
@@ -132,7 +134,7 @@ fn an_unreadable_java_catalog_is_reported_and_preserved() {
     let root = tempfile::tempdir().unwrap();
     let data = DataDir::isolated(root.path()).unwrap();
     let job = java_profile_job(&data);
-    let catalog = axlauncher_storage::javas_path(data.root());
+    let catalog = Document::JavaCatalog.path(data.path(DataPath::Root));
     let contents = b"{broken";
     std::fs::write(&catalog, contents).unwrap();
 
@@ -159,7 +161,7 @@ fn desktop_preview_applies_profile_then_manifest_heap_settings() {
     let mut settings = SettingsData::default();
     settings.set_memory(MemoryAllocation::Manual(MaximumHeap::new(4096).unwrap()));
     let preview = || {
-        let discovered = profile::discover(&data.instances());
+        let discovered = profile::discover(data.path(DataPath::Profiles));
         let job = LaunchJob::for_profile(
             &data,
             &discovered.instances[0],
@@ -195,7 +197,8 @@ fn desktop_preview_applies_profile_then_manifest_heap_settings() {
         Some(heap)
     );
     std::fs::write(
-        data.game().version_document(fixture.version_id()),
+        data.game()
+            .version_path(fixture.version_id(), VersionPath::Document),
         r#"{"id":"1.21.11","javaVersion":{"majorVersion":42},"arguments":{"jvm":["-Xmx512m"]}}"#,
     )
     .unwrap();
@@ -207,9 +210,10 @@ fn an_optifine_only_profile_uses_the_version_workload() {
     let root = tempfile::tempdir().unwrap();
     let data = DataDir::isolated(root.path()).unwrap();
     let game = Game::new("1.21.11").with_loader("OptiFine", None);
-    let directory = profile::create(&data.instances(), "OptiFine", game).unwrap();
+    let instances = data.path(DataPath::Profiles);
+    let directory = profile::create(instances, "OptiFine", game).unwrap();
     profile::mark_installed(&directory, "optifine-test").unwrap();
-    let profiles = profile::discover(&data.instances());
+    let profiles = profile::discover(instances);
     let job = LaunchJob::for_profile(&data, &profiles.instances[0], "Player".into(), None).unwrap();
     assert!(matches!(
         job.configured_launch().unwrap().1.heap,
@@ -222,9 +226,10 @@ fn an_automatic_job_rescans_enabled_mods_for_each_launch_request() {
     let root = tempfile::tempdir().unwrap();
     let data = DataDir::isolated(root.path()).unwrap();
     let game = Game::new("1.21.11").with_loader("fabric", None);
-    let directory = profile::create(&data.instances(), "Modded", game).unwrap();
+    let instances = data.path(DataPath::Profiles);
+    let directory = profile::create(instances, "Modded", game).unwrap();
     profile::mark_installed(&directory, "fabric-test").unwrap();
-    let profiles = profile::discover(&data.instances());
+    let profiles = profile::discover(instances);
     let job = LaunchJob::for_profile(&data, &profiles.instances[0], "Player".into(), None).unwrap();
     assert!(matches!(
         job.configured_launch().unwrap().1.heap,
@@ -247,16 +252,21 @@ fn an_automatic_job_rescans_enabled_mods_for_each_launch_request() {
 
 fn java_profile_job(data: &DataDir) -> LaunchJob {
     let version = "1.21.11";
-    profile::create(&data.instances(), "Fixture", Game::new(version)).unwrap();
-    let profiles = profile::discover(&data.instances());
-    let manifest = data.game().version_document(version);
+    let instances = data.path(DataPath::Profiles);
+    profile::create(instances, "Fixture", Game::new(version)).unwrap();
+    let profiles = profile::discover(instances);
+    let manifest = data.game().version_path(version, VersionPath::Document);
     std::fs::create_dir_all(manifest.parent().unwrap()).unwrap();
     std::fs::write(
         manifest,
         r#"{"id":"1.21.11","javaVersion":{"majorVersion":42}}"#,
     )
     .unwrap();
-    std::fs::write(data.game().client_jar(version), b"client").unwrap();
+    std::fs::write(
+        data.game().version_path(version, VersionPath::ClientJar),
+        b"client",
+    )
+    .unwrap();
     LaunchJob::for_profile(data, &profiles.instances[0], "Player".into(), None).unwrap()
 }
 

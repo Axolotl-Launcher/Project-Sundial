@@ -8,7 +8,7 @@ use std::path::Path;
 use axlauncher_core::desktop::launching::LAUNCHER_LANGUAGE;
 use axlauncher_core::domain::normalize_game_language;
 use axlauncher_core::state::{SettingsOrigin, ThemeChoice, update_settings};
-use axlauncher_core::storage::{DataDir, Directory, settings_path};
+use axlauncher_core::storage::{DataDir, DataPath, Directory, Document};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, App, Button, ButtonVariants, Context, Disableable, ElementId, Entity,
@@ -191,25 +191,26 @@ impl RootView {
     }
 
     fn environment_paths(&self, muted: Hsla) -> Vec<AnyElement> {
-        self.paths
-            .as_ref()
-            .map(|data| {
-                let game = data.game();
-                vec![
-                    ("Data root", data.root().to_path_buf()),
-                    ("Profiles", data.instances()),
-                    ("Shared game files", game.root().to_path_buf()),
-                    ("Versions", game.versions()),
-                    ("Libraries", game.libraries()),
-                    ("Assets", game.assets()),
-                    ("Settings", settings_path(data.root())),
-                ]
-            })
-            .unwrap_or_default()
-            .into_iter()
-            .enumerate()
-            .map(|(index, (label, path))| path_row(index, label, &path, muted))
-            .collect()
+        let Some(data) = &self.paths else {
+            return Vec::new();
+        };
+        let game = data.game();
+        [
+            ("Data root", data.path(DataPath::Root)),
+            ("Profiles", data.path(DataPath::Profiles)),
+            ("Shared game files", game.root()),
+            ("Versions", game.versions()),
+            ("Libraries", game.libraries()),
+            ("Assets", game.assets()),
+            (
+                "Settings",
+                &Document::Settings.path(data.path(DataPath::Root)),
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (label, path))| path_row(index, label, path, muted))
+        .collect()
     }
 
     fn settings_controls(
@@ -318,7 +319,7 @@ impl RootView {
         }
         let theme = (settings.theme != self.theme).then_some(self.theme);
         let language = language.filter(|_| language_changed);
-        let saved = update_settings(paths.root(), |data| {
+        let saved = update_settings(paths.path(DataPath::Root), |data| {
             data.theme = theme.unwrap_or(data.theme);
             data.default_game_language =
                 language.unwrap_or_else(|| std::mem::take(&mut data.default_game_language));

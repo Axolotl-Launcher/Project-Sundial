@@ -3,8 +3,9 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use axlauncher_network::auth::AuthHttp;
-use axlauncher_spi::ServiceHost;
-use axlauncher_spi::auth::{AuthNetwork, CredentialStore};
+use axlauncher_network_spi::ServiceHost;
+use axlauncher_network_spi::auth::AuthNetwork;
+use axlauncher_spi::credentials::CredentialStore;
 use axlauncher_storage::{DataDir, SystemCredentials};
 use axlauncher_worker::accounts::{AccountId, Action, Change, Command, Identity, Reply};
 use axlauncher_worker::{Cancellation, Responder, serve};

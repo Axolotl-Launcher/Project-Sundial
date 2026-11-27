@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use axlauncher_spi::auth::CredentialStore;
+use axlauncher_spi::credentials::CredentialStore;
 use uuid::Uuid;
 
 use super::{
@@ -33,7 +33,7 @@ impl<S: CredentialStore> AccountService<S> {
         secret: &str,
         commit: &SignInCommit,
     ) -> Result<(Option<Uuid>, bool), AccountError> {
-        let _lock = self.data.lock_accounts().map_err(AccountError::Write)?;
+        let _lock = Document::lock(&self.data)?;
         if !commit.is_pending() {
             return Err(AccountError::Cancelled);
         }
@@ -65,7 +65,7 @@ impl<S: CredentialStore> AccountService<S> {
     }
 
     pub(super) fn cleanup_retired(&self) -> Result<Vec<Uuid>, AccountError> {
-        let _lock = self.data.lock_accounts().map_err(AccountError::Write)?;
+        let _lock = Document::lock(&self.data)?;
         let mut document = Document::load(&self.data)?;
         let before = document.retired_credentials.len();
         let live = document
@@ -88,7 +88,7 @@ impl<S: CredentialStore> AccountService<S> {
         key: Uuid,
         secret: &str,
     ) -> Result<bool, AccountError> {
-        let _lock = self.data.lock_accounts().map_err(AccountError::Write)?;
+        let _lock = Document::lock(&self.data)?;
         let document = Document::load(&self.data)?;
         if document.find(id)?.credential != Some(key) {
             return Err(AccountError::Missing);

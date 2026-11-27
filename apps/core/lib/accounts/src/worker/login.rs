@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use axlauncher_network::auth::{AuthHttp, BrowserCallback, CallbackError};
-use axlauncher_spi::{ServiceHost, auth::CredentialStore};
+use axlauncher_network_spi::ServiceHost;
+use axlauncher_spi::credentials::CredentialStore;
 use axlauncher_worker::Responder;
 use axlauncher_worker::accounts::{AccountId, ChoiceId, Method, Profile, Reply};
 use uuid::Uuid;

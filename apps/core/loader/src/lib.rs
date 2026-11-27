@@ -12,9 +12,9 @@
 //! [`provider`] selects a [`ModLoader`] for both catalog requests and installs.
 //! Loaders with different formats keep their parsing and resolution separate.
 
+use axlauncher_network_spi::{FetchError, FetchKind, Network};
 use axlauncher_spi::{
-    FetchError, FetchKind, LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion,
-    ModLoader, Network,
+    LoaderError, LoaderKind, LoaderProfile, LoaderRequest, LoaderVersion, ModLoader,
 };
 use serde::Deserialize;
 

@@ -16,7 +16,7 @@ use rules::{
 };
 
 const SOURCE_ROOTS: [&str; 3] = ["apps", "platforms", "tools"];
-const STORAGE: &str = "apps/core/storage/src/";
+const STORAGE: [&str; 2] = ["apps/core/storage/src/", "apps/core/storage/layout/src/"];
 const MAX_LITERAL_RESOLUTION_DEPTH: usize = 16;
 
 #[test]
@@ -59,7 +59,7 @@ fn scan_tree(root: &Path, directory: &Path, scanned: &mut usize, violations: &mu
             .unwrap()
             .to_string_lossy()
             .replace('\\', "/");
-        if !relative.starts_with(STORAGE) {
+        if !STORAGE.iter().any(|prefix| relative.starts_with(prefix)) {
             *scanned += 1;
             violations.extend(inspect(
                 &relative,

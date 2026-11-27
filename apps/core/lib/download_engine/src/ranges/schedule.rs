@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use axlauncher_spi::ByteRange;
+use axlauncher_network_spi::ByteRange;
 
 use crate::retry::{Attempts, Delay, WaitBudget};
 use crate::transfer::{CopyResult, TransferError};

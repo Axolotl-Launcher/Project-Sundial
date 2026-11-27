@@ -6,7 +6,7 @@
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-use axlauncher_spi::auth::{AuthNetwork, Body, Request, Response, TransportError};
+use axlauncher_network_spi::auth::{AuthNetwork, Body, Request, Response, TransportError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};

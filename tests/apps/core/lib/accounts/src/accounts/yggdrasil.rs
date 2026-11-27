@@ -4,13 +4,14 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 
-use axlauncher_spi::auth::{Body, CredentialError, Request, Response, TransportError};
+use axlauncher_network_spi::auth::{Body, Request, Response, TransportError};
+use axlauncher_spi::credentials::CredentialError;
 use serde_json::{Value, json};
 
 use super::*;
 use crate::accounts::{AccountError, AccountService, LaunchIdentity, Persistence, yggdrasil};
 use crate::test_support::TempRoot;
-use axlauncher_spi::auth::CredentialStore;
+use axlauncher_spi::credentials::CredentialStore;
 use axlauncher_storage::DataDir;
 
 const ROOT: &str = "https://accounts.example.test/api/yggdrasil";
@@ -171,7 +172,7 @@ async fn binds_a_profile_persists_only_tokens_and_refreshes_after_restart() {
     let temp = TempRoot::new();
     let data = DataDir::isolated(temp.path()).unwrap();
     std::fs::write(
-        data.accounts(),
+        crate::accounts::Document::path(&data),
         br#"{"schema_version":1,"accounts":[],"selected":null}"#,
     )
     .unwrap();
@@ -187,7 +188,7 @@ async fn binds_a_profile_persists_only_tokens_and_refreshes_after_restart() {
     let account = snapshot.selected().unwrap();
     assert_eq!(account.server().unwrap().url(), ROOT);
     assert_eq!(account.id().uuid().simple().to_string(), PROFILE);
-    let document = std::fs::read_to_string(data.accounts()).unwrap();
+    let document = std::fs::read_to_string(crate::accounts::Document::path(&data)).unwrap();
     assert!(!document.contains(ACCESS) && !document.contains("test-password"));
     let reopened = AccountService::new(data, &keyring);
     let refresh = Provider::new(ROOT, [Step::Validate, Step::Refresh]);

@@ -8,9 +8,9 @@ use std::time::{Duration, Instant};
 
 use axlauncher_core::desktop::downloads;
 use axlauncher_core::desktop::sources::DownloadOptions;
-use axlauncher_core::spi::DownloadProtocol;
-use axlauncher_core::spi::downloads::{DownloadJob, FileDownloader, TransferStats};
-use axlauncher_core::storage::DataDir;
+use axlauncher_core::download_spi::{DownloadJob, FileDownloader, TransferStats};
+use axlauncher_core::network_spi::DownloadProtocol;
+use axlauncher_core::storage::{DataDir, DataPath};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, App, AsyncApp, BackgroundExecutor, Button, ButtonVariants, Context,
@@ -193,7 +193,7 @@ impl DownloadDebug {
         let Some(paths) = self.paths.as_ref() else {
             return;
         };
-        let destination = paths.download_debug_file();
+        let destination = paths.path(DataPath::DownloadProbe).to_owned();
         let url = self.url.read(cx).value().trim().to_owned();
         if url.is_empty() {
             self.status = ProbeStatus::Failed("Enter a download URL.".into());

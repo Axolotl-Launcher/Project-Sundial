@@ -20,8 +20,11 @@ members = [
   "apps/core/observability",
   "apps/core/scheduler",
   "apps/core/spi",
+  "apps/core/spi/download",
+  "apps/core/spi/network",
   "apps/core/state",
   "apps/core/storage",
+  "apps/core/storage/layout",
   "apps/core/telemetry",
   "apps/frontend",
   "apps/plugins/modpack",
@@ -127,6 +130,7 @@ axlauncher_content = { path = "apps/core/content" }
 axlauncher_core = { path = "apps/core" }
 axlauncher_domain = { path = "apps/core/domain" }
 axlauncher_download_engine = { path = "apps/core/lib/download_engine" }
+axlauncher_download_spi = { path = "apps/core/spi/download" }
 axlauncher_frontend = { path = "apps/frontend" }
 axlauncher_install = { path = "apps/core/install" }
 axlauncher_launch = { path = "apps/core/launch" }
@@ -135,12 +139,14 @@ axlauncher_mc_version = { path = "apps/core/mc_version" }
 axlauncher_mod_metadata = { path = "apps/core/content/mod_metadata" }
 axlauncher_modpack = { path = "apps/plugins/modpack" }
 axlauncher_network = { path = "apps/core/network" }
+axlauncher_network_spi = { path = "apps/core/spi/network" }
 axlauncher_observability = { path = "apps/core/observability" }
 axlauncher_resources = { path = "apps/core/content/resources" }
 axlauncher_scheduler = { path = "apps/core/scheduler" }
 axlauncher_spi = { path = "apps/core/spi" }
 axlauncher_state = { path = "apps/core/state" }
 axlauncher_storage = { path = "apps/core/storage" }
+axlauncher_storage_layout = { path = "apps/core/storage/layout" }
 axlauncher_telemetry = { path = "apps/core/telemetry" }
 axlauncher_ui = { path = "apps/ui" }
 axlauncher_worker = { path = "apps/core/lib" }

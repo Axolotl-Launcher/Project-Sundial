@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use axlauncher_spi::downloads::{
+use axlauncher_download_spi::{
     DownloadJob, DownloadOutcome, ExtraDigest, FileDownloader, MissingFile, TransferStats, batch,
 };
 use axlauncher_storage::DataDir;

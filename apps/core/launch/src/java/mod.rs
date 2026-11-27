@@ -8,7 +8,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use axlauncher_spi::{Java, JavaMode};
-use axlauncher_storage::runtime_record;
+use axlauncher_storage::Document;
 
 use crate::platform::{executable_in_home, java_bin, managed_executable, managed_home, search_all};
 
@@ -160,7 +160,7 @@ impl SystemJava {
             .then(|| inventory(&self.runtime_roots))
             .into_iter()
             .flatten()
-            .filter(|root| runtime_record(root).is_file())
+            .filter(|root| Document::RuntimeReceipt.path(root).is_file())
             .filter_map(|root| managed_executable(&root, JavaMode::Console))
     }
 
@@ -232,7 +232,7 @@ fn completed_component(root: &Path, executable: &Path) -> bool {
     } else {
         root.join(component)
     };
-    runtime_record(&directory).is_file()
+    Document::RuntimeReceipt.path(&directory).is_file()
 }
 
 /// The component directories installed by this launcher, in stable order.

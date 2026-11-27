@@ -8,7 +8,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use axlauncher_storage::{javas_path, lock_javas, write_atomic};
+use axlauncher_storage::{Document, write_atomic};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -138,7 +138,7 @@ pub enum JavasError {
 
 /// Reads the machine-local preferences for the current data directory.
 pub fn load(root: &Path) -> Result<Javas, JavasError> {
-    let path = javas_path(root);
+    let path = Document::JavaCatalog.path(root);
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Javas::default()),
@@ -160,12 +160,14 @@ pub fn load(root: &Path) -> Result<Javas, JavasError> {
 
 /// Concurrent writers edit the latest catalog under a lock before atomic publication.
 pub fn update<T>(root: &Path, edit: impl FnOnce(&mut Javas) -> T) -> Result<T, JavasError> {
-    let path = javas_path(root);
+    let path = Document::JavaCatalog.path(root);
     let failure = |source| JavasError::Write {
         path: path.clone(),
         source,
     };
-    let _lock = lock_javas(root).map_err(failure)?;
+    let _lock = Document::JavaCatalog
+        .lock(root)
+        .map_err(|error| failure(error.into()))?;
     let mut javas = load(root)?;
     let result = edit(&mut javas);
     let document = JavasDocument {

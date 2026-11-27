@@ -18,7 +18,7 @@ fn a_managed_selection_falls_back_while_the_runtime_is_unpublished() {
     let provider = provider
         .with_registered(vec![saved.clone()])
         .with_chosen(vec![(21, saved.clone())]);
-    let record = runtime_record(&component);
+    let record = Document::RuntimeReceipt.path(&component);
     fs::write(&record, b"{}").unwrap();
     assert_eq!(
         provider.executable_at(&saved, None, JavaMode::Console),

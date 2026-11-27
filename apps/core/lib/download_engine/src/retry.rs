@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use axlauncher_spi::FetchError;
+use axlauncher_network_spi::FetchError;
 use tokio::time::Instant;
 use url::Origin;
 

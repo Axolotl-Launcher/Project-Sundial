@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use super::*;
-use axlauncher_spi::Network;
+use axlauncher_network_spi::Network;
 use std::collections::BTreeMap;
 use std::fs;
 
@@ -228,7 +228,7 @@ fn a_version_without_an_index_prepares_nothing_from_assets() {
 
 #[test]
 fn summarise_counts_written_files_and_names_failures() {
-    use axlauncher_spi::downloads::DownloadOutcome;
+    use axlauncher_download_spi::DownloadOutcome;
 
     let outcomes = vec![
         DownloadOutcome {
@@ -251,7 +251,7 @@ fn summarise_counts_written_files_and_names_failures() {
 
 #[test]
 fn a_complete_pass_reports_complete() {
-    use axlauncher_spi::downloads::DownloadOutcome;
+    use axlauncher_download_spi::DownloadOutcome;
 
     let prepared = summarise(&[DownloadOutcome {
         path: PathBuf::from("a.jar"),

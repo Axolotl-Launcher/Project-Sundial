@@ -8,6 +8,7 @@ use std::path::Path;
 use axlauncher_core::desktop::memory;
 use axlauncher_core::domain::memory::{MaximumHeap, MemoryAllocation};
 use axlauncher_core::state::SettingsOrigin;
+use axlauncher_core::storage::DataPath;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, Button, Context, Disableable, GroupBox, IntoElement, Label, Window,
@@ -50,7 +51,7 @@ impl RootView {
         let Some((paths, settings)) = self.paths.as_ref().zip(self.settings.as_ref()) else {
             return;
         };
-        let root = paths.root().to_path_buf();
+        let root = paths.path(DataPath::Root).to_path_buf();
         let view = cx.weak_entity();
         let saved = settings.memory().manual_heap();
         open_editor(
@@ -73,7 +74,11 @@ impl RootView {
         heap: Option<MaximumHeap>,
         cx: &mut Context<'_, Self>,
     ) -> Result<(), String> {
-        if self.settings_readonly() || self.paths.as_ref().is_none_or(|paths| paths.root() != root)
+        if self.settings_readonly()
+            || self
+                .paths
+                .as_ref()
+                .is_none_or(|paths| paths.path(DataPath::Root) != root)
         {
             return Err("The settings location changed. Reopen the editor to continue.".into());
         }

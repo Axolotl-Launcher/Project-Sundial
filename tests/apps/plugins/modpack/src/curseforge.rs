@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-use axlauncher_spi::auth::{AuthNetwork, Body, Request, Response, TransportError};
+use axlauncher_network_spi::auth::{AuthNetwork, Body, Request, Response, TransportError};
 use serde_json::json;
 
 use super::{PinnedFile, api};

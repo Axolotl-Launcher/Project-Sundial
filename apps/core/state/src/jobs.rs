@@ -192,7 +192,7 @@ pub fn path(jobs_root: &Path, id: &str) -> Result<PathBuf, JobError> {
     if !usable {
         return Err(JobError::InvalidId { id: id.to_owned() });
     }
-    Ok(axlauncher_storage::job_document(jobs_root, id))
+    Ok(axlauncher_storage::ManagedFile::JobDocument(id).path(jobs_root))
 }
 
 /// Reads the job `id` under `jobs_root`.

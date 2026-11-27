@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use axlauncher_spi::FetchError;
+use axlauncher_network_spi::FetchError;
 use futures::StreamExt;
 use futures::stream;
 use hickory_proto::op::{Message, MessageType, OpCode, Query, ResponseCode};

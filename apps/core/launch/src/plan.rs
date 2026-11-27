@@ -8,8 +8,9 @@
 
 use std::path::{Path, PathBuf};
 
-use axlauncher_spi::{LaunchCommand, ServiceHost};
-use axlauncher_storage::GameDir;
+use axlauncher_network_spi::ServiceHost;
+use axlauncher_spi::LaunchCommand;
+use axlauncher_storage::{AssetPath, GameDir, VersionPath};
 
 use crate::arguments::{self, Values};
 use crate::classpath;
@@ -226,13 +227,15 @@ pub fn build(
     target: &Target,
     heap: Option<crate::HeapDefaults>,
 ) -> Result<LaunchCommand, PlanError> {
-    let client_jar = layout.game_root.client_jar(version.jar_id());
+    let client_jar = layout
+        .game_root
+        .version_path(version.jar_id(), VersionPath::ClientJar);
     if !client_jar.is_file() {
         return Err(PlanError::NoClientJar { path: client_jar });
     }
 
     let classpath = classpath::build(
-        &layout.game_root.libraries(),
+        layout.game_root.libraries(),
         &version.libraries,
         &client_jar,
         target,
@@ -314,7 +317,7 @@ fn version_values(version: &Version, layout: &Layout, classpath: &str, target: &
         .unwrap_or_else(|| version.id.clone());
     let assets_root = layout.game_root.assets();
     let game_assets =
-        flat_assets(&layout.game_root, &assets_index).unwrap_or_else(|| assets_root.clone());
+        flat_assets(&layout.game_root, &assets_index).unwrap_or_else(|| assets_root.to_owned());
 
     Values::new()
         .with("classpath", classpath)
@@ -371,7 +374,9 @@ fn account_values(mut values: Values, session: &Session) -> Values {
 /// file.
 fn logging_argument(version: &Version, layout: &Layout) -> Option<String> {
     let client = version.logging.as_ref()?.client.as_ref()?;
-    let path = layout.game_root.log_config(&client.file.id);
+    let path = layout
+        .game_root
+        .version_path(&client.file.id, VersionPath::LogConfig);
     // An install downloads this file; a launch that runs before one did keeps
     // the game's own default logging rather than naming a file that is not
     // there, which log4j reports as a configuration error.
@@ -391,19 +396,19 @@ fn logging_argument(version: &Version, layout: &Layout) -> Option<String> {
 /// The index's `virtual` flag selects `assets/virtual/<id>`. The
 /// `map_to_resources` flag selects the shared `resources/` tree.
 fn flat_assets(game_root: &GameDir, index_id: &str) -> Option<PathBuf> {
-    let path = game_root.asset_index(index_id);
+    let path = game_root.asset_path(AssetPath::Index(index_id));
     let bytes = std::fs::read(path).ok()?;
     let document: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
 
     if document.get("virtual").and_then(serde_json::Value::as_bool) == Some(true) {
-        return Some(game_root.virtual_assets(index_id));
+        return Some(game_root.asset_path(AssetPath::Virtual(index_id)));
     }
     if document
         .get("map_to_resources")
         .and_then(serde_json::Value::as_bool)
         == Some(true)
     {
-        return Some(game_root.legacy_resources());
+        return Some(game_root.legacy_resources().to_owned());
     }
     None
 }

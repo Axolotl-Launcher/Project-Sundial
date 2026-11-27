@@ -7,7 +7,7 @@ use std::io::{self, Read};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use axlauncher_spi::{
+use axlauncher_network_spi::{
     DownloadBody, DownloadMirror, DownloadProtocol, DownloadResponse, FetchError, FetchKind,
     Network, RangeRequest,
 };

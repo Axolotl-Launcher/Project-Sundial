@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use axlauncher_spi::{ByteRange, DownloadBody, Network, ResponseRange};
+use axlauncher_network_spi::{ByteRange, DownloadBody, Network, ResponseRange};
 use axlauncher_storage::AtomicFile;
 use futures::{StreamExt, future::Either, stream::FuturesUnordered};
 use tokio::sync::watch;

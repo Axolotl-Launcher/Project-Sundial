@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use super::*;
-use axlauncher_spi::{FetchError, Network};
+use axlauncher_network_spi::{FetchError, Network};
 
 /// The listing Fabric returns for a supported version, trimmed to the fields
 /// this provider reads. The shape is copied from a real response.

@@ -6,7 +6,7 @@ use std::num::NonZeroUsize;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use axlauncher_spi::{DownloadMirror, FetchKind, ServiceHost};
+use axlauncher_network_spi::{DownloadMirror, FetchKind, ServiceHost};
 use tokio::sync::Semaphore;
 use url::Url;
 

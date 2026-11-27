@@ -8,10 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use axlauncher_spi::JavaMode;
-use axlauncher_storage::{
-    java_exploration_roots, java_fixed_drives, java_registry_homes, java_store_runtime_root,
-    java_working_directory,
-};
+use axlauncher_storage::WindowsJavaPaths;
 
 use crate::platform::{executable_in, executable_in_home};
 
@@ -57,23 +54,28 @@ const EXPLORATION_KEYWORDS: &[&str] = &[
 ];
 
 pub(super) fn executables() -> Vec<PathBuf> {
-    let drives = java_fixed_drives();
-    let conventional = java_exploration_roots(&drives);
+    let WindowsJavaPaths {
+        drives,
+        exploration_roots,
+        registry_homes,
+        working_directory,
+        store_runtime_root,
+    } = WindowsJavaPaths::discover();
     let mut found = Vec::new();
-    scan_program_files(&conventional, &mut found);
-    let roots = conventional.into_iter().chain(
+    scan_program_files(&exploration_roots, &mut found);
+    let roots = exploration_roots.into_iter().chain(
         drives
             .iter()
             .flat_map(|drive| child_directories(drive).filter(|path| is_installation_root(path))),
     );
     found.extend(explore(roots));
     found.extend(
-        java_registry_homes()
+        registry_homes
             .iter()
             .filter_map(|home| executable_in_home(home, JavaMode::Console)),
     );
-    found.extend(java_working_directory().and_then(|root| executable_in(&root, JavaMode::Console)));
-    if let Some(root) = java_store_runtime_root() {
+    found.extend(working_directory.and_then(|root| executable_in(&root, JavaMode::Console)));
+    if let Some(root) = store_runtime_root {
         found.extend(store_executables(&root));
     }
     found

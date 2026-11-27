@@ -126,11 +126,11 @@ fn a_maven_copy_does_not_satisfy_a_shared_classifier_download() {
         "natives-windows".into(),
     )]));
     let classifier = artifact("org/example/example-1.0-natives-windows.jar");
-    write_file(&game_root.libraries(), &classifier.path, ABC);
+    write_file(game_root.libraries(), &classifier.path, ABC);
     library.downloads.as_mut().unwrap().classifiers =
         Some(BTreeMap::from([("natives-windows".into(), classifier)]));
 
-    let files = missing_libraries(&game_root, &[library], &target());
+    let files = missing_libraries(game_root, &[library], &target());
 
     assert_eq!(files.len(), 2);
     assert_eq!(

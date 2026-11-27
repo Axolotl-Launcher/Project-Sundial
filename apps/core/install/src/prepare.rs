@@ -10,12 +10,12 @@
 
 use std::path::PathBuf;
 
+use axlauncher_download_spi::{DownloadOutcome, FileDownloader, MissingFile};
 use axlauncher_launch::Target;
 use axlauncher_launch::version::{AssetIndex, Version};
 use axlauncher_network::verify;
-use axlauncher_spi::downloads::{DownloadOutcome, FileDownloader, MissingFile};
-use axlauncher_spi::{FetchError, FetchKind, Network};
-use axlauncher_storage::GameDir;
+use axlauncher_network_spi::{FetchError, FetchKind, Network};
+use axlauncher_storage::{AssetPath, GameDir};
 use futures::StreamExt;
 
 use crate::assets::{AssetIndexDocument, missing_assets};
@@ -115,7 +115,7 @@ pub async fn ensure_asset_index(
         return Ok(AssetIndexDocument::default());
     };
 
-    let path = game_root.asset_index(&index.id);
+    let path = game_root.asset_path(AssetPath::Index(&index.id));
     match std::fs::read(&path) {
         Ok(bytes) => return parse_index(&index, &bytes),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
@@ -305,7 +305,7 @@ fn local_index(
     let Some(index) = index else {
         return Ok(AssetIndexDocument::default());
     };
-    let path = game_root.asset_index(&index.id);
+    let path = game_root.asset_path(AssetPath::Index(&index.id));
     let bytes =
         std::fs::read(&path).map_err(|error| format!("Cannot read {}: {error}", path.display()))?;
     parse_index(index, &bytes).map_err(|error| error.to_string())

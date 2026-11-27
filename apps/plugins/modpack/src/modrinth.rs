@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use axlauncher_download_spi::PackOrigins;
 use axlauncher_spi::LoaderKind;
 use serde::Deserialize;
 use url::Url;
@@ -151,7 +152,7 @@ impl Files {
             .collect();
         PlannedDownloads {
             files,
-            origins: axlauncher_spi::downloads::PackOrigins::Modrinth,
+            origins: PackOrigins::Modrinth,
             cdn_key: None,
         }
     }
@@ -214,7 +215,7 @@ impl File {
 }
 
 fn allows_target(url: &Url, redirect: bool) -> bool {
-    axlauncher_spi::downloads::PackOrigins::Modrinth.allows(url, redirect)
+    PackOrigins::Modrinth.allows(url, redirect)
 }
 
 fn versions(

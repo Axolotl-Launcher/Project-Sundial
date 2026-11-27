@@ -15,9 +15,13 @@ fn completion_refreshes_the_list_after_reselecting_the_default_root() {
     current
         .set_directory(Directory::AppData, Some(&root))
         .unwrap();
-    let mut state = InstancesState::new(discover(&current.instances()));
-    let installed =
-        profile::create(&worker.instances(), "Installed", Game::new("1.21.11")).unwrap();
+    let mut state = InstancesState::new(discover(current.path(DataPath::Profiles)));
+    let installed = profile::create(
+        worker.path(DataPath::Profiles),
+        "Installed",
+        Game::new("1.21.11"),
+    )
+    .unwrap();
 
     assert!(state.refresh_after_install(Some(&current), &worker));
     assert!(state.find(&installed).is_some());
@@ -31,10 +35,15 @@ fn completion_leaves_another_instance_directory_untouched() {
     current
         .set_directory(Directory::UserData, Some(&fixture.path().join("other")))
         .unwrap();
-    let selected = profile::create(&current.instances(), "Current", Game::new("1.21.11")).unwrap();
-    let mut state = InstancesState::new(discover(&current.instances()));
-    let installed =
-        profile::create(&worker.instances(), "Installed", Game::new("1.21.11")).unwrap();
+    let profiles = current.path(DataPath::Profiles);
+    let selected = profile::create(profiles, "Current", Game::new("1.21.11")).unwrap();
+    let mut state = InstancesState::new(discover(profiles));
+    let installed = profile::create(
+        worker.path(DataPath::Profiles),
+        "Installed",
+        Game::new("1.21.11"),
+    )
+    .unwrap();
 
     assert!(!state.refresh_after_install(Some(&current), &worker));
     assert!(state.find(&installed).is_none());

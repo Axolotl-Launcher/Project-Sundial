@@ -20,7 +20,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use axlauncher_domain::memory::MemoryAllocation;
-use axlauncher_storage::{invalid_settings_path, settings_lock_path, settings_path, write_atomic};
+use axlauncher_storage::{Document, ManagedFile, write_atomic};
 use serde::{Deserialize, Serialize};
 
 use crate::document::{self, Existing};
@@ -209,7 +209,7 @@ impl std::error::Error for SettingsError {
 /// belongs to another build, and rewriting it would destroy that build's data.
 pub fn load_settings(root: &Path) -> Result<LoadedSettings, SettingsError> {
     let _guard = lock_settings(root)?;
-    let path = settings_path(root);
+    let path = Document::Settings.path(root);
 
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
@@ -226,7 +226,7 @@ pub fn load_settings(root: &Path) -> Result<LoadedSettings, SettingsError> {
 
     let document = match serde_json::from_slice::<SettingsDocument>(&bytes) {
         Ok(document) => document,
-        Err(_) => return quarantine(path, invalid_settings_path(root)),
+        Err(_) => return quarantine(path, ManagedFile::SettingsQuarantine.path(root)),
     };
 
     if document.schema_version != SETTINGS_SCHEMA_VERSION {
@@ -269,7 +269,7 @@ pub fn update_settings(
     update: impl FnOnce(&mut SettingsData),
 ) -> Result<SettingsData, SettingsError> {
     let _guard = lock_settings(root)?;
-    let path = settings_path(root);
+    let path = Document::Settings.path(root);
     let existing = document::inspect(&path).map_err(|source| SettingsError::Read {
         path: path.clone(),
         source,
@@ -308,21 +308,10 @@ fn write_settings(path: &Path, data: &SettingsData) -> Result<(), SettingsError>
 }
 
 fn lock_settings(root: &Path) -> Result<fs::File, SettingsError> {
-    let path = settings_lock_path(root);
-    let failure = |source| SettingsError::Write {
-        path: path.clone(),
-        source,
-    };
-    fs::create_dir_all(root).map_err(failure)?;
-    let lock = fs::File::options()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(&path)
-        .map_err(failure)?;
-    lock.lock().map_err(failure)?;
-    Ok(lock)
+    Document::Settings.lock(root).map_err(|error| {
+        let (path, source) = error.into_parts();
+        SettingsError::Write { path, source }
+    })
 }
 
 #[cfg(test)]

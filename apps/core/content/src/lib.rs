@@ -3,7 +3,8 @@
 
 //! Content model and providers.
 
-use axlauncher_spi::{ContentProvider, ContentSummary, FetchError};
+use axlauncher_network_spi::FetchError;
+use axlauncher_spi::{ContentProvider, ContentSummary};
 
 /// A provider whose catalogue is fixed in memory.
 #[derive(Debug, Default)]

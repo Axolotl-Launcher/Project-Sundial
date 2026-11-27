@@ -3,7 +3,7 @@
 
 //! The official Minecraft version catalog used by both browsing and installation.
 
-use axlauncher_spi::{FetchKind, Network};
+use axlauncher_network_spi::{FetchKind, Network};
 use serde::Deserialize;
 
 pub(super) const CATALOG: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
