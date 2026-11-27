@@ -49,10 +49,11 @@ export interface ImpactReport {
   readonly changedFiles: readonly ChangedFile[];
   readonly changedFileListingLimit: number;
   readonly affectedTestCount: number;
+  readonly affectedLookupOmitted: number;
   readonly testGroups: readonly TestGroup[];
   readonly testListingLimit: number;
   readonly touchedCycleCount: number;
-  readonly cyclesByFile: Readonly<Record<string, number>>;
+  readonly touchedCycleFileCount: number;
   readonly cycleListingLimit: number;
   readonly cycles: readonly (readonly string[])[];
   readonly truncatedCycles: boolean;
@@ -60,9 +61,7 @@ export interface ImpactReport {
   readonly note: string | null;
 }
 
-/// Markdown table cells cannot contain raw pipes or newlines, and a path or
-/// symbol must not become HTML when GitHub renders the comment.
-function cell(text: string): string {
+function inlineText(text: string): string {
   return text
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -72,6 +71,17 @@ function cell(text: string): string {
     .replaceAll("]", "\\]")
     .replaceAll("`", "\\`")
     .replaceAll(/\s*\r?\n\s*/g, " ");
+}
+
+function literalPath(path: string): string {
+  const text = path.replaceAll("\r", "\\r").replaceAll("\n", "\\n").replaceAll("\t", "\\t");
+  const longestRun = [...text.matchAll(/`+/g)].reduce(
+    (longest, [run]) => Math.max(longest, run.length),
+    0,
+  );
+  const delimiter = "`".repeat(longestRun + 1);
+  const padding = /^[ `]|[ `]$/.test(text) && /[^ ]/.test(text) ? " " : "";
+  return `${delimiter}${padding}${text}${padding}${delimiter}`;
 }
 
 function plural(count: number, singular: string, pluralForm: string): string {
@@ -92,7 +102,9 @@ export function summaryLine(report: ImpactReport): string {
     parts.push(`${String(report.otherFiles)} other`);
   }
   parts.push(
-    plural(report.affectedTestCount, "affected test file", "affected test files"),
+    report.affectedLookupOmitted === report.changedFileCount
+      ? "affected tests not queried"
+      : plural(report.affectedTestCount, "affected test file", "affected test files"),
   );
   return parts.join(" · ");
 }
@@ -109,9 +121,9 @@ function appendChangedFiles(lines: string[], report: ImpactReport): void {
   if (report.changedFiles.length === 0) {
     return;
   }
-  lines.push("### Changed files", "", "| Kind | File |", "| --- | --- |");
+  lines.push("### Changed files", "");
   for (const file of report.changedFiles) {
-    lines.push(`| ${file.kind} | ${cell(file.path)} |`);
+    lines.push(`- ${file.kind}: ${literalPath(file.path)}`);
   }
   const omitted = report.changedFileCount - report.changedFiles.length;
   if (omitted > 0) {
@@ -126,7 +138,7 @@ function appendChangedFiles(lines: string[], report: ImpactReport): void {
 function appendTestGroup(lines: string[], group: TestGroup, limit: number): void {
   const heading = group.mirrored ? "Mirrors" : "Dependent tests";
   lines.push(
-    `#### ${heading} (\`${cell(group.directory)}\`)`,
+    `#### ${heading} (${literalPath(group.directory)})`,
     "",
   );
   if (!group.mirrored) {
@@ -136,7 +148,7 @@ function appendTestGroup(lines: string[], group: TestGroup, limit: number): void
     );
   }
   for (const test of group.tests.slice(0, limit)) {
-    lines.push(`- \`${cell(test)}\``);
+    lines.push(`- ${literalPath(test)}`);
   }
   const omitted = group.tests.length - Math.min(group.tests.length, limit);
   if (omitted > 0) {
@@ -147,13 +159,21 @@ function appendTestGroup(lines: string[], group: TestGroup, limit: number): void
 
 function appendAffectedTests(lines: string[], report: ImpactReport): void {
   lines.push("### Affected tests", "");
-  if (report.testGroups.length === 0) {
+  if (report.affectedLookupOmitted > 0) {
+    const skipped = plural(report.affectedLookupOmitted, "changed path", "changed paths");
     lines.push(
-      report.changedFileCount === 0
-        ? "No changed file to map to tests."
-        : "CodeGraph found no test file that depends on the changed sources. That can be correct, so confirm before treating the change as untested.",
+      `> Skipped ${skipped} for test lookup because CodeGraph cannot preserve leading or trailing whitespace, line breaks, or literal backslashes in paths. Review those paths manually.`,
       "",
     );
+  }
+  if (report.testGroups.length === 0) {
+    if (report.changedFileCount === 0) {
+      lines.push("No changed file to map to tests.", "");
+    } else if (report.affectedLookupOmitted === report.changedFileCount) {
+      lines.push("No changed path could be queried for affected tests.", "");
+    } else {
+      lines.push("CodeGraph found no affected tests for the paths it could query.", "");
+    }
     return;
   }
   lines.push(
@@ -166,7 +186,6 @@ function appendAffectedTests(lines: string[], report: ImpactReport): void {
 }
 
 function appendCycles(lines: string[], report: ImpactReport): void {
-  const cycleFileCount = Object.keys(report.cyclesByFile).length;
   lines.push("### Import cycles", "");
   if (report.touchedCycleCount === 0) {
     lines.push(
@@ -175,18 +194,14 @@ function appendCycles(lines: string[], report: ImpactReport): void {
     );
     return;
   }
+  const groups = plural(report.touchedCycleCount, "import cycle group", "import cycle groups");
+  const files = plural(report.touchedCycleFileCount, "distinct file", "distinct files");
   lines.push(
-    `The change touches ${plural(cycleFileCount, "import cycle file", "import cycle files")} (${String(report.touchedCycleCount)} touched ${report.touchedCycleCount === 1 ? "cycle" : "cycles"}):`,
+    `Touched ${groups} containing ${files}:`,
     "",
   );
   for (const cycle of report.cycles) {
-    const [head, ...rest] = cycle;
-    if (head === undefined) {
-      continue;
-    }
-    const cycleCount = report.cyclesByFile[head] ?? 0;
-    const suffix = cycleCount > 1 ? ` (+${String(cycleCount - 1)} more)` : "";
-    lines.push(`- \`${cell(head)}\`${suffix} → ${rest.map(cell).join(" → ")}`);
+    lines.push(`- ${cycle.map(literalPath).join(", ")}`);
   }
   if (report.truncatedCycles) {
     lines.push(
@@ -208,7 +223,7 @@ export function renderComment(report: ImpactReport): string {
   lines.push(
     summaryLine(report),
     "",
-    `\`codegraph status\`: ${plural(report.index.fileCount, "file", "files")} · ${plural(report.index.nodeCount, "node", "nodes")} · ${report.index.languages.length === 0 ? "no languages" : cell(report.index.languages.join(", "))}`,
+    `\`codegraph status\`: ${plural(report.index.fileCount, "file", "files")} · ${plural(report.index.nodeCount, "node", "nodes")} · ${report.index.languages.length === 0 ? "no languages" : inlineText(report.index.languages.join(", "))}`,
     "",
   );
   appendChangedFiles(lines, report);
@@ -216,7 +231,7 @@ export function renderComment(report: ImpactReport): string {
   appendCycles(lines, report);
   if (report.note !== null) {
     lines.push(
-      ...report.note.split("\n\n").map((part) => `> ${cell(part)}`),
+      ...report.note.split("\n\n").map((part) => `> ${inlineText(part)}`),
       "",
     );
   }

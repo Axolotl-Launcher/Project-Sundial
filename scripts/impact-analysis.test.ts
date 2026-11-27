@@ -17,6 +17,7 @@ import {
   type AnalysisContext,
   type BuildReportInput,
 } from "./impact-analysis.ts";
+import { affectedInputPaths, decodeChangedPaths } from "./impact-pr.ts";
 
 const SHA_LENGTH = 40;
 const NODE_COUNT = 5929;
@@ -38,6 +39,7 @@ function input(overrides: Partial<BuildReportInput> = {}): BuildReportInput {
     context,
     changedFiles: ["apps/core/state/src/profile.rs"],
     affectedTests: ["tests/apps/core/state/src/profile.rs"],
+    affectedLookupOmitted: 0,
     cycles: [],
     index: {
       fileCount: INDEXED_FILES,
@@ -49,6 +51,31 @@ function input(overrides: Partial<BuildReportInput> = {}): BuildReportInput {
     ...overrides,
   };
 }
+
+void test("Git paths preserve Unicode, quotes, boundary whitespace and line breaks", () => {
+  const paths = [
+    "\uFEFFleading-bom.ts",
+    "scripts/café notes.ts",
+    'scripts/"quoted".ts',
+    " edge.ts ",
+    "scripts/two\nlines.ts",
+  ];
+  assert.deepEqual(decodeChangedPaths(Buffer.from(`${paths.join("\0")}\0`)), paths);
+  assert.deepEqual(decodeChangedPaths(Buffer.alloc(0)), []);
+});
+
+void test("affected lookup excludes paths CodeGraph would rewrite", () => {
+  const supported = ["scripts/café notes.ts", "scripts/with\ta tab.ts"];
+  const unsupported = [
+    " leading.ts",
+    "trailing.ts ",
+    "scripts/two\nlines.ts",
+    "scripts/return\rkey.ts",
+    "scripts/literal\\slash.ts",
+  ];
+  assert.deepEqual(affectedInputPaths([...supported, ...unsupported]), supported);
+  assert.deepEqual(affectedInputPaths(unsupported), []);
+});
 
 void test("only code files drive the analysis", () => {
   assert.equal(changedFileKind("apps/core/state/src/profile.rs"), "source");
@@ -75,7 +102,12 @@ void test("a crate directory drops the lib grouping", () => {
 
 void test("module labels follow the triage script", () => {
   assert.equal(moduleOf("apps/core/state/src/profile.rs"), "state");
-  assert.equal(moduleOf("apps/core/lib/accounts/src/lib.rs"), "accounts");
+  assert.equal(moduleOf("tests/apps/core/state/src/profile.rs"), "state");
+  assert.equal(moduleOf("apps/core/lib/accounts/src/lib.rs"), "domain");
+  assert.equal(moduleOf("tests/apps/core/lib/accounts/src/lib.rs"), "domain");
+  assert.equal(moduleOf("apps/core/spi/src/lib.rs"), "domain");
+  assert.equal(moduleOf("tests/apps/core/spi/src/lib.rs"), "domain");
+  assert.equal(moduleOf("apps/core/mod_metadata/src/lib.rs"), "mod-metadata");
   assert.equal(moduleOf("apps/frontend/src/lib.rs"), "frontend");
   assert.equal(moduleOf("apps/ui/src/lib.rs"), "ui");
   assert.equal(moduleOf("platforms/windows/build.rs"), "platforms");
@@ -90,6 +122,7 @@ void test("a mirrored test resolves to its crate", () => {
     "apps/core/lib/download_engine",
   );
   assert.equal(mirroredCrate("tests/tests/spi_contract.rs"), undefined);
+  assert.equal(mirroredCrate("apps/core/state/src/profile.rs"), undefined);
 });
 
 void test("a mirrored test is grouped before a dependent one", () => {
@@ -131,7 +164,7 @@ void test("one crate stays one group however deep its tests nest", () => {
   );
   assert.equal(groups.length, 1);
   assert.deepEqual(groups[0], {
-    module: "download_engine",
+    module: "domain",
     mirrored: true,
     directory: "apps/core/lib/download_engine/",
     tests: [
@@ -149,7 +182,7 @@ void test("an umbrella crate does not adopt the tests of nested crates", () => {
   );
   assert.deepEqual(groups, [
     {
-      module: "download_engine",
+      module: "domain",
       mirrored: false,
       directory: "apps/core/lib/download_engine",
       tests: ["tests/apps/core/lib/download_engine/src/lib/range_recovery.rs"],
@@ -196,8 +229,24 @@ void test("the cycles list is capped and its truncation is recorded", () => {
     input({ changedFiles: ["apps/core/state/src/javas.rs"], cycles }),
   );
   assert.equal(report.touchedCycleCount, MAX_LISTED_CYCLES + 1);
+  assert.equal(report.touchedCycleFileCount, cycles.length + 1);
   assert.equal(report.cycles.length, MAX_LISTED_CYCLES);
   assert.equal(report.truncatedCycles, true);
+});
+
+void test("cycle group membership and file counts do not depend on rotation", () => {
+  const files = [
+    "apps/core/state/src/files.rs",
+    "apps/core/state/src/javas.rs",
+    "apps/core/state/src/profile.rs",
+  ];
+  const original = buildReport(input({ changedFiles: files, cycles: [files] }));
+  const rotated = buildReport(input({
+    changedFiles: files,
+    cycles: [[...files.slice(1), ...files.slice(0, 1)]],
+  }));
+  assert.deepEqual(rotated.cycles, original.cycles);
+  assert.equal(rotated.touchedCycleFileCount, files.length);
 });
 
 void test("a change without source files says so instead of implying a clean result", () => {

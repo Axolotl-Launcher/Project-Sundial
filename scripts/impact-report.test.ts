@@ -42,10 +42,11 @@ function report(overrides: Partial<ImpactReport> = {}): ImpactReport {
     changedFiles: [{ path: "apps/core/state/src/profile.rs", kind: "source" }],
     changedFileListingLimit: 40,
     affectedTestCount: 1,
+    affectedLookupOmitted: 0,
     testGroups: [group],
     testListingLimit: MAX_LISTED_TESTS,
     touchedCycleCount: 0,
-    cyclesByFile: {},
+    touchedCycleFileCount: 0,
     cycleListingLimit: 5,
     cycles: [],
     truncatedCycles: false,
@@ -119,21 +120,33 @@ void test("a long group is capped and its remainder counted", () => {
 
 void test("no affected tests is stated rather than left blank", () => {
   const markdown = renderComment(report({ testGroups: [], affectedTestCount: 0 }));
-  assert.match(markdown, /CodeGraph found no test file/);
+  assert.match(markdown, /CodeGraph found no affected tests for the paths it could query/);
 });
 
-void test("a touched cycle lists its files in order", () => {
+void test("when every path was omitted the comment does not claim a clean lookup", () => {
+  const markdown = renderComment(report({
+    affectedTestCount: 0,
+    affectedLookupOmitted: 1,
+    testGroups: [],
+  }));
+  assert.match(markdown, /Skipped 1 changed path for test lookup/);
+  assert.match(markdown, /No changed path could be queried/);
+  assert.doesNotMatch(markdown, /0 affected test files|found no affected tests/);
+});
+
+void test("a touched cycle group lists its members and the distinct file count", () => {
   const cycles = [["apps/core/state/src/javas.rs", "apps/core/state/src/profile.rs"]];
   const markdown = renderComment(
     report({
       touchedCycleCount: 1,
-      cyclesByFile: { "apps/core/state/src/javas.rs": 1 },
+      touchedCycleFileCount: cycles.flat().length,
       cycles,
     }),
   );
+  assert.match(markdown, /Touched 1 import cycle group containing 2 distinct files/);
   assert.match(
     markdown,
-    /`apps\/core\/state\/src\/javas\.rs` → apps\/core\/state\/src\/profile\.rs/,
+    /`apps\/core\/state\/src\/javas\.rs`, `apps\/core\/state\/src\/profile\.rs`/,
   );
 });
 
@@ -145,19 +158,34 @@ void test("the advisory note says a missing index fails instead of publishing", 
   assert.match(renderComment(report()), /A missing index fails the job/);
 });
 
-void test("paths and notes cannot break out of the Markdown", () => {
+void test("every path stays inside one literal span even with Markdown punctuation", () => {
+  const path = "tests/notes/`draft`` | [reference] @example.rs";
+  const literal = "```" + path + "```";
+  const markdown = renderComment(report({
+    changedFiles: [{ path, kind: "test" }],
+    testGroups: [{ ...group, directory: path, tests: [path] }],
+    touchedCycleCount: 1,
+    touchedCycleFileCount: [path, "src/other.rs"].length,
+    cycles: [["src/other.rs", path]],
+  }));
+  assert.ok(markdown.includes(`- test: ${literal}\n`));
+  assert.ok(markdown.includes(`#### Mirrors (${literal})\n`));
+  assert.ok(markdown.includes(`- ${literal}\n`));
+  assert.ok(markdown.includes("- `src/other.rs`, " + literal + "\n"));
+});
+
+void test("path line breaks are visible within a single Markdown line", () => {
+  const path = " edge\r\nof path.rs`";
+  const markdown = renderComment(report({ changedFiles: [{ path, kind: "other" }] }));
+  assert.ok(markdown.includes("- other: ``  edge\\r\\nof path.rs` ``\n"));
+});
+
+void test("notes retain separate blockquoted paragraphs", () => {
   const markdown = renderComment(
     report({
-      changedFiles: [
-        { path: "apps/core/state/src/a|b.rs", kind: "source" },
-        { path: "apps/core/state/src/<script>.rs", kind: "source" },
-      ],
       note: "line one\n\nline two",
     }),
   );
-  assert.match(markdown, /a\\\|b\.rs/);
-  assert.match(markdown, /&lt;script&gt;/);
-  assert.doesNotMatch(markdown, /<script>/);
   assert.match(markdown, /^> line one$/m);
   assert.match(markdown, /^> line two$/m);
 });

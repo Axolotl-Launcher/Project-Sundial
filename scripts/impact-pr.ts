@@ -25,6 +25,7 @@ const JSON_INDENT = 2;
 const BYTES_PER_KIB = 1024;
 const KIB_PER_MIB = 1024;
 const MAX_OUTPUT_MIB = 64;
+const MAX_OUTPUT_BYTES = MAX_OUTPUT_MIB * KIB_PER_MIB * BYTES_PER_KIB;
 
 /// `codegraph cycles` reports a project that has cycles with this exit status.
 const CYCLES_FOUND_STATUS = 1;
@@ -37,26 +38,35 @@ function required(name: string): string {
   return value;
 }
 
-function git(args: readonly string[], cwd: string): string {
+function git(args: readonly string[], cwd: string): Buffer {
   return execFileSync("git", args, {
     cwd,
-    encoding: "utf8",
     windowsHide: true,
-  }).trim();
+    maxBuffer: MAX_OUTPUT_BYTES,
+  });
 }
 
 /// The commit the pull request branched from, not the current base tip. A
 /// two-dot diff against the tip would include base-branch drift.
 function mergeBase(baseSha: string, headSha: string, cwd: string): string {
-  return git(["merge-base", baseSha, headSha], cwd);
+  return git(["merge-base", baseSha, headSha], cwd).toString("utf8").trim();
 }
 
-function changedPaths(mergeBaseSha: string, worktree: string): readonly string[] {
-  const output = git(
-    ["diff", "--name-only", "--no-renames", mergeBaseSha, "HEAD"],
-    worktree,
+export function decodeChangedPaths(output: Uint8Array): readonly string[] {
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+  return decoder.decode(output).split("\0").filter((path) => path.length > 0);
+}
+
+function changedPaths(base: string, head: string, worktree: string): readonly string[] {
+  return decodeChangedPaths(
+    git(["diff", "--name-only", "--no-renames", "-z", base, head, "--"], worktree),
   );
-  return output.split("\n").filter((line) => line.length > 0);
+}
+
+export function affectedInputPaths(paths: readonly string[]): readonly string[] {
+  return paths.filter(
+    (path) => path === path.trim() && !/[\r\n\\]/.test(path),
+  );
 }
 
 function outputDirectory(): string {
@@ -145,7 +155,7 @@ function callCodegraph(
       encoding: "utf8",
       input,
       windowsHide: true,
-      maxBuffer: MAX_OUTPUT_MIB * KIB_PER_MIB * BYTES_PER_KIB,
+      maxBuffer: MAX_OUTPUT_BYTES,
     });
   } catch (error) {
     const failed = error as { status?: unknown; stdout?: unknown; stderr?: unknown };
@@ -179,6 +189,7 @@ function printSummary(report: ReturnType<typeof buildReport>): void {
 interface GraphAnswers {
   readonly index: IndexSummary;
   readonly affectedTests: readonly string[];
+  readonly affectedLookupOmitted: number;
   readonly cycles: readonly Cycle[];
 }
 
@@ -191,13 +202,14 @@ function queryGraph(
   files: readonly string[],
 ): GraphAnswers {
   const status = JSON.parse(callCodegraph(invocation, worktree, ["status", "--json"])) as unknown;
-  const affected = asAffected(
+  const inputPaths = affectedInputPaths(files);
+  const affected = inputPaths.length === 0 ? [] : asAffected(
     JSON.parse(
       callCodegraph(
         invocation,
         worktree,
         ["affected", "--stdin", "--json", "--depth", String(TRAVERSAL_DEPTH)],
-        `${files.join("\n")}\n`,
+        `${inputPaths.join("\n")}\n`,
       ),
     ) as unknown,
   );
@@ -207,6 +219,7 @@ function queryGraph(
   return {
     index: { ...asIndex(status), filesWithParseErrors: parseErrors(status) },
     affectedTests: affected,
+    affectedLookupOmitted: files.length - inputPaths.length,
     cycles,
   };
 }
@@ -218,7 +231,7 @@ function analyze(): number {
   const baseSha = required("BASE_SHA");
   const worktree = resolve(required("IMPACT_WORKTREE"));
   const mergeBaseSha = mergeBase(baseSha, headSha, worktree);
-  const files = changedPaths(mergeBaseSha, worktree);
+  const files = changedPaths(mergeBaseSha, headSha, worktree);
   const context: AnalysisContext = {
     repository,
     pullRequest,
@@ -241,9 +254,11 @@ function analyze(): number {
   return 0;
 }
 
-try {
-  process.exit(analyze());
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+if (import.meta.main) {
+  try {
+    process.exitCode = analyze();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }

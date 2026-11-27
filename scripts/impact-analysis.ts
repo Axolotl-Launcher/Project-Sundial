@@ -14,6 +14,7 @@ import type {
   ImpactReport,
   TestGroup,
 } from "./impact-report.ts";
+import { modulesForPaths } from "./pull-request-labels.ts";
 
 /// How deep `codegraph affected` follows imports. A mirrored test file is one
 /// import away from its source, and one more reaches a module-level test block
@@ -96,6 +97,7 @@ export interface BuildReportInput {
   readonly context: AnalysisContext;
   readonly changedFiles: readonly string[];
   readonly affectedTests: readonly string[];
+  readonly affectedLookupOmitted: number;
   readonly cycles: readonly Cycle[];
   readonly index: IndexSummary;
   readonly note: string | null;
@@ -165,20 +167,17 @@ const CRATE_TREE_MARKERS = new Set(["src", "tests", "examples", "benches"]);
 
 /// The `module:` label from `scripts/pull-request-labels.ts` for a path.
 export function moduleOf(path: string): string {
-  const crate = crateDirectory(path);
-  if (crate !== undefined) {
-    return crate.slice(crate.lastIndexOf("/") + 1);
-  }
-  if (path.startsWith("platforms/")) {
-    return "platforms";
-  }
-  return "repository";
+  const sourcePath = path.startsWith(`${TEST_ROOT}${APPS_ROOT}/`)
+    ? path.slice(TEST_ROOT.length)
+    : path;
+  return modulesForPaths([sourcePath])[0] ?? "repository";
 }
 
 /// The crate a mirrored test belongs to, such as `apps/core/state`.
 export function mirroredCrate(path: string): string | undefined {
-  const crate = crateDirectory(path);
-  return crate === undefined ? undefined : crate.slice(TEST_ROOT.length);
+  return path.startsWith(`${TEST_ROOT}${APPS_ROOT}/`)
+    ? crateDirectory(path.slice(TEST_ROOT.length))
+    : undefined;
 }
 
 /// Groups affected tests by the crate they belong to. Mirrored tests come
@@ -188,14 +187,11 @@ export function groupTests(
   changedFiles: readonly string[],
   affectedTests: readonly string[],
 ): readonly TestGroup[] {
-  /// Crates whose own tests mirror a changed file. When several changed files
-  /// map to the same crate, the crate keeps the label of the first one, which
-  /// is the same module label either way.
-  const mirrors = new Map<string, string>();
+  const mirrors = new Set<string>();
   for (const changed of changedFiles) {
     const crate = crateDirectory(changed);
     if (crate !== undefined && !changed.startsWith(TEST_ROOT)) {
-      mirrors.set(crate, moduleOf(changed));
+      mirrors.add(crate);
     }
   }
   type Group = { module: string; mirrored: boolean; crate: string; tests: string[] };
@@ -204,16 +200,16 @@ export function groupTests(
     const crate = mirroredCrate(test);
     /// Only the test's own crate can mirror it: an umbrella crate such as
     /// `apps/core` does not own the tests of the crates nested under it.
-    const mirror = crate !== undefined && mirrors.has(crate) ? crate : undefined;
+    const mirrored = crate !== undefined && mirrors.has(crate);
     /// A crate groups its whole mirrored tree, dependencies included, so a
     /// crate cannot appear twice with different nested directories.
     /// A test outside the crates is grouped by its own directory, with no
     /// trailing slash and no duplication for a root-level file.
     const testDirectory = directoryOf(test).replace(/\/$/, "");
-    const key = mirror ?? crate ?? (testDirectory.length === 0 ? test : testDirectory);
+    const key = crate ?? (testDirectory.length === 0 ? test : testDirectory);
     const group = groups.get(key) ?? {
-      module: mirror === undefined ? moduleOf(test) : (mirrors.get(mirror) ?? "repository"),
-      mirrored: mirror !== undefined,
+      module: moduleOf(test),
+      mirrored,
       crate: key,
       tests: [],
     };
@@ -262,23 +258,11 @@ export function touchedCycles(
   );
 }
 
-/// The number of touched cycles whose lowest-sorted file is this one.
-function cyclesByFile(cycles: readonly Cycle[]): Readonly<Record<string, number>> {
-  const counts: Record<string, number> = {};
-  for (const cycle of cycles) {
-    const [head] = [...cycle].sort();
-    if (head !== undefined) {
-      counts[head] = (counts[head] ?? 0) + 1;
-    }
-  }
-  return counts;
-}
-
 /// Build the report from the CodeGraph answers and the pull-request context.
 export function buildReport(input: BuildReportInput): ImpactReport {
   const kindCounts = kindCountsOf(input.changedFiles);
   const codeFiles = kindCounts.source + kindCounts.test;
-  const cycles = touchedCycles(input.cycles, input.changedFiles);
+  const cycles = touchedCycles(input.cycles, input.changedFiles).map((cycle) => [...cycle].sort());
   const notes = [
     input.note,
     codeFiles === 0
@@ -299,10 +283,11 @@ export function buildReport(input: BuildReportInput): ImpactReport {
     ),
     changedFileListingLimit: MAX_CHANGED_FILES,
     affectedTestCount: input.affectedTests.length,
+    affectedLookupOmitted: input.affectedLookupOmitted,
     testGroups: groupTests(input.changedFiles, input.affectedTests),
     testListingLimit: MAX_LISTED_TESTS,
     touchedCycleCount: cycles.length,
-    cyclesByFile: cyclesByFile(cycles),
+    touchedCycleFileCount: new Set(cycles.flat()).size,
     cycleListingLimit: MAX_LISTED_CYCLES,
     cycles: cycles.slice(0, MAX_LISTED_CYCLES),
     index: {
