@@ -53,5 +53,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "$GITHUB_REF_NAME" out/*.tar.zst out/SHA256SUMS \
+          # Everything the run produced: the bare binary, the portable tree, the
+          # deb, the rpm, the AppImage and their checksums.
+          gh release create "$GITHUB_REF_NAME" out/* \
             --title "$GITHUB_REF_NAME" --generate-notes --verify-tag

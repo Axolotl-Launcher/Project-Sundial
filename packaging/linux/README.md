@@ -42,9 +42,29 @@ axlauncher/
 one `axlauncher-legacy` serves both a self-contained archive and a deb that
 depends on the distribution's libraries.
 
+## Packages
+
+Packaging runs outside nix, on a normal runner with the distribution tools, and
+takes the artifacts nix produced:
+
+| Script | Input | Output |
+|---|---|---|
+| `package-deb.sh` | the legacy binary | `axlauncher_<version>_amd64.deb` |
+| `package-rpm.sh` | the legacy binary | `axlauncher-<version>-1.x86_64.rpm` |
+| `package-appimage.sh` | the portable tree | `axlauncher-<version>-x86_64.AppImage` |
+
+The deb and the rpm declare the distribution's libraries, since the legacy
+binary links or dlopens them. The AppImage carries its own glibc, libraries and
+keymap data, and the script verifies the type-2 runtime it downloads against a
+recorded hash.
+
 ## Build the artifacts
 
 ```bash
 nix build .#axlauncher-legacy     # native ELF
 nix build .#axlauncher-portable   # self-contained tree
+
+./packaging/linux/package-deb.sh result/bin/axlauncher dist
+./packaging/linux/package-rpm.sh result/bin/axlauncher dist
+./packaging/linux/package-appimage.sh <portable-tree> dist
 ```

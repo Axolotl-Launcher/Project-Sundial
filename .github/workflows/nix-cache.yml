@@ -128,15 +128,10 @@ jobs:
           name: axlauncher-portable-linux-x86_64
           path: axlauncher-portable-linux-x86_64.tar.zst
 
-      - name: Archive the packaging input
-        # TODO: deb and rpm packaging goes here; the ELF and the layout contract
-        # are what a packager needs.
-        if: ${{ inputs.isLegacy }}
-        run: tar --zstd -cf axlauncher-legacy-linux-x86_64.tar.zst -C binary .
-
-      - name: Upload the packaging input
+      - name: Upload the binary
         if: ${{ inputs.isLegacy }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: axlauncher-legacy-linux-x86_64
-          path: axlauncher-legacy-linux-x86_64.tar.zst
+          name: axlauncher-legacy
+          path: binary/bin/axlauncher
+
