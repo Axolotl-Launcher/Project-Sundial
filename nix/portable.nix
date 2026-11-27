@@ -40,6 +40,22 @@ pkgs.runCommand "axlauncher-portable-${version}"
         while read -r file; do
           cp -L "$file" "$out/lib/$(basename "$file")"
         done
+
+      # Workers are loaded after the platform binary and can need libraries the
+      # binary itself does not list. Collect those dependencies before dropping
+      # the store rpaths.
+      for image in "${newest.workerProbe}/java-discovery-image" \
+        "${newest.installImage}/libinstall.so"; do
+        "$loader" --library-path "$libdirs" --list "$image" > worker-store.txt
+        if grep -q 'not found' worker-store.txt; then
+          cat worker-store.txt >&2
+          exit 1
+        fi
+        sed -n 's/^ *[^ ]* => \([^ ]*\) (0x[0-9a-f]*)$/\1/p' worker-store.txt |
+          while read -r file; do
+            cp -L "$file" "$out/lib/$(basename "$file")"
+          done
+      done
       cp -L "$loader" "$out/lib/ld-linux-x86-64.so.2"
 
       # Loaded by name at runtime, so the loader never lists them.
@@ -85,10 +101,13 @@ pkgs.runCommand "axlauncher-portable-${version}"
       # The probe image is a build input only, not part of the portable tree.
       scratch=$(mktemp -d)
       cp ${newest.workerProbe}/java-discovery-image "$scratch/libjava-discovery.so"
-      if ! printf '\012\000\000\000"Shutdown"' |
+      status=0
+      printf '\012\000\000\000"Shutdown"' |
         "$out/bin/axlauncher" --axlauncher-worker java-discovery \
-          "$scratch/libjava-discovery.so" > "$scratch/java-discovery.frame"; then
-        echo "The Java discovery worker exited without a handshake." >&2
+          "$scratch/libjava-discovery.so" > "$scratch/java-discovery.frame" || status=$?
+      if [ "$status" -ne 0 ]; then
+        echo "The Java discovery worker exited with status $status." >&2
+        od -An -tx1 "$scratch/java-discovery.frame" >&2
         exit 1
       fi
       if ! printf '\007\000\000\000"Ready"' | cmp - "$scratch/java-discovery.frame"; then
