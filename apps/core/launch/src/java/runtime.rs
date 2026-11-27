@@ -65,6 +65,17 @@ impl JavaRuntime {
         self.architecture.as_deref()
     }
 
+    pub(crate) fn is_32_bit(&self) -> bool {
+        self.architecture().is_some_and(|architecture| {
+            [
+                "x86", "i386", "i486", "i586", "i686", "arm", "arm32", "armv7", "armv7l", "ppc",
+                "sparc", "mips", "mipsel", "riscv32",
+            ]
+            .iter()
+            .any(|name| architecture.eq_ignore_ascii_case(name))
+        })
+    }
+
     /// Ranks a new per-major preference by host architecture, then application ownership and release.
     pub fn preferred_candidate(major: u32, runtimes: &[Self]) -> Option<&Self> {
         // Keep the original candidate order when all ranking keys tie.

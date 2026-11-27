@@ -78,6 +78,51 @@ fn fallen_proxy_defaults_to_off_and_can_be_enabled_in_existing_settings() {
 }
 
 #[test]
+fn memory_defaults_to_automatic_and_manual_settings_roundtrip() {
+    let temp = TempRoot::new();
+    seed(temp.path(), r#"{"schema_version":1,"data":{}}"#);
+    assert_eq!(
+        load_settings(temp.path()).unwrap().data.memory(),
+        MemoryAllocation::Automatic
+    );
+    let heap = axlauncher_domain::memory::MaximumHeap::new(6144).unwrap();
+    update_settings(temp.path(), |settings| {
+        settings.set_memory(MemoryAllocation::Manual(heap));
+    })
+    .unwrap();
+    assert_eq!(
+        load_settings(temp.path()).unwrap().data.memory(),
+        MemoryAllocation::Manual(heap)
+    );
+    let written: serde_json::Value =
+        serde_json::from_slice(&fs::read(settings_path(temp.path())).unwrap()).unwrap();
+    assert_eq!(
+        written["data"]["memory"],
+        serde_json::json!({"mode": "manual", "maximum_mib": 6144})
+    );
+}
+
+#[test]
+fn malformed_memory_settings_do_not_quarantine_other_preferences() {
+    let temp = TempRoot::new();
+    for memory in [
+        r#"{"mode":"manual","maximum_mib":1}"#,
+        r#"{"mode":"future"}"#,
+    ] {
+        let json = format!(
+            r#"{{"schema_version":1,"data":{{"theme":"light","default_game_language":"zh_cn","memory":{memory}}}}}"#
+        );
+        let path = seed(temp.path(), &json);
+        let loaded = load_settings(temp.path()).unwrap();
+        assert_eq!(loaded.origin, SettingsOrigin::Stored);
+        assert_eq!(loaded.data.memory(), MemoryAllocation::Automatic);
+        assert_eq!(loaded.data.theme, ThemeChoice::Light);
+        assert_eq!(loaded.data.default_game_language, "zh_cn");
+        assert_eq!(fs::read_to_string(path).unwrap(), json);
+    }
+}
+
+#[test]
 fn an_unreadable_document_is_quarantined_and_defaults_apply() {
     let temp = TempRoot::new();
     seed(temp.path(), "{ not a document }");

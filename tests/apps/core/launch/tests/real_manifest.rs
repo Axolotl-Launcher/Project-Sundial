@@ -142,6 +142,7 @@ fn build_command(
         &layout,
         &Session::offline("Check"),
         target,
+        None,
     )
     .unwrap_or_else(|error| panic!("{id}: {error}"))
 }

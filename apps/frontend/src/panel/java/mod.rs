@@ -20,6 +20,7 @@ use axlauncher_ui::{
 use crate::file_picker::choose_file;
 
 mod instance;
+pub(super) mod memory;
 mod operation;
 pub(super) use instance::InstancePicker;
 use operation::{Activity, Operation, OperationError};

@@ -7,6 +7,8 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use axlauncher_storage::instance_mods;
+
 use super::is_link;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +59,24 @@ pub fn scan_resources(root: &Path) -> io::Result<Vec<Resource>> {
     scan_worlds(root, &mut resources)?;
     resources.sort_unstable_by(|a, b| a.relative_path.cmp(&b.relative_path));
     Ok(resources)
+}
+
+/// Counts the enabled archives that Minecraft can load from this instance.
+pub fn count_enabled_mods(root: &Path) -> io::Result<usize> {
+    let mut count = 0;
+    visit(&instance_mods(root), |entry, metadata| {
+        if metadata.is_file()
+            && entry
+                .file_name()
+                .to_str()
+                .and_then(|name| resource_state(ResourceKind::Mod, name))
+                == Some(Some(true))
+        {
+            count += 1;
+        }
+        Ok(())
+    })?;
+    Ok(count)
 }
 
 fn scan_folder(

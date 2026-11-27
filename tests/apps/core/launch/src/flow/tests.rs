@@ -187,6 +187,7 @@ impl Fixture {
             java_preference,
             player_name: PLAYER_NAME.to_owned(),
             game_language: None,
+            heap: None,
         }
     }
 }

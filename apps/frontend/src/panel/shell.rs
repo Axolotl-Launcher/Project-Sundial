@@ -126,6 +126,7 @@ impl RootView {
             Page::Instances => vec![self.render_instances(cx)],
             Page::Settings => vec![
                 self.render_environment(cx),
+                self.render_memory(cx),
                 self.java.clone().into_any_element(),
                 self.render_service_sources(cx),
             ],

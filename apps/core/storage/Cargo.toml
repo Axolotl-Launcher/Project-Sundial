@@ -14,10 +14,11 @@ license.workspace = true
 axlauncher_spi = { workspace = true }
 dirs = { workspace = true }
 keyring = { workspace = true }
+sysinfo = { workspace = true, features = ["system"] }
 tempfile = { workspace = true }
 
 [target."cfg(windows)".dependencies]
-sysinfo = { workspace = true }
+sysinfo = { workspace = true, features = ["disk"] }
 windows-registry = { workspace = true }
 
 [lints]

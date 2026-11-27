@@ -145,6 +145,7 @@ fn old_clients_receive_the_flat_asset_directory_selected_by_the_index() {
             &layout,
             &Session::offline("Player"),
             &Target::host(),
+            None,
         )
         .unwrap();
         assert!(
@@ -183,6 +184,7 @@ fn the_command_runs_the_main_class_between_the_two_argument_groups() {
         &layout,
         &Session::offline("Player"),
         &windows(),
+        None,
     )
     .expect("plan");
 
@@ -206,6 +208,7 @@ fn placeholders_receive_launcher_values() {
         &layout,
         &Session::offline("Player"),
         &windows(),
+        None,
     )
     .expect("plan");
 
@@ -230,6 +233,7 @@ fn the_classpath_ends_with_the_client_jar() {
         &layout,
         &Session::offline("Player"),
         &windows(),
+        None,
     )
     .expect("plan");
 
@@ -257,6 +261,7 @@ fn a_platform_specific_argument_is_included_only_on_its_platform() {
         &layout,
         &Session::offline("P"),
         &windows(),
+        None,
     )
     .expect("plan");
     let on_osx = build(
@@ -265,6 +270,7 @@ fn a_platform_specific_argument_is_included_only_on_its_platform() {
         &layout,
         &Session::offline("P"),
         &osx,
+        None,
     )
     .expect("plan");
 
@@ -295,6 +301,7 @@ fn a_missing_client_jar_is_an_error_naming_the_path() {
         &layout,
         &Session::offline("P"),
         &windows(),
+        None,
     )
     .expect_err("must fail");
 
@@ -318,6 +325,7 @@ fn a_version_with_a_flat_argument_string_still_gets_game_arguments() {
         &layout,
         &Session::offline("Player"),
         &windows(),
+        None,
     )
     .expect("command");
 
@@ -356,6 +364,7 @@ fn a_loader_profile_runs_the_jar_it_inherits() {
         &layout,
         &Session::offline("Player"),
         &windows(),
+        None,
     )
     .expect("command");
 
@@ -401,6 +410,7 @@ fn the_logging_configuration_is_named_on_the_jvm_command_line() {
         &layout,
         &Session::offline("Player"),
         &windows(),
+        None,
     )
     .expect("command");
 
