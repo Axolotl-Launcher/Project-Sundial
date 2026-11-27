@@ -31,7 +31,8 @@ internal build product: the release publishes the image, not the tree.
 only checks the layout of what it receives.
 
 The portable build checks that its wrapper can load the verified embedded Java
-discovery image and shut the worker down. The probe image is not shipped.
+discovery and installation images, then shut each worker down. These probe
+images are not shipped.
 
 ## Layout
 
