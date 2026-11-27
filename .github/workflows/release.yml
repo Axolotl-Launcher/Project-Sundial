@@ -80,6 +80,8 @@ jobs:
     name: Legacy binary
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    env:
+      CACHIX_CACHE_AUTH_TOKEN: ${{ secrets.CACHIX_CACHE_AUTH_TOKEN }}
     steps:
       - name: Check out workspace
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -89,8 +91,22 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877 # v32.1.0
 
+      - name: Set up the build cache
+        uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' }}
+        with:
+          name: axlmc-cache
+          authToken: ${{ secrets.CACHIX_CACHE_AUTH_TOKEN }}
+          skipPush: true
+
       - name: Build
         run: nix build --out-link legacy .#axlauncher-legacy
+
+      - name: Publish to the build cache
+        # The packaging binary is not a release artifact; it only has to survive
+        # long enough for the packaging job to substitute it.
+        if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' }}
+        run: nix build --print-out-paths .#axlauncher-legacy | cachix push axlmc-cache
 
       - name: Collect the packaging input
         # TODO: deb, rpm and tarball packaging goes here; the ELF and the layout

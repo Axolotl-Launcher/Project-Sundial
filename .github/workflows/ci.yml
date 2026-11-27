@@ -132,12 +132,14 @@ jobs:
       - name: Build the crate dependencies
         run: nix build --print-out-paths .#axlauncher-cargo-deps
 
-      - name: Publish the crate dependencies
+      - name: Publish the build cache products
         # Build output goes to its own cache: seeded from every push so a pull
-        # request substitutes the crane build instead of recompiling the
-        # workspace, and never mixed with the release artifacts.
+        # request substitutes the crane build and the packaging binary instead of
+        # recompiling them, and never mixed with the release artifacts.
         if: ${{ env.CACHIX_CACHE_AUTH_TOKEN != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-        run: nix build --print-out-paths .#axlauncher-cargo-deps | cachix push axlmc-cache
+        run: |
+          nix build --print-out-paths .#axlauncher-cargo-deps .#axlauncher-legacy |
+            cachix push axlmc-cache
 
       - name: Build both binaries
         run: nix build --print-out-paths .#axlauncher .#axlauncher-newest .#axlauncher-legacy
