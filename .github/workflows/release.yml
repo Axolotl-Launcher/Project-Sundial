@@ -43,7 +43,11 @@ jobs:
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           skipPush: true
 
-      - name: Build and publish
+      - name: Build and publish the crate dependencies
+        run: |
+          nix build --print-out-paths .#axlauncher-cargo-deps | cachix push axlmc
+
+      - name: Build and publish the binaries
         run: |
           nix build --print-out-paths .#axlauncher .#axlauncher-newest |
             cachix push axlmc

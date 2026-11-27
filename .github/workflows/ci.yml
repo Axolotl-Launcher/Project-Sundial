@@ -117,6 +117,15 @@ jobs:
           # Push is explicit below: only the binaries users may fetch belong in the cache.
           skipPush: true
 
+      - name: Build the crate dependencies
+        run: nix build --print-out-paths .#axlauncher-cargo-deps
+
+      - name: Publish the crate dependencies
+        # Seeded from every push so a pull request substitutes the crane build
+        # instead of recompiling the workspace.
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: nix build --print-out-paths .#axlauncher-cargo-deps | cachix push axlmc
+
       - name: Build both binaries
         run: nix build --print-out-paths .#axlauncher .#axlauncher-newest .#axlauncher-legacy
 

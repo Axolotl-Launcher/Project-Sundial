@@ -312,6 +312,7 @@ in
   packages = {
     axlauncher = wrapper;
     axlauncher-legacy = legacy;
+    axlauncher-cargo-deps = cargoArtifacts;
     axlauncher-newest = newest;
     axlauncher-portable = portable;
   };

@@ -44,8 +44,15 @@
           };
           # The legacy build links against the oldest supported glibc.
           pkgsOld = import nixpkgs-old { inherit system; };
-          toolchain = pkgs.rust-bin.stable."1.100.0".default.override {
-            extensions = [ "rust-src" ];
+          # The minimal profile plus the components the checks need; the default
+          # profile would add rust-docs, which is 700 MiB of toolchain no build
+          # reads.
+          toolchain = pkgs.rust-bin.stable."1.100.0".minimal.override {
+            extensions = [
+              "clippy"
+              "rust-src"
+              "rustfmt"
+            ];
           };
           package = import ./package.nix {
             inherit pkgs pkgsOld toolchain;
