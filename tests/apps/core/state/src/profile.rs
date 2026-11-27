@@ -84,6 +84,26 @@ fn a_memory_override_roundtrips_and_following_global_removes_it() {
 }
 
 #[test]
+fn an_invalid_heap_override_does_not_hide_the_instance() {
+    let temp = TempRoot::new();
+    let mut body: serde_json::Value = serde_json::from_slice(MINIMAL).unwrap();
+    body["memory"] = serde_json::json!({"maximum_mib": 1});
+    let bytes = serde_json::to_vec(&body).unwrap();
+    put(temp.path(), "instance/.axlprofile", &bytes);
+
+    let discovered = discover(temp.path());
+    assert!(discovered.issues.is_empty());
+    assert_eq!(discovered.instances.len(), 1);
+    let instance = &discovered.instances[0];
+    assert_eq!(instance.profile.id(), ID);
+    assert_eq!(instance.profile.memory(), None);
+    assert_eq!(
+        fs::read(profile_document(&instance.directory)).unwrap(),
+        bytes
+    );
+}
+
+#[test]
 fn invalid_input_never_creates_an_instance_directory() {
     let temp = TempRoot::new();
     let instances = temp.path().join("instances");

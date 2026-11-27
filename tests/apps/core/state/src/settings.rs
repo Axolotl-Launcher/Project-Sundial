@@ -103,6 +103,26 @@ fn memory_defaults_to_automatic_and_manual_settings_roundtrip() {
 }
 
 #[test]
+fn malformed_memory_settings_do_not_quarantine_other_preferences() {
+    let temp = TempRoot::new();
+    for memory in [
+        r#"{"mode":"manual","maximum_mib":1}"#,
+        r#"{"mode":"future"}"#,
+    ] {
+        let json = format!(
+            r#"{{"schema_version":1,"data":{{"theme":"light","default_game_language":"zh_cn","memory":{memory}}}}}"#
+        );
+        let path = seed(temp.path(), &json);
+        let loaded = load_settings(temp.path()).unwrap();
+        assert_eq!(loaded.origin, SettingsOrigin::Stored);
+        assert_eq!(loaded.data.memory(), MemoryAllocation::Automatic);
+        assert_eq!(loaded.data.theme, ThemeChoice::Light);
+        assert_eq!(loaded.data.default_game_language, "zh_cn");
+        assert_eq!(fs::read_to_string(path).unwrap(), json);
+    }
+}
+
+#[test]
 fn an_unreadable_document_is_quarantined_and_defaults_apply() {
     let temp = TempRoot::new();
     seed(temp.path(), "{ not a document }");

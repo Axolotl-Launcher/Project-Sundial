@@ -53,7 +53,7 @@ pub enum SourcePreference {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SettingsData {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "document::read_preference")]
     memory: MemoryAllocation,
     #[serde(default)]
     pub theme: ThemeChoice,

@@ -40,7 +40,11 @@ pub struct Profile {
     id: String,
     pub instance: ProfileInfo,
     game: Option<Game>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "crate::document::read_preference",
+        skip_serializing_if = "Option::is_none"
+    )]
     memory: Option<MaximumHeap>,
     #[serde(default)]
     pub install: Install,
