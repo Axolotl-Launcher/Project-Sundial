@@ -54,37 +54,37 @@ jobs:
         with:
           node-version-file: package.json
 
-      - name: Install GitNexus in an isolated home
+      # CodeGraph ships its own Node runtime in a per-platform package, so it
+      # installs beside the runner rather than into this project's dependencies.
+      # Keeping it out of package.json also keeps its release cadence away from
+      # the pnpm lockfile and the minimum release age.
+      - name: Install CodeGraph in an isolated home
         if: steps.scripts.outputs.available == 'true'
         run: |
-          mkdir -p "$RUNNER_TEMP/gitnexus"
-          npm install --prefix "$RUNNER_TEMP/gitnexus" --no-save gitnexus@1.6.12
-          echo "GITNEXUS_MCP_COMMAND=$RUNNER_TEMP/gitnexus/node_modules/.bin/gitnexus" >> "$GITHUB_ENV"
-          echo 'GITNEXUS_MCP_ARGS=["mcp"]' >> "$GITHUB_ENV"
-          echo "GITNEXUS_HOME=$RUNNER_TEMP/gitnexus-home" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/codegraph"
+          npm install --prefix "$RUNNER_TEMP/codegraph" --no-save @colbymchenry/codegraph@1.6.4
+          echo "CODEGRAPH_COMMAND=$RUNNER_TEMP/codegraph/node_modules/.bin/codegraph" >> "$GITHUB_ENV"
+          echo 'CODEGRAPH_ARGS=[]' >> "$GITHUB_ENV"
+          echo "CODEGRAPH_TELEMETRY=0" >> "$GITHUB_ENV"
 
       - name: Build the code graph
         if: steps.scripts.outputs.available == 'true'
         env:
-          GITNEXUS_MCP_COMMAND: ${{ runner.temp }}/gitnexus/node_modules/.bin/gitnexus
-          GITNEXUS_HOME: ${{ runner.temp }}/gitnexus-home
-          GITNEXUS_STORAGE_PATH: ${{ runner.temp }}/gitnexus-index
+          CODEGRAPH_TELEMETRY: "0"
         run: |
           cd .pr
-          "$GITNEXUS_MCP_COMMAND" analyze --index-only --default-branch main
+          "$CODEGRAPH_COMMAND" init
 
       - name: Analyze the pull request
         if: steps.scripts.outputs.available == 'true'
         env:
-          GITNEXUS_HOME: ${{ runner.temp }}/gitnexus-home
-          GITNEXUS_STORAGE_PATH: ${{ runner.temp }}/gitnexus-index
-          GITNEXUS_MCP_COMMAND: ${{ runner.temp }}/gitnexus/node_modules/.bin/gitnexus
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           IMPACT_OUTPUT: ${{ runner.temp }}/impact
           IMPACT_WORKTREE: ${{ github.workspace }}/.pr
+          CODEGRAPH_TELEMETRY: "0"
         run: node scripts/impact-pr.ts
 
       - name: Upload the impact report
