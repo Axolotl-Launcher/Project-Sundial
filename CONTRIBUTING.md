@@ -91,6 +91,10 @@ nix run --extra-substituters https://axlmc.cachix.org \
   --extra-trusted-public-keys 'axlmc.cachix.org-1:dmsRJqFQqLMfvRveerHV3DxDCW1wq1N+TX1+dryYWZU='
 ```
 
+[`canary.yml`](.github/workflows/canary.yml) builds `newest` from `main` every
+eight hours, exercises worker dispatch and uploads the tree; it publishes to the
+build cache and never creates a release.
+
 The nix build repeats the three cargo invocations that
 [`scripts/desktop.ts`](scripts/desktop.ts) performs; changing the embedded worker
 libraries means changing both, and [the Linux packaging
