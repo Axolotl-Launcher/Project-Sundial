@@ -60,6 +60,9 @@ jobs:
         if: ${{ env.AXLM_RELEASE_TOKEN != '' || env.AXLM_BUILD_TOKEN != '' }}
         run: nix profile install nixpkgs#cachix
 
+      # The two binaries share no build output: different stdenv, different
+      # glibc. Each dependency stage is cached under its own name so that a
+      # workspace change only recompiles the workspace.
       - name: Publish the crate dependencies
         # Build output goes to its own cache so a burst of CI output cannot
         # evict a release.
@@ -68,6 +71,13 @@ jobs:
           CACHIX_AUTH_TOKEN: ${{ env.AXLM_BUILD_TOKEN }}
         run: |
           nix build --print-out-paths .#axlauncher-cargo-deps | cachix push axlmc-cache
+
+      - name: Publish the legacy crate dependencies
+        if: ${{ inputs.isLegacy && env.AXLM_BUILD_TOKEN != '' }}
+        env:
+          CACHIX_AUTH_TOKEN: ${{ env.AXLM_BUILD_TOKEN }}
+        run: |
+          nix build --print-out-paths .#axlauncher-legacy-deps | cachix push axlmc-cache
 
       - name: Build
         run: |
