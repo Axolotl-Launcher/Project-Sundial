@@ -10,18 +10,25 @@ use crate::account_client;
 use crate::accounts::Reply;
 use crate::client::Service;
 use crate::native::{self, Image, WORKER_ARGUMENT};
+use crate::{instance_settings, settings_client};
 
 #[derive(Clone, Copy)]
 pub struct Images {
     pub downloads: Image,
     pub accounts: Image,
+    pub instance_settings: Image,
 }
 
 impl Images {
-    pub const fn new(downloads: &'static [u8], accounts: &'static [u8]) -> Self {
+    pub const fn new(
+        downloads: &'static [u8],
+        accounts: &'static [u8],
+        instance_settings: &'static [u8],
+    ) -> Self {
         Self {
             downloads: Image::new(WorkerLibrary::Downloads, downloads),
             accounts: Image::new(WorkerLibrary::Accounts, accounts),
+            instance_settings: Image::new(WorkerLibrary::InstanceSettings, instance_settings),
         }
     }
 
@@ -30,13 +37,15 @@ impl Images {
         let executable =
             worker_executable().map_err(|error| format!("Could not locate the launcher: {error}"));
         crate::downloads::configure(self.downloads, executable.clone());
+        settings_client::configure(self.instance_settings, executable.clone());
         account_client::configure(self.accounts, executable);
     }
 
-    /// Drains download and account workers off-thread, including ones already closing.
+    /// Worker shutdown also waits for children that were already closing.
     pub fn begin_shutdown() -> JoinHandle<()> {
         let accounts = account_client::take_workers();
-        std::thread::spawn(move || drain_workers(accounts))
+        let settings = settings_client::take_workers();
+        std::thread::spawn(move || drain_workers(accounts, settings))
     }
 
     /// Recognizes worker mode before opening a GUI or reading user settings.
@@ -58,7 +67,7 @@ impl Images {
         else {
             return crate::server::startup_failed("invalid worker arguments");
         };
-        let Some(image) = [self.downloads, self.accounts]
+        let Some(image) = [self.downloads, self.accounts, self.instance_settings]
             .into_iter()
             .find(|image| image.matches(&kind))
         else {
@@ -68,12 +77,21 @@ impl Images {
     }
 }
 
-fn drain_workers(accounts: Vec<Arc<Service<Reply>>>) {
+fn drain_workers(
+    accounts: Vec<Arc<Service<Reply>>>,
+    settings: Vec<Arc<Service<instance_settings::Reply>>>,
+) {
     crate::downloads::close();
     for worker in &accounts {
         worker.close();
     }
+    for worker in &settings {
+        worker.close();
+    }
     for worker in accounts {
+        worker.close_and_wait();
+    }
+    for worker in settings {
         worker.close_and_wait();
     }
     crate::downloads::wait_closed();

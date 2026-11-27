@@ -19,6 +19,7 @@ impl Image {
         let symbol: &[u8] = match kind {
             WorkerLibrary::Downloads => b"axlauncher_downloads_v1\0",
             WorkerLibrary::Accounts => b"axlauncher_accounts_v1\0",
+            WorkerLibrary::InstanceSettings => b"axlauncher_instance_settings_v1\0",
         };
         Self {
             kind,

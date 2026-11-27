@@ -3,19 +3,20 @@
 
 //! The launcher-wide heap preference and its editor.
 
-use std::path::Path;
+use std::sync::Arc;
 
-use axlauncher_core::desktop::memory;
+use axlauncher_core::desktop::instance_settings::{self, EditCancellation, GlobalHeap};
 use axlauncher_core::domain::memory::{MaximumHeap, MemoryAllocation};
 use axlauncher_core::state::SettingsOrigin;
-use axlauncher_core::storage::DataPath;
+use axlauncher_core::storage::DataDir;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, AnyElement, Button, Context, Disableable, GroupBox, IntoElement, Label, Window,
-    h_flex,
+    ActiveTheme, AnyElement, App, Button, Context, Disableable, GroupBox, IntoElement, Label, Task,
+    WeakEntity, Window, h_flex,
 };
 
 use super::super::RootView;
+use super::super::memory_edits::MemoryScope;
 
 mod editor;
 pub(in crate::panel) use editor::open as open_editor;
@@ -51,8 +52,10 @@ impl RootView {
         let Some((paths, settings)) = self.paths.as_ref().zip(self.settings.as_ref()) else {
             return;
         };
-        let root = paths.path(DataPath::Root).to_path_buf();
+        let paths = paths.clone();
+        let scope = self.memory_edits.scope();
         let view = cx.weak_entity();
+        let expected = settings.memory();
         let saved = settings.memory().manual_heap();
         open_editor(
             "Minecraft memory".into(),
@@ -61,34 +64,79 @@ impl RootView {
             MaximumHeap::default(),
             window,
             cx,
-            move |heap, cx| {
-                view.update(cx, |view, cx| view.save_global_memory(&root, heap, cx))
-                    .map_err(|error| error.to_string())?
+            move |heap, cancel, cx| {
+                Self::start_global_memory_edit(
+                    view.clone(),
+                    paths.clone(),
+                    scope.clone(),
+                    expected,
+                    heap,
+                    cancel,
+                    cx,
+                )
             },
         );
     }
 
-    fn save_global_memory(
+    fn commit_global_memory_edit(
         &mut self,
-        root: &Path,
+        paths: DataDir,
+        scope: MemoryScope,
+        expected: MemoryAllocation,
         heap: Option<MaximumHeap>,
+        cancel: Arc<EditCancellation>,
         cx: &mut Context<'_, Self>,
-    ) -> Result<(), String> {
-        if self.settings_readonly()
-            || self
-                .paths
-                .as_ref()
-                .is_none_or(|paths| paths.path(DataPath::Root) != root)
-        {
+    ) -> Result<Task<Result<(), String>>, String> {
+        if self.settings_readonly() || !scope.matches(&self.memory_edits.scope()) {
             return Err("The settings location changed. Reopen the editor to continue.".into());
         }
-        let allocation = heap.map_or(MemoryAllocation::Automatic, MemoryAllocation::Manual);
-        let data = memory::set_global(root, allocation).map_err(|error| error.to_string())?;
-        self.set_settings(Some(data), cx);
-        self.origin = Some(SettingsOrigin::Stored);
-        self.invalidate_inspection();
-        cx.notify();
+        let choice = heap.map_or(GlobalHeap::Automatic, |heap| {
+            GlobalHeap::ManualMib(heap.mib())
+        });
+        Ok(self.save_memory(
+            scope,
+            cancel,
+            cx,
+            move |cancel| {
+                instance_settings::set_global_heap(&paths, expected, choice, cancel)
+                    .map_err(|error| error.to_string())
+            },
+            move |view, memory, cx| view.apply_global_memory(expected, memory, cx),
+        ))
+    }
+
+    fn apply_global_memory(
+        &mut self,
+        expected: MemoryAllocation,
+        memory: MemoryAllocation,
+        cx: &mut Context<'_, Self>,
+    ) -> Result<(), String> {
+        if let Some(settings) = self
+            .settings
+            .as_mut()
+            .filter(|data| data.memory() == expected)
+        {
+            settings.set_memory(memory);
+            self.origin = Some(SettingsOrigin::Stored);
+            self.invalidate_inspection();
+            cx.notify();
+        }
         Ok(())
+    }
+
+    fn start_global_memory_edit(
+        view: WeakEntity<Self>,
+        paths: DataDir,
+        scope: MemoryScope,
+        expected: MemoryAllocation,
+        heap: Option<MaximumHeap>,
+        cancel: Arc<EditCancellation>,
+        cx: &mut App,
+    ) -> Result<Task<Result<(), String>>, String> {
+        view.update(cx, |view, cx| {
+            view.commit_global_memory_edit(paths, scope, expected, heap, cancel, cx)
+        })
+        .map_err(|error| error.to_string())?
     }
 }
 

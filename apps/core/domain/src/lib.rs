@@ -6,6 +6,11 @@
 pub mod maven;
 pub mod memory;
 
+/// Instance names are visible text, independent of the instance directory.
+pub fn is_visible_instance_name(name: &str) -> bool {
+    !name.trim().is_empty() && !name.chars().any(char::is_control)
+}
+
 /// A portable directory name for a Minecraft version. The official catalog
 /// includes IDs with internal spaces, including historical pre-releases.
 pub fn is_version_id(id: &str) -> bool {

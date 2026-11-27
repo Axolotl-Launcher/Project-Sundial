@@ -15,6 +15,11 @@ use serde::{Deserialize, Deserializer, de::DeserializeOwned};
 
 const SCHEMA_KEY: &str = "schema_version";
 
+#[derive(Deserialize)]
+pub(crate) struct Schema {
+    pub(crate) schema_version: u32,
+}
+
 /// A malformed optional preference falls back without invalidating its document.
 pub(crate) fn read_preference<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 where

@@ -133,6 +133,9 @@ fn resource_owner(dependency: &str) -> Option<&'static str> {
 }
 
 fn dependency_allowed(owner: &str, name: &str, directory: Option<&Path>) -> bool {
+    if owner == "axlauncher_instance_settings" {
+        return matches!(name, "axlauncher_domain" | "axlauncher_worker");
+    }
     if matches!(
         name,
         "dirs" | "dirs-next" | "directories" | "directories-next"

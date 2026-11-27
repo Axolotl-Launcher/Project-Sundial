@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
+use axlauncher_domain::memory::MaximumHeap;
 use axlauncher_state::profile::{self, Game, InstallStatus, Profile, StagedProfile};
 use axlauncher_storage::{Directory, Document, VersionPath};
 
@@ -151,8 +152,6 @@ fn an_unreadable_java_catalog_is_reported_and_preserved() {
 
 #[test]
 fn desktop_preview_applies_profile_then_manifest_heap_settings() {
-    use axlauncher_domain::memory::MaximumHeap;
-
     let root = tempfile::tempdir().unwrap();
     let data = DataDir::isolated(root.path()).unwrap();
     let fixture = java_profile_job(&data);
@@ -179,15 +178,10 @@ fn desktop_preview_applies_profile_then_manifest_heap_settings() {
 
     assert_eq!(preview(), ["-Xmx4096m"]);
     let heap = MaximumHeap::new(6144).unwrap();
-    profile::set_memory(
-        fixture.instance_directory(),
-        &fixture.profile_id,
-        Some(heap),
-    )
-    .unwrap();
+    set_profile_heap(&fixture, None, Some(heap));
     assert_eq!(preview(), ["-Xmx6144m"]);
     let release = runtime.parent().unwrap().parent().unwrap().join("release");
-    std::fs::write(release, "JAVA_VERSION=\"42.0.1\"\nOS_ARCH=\"i686\"\n").unwrap();
+    std::fs::write(&release, "JAVA_VERSION=\"42.0.1\"\nOS_ARCH=\"i686\"\n").unwrap();
     assert_eq!(preview(), ["-Xmx1024m"]);
     assert_eq!(
         profile::read(fixture.instance_directory())
@@ -196,6 +190,9 @@ fn desktop_preview_applies_profile_then_manifest_heap_settings() {
             .memory(),
         Some(heap)
     );
+    set_profile_heap(&fixture, Some(heap), None);
+    std::fs::write(release, "JAVA_VERSION=\"42.0.1\"\nOS_ARCH=\"x86_64\"\n").unwrap();
+    assert_eq!(preview(), ["-Xmx4096m"]);
     std::fs::write(
         data.game()
             .version_path(fixture.version_id(), VersionPath::Document),
@@ -203,6 +200,17 @@ fn desktop_preview_applies_profile_then_manifest_heap_settings() {
     )
     .unwrap();
     assert_eq!(preview(), ["-Xmx512m"]);
+}
+
+fn set_profile_heap(job: &LaunchJob, expected: Option<MaximumHeap>, memory: Option<MaximumHeap>) {
+    profile::set_memory_if_current(
+        job.instance_directory(),
+        &job.profile_id,
+        expected,
+        memory,
+        || true,
+    )
+    .unwrap();
 }
 
 #[test]

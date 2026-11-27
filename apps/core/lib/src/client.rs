@@ -173,12 +173,15 @@ impl<Reply> Service<Reply> {
     }
 
     pub(crate) fn closed_and_reaped(&self) -> bool {
-        self.closed.load(Ordering::Acquire)
-            && self.slot.try_lock().is_ok_and(|slot| {
-                slot.running
-                    .as_ref()
-                    .is_none_or(|running| running.is_reaped())
-            })
+        self.closed.load(Ordering::Acquire) && self.is_reaped()
+    }
+
+    pub(crate) fn is_reaped(&self) -> bool {
+        self.slot.try_lock().is_ok_and(|slot| {
+            slot.running
+                .as_ref()
+                .is_none_or(|running| running.is_reaped())
+        })
     }
 }
 

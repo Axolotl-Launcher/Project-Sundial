@@ -13,6 +13,7 @@ const DATA_DIR_ENV: &str = "AXLAUNCHER_DATA_DIR";
 pub enum WorkerLibrary {
     Downloads,
     Accounts,
+    InstanceSettings,
 }
 
 impl WorkerLibrary {
@@ -20,6 +21,7 @@ impl WorkerLibrary {
         match self {
             Self::Downloads => "downloads",
             Self::Accounts => "accounts",
+            Self::InstanceSettings => "instance-settings",
         }
     }
 

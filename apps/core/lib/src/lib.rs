@@ -2,6 +2,7 @@
 
 pub mod accounts;
 pub mod downloads;
+pub mod instance_settings;
 
 mod account_client;
 mod bootstrap;
@@ -10,6 +11,7 @@ mod native;
 mod path;
 mod protocol;
 mod server;
+mod settings_client;
 
 pub use account_client::DesktopAccounts;
 pub use bootstrap::Images;

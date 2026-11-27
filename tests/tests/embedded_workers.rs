@@ -12,6 +12,9 @@ use axlauncher_worker::accounts::{Action, Change, Command, Method, Reply};
 use axlauncher_worker::downloads::{Route, Transfer};
 use axlauncher_worker::{Event, Images, Request, Service};
 
+#[path = "embedded_workers/settings.rs"]
+mod settings;
+
 const DEADLINE: Duration = Duration::from_secs(15);
 
 struct Fixture {
@@ -39,6 +42,7 @@ impl Fixture {
             images: Images::new(
                 image("AXLAUNCHER_DOWNLOAD_IMAGE"),
                 image("AXLAUNCHER_ACCOUNT_IMAGE"),
+                image("AXLAUNCHER_INSTANCE_SETTINGS_IMAGE"),
             ),
         }
     }
@@ -179,7 +183,11 @@ fn account_worker_never_reuses_sessions_across_data_roots() {
 #[ignore = "run node scripts/desktop.ts smoke to supply the packaged desktop executable"]
 fn mismatched_worker_image_is_refused_and_removed() {
     let fixture = Fixture::new();
-    let wrong = Images::new(b"not the embedded library", b"not the embedded library");
+    let wrong = Images::new(
+        b"not the embedded library",
+        b"not the embedded library",
+        b"not the embedded library",
+    );
     let worker = Service::<Reply>::for_executable(wrong.accounts, fixture.executable.clone());
     let request = worker.request(
         &fixture.data,

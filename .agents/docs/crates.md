@@ -14,10 +14,10 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 | HTTP and DNS | `network` owns HTTP clients, DNS routing, the OAuth loopback listener and transport error classification. | Inject `network_spi::Network` for metadata and transfers or `network_spi::auth::AuthNetwork` for credential-bearing exchanges. |
 | Launcher data paths, blob storage and atomic writes | `storage` resolves directory defaults and overrides, and owns `DataDir`, `GameDir`, `RootedStorage` and `write_atomic`. | Use the [filesystem policy](filesystem-paths.md) and the storage path APIs rather than discovering or constructing managed locations. Use `Storage` for blobs and `write_atomic` for owned documents. |
 | Minecraft accounts and system credentials | `accounts` owns account records, Microsoft and Yggdrasil authentication, and session refresh. `storage` owns the platform credential store. | Use `core::desktop::accounts::DesktopAccounts`. The account worker receives the data root, uses the existing system store, and returns snapshots without credential references. |
-| Settings and instance manifests | `state` owns settings, `.axlprofile` creation and discovery, install status and runtime selections. | Use `load_settings` and `update_settings` for settings. Use `profile::create`, `profile::discover` and `profile::scan_resources` for instances; use `profile::mark_installed` or `profile::mark_failed` for install outcomes. `StateStore` serves the separate ID-based `InstanceRecord` API. |
+| Settings and instance manifests | `state` owns settings, `.axlprofile` creation and discovery, install status and runtime selections. | Use `load_settings` and `update_settings` for general settings. Use `core::desktop::instance_settings` for heap and display name edits; after worker validation Core requests a schema-checked field write in State with the original scope and field baseline. Use `profile::create`, `profile::discover` and `profile::scan_resources` for instances; use `profile::mark_installed` or `profile::mark_failed` for install outcomes. `StateStore` serves the separate ID-based `InstanceRecord` API. |
 | File downloads | `download_engine` schedules connections and ranges, manages shared bandwidth and buffers, tries alternate sources and verifies files before promotion. | Inject `download_spi::FileDownloader`. The desktop client uses the shared download worker; the standalone converter explicitly injects `download_engine::Direct`. |
 | Installation files and asset indexes | `install` checks for missing libraries and assets, handles Minecraft metadata, and prepares the pinned third-party authentication agent. | Use `prepare::prepare` for game files and `auth_agent::prepare` for the Java agent. Both take `FileDownloader`. Java runtime acquisition uses its separate existing transport. The SPI `Installer` accepts an `InstallPlan`. Its current `StepInstaller` implementation is a stub. |
-| Embedded service libraries and processes | `worker` owns native loading, process and request lifetimes, and the local wire protocol. `storage` owns the scratch layout. | Desktop shells embed the two target artifacts and dispatch worker mode before GPUI. Desktop clients share the same process manager and never link to either implementation. |
+| Embedded service libraries and processes | `worker` owns native loading, process and request lifetimes, and the local wire protocol. `storage` owns the scratch layout. | Desktop shells embed the service artifacts and dispatch worker mode before GPUI. Desktop clients share the same process manager and never link to the implementations. |
 | Mod loader metadata services | `loader` lists versions and resolves version profiles through an injected `Network`. | `loader::provider` selects the `ModLoader` implementation for both catalog and install. `install` places the resulting profile and handles installation processors. |
 | Minecraft version naming | `mc_version` classifies Mojang catalog entries and matches the Maven versions published for each Forge or NeoForge game line. It has no I/O. | Call `core::mc_version::classify_java` for catalog classification. The loader uses `MavenTarget` for both listing and installation. Standalone tools may explicitly wrap `BuiltinJavaVersionParser` with the SPI fallback; the launcher installs no fallback parser. |
 | Game version documents, classpath, JARs and natives | `launch` reads version files and JARs, evaluates launch rules and extracts natives. | Use `flow::launch` for prepared installations. Installation planning reuses `version::Version`, the library model and `rules::Target` to decide what to download. |
@@ -123,6 +123,7 @@ lookup for the destination.
 | `axlauncher_state` | [state](../../apps/core/state/src/lib.rs) | Launcher settings and instance persistence, plus the in-memory `StateStore` implementation. |
 | `axlauncher_accounts` | [accounts](../../apps/core/lib/accounts/src/lib.rs) | The account document, authentication and credential lifecycle. |
 | `axlauncher_download_engine` | [download_engine](../../apps/core/lib/download_engine/src/lib.rs) | Execution and progress reporting for file downloads. |
+| `axlauncher_instance_settings` | [instance_settings](../../apps/core/lib/instance_settings/src/lib.rs) | Validation of heap and display name edits only; no document, path, or installer access. |
 | `axlauncher_worker` | [worker](../../apps/core/lib/src/lib.rs) | Verified native loading, request framing, and shared process lifetime. |
 | `axlauncher_install` | [install](../../apps/core/install/src/lib.rs) | Installation planning, metadata and preparation of game files before launch. |
 | `axlauncher_launch` | [launch](../../apps/core/launch/src/lib.rs) | Building and executing a command from prepared files. JAR extraction uses the crate-local `NativeReader` interface. |
@@ -154,6 +155,11 @@ lookup for the destination.
    State and launch may depend on storage for managed paths and atomic writes. Only
    storage may depend on its internal layout crate. The account
    and download workers use storage, network, and the shared worker protocol.
+   The instance settings worker depends only on `axlauncher_worker` for the
+   private request and reply types and on `axlauncher_domain` for pure validation.
+   No production caller links to its implementation. Core and State resolve
+   effective settings directly; startup, listing, diagnostics and launch do
+   not request the settings service.
    Install uses the SPI for planned files, storage for installation paths
    and atomic writes, network for metadata digest verification and launch for
    the shared version model and rules. The loader calls `mc_version` for
@@ -168,11 +174,12 @@ lookup for the destination.
    with replaceable providers.
 
 `unsafe_code` is denied throughout the workspace. The only exceptions are the
-verified image loader and the two versioned C ABI exports; a policy test
-checks the exception sites. Account workers remain live for in-flight work,
+verified image loader and the versioned account, download and settings C ABI
+exports; a policy test checks each exact file and function. Account workers remain live for in-flight work,
 a pending profile selection, or sessions that have no recoverable credential
 in the system store. Otherwise the last request closes the child and releases
 its scratch files. Download batches hold one worker across file requests.
+The settings process retains no data or lease after its last request.
 
 ## Proposing a boundary change
 
