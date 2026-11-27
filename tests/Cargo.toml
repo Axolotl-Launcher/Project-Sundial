@@ -16,7 +16,7 @@ path = "src/lib.rs"
 
 [[test]]
 name = "real_manifest"
-path = "apps/core/launch/tests/real_manifest.rs"
+path = "apps/core/minecraft/launch/tests/real_manifest.rs"
 
 [dev-dependencies]
 axlauncher_content = { workspace = true }

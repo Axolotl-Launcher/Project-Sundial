@@ -13,21 +13,21 @@ A unit test belongs to the source file it exercises, so its path mirrors that
 file under `tests/`:
 
 ```
-apps/core/launch/src/flow.rs  ->  tests/apps/core/launch/src/flow.rs
+apps/core/minecraft/launch/src/arguments.rs  ->  tests/apps/core/minecraft/launch/src/arguments.rs
 ```
 
 Attach it from the source module:
 
 ```rust
 #[cfg(test)]
-#[path = "../../../../tests/apps/core/launch/src/flow.rs"]
+#[path = "../../../../../tests/apps/core/minecraft/launch/src/arguments.rs"]
 mod tests;
 ```
 
 The module stays a child of the source module, so it keeps access to private
 items. When one source file has several test modules, the first uses the
 mirrored file and the others live in a directory named after it, for example
-`tests/apps/core/launch/src/chain/document_tests.rs`.
+`tests/apps/core/minecraft/launch/src/chain/document_tests.rs`.
 
 A test-only helper shared by several modules follows the same rule: it lives
 here and the source module re-exports it under `#[cfg(test)]`.

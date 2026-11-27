@@ -17,4 +17,3 @@ shallow-module axlauncher_frontend::panel::download_debug
 shallow-module axlauncher_frontend::panel::profile_creation
 shallow-module axlauncher_spi
 shallow-module axlauncher_storage
-wide-directory apps/core/

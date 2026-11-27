@@ -23,9 +23,9 @@ SPDX-License-Identifier = "GPL-3.0-only"
 
 [[annotations]]
 path = [
-  "apps/core/mc_version/**",
+  "apps/core/minecraft/mc_version/**",
   "apps/core/spi/src/mc_version.rs",
-  "tests/apps/core/mc_version/**",
+  "tests/apps/core/minecraft/mc_version/**",
   "tests/apps/core/spi/src/mc_version.rs",
   "tests/apps/frontend/src/modpacks/service.rs",
 ]

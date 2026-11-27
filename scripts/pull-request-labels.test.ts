@@ -13,6 +13,13 @@ void test("a system crate maps to its module", () => {
   assert.deepEqual(modulesForPaths(["apps/core/mod_metadata/src/lib.rs"]), [
     "mod-metadata",
   ]);
+  assert.deepEqual(
+    modulesForPaths([
+      "apps/core/minecraft/install/src/lib.rs",
+      "apps/core/minecraft/launch/src/lib.rs",
+    ]),
+    ["install", "launch"],
+  );
 });
 
 void test("the aggregator maps to domain", () => {

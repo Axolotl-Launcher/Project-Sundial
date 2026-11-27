@@ -56,7 +56,10 @@ fn permitted_edge(owner: &str, dependency: &str, target_dir: &Path) -> bool {
         "axlauncher_domain" | "axlauncher_ui" | "axlauncher_policy_tests" => false,
         "axlauncher_spi" => dependency == "axlauncher_domain",
         "axlauncher_core" => {
-            dependency == "axlauncher_worker" || target_dir.parent() == Some(Path::new("apps/core"))
+            dependency == "axlauncher_worker"
+                || target_dir.parent().is_some_and(|parent| {
+                    parent == Path::new("apps/core") || parent == Path::new("apps/core/minecraft")
+                })
         }
         "axlauncher_frontend" => matches!(
             dependency,

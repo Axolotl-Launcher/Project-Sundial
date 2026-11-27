@@ -7,13 +7,13 @@ members = [
   "apps/core",
   "apps/core/content",
   "apps/core/domain",
-  "apps/core/install",
-  "apps/core/launch",
   "apps/core/lib",
   "apps/core/lib/accounts",
   "apps/core/lib/download_engine",
-  "apps/core/loader",
-  "apps/core/mc_version",
+  "apps/core/minecraft/install",
+  "apps/core/minecraft/launch",
+  "apps/core/minecraft/loader",
+  "apps/core/minecraft/mc_version",
   "apps/core/mod_metadata",
   "apps/core/network",
   "apps/core/observability",
@@ -128,10 +128,10 @@ axlauncher_core = { path = "apps/core" }
 axlauncher_domain = { path = "apps/core/domain" }
 axlauncher_download_engine = { path = "apps/core/lib/download_engine" }
 axlauncher_frontend = { path = "apps/frontend" }
-axlauncher_install = { path = "apps/core/install" }
-axlauncher_launch = { path = "apps/core/launch" }
-axlauncher_loader = { path = "apps/core/loader" }
-axlauncher_mc_version = { path = "apps/core/mc_version" }
+axlauncher_install = { path = "apps/core/minecraft/install" }
+axlauncher_launch = { path = "apps/core/minecraft/launch" }
+axlauncher_loader = { path = "apps/core/minecraft/loader" }
+axlauncher_mc_version = { path = "apps/core/minecraft/mc_version" }
 axlauncher_mod_metadata = { path = "apps/core/mod_metadata" }
 axlauncher_modpack = { path = "apps/plugins/modpack" }
 axlauncher_network = { path = "apps/core/network" }

@@ -18,8 +18,8 @@ export interface ModuleRoute {
 export const MODULE_ROUTES: readonly ModuleRoute[] = [
   { prefix: "apps/core/domain/", module: "domain" },
   { prefix: "apps/core/content/", module: "content" },
-  { prefix: "apps/core/install/", module: "install" },
-  { prefix: "apps/core/launch/", module: "launch" },
+  { prefix: "apps/core/minecraft/install/", module: "install" },
+  { prefix: "apps/core/minecraft/launch/", module: "launch" },
   { prefix: "apps/core/state/", module: "state" },
   { prefix: "apps/core/storage/", module: "storage" },
   { prefix: "apps/core/network/", module: "network" },

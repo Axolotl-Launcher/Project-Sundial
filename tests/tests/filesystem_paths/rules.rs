@@ -2,33 +2,37 @@ use syn::UseTree;
 
 const EXCEPTIONS: &[(&str, &str, &[&str])] = &[
     (
-        "apps/core/install/src/runtime.rs",
+        "apps/core/minecraft/install/src/runtime.rs",
         "executable_in",
         &["bin", "JAVA_BIN"],
     ),
     (
-        "apps/core/install/src/runtime.rs",
+        "apps/core/minecraft/install/src/runtime.rs",
         "home_of",
         &["jre.bundle/Contents/Home"],
     ),
     (
-        "apps/core/launch/src/java/runtime.rs",
+        "apps/core/minecraft/launch/src/java/runtime.rs",
         "read_release",
         &["release"],
     ),
     (
-        "apps/core/launch/src/java/application.rs",
+        "apps/core/minecraft/launch/src/java/application.rs",
         "matches_runtime",
         &["product-info.json", "Resources/product-info.json"],
     ),
-    ("apps/core/launch/src/platform.rs", "java_bin", &["bin"]),
     (
-        "apps/core/launch/src/platform.rs",
+        "apps/core/minecraft/launch/src/platform.rs",
+        "java_bin",
+        &["bin"],
+    ),
+    (
+        "apps/core/minecraft/launch/src/platform.rs",
         "managed_home",
         &["jre.bundle"],
     ),
     (
-        "apps/core/launch/src/platform.rs",
+        "apps/core/minecraft/launch/src/platform.rs",
         "bundle_home",
         &["Contents", "Home"],
     ),

@@ -30,7 +30,7 @@ void test("the limit matches the repository rule", () => {
 });
 
 void test("recognises source files and skips data and generated paths", () => {
-  assert.equal(isCodeFile("apps/core/launch/src/flow.rs"), true);
+  assert.equal(isCodeFile("apps/core/minecraft/launch/src/flow.rs"), true);
   assert.equal(isCodeFile("scripts/check-file-length.ts"), true);
   assert.equal(isCodeFile("eslint.config.js"), true);
   assert.equal(isCodeFile("Cargo.toml"), false);
