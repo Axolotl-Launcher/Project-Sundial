@@ -10,7 +10,7 @@ pub mod installation;
 pub mod java;
 pub mod launching;
 pub mod memory;
-pub mod modrinth;
+pub mod project_images;
 pub mod sources;
 
 pub mod accounts {

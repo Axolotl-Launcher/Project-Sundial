@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! In-memory retrieval of images served by the Modrinth CDN.
+//! Bounded retrieval of remote images embedded in project descriptions.
 
 use axlauncher_network_spi::{DownloadBody, DownloadProtocol, FetchError, Network};
 use url::Url;
@@ -10,21 +10,13 @@ use crate::ReqwestNetwork;
 
 const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
 
-/// Project images come from the Modrinth CDN's data path over HTTPS.
-pub fn is_project_image_url(url: &str) -> bool {
-    Url::parse(url).is_ok_and(|url| allows_image(&url))
-}
-
 fn allows_image(url: &Url) -> bool {
-    url.scheme() == "https"
-        && url.host_str() == Some("cdn.modrinth.com")
-        && url.port().is_none()
+    matches!(url.scheme(), "http" | "https")
         && url.username().is_empty()
         && url.password().is_none()
-        && url.path().starts_with("/data/")
 }
 
-/// Reads a bounded response from the CDN and applies the same rule to redirects.
+/// Reads a bounded response and validates every request URL, including redirects.
 pub async fn project_image(url: &str) -> Result<Vec<u8>, FetchError> {
     let client = ReqwestNetwork::desktop_with_download_policy(allows_image, None)?;
     let response = client
@@ -49,9 +41,9 @@ pub async fn project_image(url: &str) -> Result<Vec<u8>, FetchError> {
 }
 
 fn image_too_large() -> FetchError {
-    FetchError::Fatal("Modrinth project image exceeds the preview size limit".into())
+    FetchError::Fatal("Project image exceeds the preview size limit".into())
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/core/network/src/modrinth.rs"]
+#[path = "../../../../tests/apps/core/network/src/project_images.rs"]
 mod tests;

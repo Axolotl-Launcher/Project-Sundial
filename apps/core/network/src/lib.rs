@@ -16,7 +16,7 @@ use url::Url;
 pub mod auth;
 mod dns;
 mod mirrors;
-pub mod modrinth;
+pub mod project_images;
 mod transfer;
 
 pub use dns::{DohConfig, DohUpstream};

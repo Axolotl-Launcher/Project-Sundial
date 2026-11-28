@@ -4,7 +4,7 @@
 //! The Debug page's editor and preview for Markdown and HTML.
 
 use axlauncher_content_render::{ContentDocument, ContentRenderer, ContentType};
-use axlauncher_core::desktop::modrinth::project_image;
+use axlauncher_core::desktop::project_images::project_image;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, Axis, Button, Context, DragMoveEvent, Entity, FocusHandle, GroupBox, HandleEdge,
