@@ -9,19 +9,33 @@ use axlauncher_storage::WorkerLibrary;
 use crate::account_client;
 use crate::accounts::Reply;
 use crate::client::Service;
+use crate::java_discovery;
 use crate::native::{self, Image, WORKER_ARGUMENT};
+use crate::{instance_settings, settings_client};
 
 #[derive(Clone, Copy)]
 pub struct Images {
     pub downloads: Image,
     pub accounts: Image,
+    pub java_discovery: Image,
+    pub instance_settings: Image,
+    pub install: Image,
 }
 
 impl Images {
-    pub const fn new(downloads: &'static [u8], accounts: &'static [u8]) -> Self {
+    pub const fn new(
+        downloads: &'static [u8],
+        accounts: &'static [u8],
+        java_discovery: &'static [u8],
+        instance_settings: &'static [u8],
+        install: &'static [u8],
+    ) -> Self {
         Self {
             downloads: Image::new(WorkerLibrary::Downloads, downloads),
             accounts: Image::new(WorkerLibrary::Accounts, accounts),
+            java_discovery: Image::new(WorkerLibrary::JavaDiscovery, java_discovery),
+            instance_settings: Image::new(WorkerLibrary::InstanceSettings, instance_settings),
+            install: Image::new(WorkerLibrary::Install, install),
         }
     }
 
@@ -29,14 +43,31 @@ impl Images {
     pub fn configure(self) {
         let executable =
             worker_executable().map_err(|error| format!("Could not locate the launcher: {error}"));
-        crate::downloads::configure(self.downloads, executable.clone());
-        account_client::configure(self.accounts, executable);
+        self.configure_services(executable);
     }
 
-    /// Drains download and account workers off-thread, including ones already closing.
+    /// Registers images when the launcher is invoked through a specific executable.
+    pub fn configure_for_executable(self, executable: PathBuf) {
+        self.configure_services(Ok(executable));
+    }
+
+    fn configure_services(self, executable: Result<PathBuf, String>) {
+        crate::downloads::configure(self.downloads, executable.clone());
+        java_discovery::configure(self.java_discovery, executable.clone());
+        settings_client::configure(self.instance_settings, executable.clone());
+        account_client::configure(self.accounts, executable.clone());
+        crate::installer_client::configure(self.install, executable);
+    }
+
+    /// Drains embedded workers off-thread, including ones already closing.
     pub fn begin_shutdown() -> JoinHandle<()> {
         let accounts = account_client::take_workers();
-        std::thread::spawn(move || drain_workers(accounts))
+        let settings = settings_client::take_workers();
+        let wait_installs = crate::installer_client::close();
+        std::thread::spawn(move || {
+            drain_workers(accounts, settings);
+            wait_installs();
+        })
     }
 
     /// Recognizes worker mode before opening a GUI or reading user settings.
@@ -58,25 +89,41 @@ impl Images {
         else {
             return crate::server::startup_failed("invalid worker arguments");
         };
-        let Some(image) = [self.downloads, self.accounts]
-            .into_iter()
-            .find(|image| image.matches(&kind))
-        else {
+        let Some(image) = [
+            self.downloads,
+            self.accounts,
+            self.java_discovery,
+            self.instance_settings,
+            self.install,
+        ]
+        .into_iter()
+        .find(|image| image.matches(&kind)) else {
             return crate::server::startup_failed("unknown embedded worker");
         };
         native::run(image, Path::new(&path)).unwrap_or_else(crate::server::startup_failed)
     }
 }
 
-fn drain_workers(accounts: Vec<Arc<Service<Reply>>>) {
+fn drain_workers(
+    accounts: Vec<Arc<Service<Reply>>>,
+    settings: Vec<Arc<Service<instance_settings::Reply>>>,
+) {
     crate::downloads::close();
+    java_discovery::close();
     for worker in &accounts {
+        worker.close();
+    }
+    for worker in &settings {
         worker.close();
     }
     for worker in accounts {
         worker.close_and_wait();
     }
+    for worker in settings {
+        worker.close_and_wait();
+    }
     crate::downloads::wait_closed();
+    java_discovery::wait_closed();
 }
 
 /// A launcher that starts the binary through a loader sets this, because

@@ -39,7 +39,7 @@ let
     cargoLock = ../Cargo.lock;
     env.CARGO_NET_OFFLINE = "true";
     doCheck = false;
-    # installPhase handles the three artifacts itself; crane's build-log hook
+    # installPhase handles the artifacts itself; crane's build-log hook
     # would otherwise expect `cargo build` output on stdout.
     doNotPostBuildInstallCargoBinaries = true;
     # The final rpath is set after the link, where the fixup would otherwise
@@ -64,9 +64,27 @@ in
     // {
       cargoArtifacts = deps;
       buildPhase = common.buildPhase { patchImages = false; };
-      inherit (common) installPhase;
+      outputs = [
+        "out"
+        "workerProbe"
+        "installImage"
+      ];
+      installPhase = common.installPhase;
       postFixup = ''
         patchelf --add-rpath '${storeRpath}' "$out/bin/axlauncher"
+        install -Dm644 libinstall.so "$installImage/libinstall.so"
+        # Install the probe after fixup so it keeps the exact bytes embedded
+        # in the platform binary.
+        install -Dm644 libjava-discovery.so \
+          "$workerProbe/java-discovery-image"
+        # The install hooks rewrite toolchain and vendored-source paths in the
+        # platform binary, including the embedded worker bytes. Normalize the
+        # standalone images the same way so the launcher can verify them byte
+        # for byte at startup.
+        removeReferencesToVendoredSources "$installImage"
+        removeReferencesToRustToolchain "$installImage"
+        removeReferencesToVendoredSources "$workerProbe"
+        removeReferencesToRustToolchain "$workerProbe"
       '';
     }
   );

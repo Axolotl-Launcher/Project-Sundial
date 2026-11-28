@@ -9,11 +9,14 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use axlauncher_domain::memory::MaximumHeap;
+use axlauncher_domain::{is_visible_instance_name, memory::MaximumHeap};
 use axlauncher_storage::{Document, write_atomic};
 
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
+
+use crate::document::Schema;
 
 mod create;
 mod discovery;
@@ -28,7 +31,7 @@ pub use game::{Game, Loader};
 pub use installation::{mark_failed, mark_installed};
 pub use resources::{Resource, ResourceKind, count_enabled_mods, scan_resources};
 pub use staged::StagedProfile;
-pub use update::{ProfileUpdateError, set_memory};
+pub use update::{ProfileUpdateError, rename_if_current, set_memory_if_current};
 
 const SCHEMA_VERSION: u32 = 1;
 
@@ -123,11 +126,6 @@ pub struct DownloadCache {
     pub expires_at: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct Schema {
-    schema_version: u32,
-}
-
 fn read_content_files<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<BTreeMap<String, ContentFile>, D::Error> {
@@ -160,33 +158,47 @@ impl<'de> Visitor<'de> for ContentFiles {
 /// A missing marker means the directory is not an `.axlprofile` instance.
 pub fn read(directory: &Path) -> Result<Option<Profile>, DiscoveryError> {
     let path = Document::Profile.path(directory);
-    let metadata = match fs::symlink_metadata(&path) {
+    read_marker(&path).map(|marker| marker.map(|(_, profile)| profile))
+}
+
+fn read_marker(path: &Path) -> Result<Option<(Vec<u8>, Profile)>, DiscoveryError> {
+    let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(source) => return Err(DiscoveryError::Read { path, source }),
+        Err(source) => {
+            return Err(DiscoveryError::Read {
+                path: path.to_owned(),
+                source,
+            });
+        }
     };
     if !metadata.is_file() || is_link(&metadata) {
-        return Err(invalid(&path, "the profile marker must be a regular file"));
+        return Err(invalid(path, "the profile marker must be a regular file"));
     }
-    let bytes = fs::read(&path).map_err(|source| DiscoveryError::Read {
-        path: path.clone(),
+    let bytes = fs::read(path).map_err(|source| DiscoveryError::Read {
+        path: path.to_owned(),
         source,
     })?;
+    let profile = parse_marker(path, &bytes)?;
+    Ok(Some((bytes, profile)))
+}
+
+fn parse_marker(path: &Path, bytes: &[u8]) -> Result<Profile, DiscoveryError> {
     let parse_error = |source| DiscoveryError::Parse {
-        path: path.clone(),
+        path: path.to_owned(),
         source,
     };
-    let schema: Schema = serde_json::from_slice(&bytes).map_err(parse_error)?;
+    let schema: Schema = serde_json::from_slice(bytes).map_err(parse_error)?;
     if schema.schema_version != SCHEMA_VERSION {
         return Err(DiscoveryError::UnsupportedSchema {
-            path,
+            path: path.to_owned(),
             found: schema.schema_version,
         });
     }
-    let mut profile: Profile = serde_json::from_slice(&bytes).map_err(parse_error)?;
-    validate(&profile).map_err(|reason| invalid(&path, reason))?;
+    let mut profile: Profile = serde_json::from_slice(bytes).map_err(parse_error)?;
+    validate(&profile).map_err(|reason| invalid(path, reason))?;
     profile.id.make_ascii_lowercase();
-    Ok(Some(profile))
+    Ok(profile)
 }
 
 fn validate(profile: &Profile) -> Result<(), String> {
@@ -198,7 +210,7 @@ fn validate(profile: &Profile) -> Result<(), String> {
     {
         return Err("id must be a UUID".into());
     }
-    if !visible_name(&profile.instance.name) {
+    if !is_visible_instance_name(&profile.instance.name) {
         return Err("instance name must be visible text".into());
     }
     if profile
@@ -213,10 +225,6 @@ fn validate(profile: &Profile) -> Result<(), String> {
         validate_game(game)?;
     }
     validate_files(&profile.content.files)
-}
-
-fn visible_name(name: &str) -> bool {
-    !name.trim().is_empty() && !name.chars().any(char::is_control)
 }
 
 fn validate_game(game: &Game) -> Result<(), String> {
@@ -314,6 +322,11 @@ impl Profile {
 
     pub fn memory(&self) -> Option<MaximumHeap> {
         self.memory
+    }
+
+    /// A view may apply a committed heap without replacing a newer profile snapshot.
+    pub fn apply_heap_snapshot(&mut self, memory: Option<MaximumHeap>) {
+        self.memory = memory;
     }
 }
 
@@ -418,7 +431,11 @@ pub fn save(directory: &Path, profile: &Profile) -> Result<(), ProfileWriteError
             reason: error.to_string(),
         })?;
     validate(&merged).map_err(|reason| ProfileWriteError::Invalid { reason })?;
-    let bytes = serde_json::to_vec_pretty(&document).map_err(|error| ProfileWriteError::Write {
+    write_marker(path, &document)
+}
+
+fn write_marker(path: PathBuf, document: &Value) -> Result<(), ProfileWriteError> {
+    let bytes = serde_json::to_vec_pretty(document).map_err(|error| ProfileWriteError::Write {
         path: path.clone(),
         source: io::Error::other(error),
     })?;

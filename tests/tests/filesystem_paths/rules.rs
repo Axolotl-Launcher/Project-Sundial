@@ -2,12 +2,12 @@ use syn::UseTree;
 
 const EXCEPTIONS: &[(&str, &str, &[&str])] = &[
     (
-        "apps/core/install/src/runtime.rs",
+        "apps/core/lib/installation/src/runtime.rs",
         "executable_in",
         &["bin", "JAVA_BIN"],
     ),
     (
-        "apps/core/install/src/runtime.rs",
+        "apps/core/lib/installation/src/runtime.rs",
         "home_of",
         &["jre.bundle/Contents/Home"],
     ),

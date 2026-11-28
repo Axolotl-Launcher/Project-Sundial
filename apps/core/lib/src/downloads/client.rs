@@ -1,7 +1,7 @@
 //! Desktop-side routing and diagnostics for embedded file transfers.
 
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use axlauncher_download_spi::{
     DownloadJob, DownloadOutcome, ExtraDigest, FileDownloader, MissingFile, TransferStats, batch,
@@ -9,9 +9,9 @@ use axlauncher_download_spi::{
 use axlauncher_storage::DataDir;
 use futures::Stream;
 
-use crate::{Event, Image, Lease, Service};
+use crate::{Cancellation, Event, Image, Lease, Request, Service};
 
-use super::{Reply, Route, Transfer};
+use super::{File, Reply, Route, Transfer};
 
 static WORKER: OnceLock<Service<Reply>> = OnceLock::new();
 
@@ -27,7 +27,7 @@ pub(crate) fn close() {
 
 pub(crate) fn wait_closed() {
     if let Some(worker) = WORKER.get() {
-        worker.close_and_wait();
+        worker.wait_until_reaped();
     }
 }
 
@@ -60,6 +60,58 @@ impl Downloads {
             _lease: WORKER.get().map(Service::hold),
         }
     }
+
+    pub(crate) fn start_guarded(
+        &self,
+        file: File,
+        writer_lock: Arc<std::fs::File>,
+    ) -> Result<Request<Reply>, String> {
+        let worker = WORKER
+            .get()
+            .ok_or("The embedded download worker is unavailable.")?;
+        worker.request_guarded(
+            &self.data,
+            Transfer::with_file(self.route.clone(), file),
+            Some(writer_lock),
+        )
+    }
+
+    /// Drain a relayed write to the genuine terminal reply or confirmed process exit.
+    pub(crate) async fn finish_guarded(
+        mut request: Request<Reply>,
+        cancel: Cancellation,
+    ) -> Result<(), String> {
+        let reply = tokio::select! {
+            biased;
+            () = cancel.cancelled() => {
+                request.cancel();
+                request.next().await
+            }
+            reply = request.next() => reply,
+        };
+        drain_transfer(request, reply).await
+    }
+}
+
+async fn drain_transfer(
+    mut request: Request<Reply>,
+    mut reply: Option<Event<Reply>>,
+) -> Result<(), String> {
+    let mut invalid = false;
+    while matches!(reply, Some(Event::Reply(_))) {
+        invalid = true;
+        request.cancel();
+        reply = request.next().await;
+    }
+    if let Some(Event::Finished(result)) = reply {
+        return if invalid {
+            Err("The download worker sent an invalid reply.".into())
+        } else {
+            result
+        };
+    }
+    request.wait_for_process().await;
+    Err("The download worker exited without a terminal reply.".into())
 }
 
 pub struct DownloadLease {

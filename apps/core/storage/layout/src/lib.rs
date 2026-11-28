@@ -13,3 +13,4 @@ pub use file_lock::LockError;
 pub use game_dir::{AssetPath, GameAccess, GameDir, VersionPath};
 pub use instance_paths::stage_instance;
 pub use paths::{DataDir, DataPath, Directory, ScratchSpace, WorkerLibrary};
+pub mod processor_marker;

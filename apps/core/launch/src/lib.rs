@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Launching: arguments, Java discovery and process lifecycle.
+//! Launching: arguments, Java runtime selection and process lifecycle.
 
 pub mod arguments;
 pub mod chain;
@@ -29,6 +29,15 @@ pub use language::GameLanguage;
 pub use plan::{Layout, Session};
 pub use rules::Target;
 pub use version::Version;
+
+/// Shared executable probes and path exclusions used by Java discovery.
+pub mod java_paths {
+    #[cfg(windows)]
+    pub use crate::platform::contains_excluded_java_directory;
+    pub use crate::platform::{
+        bundle_home, excluded_from_discovery, executable_in, executable_in_home, managed_executable,
+    };
+}
 
 pub use axlauncher_spi::{Java, JavaMode, LaunchCommand, LaunchError};
 

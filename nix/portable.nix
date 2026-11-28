@@ -10,6 +10,7 @@
   pkgs,
   version,
   meta,
+  smokeInstall,
 }:
 pkgs.runCommand "axlauncher-portable-${version}"
   {
@@ -39,6 +40,25 @@ pkgs.runCommand "axlauncher-portable-${version}"
         while read -r file; do
           cp -L "$file" "$out/lib/$(basename "$file")"
         done
+      # Store copies inherit read-only permissions; the worker pass may add
+      # another file with an existing name.
+      chmod -R u+w "$out/lib"
+
+      # Workers are loaded after the platform binary and can need libraries the
+      # binary itself does not list. Collect those dependencies before dropping
+      # the store rpaths.
+      for image in "${newest.workerProbe}/java-discovery-image" \
+        "${newest.installImage}/libinstall.so"; do
+        "$loader" --library-path "$libdirs" --list "$image" > worker-store.txt
+        if grep -q 'not found' worker-store.txt; then
+          cat worker-store.txt >&2
+          exit 1
+        fi
+        sed -n 's/^ *[^ ]* => \([^ ]*\) (0x[0-9a-f]*)$/\1/p' worker-store.txt |
+          while read -r file; do
+            cp -Lf "$file" "$out/lib/$(basename "$file")"
+          done
+      done
       cp -L "$loader" "$out/lib/ld-linux-x86-64.so.2"
 
       # Loaded by name at runtime, so the loader never lists them.
@@ -75,8 +95,37 @@ pkgs.runCommand "axlauncher-portable-${version}"
       PROBE
       cc -o probe probe.c
       status=0
-      ./probe "$out/bin/axlauncher" --axlauncher-worker bogus /tmp/x || status=$?
+      ./probe "$out/bin/axlauncher" --axlauncher-worker bogus /tmp/x \
+        >/dev/null 2>&1 || status=$?
       test "$status" = 1
+
+      # Load the exact embedded image through the portable entry, then shut down.
+      # The bogus-worker probe above already covers exec without a shell.
+      # The probe image is a build input only, not part of the portable tree.
+      scratch=$(mktemp -d)
+      cp ${newest.workerProbe}/java-discovery-image "$scratch/libjava-discovery.so"
+      status=0
+      printf '\012\000\000\000"Shutdown"' |
+        "$out/bin/axlauncher" --axlauncher-worker java-discovery \
+          "$scratch/libjava-discovery.so" > "$scratch/java-discovery.frame" || status=$?
+      if [ "$status" -ne 0 ]; then
+        echo "The Java discovery worker exited with status $status." >&2
+        od -An -tx1 "$scratch/java-discovery.frame" >&2
+        exit 1
+      fi
+      if ! printf '\007\000\000\000"Ready"' | cmp - "$scratch/java-discovery.frame"; then
+        echo "The Java discovery worker did not return the expected Ready frame." >&2
+        od -An -tx1 "$scratch/java-discovery.frame" >&2
+        exit 1
+      fi
+
+      ${smokeInstall}
+      image="${newest.installImage}/libinstall.so"
+      if readelf -d "$image" | grep -q 'NEEDED.*liblzma'; then
+        echo "The embedded installer links a non-bundled liblzma" >&2
+        exit 1
+      fi
+      smoke_install "$out/bin/axlauncher" "$image"
 
       install -Dm644 resolved.txt "$out/share/doc/linked-libraries.txt"
       # Every step above runs only if the heredoc closed; the doc file proves it did.

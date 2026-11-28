@@ -42,6 +42,10 @@ impl DownloadOptions {
         self.concurrency
     }
 
+    pub(super) fn mirrors(&self) -> MirrorSettings {
+        self.mirrors.clone()
+    }
+
     pub(super) fn network(&self) -> Result<impl Network + Clone + use<>, String> {
         ReqwestNetwork::desktop_with_mirrors(self.mirrors.clone())
             .map_err(|error| error.to_string())

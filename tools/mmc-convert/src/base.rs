@@ -1,13 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-use axlauncher_core::install::{loader, prepare::Prepared, runtime, vanilla};
+use axlauncher_core::install::prepare::Prepared;
 use axlauncher_core::launch::{SystemJava, Target};
 use axlauncher_core::loader::provider;
 use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::spi::{LoaderRequest, ModLoader};
 use axlauncher_core::storage::{DataDir, DataPath, GameDir};
 use axlauncher_download_engine::Direct;
+use axlauncher_install_runtime::{loader, runtime, vanilla};
 use axlauncher_modpack::GameRequirements;
 
 use crate::Result;

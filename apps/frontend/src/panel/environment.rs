@@ -263,6 +263,7 @@ impl RootView {
 
     pub(super) fn apply_root(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
         let text = self.root_input.read(cx).value().trim().to_string();
+        self.memory_edits.invalidate();
         let loaded = match self.load_selected_root(Path::new(&text)) {
             Ok(loaded) => loaded,
             Err(error) => {

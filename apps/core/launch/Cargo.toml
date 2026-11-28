@@ -6,7 +6,7 @@ name = "axlauncher_launch"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Launching: argument construction, Java discovery, and the process lifecycle."
+description = "Launching: argument construction, Java runtime selection, and the process lifecycle."
 repository.workspace = true
 license.workspace = true
 

@@ -13,6 +13,9 @@ const DATA_DIR_ENV: &str = "AXLAUNCHER_DATA_DIR";
 pub enum WorkerLibrary {
     Downloads,
     Accounts,
+    JavaDiscovery,
+    InstanceSettings,
+    Install,
 }
 
 impl WorkerLibrary {
@@ -20,6 +23,9 @@ impl WorkerLibrary {
         match self {
             Self::Downloads => "downloads",
             Self::Accounts => "accounts",
+            Self::JavaDiscovery => "java-discovery",
+            Self::InstanceSettings => "instance-settings",
+            Self::Install => "install",
         }
     }
 
