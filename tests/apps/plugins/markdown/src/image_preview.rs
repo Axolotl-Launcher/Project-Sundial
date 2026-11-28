@@ -3,7 +3,7 @@
 
 use axlauncher_ui::{Bounds, point, px, size};
 
-use super::{ViewTransform, clamp_offset, fit_image};
+use super::{ImageLayout, ViewTransform, clamp_offset, fit_image};
 
 #[test]
 fn wide_and_tall_images_fit_without_cropping() {
@@ -19,23 +19,61 @@ fn wide_and_tall_images_fit_without_cropping() {
 }
 
 #[test]
-fn a_small_image_scales_up_to_fit_the_window() {
+fn a_small_image_opens_at_intrinsic_size_and_fit_can_scale_it_up() {
     let intrinsic = size(px(200.), px(100.));
+    let stage = Bounds::new(point(px(16.), px(16.)), size(px(600.), px(400.)));
+    let layout = ImageLayout::new(intrinsic, stage, size(px(632.), px(432.)), px(16.));
+
+    assert_eq!(ViewTransform::default().bounds(layout).size, intrinsic);
     assert_eq!(
-        fit_image(intrinsic, size(px(600.), px(400.))),
+        ViewTransform::fitted().bounds(layout).size,
         size(px(600.), px(300.))
     );
+}
+
+#[test]
+fn large_images_open_with_the_previous_window_insets() {
+    let window = size(px(720.), px(560.));
+    let stage = Bounds::new(point(px(16.), px(16.)), size(px(688.), px(528.)));
+    let wide = ImageLayout::new(size(px(1200.), px(600.)), stage, window, px(16.));
+    let tall = ImageLayout::new(size(px(500.), px(1000.)), stage, window, px(16.));
+
+    assert_eq!(
+        ViewTransform::default().bounds(wide).size,
+        size(px(656.), px(328.))
+    );
+    assert_eq!(
+        ViewTransform::default().bounds(tall).size,
+        size(px(216.), px(432.))
+    );
+}
+
+#[test]
+fn first_zoom_steps_start_at_the_visible_size_even_for_very_small_images() {
+    let stage = Bounds::new(point(px(16.), px(16.)), size(px(600.), px(400.)));
+    let layout = ImageLayout::new(
+        size(px(20.), px(10.)),
+        stage,
+        size(px(632.), px(432.)),
+        px(16.),
+    );
+    for (factor, expected) in [(0.5, px(10.)), (2., px(40.))] {
+        let mut transform = ViewTransform::default();
+        transform.zoom_at(factor, stage.center(), layout);
+        assert!((transform.bounds(layout).size.width - expected).abs() < px(0.01));
+    }
 }
 
 #[test]
 fn cursor_anchored_zoom_keeps_the_same_image_point() {
     let intrinsic = size(px(600.), px(400.));
     let viewport = Bounds::new(point(px(10.), px(20.)), intrinsic);
+    let layout = ImageLayout::new(intrinsic, viewport, size(px(664.), px(528.)), px(16.));
     let cursor = point(px(160.), px(120.));
     let mut transform = ViewTransform::default();
 
-    transform.zoom_at(2., cursor, intrinsic, viewport);
-    let image = transform.bounds(intrinsic, viewport);
+    transform.zoom_at(2., cursor, layout);
+    let image = transform.bounds(layout);
     assert_eq!(image.size, size(px(1200.), px(800.)));
     assert_eq!(cursor - image.origin, point(px(300.), px(200.)));
 }

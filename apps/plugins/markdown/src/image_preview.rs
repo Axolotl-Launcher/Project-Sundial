@@ -20,6 +20,8 @@ const MIN_ZOOM: f32 = 0.25;
 const MAX_ZOOM: f32 = 8.;
 const BUTTON_ZOOM_STEP: f32 = 1.25;
 const WHEEL_ZOOM_STEP: f32 = 1.15;
+const OPENING_HORIZONTAL_INSET_REMS: f32 = 4.;
+const OPENING_VERTICAL_INSET_REMS: f32 = 8.;
 
 pub(super) fn open(image: Arc<RenderImage>, name: SharedString, window: &mut Window, cx: &mut App) {
     let viewer = cx.new(|_| ImageViewer::new(image, name));
@@ -45,7 +47,7 @@ struct ImageViewer {
     image: Arc<RenderImage>,
     name: SharedString,
     intrinsic: Size<Pixels>,
-    viewport: Rc<Cell<Bounds<Pixels>>>,
+    layout: Rc<Cell<ImageLayout>>,
     transform: ViewTransform,
     drag_origin: Option<(Point<Pixels>, Point<Pixels>)>,
 }
@@ -59,48 +61,43 @@ impl ImageViewer {
             image,
             name: name.trim().to_owned().into(),
             intrinsic,
-            viewport: Rc::default(),
+            layout: Rc::default(),
             transform: ViewTransform::default(),
             drag_origin: None,
         }
     }
 
     fn zoom_at(&mut self, factor: f32, anchor: Point<Pixels>, cx: &mut Context<'_, Self>) {
-        self.transform
-            .zoom_at(factor, anchor, self.intrinsic, self.viewport.get());
+        self.transform.zoom_at(factor, anchor, self.layout.get());
         cx.notify();
     }
 
     fn zoom_at_center(&mut self, factor: f32, cx: &mut Context<'_, Self>) {
-        self.zoom_at(factor, self.viewport.get().center(), cx);
+        self.zoom_at(factor, self.layout.get().stage.center(), cx);
     }
 
-    fn reset(&mut self, cx: &mut Context<'_, Self>) {
-        self.transform = ViewTransform::default();
+    fn fit(&mut self, cx: &mut Context<'_, Self>) {
+        self.transform = ViewTransform::fitted();
         cx.notify();
     }
 
     fn start_pan(&mut self, event: &MouseDownEvent, _: &mut Window, _: &mut Context<'_, Self>) {
-        let viewport = self.viewport.get();
-        let bounds = self.transform.bounds(self.intrinsic, viewport);
-        self.drag_origin = (self.transform.zoom > 1. && bounds.contains(&event.position))
-            .then_some((event.position, bounds.center() - viewport.center()));
+        let layout = self.layout.get();
+        let bounds = self.transform.bounds(layout);
+        self.drag_origin = (self.transform.can_pan() && bounds.contains(&event.position))
+            .then_some((event.position, bounds.center() - layout.stage.center()));
     }
 
     fn pan(&mut self, event: &DragMoveEvent<PanImage>, _: &mut Window, cx: &mut Context<'_, Self>) {
         if let Some((pointer, offset)) = self.drag_origin {
-            let viewport = self.viewport.get();
-            self.transform.offset = clamp_offset(
-                offset + event.event.position - pointer,
-                self.transform.image_size(self.intrinsic, viewport.size),
-                viewport.size,
-            );
+            self.transform
+                .pan_to(offset + event.event.position - pointer, self.layout.get());
             cx.notify();
         }
     }
 
     fn click(&mut self, event: &ClickEvent, window: &mut Window, cx: &mut Context<'_, Self>) {
-        let bounds = self.transform.bounds(self.intrinsic, self.viewport.get());
+        let bounds = self.transform.bounds(self.layout.get());
         if event
             .mouse_position()
             .is_some_and(|position| !bounds.contains(&position))
@@ -111,6 +108,8 @@ impl ImageViewer {
 
     fn toolbar(&self, cx: &Context<'_, Self>) -> impl IntoElement + use<> {
         let theme = cx.theme();
+        let layout = self.layout.get();
+        let zoom = self.transform.level(layout);
         h_flex()
             .id("image-preview-toolbar")
             .occlude()
@@ -124,7 +123,7 @@ impl ImageViewer {
             .text_color(theme.popover_foreground)
             .child(
                 toolbar_button("zoom-out", IconName::Minus, "Zoom out")
-                    .disabled(self.transform.zoom <= MIN_ZOOM)
+                    .disabled(zoom <= layout.minimum_zoom())
                     .on_click(
                         cx.listener(|view, _, _, cx| {
                             view.zoom_at_center(1. / BUTTON_ZOOM_STEP, cx)
@@ -137,11 +136,11 @@ impl ImageViewer {
                     .ghost()
                     .label("Fit")
                     .tooltip("Fit image to window")
-                    .on_click(cx.listener(|view, _, _, cx| view.reset(cx))),
+                    .on_click(cx.listener(|view, _, _, cx| view.fit(cx))),
             )
             .child(
                 toolbar_button("zoom-in", IconName::Plus, "Zoom in")
-                    .disabled(self.transform.zoom >= MAX_ZOOM)
+                    .disabled(zoom >= MAX_ZOOM)
                     .on_click(
                         cx.listener(|view, _, _, cx| view.zoom_at_center(BUTTON_ZOOM_STEP, cx)),
                     ),
@@ -179,14 +178,16 @@ impl ImageViewer {
     }
 
     fn image_canvas(&self) -> impl IntoElement + use<> {
-        let viewport = self.viewport.clone();
+        let layout = self.layout.clone();
         let transform = self.transform;
         let intrinsic = self.intrinsic;
         let image = self.image.clone();
         canvas(
-            move |bounds, _, _| {
-                viewport.set(bounds);
-                transform.bounds(intrinsic, bounds)
+            move |bounds, window, _| {
+                let image_layout =
+                    ImageLayout::new(intrinsic, bounds, window.viewport_size(), window.rem_size());
+                layout.set(image_layout);
+                transform.bounds(image_layout)
             },
             move |bounds, image_bounds, window, _| {
                 let _ =
@@ -207,7 +208,7 @@ impl ImageViewer {
             } else {
                 self.name.clone()
             })
-            .when(self.transform.zoom > 1., |stage| {
+            .when(self.transform.can_pan(), |stage| {
                 stage.cursor(CursorStyle::OpenHand)
             })
             .on_click(cx.listener(Self::click))
@@ -220,7 +221,7 @@ impl ImageViewer {
                 view.zoom_at(1. + event.delta, event.position, cx);
                 cx.stop_propagation();
             }))
-            .when(self.transform.zoom > 1., |stage| {
+            .when(self.transform.can_pan(), |stage| {
                 stage
                     .on_mouse_down(MouseButton::Left, cx.listener(Self::start_pan))
                     .on_drag(PanImage, |_, _, _, cx| cx.new(|_| PanImage))
@@ -259,48 +260,94 @@ fn toolbar_button(id: &'static str, icon: IconName, label: &'static str) -> Butt
         .tooltip(label)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 struct ViewTransform {
-    zoom: f32,
+    zoom: Option<f32>,
     offset: Point<Pixels>,
 }
 
-impl Default for ViewTransform {
-    fn default() -> Self {
+impl ViewTransform {
+    fn fitted() -> Self {
         Self {
-            zoom: 1.,
+            zoom: Some(1.),
             offset: Point::default(),
         }
     }
+
+    fn level(self, layout: ImageLayout) -> f32 {
+        self.zoom.unwrap_or_else(|| layout.opening_zoom())
+    }
+
+    fn can_pan(self) -> bool {
+        self.zoom.is_some_and(|zoom| zoom > 1.)
+    }
+
+    fn zoom_at(&mut self, factor: f32, anchor: Point<Pixels>, layout: ImageLayout) {
+        let current_zoom = self.level(layout);
+        let zoom = (current_zoom * factor).clamp(layout.minimum_zoom(), MAX_ZOOM);
+        let image_center = self.bounds(layout).center();
+        let offset =
+            anchor + (image_center - anchor) * (zoom / current_zoom) - layout.stage.center();
+        self.zoom = Some(zoom);
+        self.pan_to(offset, layout);
+    }
+
+    fn pan_to(&mut self, offset: Point<Pixels>, layout: ImageLayout) {
+        self.offset = clamp_offset(offset, self.image_size(layout), layout.stage.size);
+    }
+
+    fn image_size(self, layout: ImageLayout) -> Size<Pixels> {
+        if let Some(zoom) = self.zoom {
+            return layout.fitted.map(|side| side * zoom);
+        }
+        layout.opening
+    }
+
+    fn bounds(self, layout: ImageLayout) -> Bounds<Pixels> {
+        let image = self.image_size(layout);
+        let offset = clamp_offset(self.offset, image, layout.stage.size);
+        Bounds::centered_at(layout.stage.center() + offset, image)
+    }
 }
 
-impl ViewTransform {
-    fn zoom_at(
-        &mut self,
-        factor: f32,
-        anchor: Point<Pixels>,
+#[derive(Clone, Copy, Default)]
+struct ImageLayout {
+    stage: Bounds<Pixels>,
+    fitted: Size<Pixels>,
+    opening: Size<Pixels>,
+}
+
+impl ImageLayout {
+    fn new(
         intrinsic: Size<Pixels>,
-        viewport: Bounds<Pixels>,
-    ) {
-        let zoom = (self.zoom * factor).clamp(MIN_ZOOM, MAX_ZOOM);
-        let image_center = self.bounds(intrinsic, viewport).center();
-        self.offset = anchor + (image_center - anchor) * (zoom / self.zoom) - viewport.center();
-        self.zoom = zoom;
-        self.offset = clamp_offset(
-            self.offset,
-            self.image_size(intrinsic, viewport.size),
-            viewport.size,
-        );
+        stage: Bounds<Pixels>,
+        viewport: Size<Pixels>,
+        rem: Pixels,
+    ) -> Self {
+        let opening_area = Size {
+            width: (viewport.width - rem * OPENING_HORIZONTAL_INSET_REMS).min(stage.size.width),
+            height: (viewport.height - rem * OPENING_VERTICAL_INSET_REMS).min(stage.size.height),
+        };
+        let opening_limit = Size {
+            width: opening_area.width.min(intrinsic.width),
+            height: opening_area.height.min(intrinsic.height),
+        };
+        Self {
+            stage,
+            opening: fit_image(intrinsic, opening_limit),
+            fitted: fit_image(intrinsic, stage.size),
+        }
     }
 
-    fn image_size(self, intrinsic: Size<Pixels>, viewport: Size<Pixels>) -> Size<Pixels> {
-        fit_image(intrinsic, viewport).map(|side| side * self.zoom)
+    fn opening_zoom(self) -> f32 {
+        if self.opening.width > Pixels::ZERO && self.fitted.width > Pixels::ZERO {
+            return self.opening.width / self.fitted.width;
+        }
+        1.
     }
 
-    fn bounds(self, intrinsic: Size<Pixels>, viewport: Bounds<Pixels>) -> Bounds<Pixels> {
-        let image = self.image_size(intrinsic, viewport.size);
-        let offset = clamp_offset(self.offset, image, viewport.size);
-        Bounds::centered_at(viewport.center() + offset, image)
+    fn minimum_zoom(self) -> f32 {
+        MIN_ZOOM * self.opening_zoom().min(1.)
     }
 }
 
