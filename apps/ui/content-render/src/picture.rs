@@ -3,32 +3,18 @@
 
 //! A standalone image whose width and height scale together.
 
+use std::sync::Arc;
+
 use axlauncher_ui::kit::Size;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, App, Button, ButtonVariants, ClickEvent, Div, MouseButton, ObjectFit, Pixels,
-    Role, SharedString, Skeleton, Stateful, div, img, px, size,
+    ActiveTheme, AnyElement, App, Button, ButtonVariants, ClickEvent, Div, IntoElement,
+    MouseButton, ObjectFit, Pixels, RenderImage, Role, SharedString, Skeleton, Stateful, div, img,
+    px, size,
 };
 
 use super::images::{ImageState, SKELETON_HEIGHT, SKELETON_WIDTH};
 use super::{image_placeholder, image_preview};
-
-fn picture_skeleton(width: Option<u16>, height: Option<u16>) -> Div {
-    let intrinsic = size(px(SKELETON_WIDTH as f32), px(SKELETON_HEIGHT as f32));
-    let preferred = preferred_size(Some(intrinsic), width, height);
-    div()
-        .w_full()
-        .max_w(preferred.width)
-        .when(preferred.height > Pixels::ZERO, |frame| {
-            frame.child(
-                Skeleton::new()
-                    .w_full()
-                    .h_auto()
-                    .border_0()
-                    .aspect_ratio(aspect_ratio(preferred)),
-            )
-        })
-}
 
 pub(super) fn picture(
     state: ImageState,
@@ -38,15 +24,41 @@ pub(super) fn picture(
     link: Option<SharedString>,
     cx: &App,
 ) -> Div {
-    let image = match state {
-        ImageState::Loading => return picture_skeleton(width, height),
-        ImageState::Ready(image) => image,
-        ImageState::Unavailable => return unavailable_picture(width, height, name, link, cx),
+    let intrinsic = match &state {
+        ImageState::Ready(image) => image
+            .size(0)
+            .map(|dimension| px(i32::from(dimension) as f32)),
+        ImageState::Loading | ImageState::Unavailable => {
+            size(px(SKELETON_WIDTH as f32), px(SKELETON_HEIGHT as f32))
+        }
     };
-    let intrinsic = image
-        .size(0)
-        .map(|dimension| px(i32::from(dimension) as f32));
-    let preferred = preferred_size(Some(intrinsic), width, height);
+    let preferred = preferred_size(intrinsic, width, height);
+    // Constrain the outer width before the child derives its height from the aspect ratio.
+    let frame = div().w_full().max_w(preferred.width);
+    if preferred.height <= Pixels::ZERO {
+        return frame;
+    }
+    let ratio = aspect_ratio(preferred);
+    match state {
+        ImageState::Loading => frame.child(
+            Skeleton::new()
+                .w_full()
+                .h_auto()
+                .border_0()
+                .aspect_ratio(ratio),
+        ),
+        ImageState::Ready(image) => frame.child(loaded_picture(image, ratio, name, link, cx)),
+        ImageState::Unavailable => frame.child(unavailable_picture(ratio, name, link, cx)),
+    }
+}
+
+fn loaded_picture(
+    image: Arc<RenderImage>,
+    ratio: f32,
+    name: SharedString,
+    link: Option<SharedString>,
+    cx: &App,
+) -> AnyElement {
     let ring = cx.theme().ring;
     let thumbnail = img(image.clone())
         .absolute()
@@ -54,50 +66,40 @@ pub(super) fn picture(
         .size_full()
         .object_fit(ObjectFit::Contain);
 
-    // Resolve the parent's width before applying the aspect ratio. An img with
-    // a max width still contributes its original explicit height to layout.
-    div()
-        .w_full()
-        .max_w(preferred.width)
-        .map(|frame| match link {
-            None if preferred.height > Pixels::ZERO => frame.child(
-                Button::new("open-image-preview")
-                    .ghost()
-                    .relative()
-                    .w_full()
-                    .h_auto()
-                    .aspect_ratio(aspect_ratio(preferred))
-                    .p_0()
-                    .accessibility_label(preview_label(&name))
-                    .tooltip("Open image preview")
-                    .on_click(move |_, window, cx| {
-                        image_preview::open(image.clone(), name.clone(), window, cx)
-                    })
-                    .child(thumbnail),
-            ),
-            link => frame.child(
-                div()
-                    .id("picture")
-                    .relative()
-                    .w_full()
-                    .aspect_ratio(aspect_ratio(preferred))
-                    .aria_label(name)
-                    .focus_visible(move |style| style.border_1().border_color(ring))
-                    .map(|element| picture_role(element, link))
-                    .child(thumbnail),
-            ),
-        })
+    match link {
+        None => Button::new("open-image-preview")
+            .ghost()
+            .relative()
+            .w_full()
+            .h_auto()
+            .aspect_ratio(ratio)
+            .p_0()
+            .accessibility_label(preview_label(&name))
+            .tooltip("Open image preview")
+            .on_click(move |_, window, cx| {
+                image_preview::open(image.clone(), name.clone(), window, cx)
+            })
+            .child(thumbnail)
+            .into_any_element(),
+        link => div()
+            .id("picture")
+            .relative()
+            .w_full()
+            .aspect_ratio(ratio)
+            .aria_label(name)
+            .focus_visible(move |style| style.border_1().border_color(ring))
+            .map(|element| picture_role(element, link))
+            .child(thumbnail)
+            .into_any_element(),
+    }
 }
 
 fn unavailable_picture(
-    width: Option<u16>,
-    height: Option<u16>,
+    ratio: f32,
     name: SharedString,
     link: Option<SharedString>,
     cx: &App,
-) -> Div {
-    let intrinsic = size(px(SKELETON_WIDTH as f32), px(SKELETON_HEIGHT as f32));
-    let preferred = preferred_size(Some(intrinsic), width, height);
+) -> Stateful<Div> {
     let ring = cx.theme().ring;
     let label = if name.is_empty() {
         "Image unavailable".into()
@@ -105,23 +107,16 @@ fn unavailable_picture(
         SharedString::from(format!("Image unavailable: {name}"))
     };
     div()
+        .id("picture")
+        .flex()
+        .items_center()
+        .justify_center()
         .w_full()
-        .max_w(preferred.width)
-        .when(preferred.height > Pixels::ZERO, |frame| {
-            frame.child(
-                div()
-                    .id("picture")
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .w_full()
-                    .aspect_ratio(aspect_ratio(preferred))
-                    .aria_label(label)
-                    .focus_visible(move |style| style.border_1().border_color(ring))
-                    .map(|element| picture_role(element, link))
-                    .child(image_placeholder::icon(cx).max_w_full().max_h_full()),
-            )
-        })
+        .aspect_ratio(ratio)
+        .aria_label(label)
+        .focus_visible(move |style| style.border_1().border_color(ring))
+        .map(|element| picture_role(element, link))
+        .child(image_placeholder::icon(cx).max_w_full().max_h_full())
 }
 
 fn preview_label(name: &str) -> String {
@@ -150,7 +145,7 @@ fn picture_role(element: Stateful<Div>, link: Option<SharedString>) -> Stateful<
 }
 
 fn preferred_size(
-    intrinsic: Option<Size<Pixels>>,
+    intrinsic: Size<Pixels>,
     width: Option<u16>,
     height: Option<u16>,
 ) -> Size<Pixels> {
@@ -159,12 +154,12 @@ fn preferred_size(
     }
     let width = width.map(|width| px(f32::from(width)));
     let height = height.map(|height| px(f32::from(height)));
-    let ratio = intrinsic.map_or(1., aspect_ratio);
+    let ratio = aspect_ratio(intrinsic);
     match (width, height) {
         (Some(width), Some(height)) => size(width, height),
         (Some(width), None) => size(width, width / ratio),
         (None, Some(height)) => size(height * ratio, height),
-        (None, None) => intrinsic.unwrap_or_default(),
+        (None, None) => intrinsic,
     }
 }
 
