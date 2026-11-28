@@ -3,7 +3,7 @@
 use std::fmt::Write as _;
 use std::{fs, io, path::Path};
 
-use axlauncher_storage_layout::{Document, device_user_config};
+use axlauncher_storage_layout::{DataDir, Document};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind, get_current_pid};
@@ -19,7 +19,7 @@ impl DeviceUserId {
         Self::resolve(
             process_principal().as_deref(),
             machine_id().as_deref(),
-            device_user_config().as_deref(),
+            DataDir::device_user_config().as_deref(),
         )
     }
 
