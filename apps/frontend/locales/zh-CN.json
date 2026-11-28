@@ -39,6 +39,7 @@
   "accounts.use-name": "使用 {name} 的账号（{kind}）",
   "activity.clear": "清空",
   "activity.empty": "暂无活动记录。",
+  "activity.launch": "{directory}（{version}）：{status}",
   "activity.title": "活动记录",
   "download-debug.batch.cancel": "取消批量测试",
   "download-debug.batch.hint": "批量下载网址，每行一个",

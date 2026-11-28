@@ -14,7 +14,7 @@ use axlauncher_ui::{
     StyledExt, div,
 };
 
-use crate::i18n::tr;
+use crate::i18n::{language, tr};
 
 use crate::installations::Installation;
 use crate::launches::Launch;
@@ -205,14 +205,14 @@ fn action_message(
     cx: &App,
 ) -> Option<String> {
     match (installation, launch) {
-        (_, Some(status)) if status.is_active() => Some(status.message(cx).to_owned()),
+        (_, Some(status)) if status.is_active() => Some(status.message(language(cx)).to_owned()),
         (Some(status @ (Installation::Running(_) | Installation::Failed(_))), _) => {
             Some(status.message(cx))
         }
         (Some(Installation::Complete), Some(Launch::NeedsInstall(_))) => {
             Some(Installation::Complete.message(cx))
         }
-        (_, Some(status)) => Some(status.message(cx).to_owned()),
+        (_, Some(status)) => Some(status.message(language(cx)).to_owned()),
         (installation, None) => installation.map(|status| status.message(cx)),
     }
 }

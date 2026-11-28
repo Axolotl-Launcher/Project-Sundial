@@ -39,6 +39,7 @@
   "accounts.use-name": "Use {name}'s {kind} account",
   "activity.clear": "Clear",
   "activity.empty": "No activity yet.",
+  "activity.launch": "{directory} ({version}): {status}",
   "activity.title": "Activity",
   "download-debug.batch.cancel": "Cancel batch",
   "download-debug.batch.hint": "Batch URLs, one per line",

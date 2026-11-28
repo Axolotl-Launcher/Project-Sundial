@@ -277,16 +277,7 @@ impl RootView {
         launch: Launch,
         cx: &mut Context<'_, Self>,
     ) {
-        let message = format!(
-            "{} ({version}): {}",
-            directory.display(),
-            launch.message(cx)
-        );
-        match launch {
-            Launch::Starting | Launch::Running => self.activity.info(message),
-            Launch::Exited => self.activity.success(message),
-            Launch::NeedsInstall(_) | Launch::Failed(_) => self.activity.error(message),
-        }
+        self.activity.record_launch(directory, version, &launch);
         self.launches
             .insert(directory.to_path_buf(), (version.to_owned(), launch));
         cx.notify();

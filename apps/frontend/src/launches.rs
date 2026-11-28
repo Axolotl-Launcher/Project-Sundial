@@ -6,7 +6,7 @@
 //! The module starts the launch and hands the view what it observes. Presenting
 //! the result belongs to the panel that owns the row.
 
-use crate::i18n::tr;
+use crate::i18n::text;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,9 +16,11 @@ use axlauncher_core::desktop::{
     launching::{LaunchFailure, LaunchJob, Player},
     sources::DownloadOptions,
 };
+use axlauncher_core::state::LauncherLanguage;
 use axlauncher_ui::{AppContext, Task};
 use tokio::sync::{oneshot, watch};
 
+#[derive(Clone)]
 pub(crate) enum Launch {
     Starting,
     Running,
@@ -32,11 +34,11 @@ impl Launch {
         matches!(self, Self::Starting | Self::Running)
     }
 
-    pub(crate) fn message(&self, cx: &axlauncher_ui::App) -> &str {
+    pub(crate) fn message(&self, language: LauncherLanguage) -> &str {
         match self {
-            Self::Starting => tr(cx, "launch.starting"),
-            Self::Running => tr(cx, "launch.running"),
-            Self::Exited => tr(cx, "launch.exited"),
+            Self::Starting => text(language, "launch.starting"),
+            Self::Running => text(language, "launch.running"),
+            Self::Exited => text(language, "launch.exited"),
             Self::NeedsInstall(error) | Self::Failed(error) => error,
         }
     }
