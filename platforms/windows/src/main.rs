@@ -4,6 +4,8 @@
 //! Windows entry point. All UI construction lives in `axlauncher_frontend`.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+use axlauncher_frontend as frontend;
+
 #[path = "../../entry.rs"]
 mod entry;
 

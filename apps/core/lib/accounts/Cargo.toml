@@ -7,6 +7,10 @@ description = "Minecraft identity persistence and sign-in for the embedded accou
 repository.workspace = true
 license.workspace = true
 
+# cargo-shear does not find the dependency in the mirrored tests/ tree.
+[package.metadata.cargo-shear]
+ignored = ["tempfile"]
+
 [dependencies]
 axlauncher_network = { workspace = true }
 axlauncher_network_spi = { workspace = true }
