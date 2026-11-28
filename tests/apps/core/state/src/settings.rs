@@ -227,3 +227,31 @@ fn the_launcher_language_defaults_and_persists_independently_of_minecraft() {
     let document: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
     assert_eq!(document["data"]["launcher_language"], "zh-CN");
 }
+
+#[test]
+fn an_invalid_launcher_language_does_not_discard_other_settings() {
+    for invalid in [r#""fr-FR""#, "null", "42"] {
+        let temp = TempRoot::new();
+        let root = temp.path();
+        seed(
+            root,
+            &format!(
+                r#"{{"schema_version":1,"data":{{"launcher_language":{invalid},"theme":"light","default_game_language":"ja_jp"}}}}"#
+            ),
+        );
+
+        let loaded = load_settings(root).unwrap();
+        assert_eq!(loaded.origin, SettingsOrigin::Stored);
+        assert_eq!(loaded.data.launcher_language, LauncherLanguage::English);
+        assert_eq!(loaded.data.theme, ThemeChoice::Light);
+        assert_eq!(loaded.data.default_game_language, "ja_jp");
+
+        let saved = update_settings(root, |data| {
+            data.launcher_language = LauncherLanguage::SimplifiedChinese;
+        })
+        .unwrap();
+        assert_eq!(saved.theme, ThemeChoice::Light);
+        assert_eq!(saved.default_game_language, "ja_jp");
+        assert_eq!(load_settings(root).unwrap().data, saved);
+    }
+}

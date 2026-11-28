@@ -58,7 +58,7 @@ pub struct SettingsData {
     #[serde(default)]
     pub theme: ThemeChoice,
     /// The language of the launcher interface.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "document::read_preference")]
     pub launcher_language: LauncherLanguage,
     /// The initial Minecraft language, with an empty value following the launcher.
     #[serde(default)]
