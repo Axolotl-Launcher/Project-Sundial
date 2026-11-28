@@ -7,11 +7,11 @@ use axlauncher_network_spi::ServiceHost;
 use axlauncher_network_spi::auth::AuthNetwork;
 use axlauncher_spi::credentials::CredentialStore;
 use axlauncher_storage::{DataDir, SystemCredentials};
-use axlauncher_worker::accounts::{AccountId, Action, Change, Command, Identity, Reply};
+use axlauncher_worker::accounts::{AccountKey, Action, Change, Command, Identity, Reply};
 use axlauncher_worker::{Cancellation, Responder, serve};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
-use crate::accounts::{AccountService, LaunchIdentity, SignInCommit, yggdrasil};
+use crate::accounts::{AccountError, AccountService, LaunchIdentity, SignInCommit, yggdrasil};
 
 mod login;
 
@@ -47,7 +47,8 @@ fn for_root(slot: &WorkerSlot, root: PathBuf) -> Result<Rc<Accounts<SystemCreden
         return Err("The account data directory is not absolute.".into());
     }
     let data = DataDir::isolated(&root).map_err(|error| error.to_string())?;
-    let worker = Rc::new(Accounts::new(data, SystemCredentials));
+    let worker =
+        Rc::new(Accounts::new(data, SystemCredentials).map_err(|error| error.to_string())?);
     *slot = Some((root, Rc::clone(&worker)));
     Ok(worker)
 }
@@ -58,11 +59,11 @@ struct Accounts<Store> {
 }
 
 impl<Store: CredentialStore + 'static> Accounts<Store> {
-    fn new(data: DataDir, store: Store) -> Self {
-        Self {
-            service: AccountService::new(data, store),
+    fn new(data: DataDir, store: Store) -> Result<Self, AccountError> {
+        Ok(Self {
+            service: AccountService::new(data, store)?,
             choices: RefCell::new(login::Choices::default()),
-        }
+        })
     }
 
     async fn handle(
@@ -89,11 +90,22 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
         match action {
             Action::Change(change) => self.change(change, reply, cancel).await,
             Action::Microsoft {
+                launcher,
                 method,
                 expected,
                 proxy,
-            } => self.microsoft(method, expected, proxy, reply, commit).await,
+            } => {
+                self.microsoft(
+                    method,
+                    login::Target::new(launcher, expected),
+                    proxy,
+                    reply,
+                    commit,
+                )
+                .await
+            }
             Action::Yggdrasil {
+                launcher,
                 url,
                 username,
                 password,
@@ -104,24 +116,19 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
                         url,
                         username,
                         password,
+                        target: login::Target::new(launcher, expected),
                     },
-                    expected,
                     reply,
                     commit,
                 )
                 .await
             }
-            Action::Choose {
-                choice,
-                profile,
-                expected,
-            } => {
+            Action::Choose { choice, profile } => {
                 self.third_party(
                     login::ThirdParty::Choose {
                         choice,
                         profile: profile.id(),
                     },
-                    expected,
                     reply,
                     commit,
                 )
@@ -131,7 +138,7 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
                 self.choices.borrow_mut().remove(&choice);
                 Ok(())
             }
-            Action::Resolve { id, proxy } => self.resolve(id, proxy, reply, cancel).await,
+            Action::Resolve { key, proxy } => self.resolve(key, proxy, reply, cancel).await,
         }
     }
 
@@ -146,9 +153,11 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
         }
         let result = match change {
             Change::Read => Ok(None),
-            Change::AddOffline { name, uuid } => self.service.add_offline(&name, Some(&uuid)).map(|()| None),
-            Change::Select(id) => self.service.select(id).map(|()| None),
-            Change::Remove(id) => self.service.remove(id).await.map(|cleared| {
+            Change::CreateLauncher { name } => self.service.create_launcher(&name).map(|()| None),
+            Change::SelectLauncher(id) => self.service.select_launcher(id).map(|()| None),
+            Change::AddOffline { launcher, name, uuid } => self.service.add_offline(launcher, &name, Some(&uuid)).map(|()| None),
+            Change::Select { launcher, id } => self.service.select(launcher, id).map(|()| None),
+            Change::Remove(key) => self.service.remove(key).await.map(|cleared| {
                 (!cleared).then_some("The account was removed. The launcher will retry clearing its system credential.")
             }),
         };
@@ -169,33 +178,44 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
             .snapshot()
             .await
             .map_err(|error| error.to_string())?;
-        reply.send(Reply::Snapshot {
-            snapshot: snapshot.into_reply(),
-            notice,
-        })
+        reply.send(Reply::Snapshot { snapshot, notice })
     }
 
     async fn resolve(
         &self,
-        id: AccountId,
+        key: AccountKey,
         proxy: Option<ServiceHost>,
         reply: Responder<Reply>,
         cancel: &Cancellation,
     ) -> Result<(), String> {
+        if !key.id().is_online() {
+            return reply.send(self.offline_reply(key, cancel)?);
+        }
         let network = auth(proxy)?;
-        reply.send(self.launch_reply(id, &network, cancel).await?)
+        reply.send(self.launch_reply(key, &network, cancel).await?)
+    }
+
+    fn offline_reply(&self, key: AccountKey, cancel: &Cancellation) -> Result<Reply, String> {
+        if !cancel.begin_commit() {
+            return Ok(Reply::Cancelled);
+        }
+        let name = self
+            .service
+            .offline_name(key)
+            .map_err(|error| error.to_string())?;
+        Ok(Reply::Identity(Identity::Offline { name }))
     }
 
     async fn launch_reply(
         &self,
-        id: AccountId,
+        key: AccountKey,
         network: &impl AuthNetwork,
         cancel: &Cancellation,
     ) -> Result<Reply, String> {
         let identity = tokio::select! {
             biased;
             () = cancel.cancelled() => return Ok(Reply::Cancelled),
-            result = self.launch_identity(id, network) => result?,
+            result = self.launch_identity(key, network) => result?,
         };
         Ok(if cancel.begin_commit() {
             Reply::Identity(identity)
@@ -206,18 +226,15 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
 
     async fn launch_identity(
         &self,
-        id: AccountId,
+        key: AccountKey,
         network: &impl AuthNetwork,
     ) -> Result<Identity, String> {
         let identity = self
             .service
-            .resolve(id, network)
+            .resolve(key, network)
             .await
             .map_err(|error| error.to_string())?;
         Ok(match identity {
-            LaunchIdentity::Offline(account) => Identity::Offline {
-                name: account.name().to_owned(),
-            },
             LaunchIdentity::Microsoft {
                 account,
                 access_token,

@@ -8,7 +8,7 @@ use axlauncher_network_spi::ServiceHost;
 use axlauncher_storage::{DataDir, DataPath};
 
 use crate::accounts::{
-    AccountId, AccountSnapshot, Action, Change, ChoiceId, Command, Identity, Reply, SignInCommit,
+    AccountKey, AccountSnapshot, Action, Change, ChoiceId, Command, Identity, Reply, SignInCommit,
 };
 
 static IMAGE: OnceLock<(Image, Result<PathBuf, String>)> = OnceLock::new();
@@ -102,11 +102,11 @@ impl DesktopAccounts {
 
     pub async fn resolve(
         &self,
-        id: AccountId,
+        key: AccountKey,
         proxy: Option<ServiceHost>,
     ) -> Result<Identity, String> {
         match self
-            .exchange(Action::Resolve { id, proxy }, None, |_| {})
+            .exchange(Action::Resolve { key, proxy }, None, |_| {})
             .await?
         {
             Some(Reply::Identity(identity)) => Ok(identity),

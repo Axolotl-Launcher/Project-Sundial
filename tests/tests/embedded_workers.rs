@@ -9,7 +9,9 @@ use std::time::{Duration, Instant};
 
 use axlauncher_download_spi::DownloadJob;
 use axlauncher_storage::{DataDir, DataPath, Directory, Document};
-use axlauncher_worker::accounts::{Action, Change, Command, Method, Reply};
+use axlauncher_worker::accounts::{
+    AccountSnapshot, Action, Change, Command, Identity, Method, Reply,
+};
 use axlauncher_worker::downloads::{Route, Transfer};
 use axlauncher_worker::{Event, Images, Request, Service};
 
@@ -135,9 +137,14 @@ fn one_executable_loads_accounts_only_on_demand() {
     let worker = fixture.accounts();
     assert!(!fixture.has_extracted_libraries());
     let hold = worker.hold();
+    let empty = account_snapshot(&fixture, &worker);
+    assert!(empty.selected().is_none());
+    assert_eq!(empty.launchers().len(), 1);
+    assert!(empty.launchers().next().unwrap().name().is_none());
     let mut add = fixture.account(
         &worker,
         Action::Change(Change::AddOffline {
+            launcher: empty.launcher(),
             name: "Notch".into(),
             uuid: String::new(),
         }),
@@ -147,6 +154,21 @@ fn one_executable_loads_accounts_only_on_demand() {
     let mut read = fixture.account(&worker, Action::Change(Change::Read));
     assert_eq!(worker.running_id(), Some(pid));
     run(assert_account(&mut read));
+    let selected = account_snapshot(&fixture, &worker).selected_key().unwrap();
+    let mut resolve = fixture.account(
+        &worker,
+        Action::Resolve {
+            key: selected,
+            proxy: None,
+        },
+    );
+    run(async {
+        assert!(matches!(
+            resolve.next().await,
+            Some(Event::Reply(Reply::Identity(Identity::Offline { name }))) if name == "Notch"
+        ));
+        finish(&mut resolve).await.unwrap();
+    });
     drop(hold);
     fixture.wait_for_cleanup();
     assert!(worker.running_id().is_none());
@@ -162,9 +184,11 @@ fn account_worker_never_reuses_sessions_across_data_roots() {
     let fixture = Fixture::new();
     let worker = fixture.accounts();
     let hold = worker.hold();
+    let launcher = account_snapshot(&fixture, &worker).launcher();
     let mut add = fixture.account(
         &worker,
         Action::Change(Change::AddOffline {
+            launcher,
             name: "Notch".into(),
             uuid: String::new(),
         }),
@@ -234,12 +258,31 @@ async fn assert_account(read: &mut Request<Reply>) {
     finish(read).await.unwrap();
 }
 
+fn account_snapshot(fixture: &Fixture, worker: &Service<Reply>) -> AccountSnapshot {
+    let mut read = fixture.account(worker, Action::Change(Change::Read));
+    run(async {
+        let Some(Event::Reply(Reply::Snapshot {
+            snapshot,
+            notice: None,
+        })) = read.next().await
+        else {
+            panic!("expected account snapshot");
+        };
+        finish(&mut read).await.unwrap();
+        snapshot
+    })
+}
+
 #[test]
 #[ignore = "run node scripts/desktop.ts smoke to supply the packaged desktop executable"]
 fn cancelling_browser_sign_in_releases_the_callback_and_account_worker() {
     let fixture = Fixture::new();
     let worker = fixture.accounts();
+    let launcher = account_snapshot(&fixture, &worker).launcher();
+    let document = Document::Accounts.path(fixture.data.path(DataPath::Root));
+    let before = fs::read(&document).unwrap();
     let action = || Action::Microsoft {
+        launcher,
         method: Method::Browser,
         expected: None,
         proxy: None,
@@ -260,11 +303,7 @@ fn cancelling_browser_sign_in_releases_the_callback_and_account_worker() {
         });
         fixture.wait_for_cleanup();
     }
-    assert!(
-        !Document::Accounts
-            .path(fixture.data.path(DataPath::Root))
-            .exists()
-    );
+    assert_eq!(fs::read(&document).unwrap(), before);
 }
 
 #[test]

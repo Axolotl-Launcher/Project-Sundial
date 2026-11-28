@@ -9,10 +9,11 @@ use axlauncher_spi::credentials::CredentialError;
 use serde_json::{Value, json};
 
 use super::*;
-use crate::accounts::{AccountError, AccountService, LaunchIdentity, Persistence, yggdrasil};
+use crate::accounts::{AccountError, AccountService, LaunchIdentity, yggdrasil};
 use crate::test_support::TempRoot;
 use axlauncher_spi::credentials::CredentialStore;
-use axlauncher_storage::DataDir;
+use axlauncher_storage::{DataDir, DataPath, Document};
+use axlauncher_worker::accounts::Persistence;
 
 const ROOT: &str = "https://accounts.example.test/api/yggdrasil";
 const PROFILE: &str = "d35cea1bfd1244bdab192183f93a50b6";
@@ -171,16 +172,18 @@ async fn verified(provider: &Provider) -> yggdrasil::VerifiedAccount {
 async fn binds_a_profile_persists_only_tokens_and_refreshes_after_restart() {
     let temp = TempRoot::new();
     let data = DataDir::isolated(temp.path()).unwrap();
+    let path = Document::Accounts.path(data.path(DataPath::Root));
     std::fs::write(
-        crate::accounts::Document::path(&data),
+        &path,
         br#"{"schema_version":1,"accounts":[],"selected":null}"#,
     )
     .unwrap();
     let keyring = CredentialMemory::default();
-    let service = AccountService::new(data.clone(), &keyring);
+    let service = AccountService::new(data.clone(), &keyring).unwrap();
+    let launcher = service.snapshot().await.unwrap().launcher();
     let sign_in = Provider::new(ROOT, [Step::Metadata, Step::Authenticate, Step::Bind]);
     service
-        .remember_yggdrasil(verified(&sign_in).await, None)
+        .remember_yggdrasil(launcher, verified(&sign_in).await, None)
         .await
         .unwrap();
     sign_in.complete();
@@ -188,11 +191,14 @@ async fn binds_a_profile_persists_only_tokens_and_refreshes_after_restart() {
     let account = snapshot.selected().unwrap();
     assert_eq!(account.server().unwrap().url(), ROOT);
     assert_eq!(account.id().uuid().simple().to_string(), PROFILE);
-    let document = std::fs::read_to_string(crate::accounts::Document::path(&data)).unwrap();
+    let document = std::fs::read_to_string(path).unwrap();
     assert!(!document.contains(ACCESS) && !document.contains("test-password"));
-    let reopened = AccountService::new(data, &keyring);
+    let reopened = AccountService::new(data, &keyring).unwrap();
     let refresh = Provider::new(ROOT, [Step::Validate, Step::Refresh]);
-    let result = reopened.resolve(account.id(), &refresh).await.unwrap();
+    let result = reopened
+        .resolve(snapshot.selected_key().unwrap(), &refresh)
+        .await
+        .unwrap();
     assert!(
         matches!(result, LaunchIdentity::Yggdrasil { access_token, .. } if access_token == "refreshed-yggdrasil-access")
     );
@@ -212,31 +218,32 @@ async fn separates_servers_and_reports_revoked_sessions() {
     let temp = TempRoot::new();
     let data = DataDir::isolated(temp.path()).unwrap();
     let keyring = CredentialMemory::default();
-    let service = AccountService::new(data.clone(), &keyring);
+    let service = AccountService::new(data.clone(), &keyring).unwrap();
+    let launcher = service.snapshot().await.unwrap().launcher();
     let first = Provider::new(ROOT, [Step::Metadata, Step::Authenticate, Step::Bind]);
     let other = Provider::new(
         "https://other.example.test",
         [Step::Metadata, Step::Authenticate, Step::Bind],
     );
     service
-        .remember_yggdrasil(verified(&first).await, None)
+        .remember_yggdrasil(launcher, verified(&first).await, None)
         .await
         .unwrap();
-    let id = service.snapshot().await.unwrap().selected().unwrap().id();
+    let key = service.snapshot().await.unwrap().selected_key().unwrap();
     service
-        .remember_yggdrasil(verified(&other).await, None)
+        .remember_yggdrasil(launcher, verified(&other).await, None)
         .await
         .unwrap();
-    assert_eq!(service.snapshot().await.unwrap().list().len(), 2);
-    let reopened = AccountService::new(data, &keyring);
+    assert_eq!(service.snapshot().await.unwrap().iter().len(), 2);
+    let reopened = AccountService::new(data, &keyring).unwrap();
     let expired = Provider::new(ROOT, [Step::Validate, Step::Denied]);
     assert!(matches!(
-        reopened.resolve(id, &expired).await,
+        reopened.resolve(key, &expired).await,
         Err(AccountError::Yggdrasil(YggdrasilError::SignInAgain))
     ));
     expired.complete();
     assert_eq!(
-        reopened.snapshot().await.unwrap().persistence(id),
+        reopened.snapshot().await.unwrap().persistence(key.id()),
         Some(Persistence::SignInRequired)
     );
 }

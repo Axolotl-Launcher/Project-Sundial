@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use axlauncher_core::desktop::accounts::{
-    AccountId, AccountSnapshot, Action, ChoiceId, Profile, Reply, SignInCommit,
+    AccountId, AccountSnapshot, Action, ChoiceId, LauncherId, Profile, Reply, SignInCommit,
 };
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
@@ -41,7 +41,7 @@ pub(super) struct Form {
     password: Entity<InputState>,
     focus_scope: FocusHandle,
     trigger: FocusHandle,
-    open: bool,
+    launcher: Option<LauncherId>,
     request: Option<Attempt>,
     choice: Option<ProfileChoice>,
     expected: Option<AccountId>,
@@ -73,7 +73,7 @@ impl Form {
             password,
             focus_scope: cx.focus_handle(),
             trigger: cx.focus_handle(),
-            open: false,
+            launcher: None,
             request: None,
             choice: None,
             expected: None,
@@ -81,7 +81,7 @@ impl Form {
     }
 
     pub(super) fn reset(&mut self, window: &mut Window, cx: &mut App) {
-        self.open = false;
+        self.launcher = None;
         self.finish_attempt();
         self.choice = None;
         self.expected = None;
@@ -89,7 +89,7 @@ impl Form {
     }
 
     pub(super) fn is_open(&self) -> bool {
-        self.open
+        self.launcher.is_some()
     }
 
     pub(super) fn is_working(&self) -> bool {
@@ -111,8 +111,8 @@ impl Form {
         Button::new("third-party-sign-in")
             .label("Third-party sign-in…")
             .track_focus(&self.trigger)
-            .disabled(disabled || self.open)
-            .toggled(self.open)
+            .disabled(disabled || self.is_open())
+            .toggled(self.is_open())
     }
 
     fn render(
@@ -201,9 +201,15 @@ impl Form {
             self.focus_scope.focus(window, cx);
         }
     }
-    fn open(&mut self, server: Option<(AccountId, String)>, window: &mut Window, cx: &mut App) {
+    fn open(
+        &mut self,
+        launcher: LauncherId,
+        server: Option<(AccountId, String)>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
         self.reset(window, cx);
-        self.open = true;
+        self.launcher = Some(launcher);
         let (expected, url) =
             server.map_or_else(|| (None, String::new()), |(id, url)| (Some(id), url));
         self.expected = expected;
@@ -238,10 +244,11 @@ impl Form {
     }
 
     fn sign_in_request(&self, window: &mut Window, cx: &mut App) -> Option<Action> {
-        if !self.open || self.choice.is_some() {
+        if self.choice.is_some() {
             return None;
         }
         let request = Action::Yggdrasil {
+            launcher: self.launcher?,
             url: self.url.read(cx).value().to_string(),
             username: self.username.read(cx).value().to_string(),
             password: self.password.read(cx).value().to_string(),
@@ -262,7 +269,6 @@ impl Form {
         Some(Action::Choose {
             choice: choice.id,
             profile,
-            expected: self.expected,
         })
     }
 
@@ -273,10 +279,17 @@ impl Form {
 }
 
 impl AccountsPanel {
-    pub(super) fn third_party_button(&self, disabled: bool, cx: &Context<'_, Self>) -> Button {
-        self.third_party
-            .button(disabled)
-            .on_click(cx.listener(|view, _, window, cx| view.open_third_party(None, window, cx)))
+    pub(super) fn third_party_button(
+        &self,
+        launcher: LauncherId,
+        disabled: bool,
+        cx: &Context<'_, Self>,
+    ) -> Button {
+        self.third_party.button(disabled).on_click(
+            cx.listener(move |view, _, window, cx| {
+                view.open_third_party(launcher, None, window, cx)
+            }),
+        )
     }
 
     pub(super) fn render_third_party(&self, cx: &Context<'_, Self>) -> AnyElement {
@@ -308,6 +321,7 @@ impl AccountsPanel {
 
     pub(super) fn open_third_party(
         &mut self,
+        launcher: LauncherId,
         server: Option<(AccountId, String)>,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
@@ -315,9 +329,9 @@ impl AccountsPanel {
         if self.is_busy() {
             return;
         }
-        self.add_offline = false;
+        self.add_offline = None;
         self.error = None;
-        self.third_party.open(server, window, cx);
+        self.third_party.open(launcher, server, window, cx);
         cx.notify();
     }
 

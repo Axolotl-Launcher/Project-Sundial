@@ -14,9 +14,12 @@ license.workspace = true
 axlauncher_spi = { workspace = true }
 axlauncher_storage_layout = { workspace = true }
 dirs = { workspace = true }
+hex = { workspace = true }
 keyring = { workspace = true }
+sha2 = { workspace = true }
 sysinfo = { workspace = true, features = ["system"] }
 tempfile = { workspace = true }
+uuid = { workspace = true }
 
 [target."cfg(windows)".dependencies]
 sysinfo = { workspace = true, features = ["disk"] }

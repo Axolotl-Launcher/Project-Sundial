@@ -8,83 +8,43 @@ use std::time::{Duration, Instant};
 
 use axlauncher_network_spi::auth::AuthNetwork;
 use axlauncher_spi::credentials::CredentialStore;
-use axlauncher_storage::DataDir;
+use axlauncher_storage::{DataDir, DeviceUserId};
+use axlauncher_worker::accounts::{Account as ViewAccount, AccountSnapshot};
+use serde_json::Map;
 use tokio::sync::Mutex;
-use uuid::Uuid;
 
+use super::document::AccountFile;
 use super::microsoft::{self, MicrosoftError, Tokens, VerifiedAccount};
 use super::yggdrasil::{self, YggdrasilError};
-use super::{Account, AccountError, AccountId, Document, SignInCommit};
-pub use axlauncher_worker::accounts::Persistence;
+use super::{
+    AccountError, AccountId, AccountKey, CredentialRef, LauncherId, McAccount, SignInCommit,
+};
 
 mod persistence;
 
 const REFRESH_RETRY_DELAY: Duration = Duration::from_secs(15);
 
-/// Account metadata and selection available to the desktop view.
-pub struct AccountSnapshot {
-    document: Document,
-    persistence: HashMap<AccountId, Persistence>,
-}
-
-impl AccountSnapshot {
-    #[cfg(test)]
-    pub fn list(&self) -> &[Account] {
-        &self.document.accounts
-    }
-
-    #[cfg(test)]
-    pub fn selected(&self) -> Option<&Account> {
-        self.document.find(self.document.selected?).ok()
-    }
-
-    #[cfg(test)]
-    pub fn persistence(&self, id: AccountId) -> Option<Persistence> {
-        self.persistence.get(&id).copied()
-    }
-
-    pub fn into_reply(self) -> axlauncher_worker::accounts::AccountSnapshot {
-        use axlauncher_worker::accounts::{Account as ViewAccount, AccountSnapshot};
-
-        let accounts = self
-            .document
-            .accounts
-            .into_iter()
-            .map(|account| {
-                ViewAccount::new(
-                    account.id,
-                    account.name,
-                    account.server,
-                    self.persistence.get(&account.id).copied(),
-                )
-            })
-            .collect();
-        AccountSnapshot::new(accounts, self.document.selected)
-    }
-}
-
 /// The identity resolved for the next game process.
 pub enum LaunchIdentity {
-    Offline(Account),
     Microsoft {
-        account: Account,
+        account: McAccount,
         access_token: String,
         xuid: Option<String>,
     },
     Yggdrasil {
-        account: Account,
+        account: McAccount,
         access_token: String,
     },
 }
 
 #[derive(Default)]
 struct SessionCache {
-    accounts: HashMap<AccountId, Cached>,
+    accounts: HashMap<AccountKey, Cached>,
 }
 
 #[derive(Default)]
 struct Cached {
-    credential: Option<Uuid>,
+    credential: Option<CredentialRef>,
     tokens: Option<Tokens>,
     failure: Option<(Instant, MicrosoftError)>,
     session_only: bool,
@@ -94,15 +54,20 @@ struct Cached {
 
 /// Manages one data root and serializes credential changes with launch refreshes.
 pub struct AccountService<S> {
-    data: DataDir,
+    file: AccountFile,
     store: S,
     sessions: Mutex<SessionCache>,
 }
 
 impl<S: CredentialStore> AccountService<S> {
-    pub fn new(data: DataDir, store: S) -> Self {
+    pub fn new(data: DataDir, store: S) -> Result<Self, AccountError> {
+        let owner = DeviceUserId::current().map_err(|_| AccountError::DeviceUser)?;
+        Ok(Self::for_principal(data, store, owner.as_str().to_owned()))
+    }
+
+    fn for_principal(data: DataDir, store: S, principal: String) -> Self {
         Self {
-            data,
+            file: AccountFile::new(data, principal),
             store,
             sessions: Mutex::default(),
         }
@@ -110,29 +75,37 @@ impl<S: CredentialStore> AccountService<S> {
 
     pub async fn snapshot(&self) -> Result<AccountSnapshot, AccountError> {
         let sessions = self.sessions.lock().await;
-        let document = Document::load(&self.data)?;
-        if !document.retired_credentials.is_empty() {
-            let _ = self.cleanup_retired();
+        let root = self.file.read()?;
+        if root.has_retired() {
+            let _ = self.cleanup_retired(None);
         }
-        let persistence = document
-            .accounts
-            .iter()
-            .filter(|account| account.id.is_online())
+        let launcher = root.active();
+        let accounts = launcher
+            .accounts()
             .map(|account| {
+                let key = AccountKey::new(launcher.id(), account.id);
                 let cached = sessions
                     .accounts
-                    .get(&account.id)
+                    .get(&key)
                     .filter(|entry| entry.credential == account.credential);
-                (
+                let status = account
+                    .id
+                    .is_online()
+                    .then(|| self.persistence(account, cached));
+                ViewAccount::new(
                     account.id,
-                    persistence::status(&self.store, account, cached),
+                    account.name.clone(),
+                    account.server.clone(),
+                    status,
                 )
             })
             .collect();
-        Ok(AccountSnapshot {
-            document,
-            persistence,
-        })
+        Ok(AccountSnapshot::new(
+            root.summaries(),
+            launcher.id(),
+            accounts,
+            launcher.selection(),
+        ))
     }
 
     pub async fn has_volatile_session(&self) -> bool {
@@ -144,39 +117,66 @@ impl<S: CredentialStore> AccountService<S> {
             .any(|cached| cached.session_only)
     }
 
-    pub fn add_offline(&self, name: &str, uuid: Option<&str>) -> Result<(), AccountError> {
-        let account = Account::offline(name, uuid)?;
-        Document::update(&self.data, |document| document.add_offline(account))
+    pub fn require_launcher(
+        &self,
+        launcher: LauncherId,
+        expected: Option<AccountId>,
+    ) -> Result<(), AccountError> {
+        let root = self.file.read()?;
+        let launcher = root.launcher(launcher)?;
+        if let Some(id) = expected {
+            launcher.find(id)?;
+        }
+        Ok(())
     }
 
-    pub fn select(&self, id: Option<AccountId>) -> Result<(), AccountError> {
-        Document::update(&self.data, |document| document.select(id))
+    pub fn create_launcher(&self, name: &str) -> Result<(), AccountError> {
+        self.file.update(|root| root.create_launcher(name))
+    }
+
+    pub fn select_launcher(&self, launcher: LauncherId) -> Result<(), AccountError> {
+        self.file.update(|root| root.select_launcher(launcher))
+    }
+
+    pub fn add_offline(
+        &self,
+        launcher: LauncherId,
+        name: &str,
+        uuid: Option<&str>,
+    ) -> Result<(), AccountError> {
+        let account = McAccount::offline(name, uuid)?;
+        self.file
+            .update(|root| root.launcher_mut(launcher)?.add_offline(account))
+    }
+
+    pub fn select(&self, launcher: LauncherId, id: Option<AccountId>) -> Result<(), AccountError> {
+        self.file
+            .update(|root| root.launcher_mut(launcher)?.select(id))
     }
 
     /// Removes an account and reports whether its stored credential was cleared.
-    pub async fn remove(&self, id: AccountId) -> Result<bool, AccountError> {
+    pub async fn remove(&self, key: AccountKey) -> Result<bool, AccountError> {
         let mut sessions = self.sessions.lock().await;
-        let credential = Document::update(&self.data, |document| document.remove(id))?;
-        sessions.accounts.remove(&id);
-        Ok(credential.is_none_or(|key| {
-            self.cleanup_retired()
-                .is_ok_and(|remaining| !remaining.contains(&key))
-        }))
+        let credential = self.file.update(|root| root.remove(key))?;
+        sessions.accounts.remove(&key);
+        Ok(credential.is_none() || self.cleanup_retired(credential).unwrap_or(false))
     }
 
     /// Saves a verified account or replaces the credentials for the expected identity.
     #[cfg(test)]
     pub async fn remember(
         &self,
+        launcher: LauncherId,
         verified: VerifiedAccount,
         expected: Option<AccountId>,
     ) -> Result<(), AccountError> {
-        self.remember_with_commit(verified, expected, &SignInCommit::default())
+        self.remember_with_commit(launcher, verified, expected, &SignInCommit::default())
             .await
     }
 
     pub async fn remember_with_commit(
         &self,
+        launcher: LauncherId,
         verified: VerifiedAccount,
         expected: Option<AccountId>,
         commit: &SignInCommit,
@@ -186,13 +186,15 @@ impl<S: CredentialStore> AccountService<S> {
             return Err(MicrosoftError::WrongAccount.into());
         }
         let secret = verified.session.refresh.clone();
-        let account = Account {
+        let account = McAccount {
             id,
             name: verified.profile.name,
             credential: None,
             server: None,
+            extra: Map::new(),
         };
         self.save(
+            launcher,
             account,
             expected,
             &secret,
@@ -209,15 +211,17 @@ impl<S: CredentialStore> AccountService<S> {
     #[cfg(test)]
     pub async fn remember_yggdrasil(
         &self,
+        launcher: LauncherId,
         verified: yggdrasil::VerifiedAccount,
         expected: Option<AccountId>,
     ) -> Result<(), AccountError> {
-        self.remember_yggdrasil_with_commit(verified, expected, &SignInCommit::default())
+        self.remember_yggdrasil_with_commit(launcher, verified, expected, &SignInCommit::default())
             .await
     }
 
     pub async fn remember_yggdrasil_with_commit(
         &self,
+        launcher: LauncherId,
         verified: yggdrasil::VerifiedAccount,
         expected: Option<AccountId>,
         commit: &SignInCommit,
@@ -226,65 +230,74 @@ impl<S: CredentialStore> AccountService<S> {
         if expected.is_some_and(|expected| id != expected) {
             return Err(YggdrasilError::WrongProfile.into());
         }
-        let account = Account {
+        let account = McAccount {
             id,
             name: verified.profile.name().to_owned(),
             credential: None,
             server: Some(verified.server),
+            extra: Map::new(),
         };
         let secret = serde_json::to_string(&verified.tokens).expect("Yggdrasil tokens serialize");
         let cached = Cached {
             third_party: Some((Instant::now(), verified.tokens)),
             ..Cached::default()
         };
-        self.save(account, expected, &secret, cached, commit).await
+        self.save(launcher, account, expected, &secret, cached, commit)
+            .await
     }
 
     async fn save(
         &self,
-        account: Account,
+        launcher: LauncherId,
+        account: McAccount,
         expected: Option<AccountId>,
         secret: &str,
         mut cached: Cached,
         commit: &SignInCommit,
     ) -> Result<(), AccountError> {
         let mut sessions = self.sessions.lock().await;
-        let id = account.id;
-        let (credential, persisted) = self.persist(account, expected, secret, commit)?;
+        let key = AccountKey::new(launcher, account.id);
+        let (credential, persisted) = self.persist(launcher, account, expected, secret, commit)?;
         cached.credential = credential;
         cached.session_only = !persisted;
-        sessions.accounts.insert(id, cached);
+        sessions.accounts.insert(key, cached);
         Ok(())
     }
 
-    /// Resolves the identity chosen at launch time, refreshing online credentials when needed.
+    /// Resolves a saved offline player without opening an authentication client.
+    pub fn offline_name(&self, key: AccountKey) -> Result<String, AccountError> {
+        if key.id().is_online() {
+            return Err(AccountError::Missing);
+        }
+        Ok(self.file.read()?.find(key)?.name.clone())
+    }
+
+    /// Resolves a saved online player and refreshes credentials when needed.
     pub async fn resolve(
         &self,
-        id: AccountId,
+        key: AccountKey,
         network: &impl AuthNetwork,
     ) -> Result<LaunchIdentity, AccountError> {
-        if matches!(id, AccountId::Offline(_)) {
-            return Ok(LaunchIdentity::Offline(
-                Document::load(&self.data)?.find(id)?.clone(),
-            ));
+        if !key.id().is_online() {
+            return Err(AccountError::Missing);
         }
         let mut sessions = self.sessions.lock().await;
-        let account = Document::load(&self.data)?.find(id)?.clone();
-        let cached = sessions.accounts.entry(id).or_default();
+        let account = self.file.read()?.find(key)?.clone();
+        let cached = sessions.accounts.entry(key).or_default();
         if cached.credential != account.credential {
             *cached = Cached {
                 credential: account.credential,
                 ..Cached::default()
             };
         }
-        if matches!(id, AccountId::Yggdrasil { .. }) {
-            let access_token = self.yggdrasil_token(network, &account, cached).await?;
+        if matches!(key.id(), AccountId::Yggdrasil { .. }) {
+            let access_token = self.yggdrasil_token(network, key, &account, cached).await?;
             return Ok(LaunchIdentity::Yggdrasil {
                 account,
                 access_token,
             });
         }
-        let tokens = self.access_token(network, id, cached).await?;
+        let tokens = self.access_token(network, key, cached).await?;
         Ok(LaunchIdentity::Microsoft {
             account,
             access_token: tokens.access.clone(),
@@ -295,7 +308,8 @@ impl<S: CredentialStore> AccountService<S> {
     async fn yggdrasil_token(
         &self,
         network: &impl AuthNetwork,
-        account: &Account,
+        key: AccountKey,
+        account: &McAccount,
         cached: &mut Cached,
     ) -> Result<String, AccountError> {
         let server = account
@@ -317,11 +331,11 @@ impl<S: CredentialStore> AccountService<S> {
             .await
             .map_err(AccountError::from)
             .inspect_err(|error| mark_yggdrasil_failure(cached, error))?;
-        if let Some(key) = cached.credential
+        if let Some(credential) = cached.credential
             && (cached.session_only || updated.access_token != tokens.access_token)
         {
             let secret = serde_json::to_string(&updated).expect("Yggdrasil tokens serialize");
-            cached.session_only = !self.write_current_secret(account.id, key, &secret)?;
+            cached.session_only = !self.write_current_secret(key, credential, &secret)?;
         }
         let access_token = updated.access_token.clone();
         cached.third_party = Some((Instant::now(), updated));
@@ -335,7 +349,7 @@ impl<S: CredentialStore> AccountService<S> {
         let key = cached.credential.ok_or(YggdrasilError::SignInAgain)?;
         let secret = self
             .store
-            .read(&key.to_string())
+            .read(&self.file.credential_key(key))
             .map_err(|_| AccountError::CredentialStore)?;
         secret
             .and_then(|value| serde_json::from_str(&value).ok())
@@ -345,7 +359,7 @@ impl<S: CredentialStore> AccountService<S> {
     async fn access_token<'a>(
         &self,
         network: &impl AuthNetwork,
-        id: AccountId,
+        key: AccountKey,
         cached: &'a mut Cached,
     ) -> Result<&'a Tokens, AccountError> {
         if cached.tokens.as_ref().is_some_and(Tokens::is_current) {
@@ -365,10 +379,10 @@ impl<S: CredentialStore> AccountService<S> {
                 return cached.recover(error);
             }
         };
-        if let Some(key) = cached.credential
+        if let Some(credential) = cached.credential
             && (cached.session_only || tokens.refresh != refresh)
         {
-            cached.session_only = !self.write_current_secret(id, key, &tokens.refresh)?;
+            cached.session_only = !self.write_current_secret(key, credential, &tokens.refresh)?;
         }
         cached.tokens = Some(tokens);
         cached.failure = None;
@@ -382,7 +396,7 @@ impl<S: CredentialStore> AccountService<S> {
         let token = match cached.credential {
             Some(key) => self
                 .store
-                .read(&key.to_string())
+                .read(&self.file.credential_key(key))
                 .map_err(|_| AccountError::CredentialStore)?,
             None => None,
         };

@@ -15,8 +15,8 @@ pub mod sources;
 pub mod accounts {
     pub use axlauncher_worker::DesktopAccounts;
     pub use axlauncher_worker::accounts::{
-        Account, AccountId, AccountSnapshot, Action, Change, ChoiceId, Method, Persistence,
-        Profile, Reply, SignInCommit,
+        Account, AccountId, AccountKey, AccountSnapshot, Action, Change, ChoiceId, LauncherAccount,
+        LauncherId, Method, Persistence, Profile, Reply, SignInCommit,
     };
 }
 
