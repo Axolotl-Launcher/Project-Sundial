@@ -170,9 +170,12 @@ fn profile_locks_serialize_one_instance_without_blocking_its_neighbors() {
     fs::create_dir(&first).unwrap();
     fs::create_dir(&second).unwrap();
     let held = Document::Profile.lock(&first).unwrap();
-    let lock_directory = root.0.join(".profile-locks/files");
-
-    let first_lock = fs::File::open(lock_directory.join("first")).unwrap();
+    let lock = fs::read_dir(&root.0)
+        .unwrap()
+        .map(Result::unwrap)
+        .find(|entry| entry.file_type().unwrap().is_file())
+        .unwrap();
+    let first_lock = fs::File::open(lock.path()).unwrap();
     assert!(matches!(
         first_lock.try_lock(),
         Err(fs::TryLockError::WouldBlock)

@@ -144,6 +144,26 @@ impl RenameEditor {
         self.error = None;
         cx.notify();
     }
+
+    fn actions(&self, invalid: bool, cx: &mut Context<'_, Self>) -> impl IntoElement + use<> {
+        h_flex()
+            .gap_2()
+            .justify_end()
+            .child(
+                Button::new("cancel-instance-rename")
+                    .label("Cancel")
+                    .disabled(self.saving)
+                    .on_click(|_, window, cx| window.close_dialog(cx)),
+            )
+            .child(
+                Button::new("save-instance-rename")
+                    .label("Rename")
+                    .primary()
+                    .disabled(self.saving || invalid)
+                    .loading(self.saving)
+                    .on_click(cx.listener(|editor, _, window, cx| editor.submit(window, cx))),
+            )
+    }
 }
 
 impl Render for RenameEditor {
@@ -187,26 +207,6 @@ impl Render for RenameEditor {
                         .text_color(cx.theme().danger),
                 )
             })
-            .child(
-                h_flex()
-                    .gap_2()
-                    .justify_end()
-                    .child(
-                        Button::new("cancel-instance-rename")
-                            .label("Cancel")
-                            .disabled(self.saving)
-                            .on_click(|_, window, cx| window.close_dialog(cx)),
-                    )
-                    .child(
-                        Button::new("save-instance-rename")
-                            .label("Rename")
-                            .primary()
-                            .disabled(self.saving || folder.is_err())
-                            .loading(self.saving)
-                            .on_click(
-                                cx.listener(|editor, _, window, cx| editor.submit(window, cx)),
-                            ),
-                    ),
-            )
+            .child(self.actions(folder.is_err(), cx))
     }
 }

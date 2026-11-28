@@ -6,11 +6,14 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use axlauncher_domain::memory::MaximumHeap;
-use axlauncher_storage::{DataDir, DataPath, Document, move_instance_folder, write_atomic};
+use axlauncher_storage::{
+    DataDir, DataPath, Document, instance_move_path, move_instance_folder, write_atomic,
+};
 use serde_json::Value;
 
 use super::{
-    DiscoveryError, Profile, ProfileFolderName, ProfileWriteError, folders::current_directory,
+    DiscoveryError, Profile, ProfileFolderName, ProfileWriteError,
+    folders::{check_identity, current_directory, restore_after_move_failure},
     invalid, is_link, read, read_marker, save, write_marker,
 };
 
@@ -117,7 +120,7 @@ pub fn rename_with_folder_if_current(
     let parent = resolved.parent().expect("checked direct child");
     let destination = folder.path_in(parent);
     let moving = (resolved != destination).then_some(destination.as_path());
-    if moving.is_some() {
+    if moving.is_some() && !same_directory(&resolved, &destination) {
         folder
             .check_available(parent)
             .map_err(|source| edit_io(&destination, source))?;
@@ -225,9 +228,16 @@ fn edit_field(
     if !begin_commit() {
         return Err(ProfileUpdateError::Cancelled);
     }
+    check_directory(directory)?;
+    if read_marker(&path)
+        .map_err(ProfileUpdateError::Read)?
+        .is_none_or(|(current, _)| current != bytes)
+    {
+        return Err(ProfileUpdateError::ChangedProfile(directory.to_owned()));
+    }
     write_marker(path.clone(), &document).map_err(ProfileUpdateError::Write)?;
     if let Some(destination) = destination {
-        move_folder(directory, destination, &path, &bytes)?;
+        move_folder(directory, destination, &path, &bytes, expected_id)?;
     }
     Ok(profile)
 }
@@ -250,16 +260,12 @@ fn move_folder(
     destination: &Path,
     marker: &Path,
     previous: &[u8],
+    id: &str,
 ) -> Result<(), ProfileUpdateError> {
-    let Err(source) = move_instance_folder(directory, destination) else {
+    let Err(source) = rename_directory(directory, destination, id) else {
         return Ok(());
     };
-    let rollback = std::fs::symlink_metadata(marker).and_then(|metadata| {
-        if !metadata.is_file() || is_link(&metadata) {
-            return Err(io::ErrorKind::InvalidData.into());
-        }
-        write_atomic(marker, previous)
-    });
+    let rollback = check_identity(directory, id).and_then(|()| write_atomic(marker, previous));
     if let Err(rollback) = rollback {
         return Err(edit_io(
             marker,
@@ -270,6 +276,48 @@ fn move_folder(
         ));
     }
     Err(edit_io(destination, source))
+}
+
+fn rename_directory(directory: &Path, destination: &Path, id: &str) -> io::Result<()> {
+    if !same_directory(directory, destination) {
+        move_instance_folder(directory, destination)?;
+        return check_identity(destination, id)
+            .or_else(|error| restore_after_move_failure(directory, destination, error));
+    }
+    // A case-insensitive volume resolves both spellings to the source. Claim
+    // the new spelling through an unused name, retaining no-replace semantics.
+    let holding = instance_move_path(directory)?;
+    move_instance_folder(directory, &holding)?;
+    check_identity(&holding, id)
+        .and_then(|()| move_instance_folder(&holding, destination))
+        .or_else(|error| restore_after_move_failure(directory, &holding, error))
+}
+
+fn same_directory(source: &Path, destination: &Path) -> bool {
+    let Ok(metadata) = destination.symlink_metadata() else {
+        return false;
+    };
+    if !metadata.is_dir() || is_link(&metadata) {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        source.symlink_metadata().is_ok_and(|source| {
+            source.is_dir()
+                && !is_link(&source)
+                && (source.dev(), source.ino()) == (metadata.dev(), metadata.ino())
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let Ok(original) = source.canonicalize() else {
+            return false;
+        };
+        destination
+            .canonicalize()
+            .is_ok_and(|path| path == original)
+    }
 }
 
 fn edit_io(path: &Path, source: io::Error) -> ProfileUpdateError {

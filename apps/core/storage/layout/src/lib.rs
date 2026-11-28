@@ -11,6 +11,6 @@ mod paths;
 pub use documents::{Document, ManagedFile};
 pub use file_lock::LockError;
 pub use game_dir::{AssetPath, GameAccess, GameDir, VersionPath};
-pub use instance_paths::{PROFILE_LOCK_DIRECTORY, STAGING_PREFIX, stage_instance};
+pub use instance_paths::{PROFILE_LOCK_PREFIX, STAGING_PREFIX, stage_instance};
 pub use paths::{DataDir, DataPath, Directory, ScratchSpace, WorkerLibrary};
 pub mod processor_marker;

@@ -64,6 +64,50 @@ fn discovery_ignores_the_lock_for_an_instance_named_like_its_marker() {
     assert!(profiles.issues.is_empty());
 }
 
+#[test]
+fn the_previous_lock_namespace_can_be_an_instance_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = create(root.path(), "Instance", Game::new("1.21.11")).unwrap();
+    let named = root.path().join(".profile-locks");
+    fs::rename(directory, &named).unwrap();
+    let profile = read(&named).unwrap().unwrap();
+    let updated =
+        super::super::rename_if_current(&named, profile.id(), "Instance", "Renamed", || true)
+            .unwrap();
+    assert_eq!(updated.instance.name, "Renamed");
+    let held = Document::Profile.lock(&named).unwrap();
+    let holding = storage::instance_move_path(&named).unwrap();
+    storage::move_instance_folder(&named, &holding).unwrap();
+    assert!(check_identity(&holding, profile.id()).is_ok());
+    drop(held);
+}
+
+#[test]
+fn a_replacement_captured_before_recycling_is_restored_untouched() {
+    let root = tempfile::tempdir().unwrap();
+    let original = create(root.path(), "Original", Game::new("1.21.11")).unwrap();
+    let expected = read(&original).unwrap().unwrap();
+    let alternate = root.path().join("original moved away");
+    fs::rename(&original, &alternate).unwrap();
+    fs::create_dir(&original).unwrap();
+    let replacement = Profile::new("Replacement", None);
+    save(&original, &replacement).unwrap();
+    fs::write(original.join("world"), b"replacement contents").unwrap();
+    let holding = storage::instance_move_path(&original).unwrap();
+    storage::move_instance_folder(&original, &holding).unwrap();
+
+    let error = remove_held(&original, &holding, expected.id()).unwrap_err();
+
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(
+        fs::read(original.join("world")).unwrap(),
+        b"replacement contents"
+    );
+    assert_eq!(read(&original).unwrap().unwrap().id(), replacement.id());
+    assert!(check_identity(&alternate, expected.id()).is_ok());
+    assert!(!holding.exists());
+}
+
 #[cfg(unix)]
 #[test]
 fn deleting_a_link_to_a_profile_preserves_its_target() {

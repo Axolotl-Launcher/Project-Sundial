@@ -118,7 +118,7 @@ fn modpack_folders_must_be_portable_and_outside_launcher_namespaces() {
         "NUL.cfg",
         "CONIN$",
         "Pack.",
-        ".Profile-Locks",
+        ".Profile-Lock-test",
         ".STAGING-pack",
     ] {
         assert!(ProfileFolderName::new(name).is_err(), "{name:?}");

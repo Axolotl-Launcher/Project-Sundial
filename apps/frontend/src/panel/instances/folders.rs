@@ -129,7 +129,8 @@ impl RootView {
                 .title(format!("Delete “{}”?", folder.name))
                 .description(concat!(
                     "The instance folder and all its files will go to the recycle bin, ",
-                    "or be permanently deleted if the recycle bin is unavailable."
+                    "or be permanently deleted if the recycle bin is unavailable. ",
+                    "Restoring it from the recycle bin gives its folder a temporary name."
                 ))
                 // Enter on the dialog itself must not commit a destructive action.
                 .on_ok(|_, _, _| false)

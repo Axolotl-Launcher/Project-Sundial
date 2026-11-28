@@ -70,7 +70,30 @@ pub fn delete_folder(paths: &DataDir, directory: &Path, id: &str) -> io::Result<
         .lock(&directory)
         .map_err(io::Error::from)?;
     check_identity(&directory, id)?;
-    storage::remove_folder(&directory)
+    let holding = storage::instance_move_path(&directory)?;
+    storage::move_instance_folder(&directory, &holding)?;
+    remove_held(&directory, &holding, id)
+}
+
+fn remove_held(original: &Path, holding: &Path, id: &str) -> io::Result<FolderRemoval> {
+    // The no-replace move captures one directory entry. Validate that entry
+    // before passing its private name to the path-based system trash API.
+    let removal = check_identity(holding, id).and_then(|()| storage::remove_folder(holding));
+    removal.or_else(|error| restore_after_move_failure(original, holding, error))
+}
+
+pub(super) fn restore_after_move_failure<T>(
+    original: &Path,
+    holding: &Path,
+    error: io::Error,
+) -> io::Result<T> {
+    match storage::move_instance_folder(holding, original) {
+        Ok(()) => Err(error),
+        Err(restore) => Err(io::Error::other(format!(
+            "{error}. The folder could not be moved back from {} ({restore}).",
+            holding.display(),
+        ))),
+    }
 }
 
 pub(super) fn current_directory(
@@ -97,7 +120,7 @@ pub(super) fn current_directory(
 #[path = "../../../../../tests/apps/core/state/src/profile/folders.rs"]
 mod tests;
 
-fn check_identity(directory: &Path, id: &str) -> io::Result<()> {
+pub(super) fn check_identity(directory: &Path, id: &str) -> io::Result<()> {
     let metadata = fs::symlink_metadata(directory)?;
     if metadata.is_dir()
         && !is_link(&metadata)

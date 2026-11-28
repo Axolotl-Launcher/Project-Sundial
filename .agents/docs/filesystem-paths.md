@@ -71,7 +71,7 @@ native ID cannot claim an already-bound installation namespace.
   and `ManagedFile` for other fixed file locations. Acquire game-tree and
   native extraction locks through `GameDir::lock`, never by opening a lock
   file at the call site. `Document::Profile` stores a separate lock for each
-  instance directory under `.profile-locks/files` beside the instances. Keep
+  instance directory in a `.profile-lock-*` file beside the instance. Keep
   lock files in place so concurrent writers to a restored instance acquire the
   same lock.
 - Create disposable scratch space through storage. Keep atomic writes,

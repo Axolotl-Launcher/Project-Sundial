@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
-pub const PROFILE_LOCK_DIRECTORY: &str = ".profile-locks";
+pub const PROFILE_LOCK_PREFIX: &str = ".profile-lock-";
 pub const STAGING_PREFIX: &str = ".staging-";
 
 /// A private staging directory and its instance tree, beside the final instance.

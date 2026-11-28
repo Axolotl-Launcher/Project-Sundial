@@ -996,6 +996,8 @@ name = "axlauncher_storage_layout"
 version = "0.1.0"
 dependencies = [
  "dirs 6.0.0",
+ "hex",
+ "sha2 0.11.1",
  "tempfile",
 ]
 
