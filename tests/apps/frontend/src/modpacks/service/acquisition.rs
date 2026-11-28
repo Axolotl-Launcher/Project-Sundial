@@ -7,21 +7,13 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
 
-use axlauncher_core::network_spi::auth::{AuthNetwork, Request, Response, TransportError};
+use axlauncher_core::desktop::curseforge::DesktopCurseForge;
 use axlauncher_core::network_spi::{FetchError, Network};
 use axlauncher_core::state::profile::{StagedProfile, discover};
 use axlauncher_core::storage::{DataDir, DataPath};
 use axlauncher_modpack::{InstallPlan, ModpackPlugin, PlanOptions};
 
 use super::{ManualFile, StagedPack, download_remaining, supply_manual_files, test_zip as zip};
-
-struct Offline;
-
-impl AuthNetwork for Offline {
-    async fn send(&self, _: Request<'_>) -> Result<Response, TransportError> {
-        panic!("no metadata request is needed for this test plan")
-    }
-}
 
 fn fixture(root: &Path, files: &[&str]) -> InstallPlan {
     let archive = root.join("fixture.mrpack");
@@ -43,8 +35,12 @@ fn fixture(root: &Path, files: &[&str]) -> InstallPlan {
     .unwrap();
     zip.finish().unwrap();
     let pack = ModpackPlugin::builtin().inspect(&archive).unwrap();
-    futures::executor::block_on(pack.plan(&BTreeSet::new(), PlanOptions::default(), &Offline))
-        .unwrap()
+    futures::executor::block_on(pack.plan(
+        &BTreeSet::new(),
+        PlanOptions::default(),
+        &DesktopCurseForge,
+    ))
+    .unwrap()
 }
 
 #[test]

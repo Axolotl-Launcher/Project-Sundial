@@ -133,10 +133,7 @@ impl Provider {
             }
             Step::Denied => (403, json!({"error":"ForbiddenOperationException"})),
         };
-        Response {
-            status,
-            body: serde_json::to_vec(&body).unwrap(),
-        }
+        Response::new(status, serde_json::to_vec(&body).unwrap())
     }
 }
 

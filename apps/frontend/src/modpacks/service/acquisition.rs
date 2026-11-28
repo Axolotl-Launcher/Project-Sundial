@@ -6,7 +6,7 @@ use std::io::{self, Seek};
 use std::path::{Path, PathBuf};
 
 use super::{PackState, install_runtime};
-use axlauncher_core::desktop::downloads::{DownloadRoute, Downloads};
+use axlauncher_core::desktop::downloads::{self, Downloads};
 use axlauncher_core::download_spi::{DEFAULT_CONCURRENCY, DownloadJob, FileDownloader};
 use axlauncher_core::network::verify_reader;
 use axlauncher_core::state::profile::{Game, Profile, StagedProfile};
@@ -26,13 +26,7 @@ pub(super) struct StagedPack {
 impl StagedPack {
     pub(super) fn new(plan: InstallPlan, data: &DataDir) -> Result<Self, String> {
         let remaining = (0..plan.downloads().len()).collect();
-        let downloads = Downloads::new(
-            data.clone(),
-            DownloadRoute::Pack {
-                origins: plan.download_origins(),
-                key: plan.download_key().map(str::to_owned),
-            },
-        );
+        let downloads = downloads::for_pack(data.clone(), plan.download_origins());
         Ok(Self {
             plan,
             downloads,

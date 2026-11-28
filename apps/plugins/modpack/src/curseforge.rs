@@ -4,8 +4,8 @@
 use std::collections::BTreeSet;
 
 use axlauncher_download_spi::PackOrigins;
-use axlauncher_network_spi::auth::AuthNetwork;
 use axlauncher_spi::LoaderKind;
+use axlauncher_spi::curseforge::ModpackCatalog;
 use serde::Deserialize;
 use url::Url;
 
@@ -15,7 +15,7 @@ use crate::{
     PackFiles, PackReader, PackSource, PlanOptions, PlannedDownloads, paths,
 };
 
-mod api;
+mod resolve;
 
 const MARKER: &str = "manifest.json";
 const CDN: &str = "https://edge.forgecdn.net";
@@ -215,36 +215,23 @@ impl Files {
         &self,
         selected: &BTreeSet<OptionId>,
         options: PlanOptions,
-        network: &impl AuthNetwork,
+        catalog: &impl ModpackCatalog,
     ) -> Result<PlannedDownloads, PackError> {
         let pinned: Vec<_> = self
             .0
             .iter()
             .filter(|file| file.required || selected.contains(file.selection_key().as_str()))
             .collect();
-        let mut planned = PlannedDownloads {
-            files: Vec::new(),
-            origins: PackOrigins::CurseForge,
-            cdn_key: None,
+        let files = if pinned.is_empty() {
+            Vec::new()
+        } else {
+            resolve::downloads(catalog, &pinned, options.auto_download_restricted()).await?
         };
-        if pinned.is_empty() {
-            return Ok(planned);
-        }
-        let key = api_key().ok_or(PackError::MissingCurseForgeKey)?;
-        planned.files = api::Client::new(network, &key)
-            .resolve(&pinned, options.auto_download_restricted())
-            .await?;
-        planned.cdn_key = Some(key);
-        Ok(planned)
+        Ok(PlannedDownloads {
+            files,
+            origins: PackOrigins::CurseForge,
+        })
     }
-}
-
-fn api_key() -> Option<String> {
-    std::env::var("AXLAUNCHER_CURSEFORGE_API_KEY")
-        .ok()
-        .into_iter()
-        .chain(option_env!("CURSEFORGE_API_KEY").map(str::to_owned))
-        .find_map(|key| (!key.trim().is_empty()).then(|| key.trim().to_owned()))
 }
 
 fn allows_cdn(url: &Url) -> bool {

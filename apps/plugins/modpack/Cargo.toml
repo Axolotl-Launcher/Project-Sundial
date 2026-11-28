@@ -12,7 +12,6 @@ license.workspace = true
 
 [dependencies]
 axlauncher_download_spi = { workspace = true }
-axlauncher_network_spi = { workspace = true }
 axlauncher_spi = { workspace = true }
 hex = { workspace = true }
 serde = { workspace = true }

@@ -278,7 +278,9 @@ async fn send(
     service: &'static str,
 ) -> Result<Response, MicrosoftError> {
     network.send(request).await.map_err(|error| match error {
-        TransportError::Unavailable => MicrosoftError::Unavailable(service),
+        TransportError::Unavailable | TransportError::Timeout => {
+            MicrosoftError::Unavailable(service)
+        }
         TransportError::InvalidResponse => MicrosoftError::InvalidResponse(service),
     })
 }

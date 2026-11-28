@@ -14,6 +14,7 @@ license.workspace = true
 axlauncher_domain = { workspace = true }
 axlauncher_network_spi = { workspace = true }
 serde = { workspace = true }
+thiserror = { workspace = true }
 
 [lints]
 workspace = true

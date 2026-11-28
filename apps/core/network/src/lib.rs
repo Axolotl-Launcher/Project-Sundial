@@ -85,10 +85,12 @@ impl ReqwestNetwork {
     /// A desktop client scoped to the caller's allowed origins, including redirects.
     pub fn desktop_with_download_policy(
         allow: fn(&Url) -> bool,
-        key: Option<(&'static str, &str)>,
+        key: Option<(&'static str, &axlauncher_network_spi::auth::ApiKey)>,
     ) -> Result<Self, FetchError> {
         let key = key
-            .map(|(host, value)| api_key_header(value).map(|value| DownloadKey { host, value }))
+            .map(|(host, value)| {
+                api_key_header(value.expose_secret()).map(|value| DownloadKey { host, value })
+            })
             .transpose()?;
         Self::build(
             DohConfig::default(),

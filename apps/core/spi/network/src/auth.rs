@@ -3,11 +3,34 @@
 
 //! Transport for credential-bearing HTTP requests.
 
+use std::fmt;
 use std::future::Future;
+use std::sync::Arc;
 
 /// Sends requests whose status and response body the caller must interpret.
 pub trait AuthNetwork {
     fn send(&self, request: Request<'_>) -> impl Future<Output = Result<Response, TransportError>>;
+}
+
+/// A validated header secret. Only the transport should expose its value.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ApiKey(Arc<str>);
+
+impl ApiKey {
+    pub fn new(value: &str) -> Option<Self> {
+        (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_graphic()))
+            .then(|| Self(Arc::from(value)))
+    }
+
+    pub fn expose_secret(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for ApiKey {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("ApiKey([redacted])")
+    }
 }
 
 /// The shared request fields for token exchanges and authenticated reads.
@@ -17,7 +40,7 @@ pub struct Request<'a> {
     pub user_agent: &'a str,
     pub bearer: Option<&'a str>,
     pub body: Option<Body>,
-    api_key: Option<&'a str>,
+    api_key: Option<&'a ApiKey>,
     minecraft_service: bool,
 }
 
@@ -43,12 +66,12 @@ impl<'a> Request<'a> {
         self
     }
 
-    pub fn with_api_key(mut self, key: &'a str) -> Self {
+    pub fn with_api_key(mut self, key: &'a ApiKey) -> Self {
         self.api_key = Some(key);
         self
     }
 
-    pub fn api_key(&self) -> Option<&'a str> {
+    pub fn api_key(&self) -> Option<&'a ApiKey> {
         self.api_key
     }
 
@@ -73,11 +96,23 @@ pub enum Body {
 pub struct Response {
     pub status: u16,
     pub body: Vec<u8>,
+    pub retry_after_seconds: Option<u32>,
+}
+
+impl Response {
+    pub fn new(status: u16, body: Vec<u8>) -> Self {
+        Self {
+            status,
+            body,
+            retry_after_seconds: None,
+        }
+    }
 }
 
 /// A transport failure with no secret-bearing request or response details.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportError {
     Unavailable,
+    Timeout,
     InvalidResponse,
 }

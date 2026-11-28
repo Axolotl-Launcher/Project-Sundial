@@ -66,15 +66,18 @@ pub(super) async fn open(
     if !compatible {
         return Err(FetchError::Fatal(format!("unexpected download protocol {received:?}")).into());
     }
-    Ok(describe(response).await?)
+    Ok(describe(response, key.is_some()).await?)
 }
 
-async fn describe(response: Response) -> Result<DownloadResponse<ResponseBody>, FetchError> {
+async fn describe(
+    response: Response,
+    keyed: bool,
+) -> Result<DownloadResponse<ResponseBody>, FetchError> {
     if !matches!(
         response.status(),
         StatusCode::OK | StatusCode::PARTIAL_CONTENT
     ) {
-        return Err(download_error(response).await);
+        return Err(download_error(response, keyed).await);
     }
     let headers = response.headers();
     let range = if response.status() == StatusCode::PARTIAL_CONTENT {
@@ -111,7 +114,7 @@ async fn describe(response: Response) -> Result<DownloadResponse<ResponseBody>, 
     })
 }
 
-async fn download_error(mut response: Response) -> FetchError {
+async fn download_error(mut response: Response, keyed: bool) -> FetchError {
     let status = response.status();
     if is_transient_status(status) {
         let retry_after = response
@@ -126,7 +129,11 @@ async fn download_error(mut response: Response) -> FetchError {
     }
     FetchError::Rejected {
         status: status.as_u16(),
-        body: rejection_excerpt(&mut response).await,
+        body: if keyed {
+            Vec::new()
+        } else {
+            rejection_excerpt(&mut response).await
+        },
     }
 }
 

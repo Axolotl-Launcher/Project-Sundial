@@ -42,7 +42,7 @@ const EXCEPTIONS: &[(&str, &str, &[&str])] = &[
         "collect_entry",
         &["{folder}/{name}"],
     ),
-    ("apps/plugins/modpack/build.rs", "main", &["../../../.env"]),
+    ("apps/core/src/secrets.rs", "load_curseforge", &["."]),
     (
         "apps/core/lib/src/bootstrap.rs",
         "worker_executable",

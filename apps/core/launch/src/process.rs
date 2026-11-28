@@ -116,6 +116,7 @@ pub(crate) fn build(command: &LaunchCommand) -> std::process::Command {
             }
         }
     }
+    child.env_remove("CURSEFORGE_API_KEY");
     platform::hide_console(&mut child);
     child
 }

@@ -29,7 +29,6 @@ operation_groups! {
     }
 
     curseforge => "curseforge" {
-        API_KEY_OVERRIDE => "curseforge_api_key_override",
         CAPABILITY => "curseforge_capability",
         CONFIGURE_MANUAL_DOWNLOAD_WATCHER => "curseforge_configure_manual_download_watcher",
         GET_CATEGORIES => "curseforge_get_categories",
@@ -40,7 +39,6 @@ operation_groups! {
         LIST_PENDING_MANUAL_DOWNLOADS => "curseforge_list_pending_manual_downloads",
         RECOGNIZE_INSTANCE_FILES => "curseforge_recognize_instance_files",
         SEARCH_PROJECTS => "curseforge_search_projects",
-        SET_API_KEY => "curseforge_set_api_key",
         UPDATE_MANAGED_MODPACK => "curseforge_update_managed_modpack",
         VALIDATE_CREDENTIALS => "curseforge_validate_credentials",
     }

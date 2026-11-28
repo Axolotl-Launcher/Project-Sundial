@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use axlauncher_download_spi::FileDownloader;
 use axlauncher_network::ReqwestNetwork;
-use axlauncher_worker::downloads::{Reply, Route, Transfer};
+use axlauncher_worker::downloads::{Reply, Transfer, TransferRoute};
 use axlauncher_worker::{Cancellation, Responder, serve};
 
 use crate::{Direct, DownloadEngine};
@@ -24,7 +24,7 @@ pub extern "C" fn axlauncher_downloads_v1() -> i32 {
 
 #[derive(Default)]
 struct Downloads {
-    routes: RefCell<Vec<(Route, ReqwestNetwork)>>,
+    routes: RefCell<Vec<(TransferRoute, ReqwestNetwork)>>,
     last_stats: Cell<Option<Instant>>,
 }
 
@@ -77,7 +77,7 @@ impl Downloads {
         }
     }
 
-    fn network(&self, route: &Route) -> Result<ReqwestNetwork, String> {
+    fn network(&self, route: &TransferRoute) -> Result<ReqwestNetwork, String> {
         let mut routes = self.routes.borrow_mut();
         if let Some((_, network)) = routes.iter().find(|(cached, _)| cached == route) {
             return Ok(network.clone());

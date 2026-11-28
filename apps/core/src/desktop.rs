@@ -6,6 +6,7 @@
 use std::future::Future;
 
 pub mod catalog;
+pub mod curseforge;
 pub mod installation;
 pub mod instance_settings;
 pub mod java;
@@ -22,7 +23,19 @@ pub mod accounts {
 }
 
 pub mod downloads {
+    use axlauncher_download_spi::PackOrigins;
+    use axlauncher_storage::DataDir;
+
     pub use axlauncher_worker::downloads::{Downloads, Route as DownloadRoute, stats};
+
+    /// Resolves a pack's download policy without adding credentials to the caller's handle.
+    pub fn for_pack(data: DataDir, origins: PackOrigins) -> Downloads {
+        let downloads = Downloads::new(data, DownloadRoute::Pack(origins));
+        if origins == PackOrigins::CurseForge {
+            return downloads.with_curseforge_key_source(|| crate::secrets::curseforge().ok());
+        }
+        downloads
+    }
 }
 
 pub mod modrinth {

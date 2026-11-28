@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-use axlauncher_network_spi::auth::{AuthNetwork, Body, Request, Response, TransportError};
+use axlauncher_spi::curseforge::{CatalogError, File, Mod, ModpackCatalog};
 use serde_json::json;
 
-use super::{PinnedFile, api};
+use super::{PinnedFile, resolve};
 use crate::PlanOptions;
 use crate::test_futures::executor::block_on;
 
@@ -16,31 +16,26 @@ struct Metadata {
     url: Option<&'static str>,
 }
 
-impl AuthNetwork for Metadata {
-    async fn send(&self, request: Request<'_>) -> Result<Response, TransportError> {
-        assert_eq!(request.api_key(), Some("fixture-key"));
-        let Some(Body::Json(body)) = request.body else {
-            panic!("expected a JSON POST")
-        };
-        let body: serde_json::Value = serde_json::from_str(&body).unwrap();
-        let data = match request.url {
-            "https://api.curseforge.com/v1/mods/files" => {
-                assert_eq!(body, json!({"fileIds": [FILE]}));
-                json!({"id": FILE, "modId": self.project, "gameId": 432,
-                    "fileName": "shader+pack test.zip", "fileLength": 3, "isAvailable": true, "downloadUrl": self.url,
-                    "hashes": [{"algo": 2, "value": "900150983cd24fb0d6963f7d28e17f72"}]})
-            }
-            "https://api.curseforge.com/v1/mods" => {
-                assert_eq!(body, json!({"modIds": [PROJECT]}));
-                json!({"id": PROJECT, "gameId": 432, "classId": 6552, "allowModDistribution": false,
-                    "links": {"websiteUrl": "https://www.curseforge.com/minecraft/shaders/example/"}})
-            }
-            _ => panic!("unexpected CurseForge route"),
-        };
-        Ok(Response {
-            status: 200,
-            body: json!({"data": [data]}).to_string().into_bytes(),
-        })
+impl ModpackCatalog for Metadata {
+    async fn get_files(&self, ids: &[u32]) -> Result<Vec<File>, CatalogError> {
+        assert_eq!(ids, [FILE]);
+        Ok(serde_json::from_value(json!([{
+            "id": FILE, "modId": self.project, "gameId": 432,
+            "fileName": "shader+pack test.zip", "displayName": "Shader Pack", "fileLength": 3,
+            "isAvailable": true, "downloadUrl": self.url, "gameVersions": ["1.21"],
+            "hashes": [{"algo": 2, "value": "900150983cd24fb0d6963f7d28e17f72"}]
+        }]))
+        .unwrap())
+    }
+
+    async fn get_mods(&self, ids: &[u32]) -> Result<Vec<Mod>, CatalogError> {
+        assert_eq!(ids, [PROJECT]);
+        Ok(serde_json::from_value(json!([{
+            "id": PROJECT, "gameId": 432, "classId": 6552, "allowModDistribution": false,
+            "name": "Shader Pack", "slug": "example", "summary": "Test fixture.",
+            "links": {"websiteUrl": "https://www.curseforge.com/minecraft/shaders/example/"}
+        }]))
+        .unwrap())
     }
 }
 
@@ -58,10 +53,12 @@ fn restricted_files_use_the_official_cdn_by_default_and_keep_a_manual_page() {
         project: PROJECT,
         url: None,
     };
-    let client = api::Client::new(&network, "fixture-key");
-    let files =
-        block_on(client.resolve(&[&pin()], PlanOptions::default().auto_download_restricted()))
-            .unwrap();
+    let files = block_on(resolve::downloads(
+        &network,
+        &[&pin()],
+        PlanOptions::default().auto_download_restricted(),
+    ))
+    .unwrap();
     let file = &files[0];
     assert_eq!(file.path(), "shaderpacks/shader+pack test.zip");
     assert_eq!(
@@ -75,7 +72,7 @@ fn restricted_files_use_the_official_cdn_by_default_and_keep_a_manual_page() {
     assert!(file.verify(&b"abc"[..]).is_ok());
     assert!(file.verify(&b"bad"[..]).is_err());
 
-    let manual = block_on(client.resolve(&[&pin()], false)).unwrap();
+    let manual = block_on(resolve::downloads(&network, &[&pin()], false)).unwrap();
     assert!(manual[0].urls().is_empty());
     assert_eq!(manual[0].manual_url(), file.manual_url());
 }
@@ -86,14 +83,12 @@ fn metadata_must_match_the_pinned_project_and_foreign_urls_are_not_used() {
         project: 22,
         url: None,
     };
-    let client = api::Client::new(&wrong_project, "fixture-key");
-    assert!(block_on(client.resolve(&[&pin()], true)).is_err());
+    assert!(block_on(resolve::downloads(&wrong_project, &[&pin()], true)).is_err());
 
     let network = Metadata {
         project: PROJECT,
         url: Some("https://unrelated.example/shader.zip"),
     };
-    let client = api::Client::new(&network, "fixture-key");
-    let files = block_on(client.resolve(&[&pin()], true)).unwrap();
+    let files = block_on(resolve::downloads(&network, &[&pin()], true)).unwrap();
     assert!(files[0].urls()[0].starts_with("https://edge.forgecdn.net/"));
 }

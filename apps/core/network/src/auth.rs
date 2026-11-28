@@ -3,18 +3,20 @@
 
 //! HTTP transport for authentication requests.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use axlauncher_network_spi::ServiceHost;
 use axlauncher_network_spi::auth::{AuthNetwork, Body, Request, Response, TransportError};
-use reqwest::header::{ACCEPT, CONTENT_TYPE, USER_AGENT};
+use reqwest::header::{ACCEPT, CONTENT_TYPE, RETRY_AFTER, USER_AGENT};
 use url::Url;
 
 mod callback;
 pub use callback::{BrowserCallback, CallbackError};
 
 const TIMEOUT: Duration = Duration::from_secs(20);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_BODY_BYTES: usize = 256 * 1024;
+const MAX_KEYED_BODY_BYTES: usize = 8 * 1024 * 1024;
 
 /// Sends authentication requests over HTTPS without redirecting credentials.
 #[derive(Clone)]
@@ -31,6 +33,7 @@ impl AuthHttp {
             .dns_resolver(std::sync::Arc::new(resolver))
             .https_only(true)
             .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(CONNECT_TIMEOUT)
             .timeout(TIMEOUT)
             .build()
             .map(|client| Self {
@@ -71,15 +74,14 @@ impl AuthHttp {
         let builder = match api_key {
             Some(key) => builder.header(
                 "x-api-key",
-                super::api_key_header(key).map_err(|_| TransportError::InvalidResponse)?,
+                super::api_key_header(key.expose_secret())
+                    .map_err(|_| TransportError::InvalidResponse)?,
             ),
             None => builder,
         };
         read_response(
-            builder
-                .send()
-                .await
-                .map_err(|_| TransportError::Unavailable)?,
+            builder.send().await.map_err(request_error)?,
+            api_key.is_some(),
         )
         .await
     }
@@ -120,20 +122,51 @@ fn fallen_service_url(request: &Request<'_>, host: &ServiceHost) -> Option<Url> 
     Some(url)
 }
 
-async fn read_response(mut response: reqwest::Response) -> Result<Response, TransportError> {
-    let status = response.status().as_u16();
-    let mut body = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|_| TransportError::Unavailable)?
+fn request_error(error: reqwest::Error) -> TransportError {
+    if error.is_timeout() {
+        TransportError::Timeout
+    } else {
+        TransportError::Unavailable
+    }
+}
+
+async fn read_response(
+    mut response: reqwest::Response,
+    keyed: bool,
+) -> Result<Response, TransportError> {
+    let status = response.status();
+    let mut reply = Response::new(status.as_u16(), Vec::new());
+    if keyed && !status.is_success() {
+        reply.retry_after_seconds = retry_after_seconds(response.headers());
+        return Ok(reply);
+    }
+    let limit = if keyed {
+        MAX_KEYED_BODY_BYTES
+    } else {
+        MAX_BODY_BYTES
+    };
+    if response
+        .content_length()
+        .is_some_and(|length| length > limit as u64)
     {
-        if body.len() + chunk.len() > MAX_BODY_BYTES {
+        return Err(TransportError::InvalidResponse);
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(request_error)? {
+        if chunk.len() > limit - body.len() {
             return Err(TransportError::InvalidResponse);
         }
         body.extend_from_slice(&chunk);
     }
-    Ok(Response { status, body })
+    reply.body = body;
+    Ok(reply)
+}
+
+fn retry_after_seconds(headers: &reqwest::header::HeaderMap) -> Option<u32> {
+    let value = headers.get(RETRY_AFTER)?.to_str().ok()?;
+    let delay = super::transfer::retry_delay(value, SystemTime::now())?;
+    let seconds = delay.as_secs() + u64::from(delay.subsec_nanos() != 0);
+    Some(u32::try_from(seconds).unwrap_or(u32::MAX))
 }
 
 #[cfg(test)]
