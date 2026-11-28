@@ -92,6 +92,21 @@ path = [".npmrc", ".editorconfig", ".gitattributes", ".gitignore"]
 SPDX-FileCopyrightText = "2026 Axolotl Team"
 SPDX-License-Identifier = "GPL-3.0-only"
 
+[[annotations]]
+path = [
+  ".env.example",
+  "apps/core/content/src/curseforge.rs",
+  "apps/core/content/src/curseforge/**",
+  "apps/core/spi/src/curseforge.rs",
+  "apps/core/src/desktop/curseforge.rs",
+  "apps/core/src/secrets.rs",
+  "tests/apps/core/content/src/curseforge.rs",
+  "tests/apps/core/src/secrets.rs",
+  "tests/tests/curseforge_secret_boundary.rs",
+]
+SPDX-FileCopyrightText = "2026 Axolotl Team"
+SPDX-License-Identifier = "GPL-3.0-only"
+
 # deslop-please rewrites this file from scratch on --update-allow, so a header
 # inside it would be lost.
 [[annotations]]

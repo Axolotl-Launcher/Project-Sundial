@@ -13,7 +13,7 @@ use axlauncher_spi::{Storage, StorageError};
 mod atomic_file;
 pub use atomic_file::AtomicFile;
 mod credentials;
-pub use credentials::SystemCredentials;
+pub use credentials::{CURSEFORGE_API_KEY, SystemCredentials, sanitize_child_environment};
 mod device_user;
 pub use device_user::DeviceUserId;
 

@@ -612,6 +612,10 @@ version = "0.1.0"
 dependencies = [
  "axlauncher_network_spi",
  "axlauncher_spi",
+ "futures",
+ "serde",
+ "serde_json",
+ "url",
 ]
 
 [[package]]
@@ -642,6 +646,7 @@ dependencies = [
  "axlauncher_loader",
  "axlauncher_mc_version",
  "axlauncher_mod_metadata",
+ "axlauncher_modpack",
  "axlauncher_network",
  "axlauncher_network_spi",
  "axlauncher_observability",
@@ -654,6 +659,8 @@ dependencies = [
  "axlauncher_worker",
  "tempfile",
  "tokio",
+ "url",
+ "zip",
 ]
 
 [[package]]
@@ -829,7 +836,6 @@ name = "axlauncher_modpack"
 version = "0.1.0"
 dependencies = [
  "axlauncher_download_spi",
- "axlauncher_network_spi",
  "axlauncher_spi",
  "futures",
  "hex",
@@ -955,6 +961,7 @@ dependencies = [
  "axlauncher_domain",
  "axlauncher_network_spi",
  "serde",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

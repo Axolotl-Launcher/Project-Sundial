@@ -18,8 +18,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use axlauncher_download_spi::{ExtraDigest, PackOrigins};
-use axlauncher_network_spi::auth::AuthNetwork;
 use axlauncher_spi::LoaderKind;
+use axlauncher_spi::curseforge::{CatalogError, ModpackCatalog};
 
 use archive::{Archive, Entry};
 
@@ -77,10 +77,8 @@ pub enum PackError {
     Unsupported(String),
     #[error("Invalid modpack: {0}")]
     Invalid(String),
-    #[error(
-        "CurseForge API key missing. Set CURSEFORGE_API_KEY in the workspace .env and rebuild, or set AXLAUNCHER_CURSEFORGE_API_KEY before starting the launcher."
-    )]
-    MissingCurseForgeKey,
+    #[error(transparent)]
+    Catalog(#[from] CatalogError),
     #[error("CurseForge metadata could not be resolved: {0}")]
     CurseForge(String),
     #[error("Could not read the modpack: {0}")]
@@ -206,7 +204,6 @@ impl PlanOptions {
 struct PlannedDownloads {
     files: Vec<Download>,
     origins: PackOrigins,
-    cdn_key: Option<String>,
 }
 
 impl Pack {
@@ -243,15 +240,14 @@ impl Pack {
         &self,
         selected: &BTreeSet<OptionId>,
         options: PlanOptions,
-        network: &impl AuthNetwork,
+        catalog: &impl ModpackCatalog,
     ) -> Result<InstallPlan, PackError> {
         let mut downloads = match &self.files {
             PackFiles::Modrinth(files) => files.plan(selected),
-            PackFiles::CurseForge(files) => files.plan(selected, options, network).await?,
+            PackFiles::CurseForge(files) => files.plan(selected, options, catalog).await?,
             PackFiles::Bundled => PlannedDownloads {
                 files: Vec::new(),
                 origins: PackOrigins::None,
-                cdn_key: None,
             },
         };
         paths::check_tree(downloads.files.iter().map(Download::path))?;
@@ -329,11 +325,6 @@ impl InstallPlan {
     /// A transport can apply the reader's redirect policy without inspecting the source.
     pub fn download_origins(&self) -> PackOrigins {
         self.downloads.origins
-    }
-
-    /// Credentials for direct file requests to the authenticated CDN origin.
-    pub fn download_key(&self) -> Option<&str> {
-        self.downloads.cdn_key.as_deref()
     }
 
     /// Bundled payloads stream through a host-supplied writer at their final relative paths.

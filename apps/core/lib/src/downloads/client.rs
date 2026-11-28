@@ -6,6 +6,7 @@ use std::sync::{Arc, OnceLock};
 use axlauncher_download_spi::{
     DownloadJob, DownloadOutcome, ExtraDigest, FileDownloader, MissingFile, TransferStats, batch,
 };
+use axlauncher_network_spi::auth::ApiKey;
 use axlauncher_storage::DataDir;
 use futures::Stream;
 
@@ -47,11 +48,22 @@ pub fn stats() -> TransferStats {
 pub struct Downloads {
     data: DataDir,
     route: Route,
+    curseforge_key: fn() -> Option<&'static ApiKey>,
 }
 
 impl Downloads {
     pub fn new(data: DataDir, route: Route) -> Self {
-        Self { data, route }
+        Self {
+            data,
+            route,
+            curseforge_key: || None,
+        }
+    }
+
+    /// Borrows the application secret when encoding a CurseForge transfer.
+    pub fn with_curseforge_key_source(mut self, key: fn() -> Option<&'static ApiKey>) -> Self {
+        self.curseforge_key = key;
+        self
     }
 
     /// Keeps the shared process available across a multi-file operation without starting it.
@@ -128,7 +140,8 @@ impl FileDownloader for Downloads {
             .get()
             .ok_or("The embedded download worker is unavailable.")?;
         let transfer =
-            Transfer::new(self.route.clone(), job, digest).map_err(|error| error.to_string())?;
+            Transfer::new_with_key(self.route.clone(), job, digest, (self.curseforge_key)())
+                .map_err(|error| error.to_string())?;
         let mut response = worker.request(&self.data, transfer)?;
         match response.next().await {
             Some(Event::Finished(result)) => result,

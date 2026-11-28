@@ -20,6 +20,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 use axlauncher_spi::{LaunchCommand, LaunchError};
+use axlauncher_storage::sanitize_child_environment;
 
 use crate::platform;
 
@@ -116,6 +117,7 @@ pub(crate) fn build(command: &LaunchCommand) -> std::process::Command {
             }
         }
     }
+    sanitize_child_environment(&mut child);
     platform::hide_console(&mut child);
     child
 }

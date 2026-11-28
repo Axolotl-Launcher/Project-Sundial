@@ -153,7 +153,6 @@ impl Files {
         PlannedDownloads {
             files,
             origins: PackOrigins::Modrinth,
-            cdn_key: None,
         }
     }
 }

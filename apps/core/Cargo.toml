@@ -30,9 +30,12 @@ axlauncher_storage = { workspace = true }
 axlauncher_telemetry = { workspace = true }
 axlauncher_worker = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+url = { workspace = true }
 
 [dev-dependencies]
+axlauncher_modpack = { workspace = true }
 tempfile = { workspace = true }
+zip = { workspace = true }
 
 [lints]
 workspace = true

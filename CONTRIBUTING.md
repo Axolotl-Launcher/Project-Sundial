@@ -133,13 +133,37 @@ installation data without an independent digest. **Trust built-in mirror**
 also permits those inputs from the mirror for that category.
 MCIM still follows the upstream source. Fallen-Proxy has a separate opt-in.
 
-### CurseForge modpack imports
+### CurseForge catalog and modpack imports
 
-Set `CURSEFORGE_API_KEY` in the gitignored `.env` at the workspace root before
-building the launcher. Cargo embeds the key in the executable, including
-release builds. A build environment variable named `CURSEFORGE_API_KEY` takes
-precedence over the file. `AXLAUNCHER_CURSEFORGE_API_KEY` can supply a runtime
-override. Builds without a key can still import packs with bundled files only.
+Copy `.env.example` to `.env` in the launcher's working directory (the
+workspace root for `pnpm dev`) or set `CURSEFORGE_API_KEY` in the launcher's
+process environment. Restart the launcher after changing the setting. The
+first nonblank value wins, in this order:
+
+1. The process environment.
+2. `.env.development.local` (debug builds) or `.env.production.local` (release builds).
+3. `.env.local`.
+4. `.env.development` (debug builds) or `.env.production` (release builds).
+5. `.env`.
+6. The build-time default, if the release was built with `CURSEFORGE_API_KEY`.
+
+Values in files are literal, including `$`; use quotes for values containing
+`#`. A malformed nonblank override disables CurseForge rather than silently
+using a different key. The old runtime setting `AXLAUNCHER_CURSEFORGE_API_KEY`
+has been removed. Use `CURSEFORGE_API_KEY` instead. Builds without a key can
+still use other providers and import CurseForge packs with only bundled files.
+
+The launcher's own subprocess commands strip this variable, including game and
+installer JVMs. Prefer `.env.local` to keep the key out of the process
+environment altogether.
+
+Controlled release builds may supply the GitHub Actions Secret
+`CURSEFORGE_API_KEY` as an environment variable for the release compilation
+step (`node scripts/desktop.ts build`), not PR/test jobs or shared build
+caches. The default pure Nix build does not import the build environment. An
+embedded key is extractable from the shipped binary: provision it accordingly
+and do not treat the binary as secret storage. Runtime `.env*` files are
+gitignored, and the build does not read them.
 
 The import waits for any files that need manual downloading. Use **Choose
 file…** for those entries, then **Continue installation**. The same session

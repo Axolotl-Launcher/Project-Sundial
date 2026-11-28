@@ -285,10 +285,7 @@ impl AuthNetwork for Exchange {
         ) {
             assert_eq!(request.bearer, Some("minecraft-access"));
         }
-        Ok(Response {
-            status: 200,
-            body: body.as_bytes().to_vec(),
-        })
+        Ok(Response::new(200, body.as_bytes().to_vec()))
     }
 }
 

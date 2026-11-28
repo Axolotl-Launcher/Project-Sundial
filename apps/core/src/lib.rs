@@ -9,6 +9,7 @@
 
 pub mod desktop;
 pub mod launch_accounts;
+mod secrets;
 
 pub use axlauncher_content as content;
 pub use axlauncher_domain as domain;

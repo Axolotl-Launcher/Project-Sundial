@@ -29,10 +29,7 @@ impl AuthNetwork for SignInProvider {
             }
             Some(Body::Form(_)) => panic!("unexpected form request"),
         };
-        Ok(Response {
-            status: 200,
-            body: serde_json::to_vec(&body).unwrap(),
-        })
+        Ok(Response::new(200, serde_json::to_vec(&body).unwrap()))
     }
 }
 

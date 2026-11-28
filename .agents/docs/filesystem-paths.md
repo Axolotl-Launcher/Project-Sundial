@@ -98,7 +98,7 @@ in the workspace CI test matrix. Fixtures in `tests/` may use literal paths.
 
 Keep exceptions local to a source file, function, and literal, and explain
 why the path cannot use a storage API. The current exceptions cover JDK and
-Minecraft save formats, the modpack build script's repository `.env`,
+Minecraft save formats, the application secret resolver's launch-directory `.env*`,
 filenames private to the standalone converter's generated scratch directory,
 and Linux's `/proc/self/exe` process reference for spawning embedded workers.
 The check is not a dataflow analyzer; review indirect path assembly against

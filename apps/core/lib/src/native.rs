@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
-use axlauncher_storage::{DataDir, ScratchSpace, WorkerLibrary};
+use axlauncher_storage::{DataDir, ScratchSpace, WorkerLibrary, sanitize_child_environment};
 
 pub(crate) const WORKER_ARGUMENT: &str = "--axlauncher-worker";
 
@@ -65,8 +65,7 @@ impl Image {
             use std::os::unix::process::CommandExt;
             command.process_group(0);
         }
-        command
-            .env_remove("CURSEFORGE_API_KEY")
+        sanitize_child_environment(&mut command)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

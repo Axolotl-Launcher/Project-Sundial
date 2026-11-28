@@ -3,6 +3,8 @@
 
 //! Content model and providers.
 
+pub mod curseforge;
+
 use axlauncher_network_spi::FetchError;
 use axlauncher_spi::{ContentProvider, ContentSummary};
 

@@ -12,9 +12,9 @@ const ABC_SHA1: &str = "a9993e364706816aba3e25717850c26c9cd0d89d";
 #[test]
 fn a_download_key_stays_on_its_https_origin() {
     let host = "edge.forgecdn.net";
+    let key = axlauncher_network_spi::auth::ApiKey::new(&"a".repeat(30)).unwrap();
     let client =
-        ReqwestNetwork::desktop_with_download_policy(|_| true, Some((host, "fixture-key")))
-            .unwrap();
+        ReqwestNetwork::desktop_with_download_policy(|_| true, Some((host, &key))).unwrap();
     let edge = Url::parse("https://edge.forgecdn.net/files/example.jar").unwrap();
     let media = Url::parse("https://media.forgecdn.net/files/example.jar").unwrap();
     assert!(client.download_key(edge.as_str()).unwrap().is_sensitive());

@@ -12,6 +12,7 @@
 //! macro: the workspace's MSRV supports it, and it avoids a box per call.
 
 pub mod credentials;
+pub mod curseforge;
 pub mod desktop;
 pub mod mc_version;
 

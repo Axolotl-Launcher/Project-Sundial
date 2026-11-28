@@ -4,7 +4,8 @@ use std::path::PathBuf;
 
 use axlauncher_download_spi::{DownloadJob, ExtraDigest, PackOrigins, TransferStats};
 use axlauncher_network::{MirrorSettings, ReqwestNetwork};
-use serde::{Deserialize, Serialize};
+use axlauncher_network_spi::auth::ApiKey;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 mod client;
 pub use client::{Downloads, stats};
@@ -13,10 +14,7 @@ pub(crate) use client::{close, configure, wait_closed};
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Route {
     Mirrors(MirrorSettings),
-    Pack {
-        origins: PackOrigins,
-        key: Option<String>,
-    },
+    Pack(PackOrigins),
 }
 
 impl Default for Route {
@@ -25,20 +23,37 @@ impl Default for Route {
     }
 }
 
-impl Route {
+/// The private worker request carries credentials separately from the host route.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransferRoute {
+    route: Route,
+    key: Option<WireKey>,
+}
+
+impl TransferRoute {
+    fn new(route: Route, key: Option<&ApiKey>) -> Self {
+        let key = if matches!(route, Route::Pack(PackOrigins::CurseForge)) {
+            key.cloned().map(WireKey)
+        } else {
+            None
+        };
+        Self { route, key }
+    }
+
     pub fn network(&self) -> Result<ReqwestNetwork, String> {
-        let result = match self {
-            Self::Mirrors(settings) => ReqwestNetwork::desktop_with_mirrors(settings.clone()),
-            Self::Pack { origins, key } => {
+        let result = match &self.route {
+            Route::Mirrors(settings) => ReqwestNetwork::desktop_with_mirrors(settings.clone()),
+            Route::Pack(origins) => {
                 let allows: fn(&url::Url) -> bool = match origins {
                     PackOrigins::Modrinth => |url| PackOrigins::Modrinth.allows(url, true),
                     PackOrigins::CurseForge => |url| PackOrigins::CurseForge.allows(url, true),
                     PackOrigins::None => |_| false,
                 };
                 let key = match origins {
-                    PackOrigins::CurseForge => key
-                        .as_deref()
-                        .map(|key| (PackOrigins::AUTHENTICATED_CDN, key)),
+                    PackOrigins::CurseForge => self
+                        .key
+                        .as_ref()
+                        .map(|key| (PackOrigins::AUTHENTICATED_CDN, &key.0)),
                     _ => None,
                 };
                 ReqwestNetwork::desktop_with_download_policy(allows, key)
@@ -48,9 +63,27 @@ impl Route {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
+struct WireKey(ApiKey);
+
+impl Serialize for WireKey {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.0.expose_secret())
+    }
+}
+
+impl<'de> Deserialize<'de> for WireKey {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        ApiKey::new(&value)
+            .map(Self)
+            .ok_or_else(|| serde::de::Error::custom("invalid download credential"))
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Transfer {
-    route: Route,
+    route: TransferRoute,
     file: File,
 }
 
@@ -76,11 +109,26 @@ impl Transfer {
         Ok(Self::with_file(route, File::new(job, digest)?))
     }
 
-    pub(super) fn with_file(route: Route, file: File) -> Self {
-        Self { route, file }
+    fn new_with_key(
+        route: Route,
+        job: DownloadJob<'_>,
+        digest: Option<ExtraDigest>,
+        key: Option<&ApiKey>,
+    ) -> std::io::Result<Self> {
+        Ok(Self {
+            route: TransferRoute::new(route, key),
+            file: File::new(job, digest)?,
+        })
     }
 
-    pub fn route(&self) -> &Route {
+    pub(super) fn with_file(route: Route, file: File) -> Self {
+        Self {
+            route: TransferRoute::new(route, None),
+            file,
+        }
+    }
+
+    pub fn route(&self) -> &TransferRoute {
         &self.route
     }
 
@@ -127,3 +175,7 @@ impl File {
 }
 
 pub type Reply = TransferStats;
+
+#[cfg(test)]
+#[path = "../../../../tests/apps/core/lib/src/downloads.rs"]
+mod tests;

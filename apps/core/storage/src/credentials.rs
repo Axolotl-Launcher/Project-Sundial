@@ -1,11 +1,19 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! The operating system's credential store for Minecraft accounts.
+//! Platform credential storage and child process credential isolation.
+
+use std::process::Command;
 
 use axlauncher_spi::credentials::{CredentialError, CredentialStore};
 
 const SERVICE: &str = "AXLauncher Minecraft accounts";
+pub const CURSEFORGE_API_KEY: &str = "CURSEFORGE_API_KEY";
+
+/// Launcher credentials are not inherited by child commands.
+pub fn sanitize_child_environment(command: &mut Command) -> &mut Command {
+    command.env_remove(CURSEFORGE_API_KEY)
+}
 
 /// Keeps account tokens in the platform credential store.
 #[derive(Clone, Copy, Default)]

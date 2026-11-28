@@ -8,12 +8,12 @@ use std::path::{Path, PathBuf};
 use std::thread;
 
 use axlauncher_core::install::prepare::Progress as GameProgress;
-use axlauncher_core::network::auth::AuthHttp;
 use axlauncher_core::state::profile::Game;
 use axlauncher_core::storage::DataDir;
 use axlauncher_modpack::{ModpackPlugin, OptionId, Pack, PlanOptions};
 
 use axlauncher_core::desktop::{
+    curseforge::DesktopCurseForge,
     installation::{self, InstallTarget},
     sources::DownloadOptions,
 };
@@ -88,10 +88,8 @@ pub(super) fn install(
     report: impl Fn(ProgressUpdate) + Sync,
 ) -> Result<Outcome, String> {
     report(ProgressUpdate::Pack(PackState::Planning));
-    let api = AuthHttp::desktop()
-        .map_err(|error| format!("Could not start the metadata client: {error:?}"))?;
     let plan = install_runtime()?
-        .block_on(pack.plan(selected, policy, &api))
+        .block_on(pack.plan(selected, policy, &DesktopCurseForge))
         .map_err(|error| error.to_string())?;
     let mut game = Game::new(plan.game().minecraft());
     if let Some((kind, version)) = plan.game().loader() {

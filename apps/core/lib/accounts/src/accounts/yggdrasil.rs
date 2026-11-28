@@ -316,7 +316,7 @@ async fn send(
     request: Request<'_>,
 ) -> Result<Response, YggdrasilError> {
     network.send(request).await.map_err(|error| match error {
-        TransportError::Unavailable => YggdrasilError::Unavailable,
+        TransportError::Unavailable | TransportError::Timeout => YggdrasilError::Unavailable,
         TransportError::InvalidResponse => YggdrasilError::InvalidResponse,
     })
 }

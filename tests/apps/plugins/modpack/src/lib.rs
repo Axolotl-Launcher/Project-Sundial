@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::Path;
 
 use super::test_sha2::{Digest, Sha512};
-use axlauncher_network_spi::auth::{AuthNetwork, Request, Response, TransportError};
+use axlauncher_spi::curseforge::{CatalogError, File as CurseForgeFile, Mod, ModpackCatalog};
 use serde_json::{Value, json};
 use zip::{ZipWriter, write::SimpleFileOptions};
 
@@ -19,8 +19,12 @@ mod multimc;
 
 struct Offline;
 
-impl AuthNetwork for Offline {
-    async fn send(&self, _: Request<'_>) -> Result<Response, TransportError> {
+impl ModpackCatalog for Offline {
+    async fn get_files(&self, _: &[u32]) -> Result<Vec<CurseForgeFile>, CatalogError> {
+        panic!("the local plan does not need authenticated metadata")
+    }
+
+    async fn get_mods(&self, _: &[u32]) -> Result<Vec<Mod>, CatalogError> {
         panic!("the local plan does not need authenticated metadata")
     }
 }
