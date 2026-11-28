@@ -40,19 +40,9 @@ impl DeviceUserId {
             || "unknown".to_owned(),
             |principal| digest("os-principal", principal),
         );
-        let binding = config.ok_or_else(unavailable).and_then(|config| {
-            let directory = config.join(scope);
-            let namespace = load_or_create(&directory.join("device-user-id"), native.as_deref())?;
-            let Some(native) = native.as_deref() else {
-                return Ok(namespace);
-            };
-            let anchor = load_or_create(&directory.join("native-device-id"), Some(native))?;
-            Ok(if anchor.as_str() == native {
-                namespace
-            } else {
-                Self(native.to_owned())
-            })
-        });
+        let binding = config
+            .ok_or_else(unavailable)
+            .and_then(|config| installation_namespace(&config.join(scope), native.as_deref()));
         binding.or_else(|error| native.map(Self).ok_or(error))
     }
 }
@@ -64,6 +54,17 @@ fn unavailable() -> io::Error {
 fn digest(kind: &str, value: &str) -> String {
     let input = format!("axlauncher:{kind}:v1\0{}\0{value}", std::env::consts::OS);
     hex::encode(Sha256::digest(input))
+}
+
+fn installation_namespace(directory: &Path, native: Option<&str>) -> io::Result<DeviceUserId> {
+    let Some(native) = native else {
+        return load_or_create(&directory.join("device-user-id"), None);
+    };
+    let anchor = load_or_create(&directory.join("native-device-id"), Some(native))?;
+    if anchor.as_str() == native {
+        return load_or_create(&directory.join("device-user-id"), Some(native));
+    }
+    Ok(DeviceUserId(native.to_owned()))
 }
 
 fn load_or_create(path: &Path, seed: Option<&str>) -> io::Result<DeviceUserId> {
