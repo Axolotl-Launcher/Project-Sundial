@@ -44,17 +44,11 @@ hooks = [
   { id = "check-json" },
   # turbo.jsonc uses trailing commas, which turbo accepts and this hook does
   # not; the file is validated by `turbo ls` in CI instead.
-  {
-    id = "check-jsonc",
-    exclude = '''^turbo\.jsonc$''',
-  },
+  { id = "check-jsonc", exclude = '''^turbo\.jsonc$''' },
   { id = "check-toml" },
   # pnpm-lock.yaml is a multi-document stream, which the single-document check
   # rejects. pnpm verifies it on install.
-  {
-    id = "check-yaml",
-    exclude = '''^pnpm-lock\.yaml$''',
-  },
+  { id = "check-yaml", exclude = '''^pnpm-lock\.yaml$''' },
   { id = "check-xml" },
 
   # Commit message policy. AGENTS.md requires a DCO sign-off and a Conventional
@@ -65,12 +59,7 @@ hooks = [
   # The subject's Conventional Commit shape is not checked here: this hook only
   # reads trailers, and the subject is the message's first line, not a trailer.
   # AGENTS.md states the subject format, and review enforces it.
-  {
-    id = "check-commit-trailers",
-    # Literal strings: the regex uses backslashes TOML would otherwise escape.
-    args = ['''--require=Signed-off-by=^.+ <.+@.+>$'''],
-    stages = ["commit-msg", "pre-push"],
-  },
+  { id = "check-commit-trailers", args = ['''--require=Signed-off-by=^.+ <.+@.+>$'''], stages = ["commit-msg", "pre-push"] },
   # Commit signature verification is temporarily disabled.
   # { id = "check-signed-commit", stages = ["pre-push"] },
 ]
@@ -78,38 +67,10 @@ hooks = [
 [[repos]]
 repo = "local"
 hooks = [
-  {
-    id = "english-commit-message",
-    name = "commit message is English",
-    language = "system",
-    entry = "node scripts/check-commit-message.ts",
-    pass_filenames = true,
-    stages = ["commit-msg"],
-  },
+  { id = "english-commit-message", name = "commit message is English", language = "system", entry = "node scripts/check-commit-message.ts", pass_filenames = true, stages = ["commit-msg"] },
   # Formatters only. CI runs the same checks, but catching a formatting
   # failure here costs a second instead of a round trip.
-  {
-    id = "format-rust",
-    name = "cargo fmt",
-    language = "system",
-    entry = "cargo fmt --all --check",
-    pass_filenames = false,
-    always_run = true,
-  },
-  {
-    id = "format-toml",
-    name = "tombi format",
-    language = "system",
-    entry = "tombi format --check",
-    pass_filenames = false,
-    always_run = true,
-  },
-  {
-    id = "file-length",
-    name = "code file line limit",
-    language = "system",
-    entry = "node scripts/check-file-length.ts",
-    files = "[.](rs|ts|tsx|js|jsx|mjs|cjs)$",
-    stages = ["pre-commit"],
-  },
+  { id = "format-rust", name = "cargo fmt", language = "system", entry = "cargo fmt --all --check", pass_filenames = false, always_run = true },
+  { id = "format-toml", name = "tombi format", language = "system", entry = "tombi format --check", pass_filenames = false, always_run = true },
+  { id = "file-length", name = "code file line limit", language = "system", entry = "node scripts/check-file-length.ts", files = "[.](rs|ts|tsx|js|jsx|mjs|cjs)$", stages = ["pre-commit"] },
 ]

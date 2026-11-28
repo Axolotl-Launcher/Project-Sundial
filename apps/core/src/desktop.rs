@@ -10,6 +10,7 @@ pub mod installation;
 pub mod instance_settings;
 pub mod java;
 pub mod launching;
+pub mod project_images;
 pub mod sources;
 
 pub mod accounts {
