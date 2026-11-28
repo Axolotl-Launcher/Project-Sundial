@@ -1,10 +1,12 @@
 use std::fs;
 use std::io::{Cursor, Write};
+use std::process::Command;
 use std::time::Duration;
 
 use axlauncher_install::loader::check_files;
 use axlauncher_launch::Target;
 use axlauncher_network_spi::{FetchError, Network};
+use axlauncher_spi::credentials::CURSEFORGE_API_KEY;
 use axlauncher_spi::{
     Java, JavaMode, LoaderError, LoaderFile, LoaderKind, LoaderRequest, LoaderVersion, ModLoader,
 };
@@ -19,6 +21,7 @@ const VANILLA: &str = "local-vanilla";
 const LOADER: &str = "local-processor-loader";
 const TOOL: &str = "fixture:binarypatcher:1";
 const CLIENT: &[u8] = b"abc";
+const PROCESSOR_ENV_PROBE: &str = "AXLAUNCHER_TEST_PROCESSOR_ENV";
 
 struct Fixture {
     _scratch: tempfile::TempDir,
@@ -148,6 +151,33 @@ fn run<F: Future>(test: F) -> F::Output {
                 .await
                 .unwrap()
         })
+}
+
+#[test]
+fn processors_do_not_inherit_the_curseforge_key() {
+    if std::env::var_os(PROCESSOR_ENV_PROBE).is_some() {
+        assert!(std::env::var_os(CURSEFORGE_API_KEY).is_some());
+        let fixture = Fixture::new();
+        fixture.mode("check-env");
+        run(fixture.install(&Cancellation::default())).unwrap();
+        assert_eq!(fixture.output(), b"complete");
+        return;
+    }
+
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "loader::lifecycle_tests::processors_do_not_inherit_the_curseforge_key",
+        ])
+        .env(PROCESSOR_ENV_PROBE, "1")
+        .env(CURSEFORGE_API_KEY, "synthetic-environment-probe")
+        .output()
+        .unwrap();
+    let report = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && report.contains("1 passed"),
+        "{report}"
+    );
 }
 
 #[test]

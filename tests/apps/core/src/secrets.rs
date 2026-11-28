@@ -2,11 +2,12 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::io::Write;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use axlauncher_modpack::{ModpackPlugin, PlanOptions};
 use axlauncher_network_spi::auth::{AuthNetwork, Body, Request, Response, TransportError};
 
-use crate::desktop::curseforge::{DesktopCurseForge, build_catalog};
+use crate::desktop::curseforge::{DesktopCurseForge, cached_catalog};
 
 use super::*;
 
@@ -15,7 +16,7 @@ fn candidate(symbol: char) -> String {
 }
 
 fn write_value(root: &Path, file: &str, value: &str) {
-    fs::write(root.join(file), format!("{KEY_NAME}={value}")).unwrap();
+    fs::write(root.join(file), format!("{CURSEFORGE_API_KEY}={value}")).unwrap();
 }
 
 #[test]
@@ -40,7 +41,7 @@ fn process_overrides_runtime_files_which_override_the_compiled_default() {
     let most_specific = "$".to_owned() + &candidate('s');
     fs::write(
         root.path().join(RUNTIME_FILES[0]),
-        format!("\u{feff} export {KEY_NAME} = '{most_specific}'  # comment\n"),
+        format!("\u{feff} export {CURSEFORGE_API_KEY} = '{most_specific}'  # comment\n"),
     )
     .unwrap();
     verify(Some(" \t"), &most_specific);
@@ -78,10 +79,30 @@ fn missing_empty_and_invalid_keys_are_distinct_and_secret_debug_is_redacted() {
 fn missing_key_disables_the_catalog_before_constructing_http() {
     let empty = tempfile::tempdir().unwrap();
     let result = resolve(None, empty.path(), None);
-    let client = build_catalog::<&MigrationHttp>(result.as_ref().map_err(|error| *error), || {
-        panic!("a disabled provider must not create a transport");
-    });
+    let cache = Mutex::new(None);
+    let client =
+        cached_catalog::<&MigrationHttp>(&cache, result.as_ref().map_err(|error| *error), || {
+            panic!("a disabled provider must not create a transport")
+        });
     assert!(matches!(client, Err(CatalogError::MissingApiKey)));
+    assert!(cache.into_inner().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn a_catalog_retries_transport_initialization_after_a_transient_failure() {
+    let key = ApiKey::new(&candidate('r')).unwrap();
+    let network = MigrationHttp {
+        resolved: key.clone(),
+        requests: AtomicUsize::new(0),
+    };
+    let cache = Mutex::new(None);
+    let first = cached_catalog(&cache, Ok(&key), || Err(TransportError::Unavailable));
+    assert!(matches!(first, Err(CatalogError::Transport)));
+    let second = cached_catalog(&cache, Ok(&key), || Ok(&network)).unwrap();
+    assert_eq!(second.get_mod(24).await.unwrap().id, 24);
+    let third =
+        cached_catalog(&cache, Ok(&key), || panic!("reuse the successful catalog")).unwrap();
+    assert!(Arc::ptr_eq(&second, &third));
 }
 
 struct MigrationHttp {
@@ -129,13 +150,14 @@ async fn public_lookup_and_import_plan_use_the_same_runtime_override() {
         resolved: ApiKey::new(&runtime).unwrap(),
         requests: AtomicUsize::new(0),
     };
-    let client = build_catalog(Ok(&resolved), || Ok(&network)).unwrap();
+    let cache = Mutex::new(None);
+    let client = cached_catalog(&cache, Ok(&resolved), || Ok(&network)).unwrap();
     assert_eq!(client.get_mod(24).await.unwrap().id, 24);
     let archive = root.path().join("pack.zip");
     write_pack(&archive, r#"[{"projectID":24,"fileID":17}]"#);
     let pack = ModpackPlugin::builtin().inspect(&archive).unwrap();
     let plan = pack
-        .plan(&BTreeSet::new(), PlanOptions::default(), &client)
+        .plan(&BTreeSet::new(), PlanOptions::default(), client.as_ref())
         .await
         .unwrap();
     assert_eq!(plan.downloads()[0].path(), "mods/test.jar");

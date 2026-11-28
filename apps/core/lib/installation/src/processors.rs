@@ -32,6 +32,7 @@ use std::time::Duration;
 use axlauncher_launch::classpath;
 use axlauncher_launch::rules::Target;
 use axlauncher_launch::version::{Processor, Version};
+use axlauncher_spi::credentials::sanitize_child_environment;
 use axlauncher_storage::GameDir;
 use axlauncher_worker::Cancellation;
 
@@ -207,7 +208,7 @@ async fn execute(
         use std::os::windows::process::CommandExt;
         command.creation_flags(CREATE_NO_WINDOW);
     }
-    let mut child = command
+    let mut child = sanitize_child_environment(&mut command)
         .current_dir(working_directory)
         .arg("-cp")
         .arg(&step.classpath)

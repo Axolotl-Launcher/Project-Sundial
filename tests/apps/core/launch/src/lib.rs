@@ -198,6 +198,24 @@ fn environment_entries_reach_the_child() {
 }
 
 #[test]
+fn an_explicit_curseforge_key_override_does_not_reach_the_game() {
+    use axlauncher_spi::credentials::CURSEFORGE_API_KEY;
+
+    let mut command = command_from(echo_variable(CURSEFORGE_API_KEY));
+    command.environment.push((
+        CURSEFORGE_API_KEY.to_owned(),
+        Some("synthetic-environment-probe".to_owned()),
+    ));
+    let child = command_for(&command);
+    assert!(
+        child.get_envs().any(|(name, value)| {
+            name == std::ffi::OsStr::new(CURSEFORGE_API_KEY) && value.is_none()
+        }),
+        "the game command must remove the key after applying explicit overrides"
+    );
+}
+
+#[test]
 fn a_removed_environment_entry_is_absent_in_the_child() {
     assert!(
         std::env::var_os(REMOVED_NAME).is_some(),

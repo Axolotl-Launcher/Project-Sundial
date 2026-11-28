@@ -11,15 +11,10 @@ fn workers_do_not_load_curseforge_credentials() {
             !source.contains("\".env"),
             "worker reads a runtime manifest: {path:?}"
         );
-        if source.contains("CURSEFORGE_API_KEY") {
-            let legitimate = path.ends_with("lib/src/native.rs")
-                && source.matches("CURSEFORGE_API_KEY").count() == 1
-                && source.contains(".env_remove(\"CURSEFORGE_API_KEY\")");
-            assert!(
-                legitimate,
-                "worker accesses the process or build-time key: {path:?}"
-            );
-        }
+        assert!(
+            !source.contains("CURSEFORGE_API_KEY"),
+            "worker accesses the process or build-time key: {path:?}"
+        );
     });
 }
 

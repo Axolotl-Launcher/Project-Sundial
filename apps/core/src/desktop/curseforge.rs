@@ -1,6 +1,6 @@
 //! Application entry point for CurseForge catalog lookups and pinned imports.
 
-use std::sync::LazyLock;
+use std::sync::{Arc, Mutex};
 
 use axlauncher_content::curseforge::Catalog;
 use axlauncher_network::auth::AuthHttp;
@@ -9,20 +9,26 @@ use axlauncher_network_spi::auth::{ApiKey, AuthNetwork, TransportError};
 pub use axlauncher_content::curseforge::{Category, Page, PageRequest, Search};
 pub use axlauncher_spi::curseforge::{CatalogError, File, Mod, ModpackCatalog};
 
-static CATALOG: LazyLock<Result<Catalog<AuthHttp>, CatalogError>> =
-    LazyLock::new(|| build_catalog(crate::secrets::curseforge(), AuthHttp::desktop));
+static CATALOG: Mutex<Option<Arc<Catalog<AuthHttp>>>> = Mutex::new(None);
 
-pub(crate) fn build_catalog<N: AuthNetwork>(
+pub(crate) fn cached_catalog<N: AuthNetwork>(
+    cache: &Mutex<Option<Arc<Catalog<N>>>>,
     key: Result<&ApiKey, CatalogError>,
     transport: impl FnOnce() -> Result<N, TransportError>,
-) -> Result<Catalog<N>, CatalogError> {
+) -> Result<Arc<Catalog<N>>, CatalogError> {
     let key = key?;
+    let mut cache = cache.lock().expect("CurseForge catalog cache");
+    if let Some(catalog) = cache.as_ref() {
+        return Ok(Arc::clone(catalog));
+    }
     let transport = transport().map_err(|_| CatalogError::Transport)?;
-    Ok(Catalog::new(transport, key.clone()))
+    let catalog = Arc::new(Catalog::new(transport, key.clone()));
+    *cache = Some(Arc::clone(&catalog));
+    Ok(catalog)
 }
 
-fn catalog() -> Result<&'static Catalog<AuthHttp>, CatalogError> {
-    CATALOG.as_ref().map_err(|error| *error)
+fn catalog() -> Result<Arc<Catalog<AuthHttp>>, CatalogError> {
+    cached_catalog(&CATALOG, crate::secrets::curseforge(), AuthHttp::desktop)
 }
 
 /// A catalog capability; it does not own or return the launcher secret.

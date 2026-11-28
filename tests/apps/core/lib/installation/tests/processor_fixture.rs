@@ -17,7 +17,16 @@ fn main() {
 
 fn processor(output: &Path) {
     let mode = fs::read_to_string("processor.mode").unwrap();
-    fs::write(output, if mode == "pass" { b"complete" } else { b"partial!" }).unwrap();
+    if mode == "check-env" {
+        assert!(std::env::var_os("CURSEFORGE_API_KEY").is_none());
+        assert!(std::env::var_os("AXLAUNCHER_TEST_PROCESSOR_ENV").is_some());
+    }
+    let content = if matches!(mode.as_str(), "pass" | "check-env") {
+        b"complete"
+    } else {
+        b"partial!"
+    };
+    fs::write(output, content).unwrap();
     fs::write("processor.pid", std::process::id().to_string()).unwrap();
     if mode == "fail" {
         std::process::exit(27);

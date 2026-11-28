@@ -5,9 +5,9 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 use axlauncher_network_spi::auth::ApiKey;
+use axlauncher_spi::credentials::CURSEFORGE_API_KEY;
 use axlauncher_spi::curseforge::CatalogError;
 
-const KEY_NAME: &str = "CURSEFORGE_API_KEY";
 #[cfg(not(debug_assertions))]
 const BUILD_DEFAULT: Option<&str> = option_env!("CURSEFORGE_API_KEY");
 #[cfg(debug_assertions)]
@@ -39,7 +39,7 @@ fn load_curseforge() -> Result<ApiKey, CatalogError> {
 }
 
 fn process_key() -> Result<Option<String>, CatalogError> {
-    match env::var(KEY_NAME) {
+    match env::var(CURSEFORGE_API_KEY) {
         Ok(value) => Ok(Some(value)),
         Err(env::VarError::NotPresent) => Ok(None),
         Err(env::VarError::NotUnicode(_)) => Err(CatalogError::InvalidApiKey),
@@ -85,7 +85,7 @@ fn file_value(contents: &str) -> Result<Option<&str>, CatalogError> {
                 .strip_prefix("export ")
                 .unwrap_or(line)
                 .split_once('=')?;
-            (name.trim() == KEY_NAME).then_some(value)
+            (name.trim() == CURSEFORGE_API_KEY).then_some(value)
         })
         .map(parse_value)
         .transpose()

@@ -153,6 +153,10 @@ using a different key. The old runtime setting `AXLAUNCHER_CURSEFORGE_API_KEY`
 has been removed. Use `CURSEFORGE_API_KEY` instead. Builds without a key can
 still use other providers and import CurseForge packs with only bundled files.
 
+The launcher's own subprocess commands strip this variable, including game and
+installer JVMs. Prefer `.env.local` to keep the key out of the process
+environment altogether.
+
 Controlled release builds may supply the GitHub Actions Secret
 `CURSEFORGE_API_KEY` as an environment variable for the release compilation
 step (`node scripts/desktop.ts build`), not PR/test jobs or shared build
