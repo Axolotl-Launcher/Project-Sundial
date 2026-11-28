@@ -13,6 +13,7 @@ let
       ../.cargo/config.toml
       # apps/ui embeds the window icon with include_bytes!.
       ../packaging/icons
+      ../apps/ui/content-render/assets
       (lib.fileset.fileFilter (file: file.name == "Cargo.toml") ../.)
       (lib.fileset.fileFilter (file: file.hasExt "rs") ../.)
     ];
