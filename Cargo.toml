@@ -53,21 +53,21 @@ repository = "https://github.com/Axolotl-Launcher/Axolotl-2.0"
 license = "GPL-3.0-only"
 
 [workspace.dependencies]
-dirs = "6"
+dirs = "7"
 embed-resource = "3.0.12"
 # gpui-kit 0.10.0 一揽子锁定 GPUI 家族（gpui-pre 0.3.12 快照、gpui-base、
 # gpui-component 与 Lucide 资源），是 Zed crates/gpui 的长期跟进快照。
 # 升级时须整体升级 gpui-kit，不要单独改 gpui-pre。
 gpui-kit = "0.10.0"
 gpui-pre = "=0.3.12"
-html5ever = "0.27"
+html5ever = "0.40"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 markdown = "1.0.0"
-markup5ever_rcdom = "0.3"
+markup5ever_rcdom = "0.40"
 proc-macro2 = "1.0.107"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-syn = "2.0.119"
+syn = "3.0.10"
 
 # Declared now so each system can start with what it needs. These mirror the
 # reference launcher's runtime dependencies, chosen per system; the selection
@@ -91,7 +91,7 @@ unicode-normalization = "0.1.25"
 
 crc32fast = "1.5.0"
 hex = "0.4.3"
-md-5 = "0.10.6"
+md-5 = "0.11.0"
 # Hashing and identity: downloads, library verification, mod fingerprints.
 sha1_smol = "1.0.1"
 sha2 = "0.11.1"
@@ -103,7 +103,7 @@ xz2 = "0.1.7"
 zip = { version = "9.8.1", default-features = false }
 
 # Game metadata documents.
-quick-xml = "0.41.0"
+quick-xml = "0.42.0"
 semver = "1.0.28"
 toml = "1.2.2"
 
@@ -122,9 +122,9 @@ httpdate = "1.0.3"
 hyper = "1"
 hyper-util = "0.1"
 libc = "0.2.191"
-libloading = "0.8.9"
+libloading = "0.9.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["http2", "json", "rustls", "stream"] }
-resvg = { version = "0.46.0", default-features = false, features = ["system-fonts", "text"] }
+resvg = { version = "0.50.0", default-features = false, features = ["system-fonts", "text"] }
 roxmltree = "0.21.2"
 rustls = "0.23.46"
 url = "2.5.9"
@@ -171,11 +171,11 @@ itertools = "0.15.0"
 regex = "1.13.2"
 serde_with = "3.25.0"
 shlex = "2.0.1"
-sysinfo = { version = "0.31.4", default-features = false }
+sysinfo = { version = "0.40.4", default-features = false }
 thiserror = "2.0.21"
 time = { version = "0.3.55", features = ["serde-well-known"] }
 which = "8.0.6"
-windows-registry = "0.6.1"
+windows-registry = "0.100.0"
 windows-sys = "0.61.2"
 
 # Deliberately absent, with the reason, so a later reader does not add them by
