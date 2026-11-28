@@ -138,11 +138,6 @@ impl ResolvedPaths {
 }
 
 impl DataDir {
-    /// The local configuration location for device-user bindings.
-    pub fn device_user_config() -> Option<PathBuf> {
-        dirs::config_local_dir().map(|config| config.join(APP_DIRECTORY).join("device-users"))
-    }
-
     /// Startup uses an isolated root when set; otherwise it uses platform directories.
     pub fn from_environment() -> io::Result<Self> {
         Self::resolve(

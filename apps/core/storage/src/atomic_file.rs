@@ -38,6 +38,13 @@ impl AtomicFile {
             .map(|_| ())
             .map_err(|error| error.error)
     }
+
+    pub(super) fn commit_new(self, destination: &Path) -> io::Result<()> {
+        self.0
+            .persist_noclobber(destination)
+            .map(|_| ())
+            .map_err(|error| error.error)
+    }
 }
 
 #[cfg(test)]

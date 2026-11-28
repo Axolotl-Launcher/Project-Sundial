@@ -1,25 +1,26 @@
 //! A pseudonymous identifier for the operating system user on this installation.
 
 use std::fmt::Write as _;
+use std::io::Write as _;
 use std::{fs, io, path::Path};
 
-use axlauncher_storage_layout::{DataDir, Document};
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind, get_current_pid};
 use uuid::Uuid;
 
-use crate::write_atomic;
+use crate::AtomicFile;
 
 /// The account namespace for the current OS user on this installation.
 pub struct DeviceUserId(String);
 
 impl DeviceUserId {
     pub fn current() -> io::Result<Self> {
+        let config =
+            dirs::config_local_dir().map(|path| path.join("AXLauncher").join("device-users"));
         Self::resolve(
             process_principal().as_deref(),
             machine_id().as_deref(),
-            DataDir::device_user_config().as_deref(),
+            config.as_deref(),
         )
     }
 
@@ -39,10 +40,20 @@ impl DeviceUserId {
             || "unknown".to_owned(),
             |principal| digest("os-principal", principal),
         );
-        let cached = config
-            .ok_or_else(unavailable)
-            .and_then(|config| Binding::resolve(&config.join(scope), native.as_deref()));
-        cached.or_else(|error| native.map(Self).ok_or(error))
+        let binding = config.ok_or_else(unavailable).and_then(|config| {
+            let directory = config.join(scope);
+            let namespace = load_or_create(&directory.join("device-user-id"), native.as_deref())?;
+            let Some(native) = native.as_deref() else {
+                return Ok(namespace);
+            };
+            let anchor = load_or_create(&directory.join("native-device-id"), Some(native))?;
+            Ok(if anchor.as_str() == native {
+                namespace
+            } else {
+                Self(native.to_owned())
+            })
+        });
+        binding.or_else(|error| native.map(Self).ok_or(error))
     }
 }
 
@@ -55,57 +66,32 @@ fn digest(kind: &str, value: &str) -> String {
     hex::encode(Sha256::digest(input))
 }
 
-#[derive(Deserialize, Serialize)]
-struct Binding {
-    namespace: String,
-    native: Option<String>,
+fn load_or_create(path: &Path, seed: Option<&str>) -> io::Result<DeviceUserId> {
+    match read_digest(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => initialize(path, seed),
+        result => result,
+    }
 }
 
-impl Binding {
-    fn resolve(directory: &Path, native: Option<&str>) -> io::Result<DeviceUserId> {
-        let path = Document::DeviceUser.path(directory);
-        let cached = Self::read(&path)?;
-        if let Some(cached) = cached.filter(|cached| cached.matches(native)) {
-            return Ok(DeviceUserId(cached.namespace));
-        }
-        let _lock = Document::DeviceUser.lock(directory)?;
-        let namespace = match Self::read(&path)? {
-            Some(cached) if cached.matches(native) => return Ok(DeviceUserId(cached.namespace)),
-            Some(cached) if cached.native.is_none() => cached.namespace,
-            _ => native.map_or_else(
-                || digest("local-installation", &Uuid::new_v4().to_string()),
-                str::to_owned,
-            ),
-        };
-        let binding = Self {
-            namespace,
-            native: native.map(str::to_owned),
-        };
-        let bytes = serde_json::to_vec(&binding).expect("device-user binding serializes");
-        write_atomic(&path, &bytes)?;
-        Ok(DeviceUserId(binding.namespace))
+fn read_digest(path: &Path) -> io::Result<DeviceUserId> {
+    let digest = fs::read_to_string(path)?;
+    if is_digest(&digest) {
+        return Ok(DeviceUserId(digest));
     }
+    Err(unavailable())
+}
 
-    fn read(path: &Path) -> io::Result<Option<Self>> {
-        let bytes = match fs::read(path) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error),
-        };
-        let binding: Self = serde_json::from_slice(&bytes).map_err(|_| unavailable())?;
-        if !is_digest(&binding.namespace)
-            || binding
-                .native
-                .as_deref()
-                .is_some_and(|value| !is_digest(value))
-        {
-            return Err(unavailable());
-        }
-        Ok(Some(binding))
-    }
-
-    fn matches(&self, native: Option<&str>) -> bool {
-        native.is_none() || self.native.as_deref() == native
+fn initialize(path: &Path, seed: Option<&str>) -> io::Result<DeviceUserId> {
+    let value = seed.map_or_else(
+        || digest("local-installation", &Uuid::new_v4().to_string()),
+        str::to_owned,
+    );
+    let mut pending = AtomicFile::new(path)?;
+    pending.file().write_all(value.as_bytes())?;
+    match pending.commit_new(path) {
+        Ok(()) => Ok(DeviceUserId(value)),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => read_digest(path),
+        Err(error) => Err(error),
     }
 }
 

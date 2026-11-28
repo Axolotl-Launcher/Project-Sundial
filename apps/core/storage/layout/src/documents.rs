@@ -9,7 +9,6 @@ use crate::file_lock::{self, LockError, Mode};
 #[derive(Clone, Copy)]
 pub enum Document {
     Accounts,
-    DeviceUser,
     Settings,
     JavaCatalog,
     Profile,
@@ -21,7 +20,6 @@ impl Document {
     pub fn path(self, directory: &Path) -> PathBuf {
         directory.join(match self {
             Self::Accounts => "accounts.json",
-            Self::DeviceUser => "device-user.json",
             Self::Settings => "settings.json",
             Self::JavaCatalog => "javas.json",
             Self::Profile => ".axlprofile",
@@ -33,7 +31,6 @@ impl Document {
     pub fn lock(self, directory: &Path) -> Result<File, LockError> {
         let path = directory.join(match self {
             Self::Accounts => "accounts.lock",
-            Self::DeviceUser => "device-user.lock",
             Self::Settings => "settings.lock",
             Self::JavaCatalog => "javas.lock",
             Self::Profile => ".axlprofile.lock",

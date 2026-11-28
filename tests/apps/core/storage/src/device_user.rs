@@ -42,11 +42,7 @@ fn failed_native_probes_reuse_one_random_namespace_across_restarts() {
     assert!(is_digest(first.as_str()));
     assert_eq!(first.as_str(), reopened.as_str());
     assert_ne!(first.as_str(), unrelated.as_str());
-    assert!(
-        Document::DeviceUser
-            .path(&config.path().join("unknown"))
-            .is_file()
-    );
+    assert!(config.path().join("unknown/device-user-id").is_file());
 }
 
 #[test]
