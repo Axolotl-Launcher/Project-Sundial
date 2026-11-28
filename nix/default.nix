@@ -34,7 +34,7 @@ let
   portable = import ./portable.nix {
     inherit pkgs;
     newest = newest.binary;
-    inherit (common) version meta smokeInstall;
+    inherit (common) version meta smokeWorker;
   };
   wrapper = import ./wrapper.nix {
     inherit pkgs;

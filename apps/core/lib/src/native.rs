@@ -22,6 +22,7 @@ impl Image {
             WorkerLibrary::JavaDiscovery => b"axlauncher_java_discovery_v1\0",
             WorkerLibrary::InstanceSettings => b"axlauncher_instance_settings_v1\0",
             WorkerLibrary::Install => b"axlauncher_install_v1\0",
+            WorkerLibrary::Modrinth => b"axlauncher_modrinth_v1\0",
         };
         Self {
             kind,

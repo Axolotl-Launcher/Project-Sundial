@@ -17,6 +17,7 @@ members = [
   "apps/core/lib/installation",
   "apps/core/lib/instance_settings",
   "apps/core/lib/java_discovery",
+  "apps/core/lib/modrinth",
   "apps/core/loader",
   "apps/core/mc_version",
   "apps/core/network",
@@ -172,6 +173,7 @@ serde_with = "3.25.0"
 shlex = "2.0.1"
 sysinfo = { version = "0.31.4", default-features = false }
 thiserror = "2.0.21"
+time = { version = "0.3.55", features = ["serde-well-known"] }
 which = "8.0.6"
 windows-registry = "0.6.1"
 windows-sys = "0.61.2"

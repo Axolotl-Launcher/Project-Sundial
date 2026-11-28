@@ -61,6 +61,17 @@ function library(name: string, profile: string): Promise<string> {
   );
 }
 
+async function workerImages(profile: string): Promise<Record<string, string>> {
+  return {
+    AXLAUNCHER_DOWNLOAD_IMAGE: await library("axlauncher_download_engine", profile),
+    AXLAUNCHER_ACCOUNT_IMAGE: await library("axlauncher_accounts", profile),
+    AXLAUNCHER_JAVA_DISCOVERY_IMAGE: await library("axlauncher_java_discovery", profile),
+    AXLAUNCHER_INSTANCE_SETTINGS_IMAGE: await library("axlauncher_instance_settings", profile),
+    AXLAUNCHER_INSTALL_IMAGE: await library("axlauncher_install_runtime", profile),
+    AXLAUNCHER_MODRINTH_IMAGE: await library("axlauncher_modrinth", profile),
+  };
+}
+
 function exec(program: string, args: string[], env = process.env): number {
   const result = spawnSync(program, args, { cwd: root, env, stdio: "inherit" });
   if (result.error) throw result.error;
@@ -100,29 +111,16 @@ async function main(args: string[]): Promise<number> {
   if (!mode || !(mode in commands || mode === "exec" || mode === "smoke")) {
     throw new Error("Usage: node scripts/desktop.ts <build|dev|lint|test|smoke|exec command ...>");
   }
-  let downloads = await library("axlauncher_download_engine", profile);
-  let accounts = await library("axlauncher_accounts", profile);
-  let javaDiscovery = await library("axlauncher_java_discovery", profile);
-  let instanceSettings = await library("axlauncher_instance_settings", profile);
-  let install = await library("axlauncher_install_runtime", profile);
+  const images = await workerImages(profile);
   const identity = process.platform === "darwin" ? process.env.AXLAUNCHER_MACOS_SIGN_IDENTITY : undefined;
   const staging = identity ? mkdtempSync(join(tmpdir(), "axlauncher-sign-")) : undefined;
   try {
     if (identity && staging) {
-      downloads = sign(downloads, identity, staging);
-      accounts = sign(accounts, identity, staging);
-      javaDiscovery = sign(javaDiscovery, identity, staging);
-      instanceSettings = sign(instanceSettings, identity, staging);
-      install = sign(install, identity, staging);
+      for (const [variable, image] of Object.entries(images)) {
+        images[variable] = sign(image, identity, staging);
+      }
     }
-    const env = {
-      ...process.env,
-      AXLAUNCHER_DOWNLOAD_IMAGE: downloads,
-      AXLAUNCHER_ACCOUNT_IMAGE: accounts,
-      AXLAUNCHER_JAVA_DISCOVERY_IMAGE: javaDiscovery,
-      AXLAUNCHER_INSTANCE_SETTINGS_IMAGE: instanceSettings,
-      AXLAUNCHER_INSTALL_IMAGE: install,
-    };
+    const env = { ...process.env, ...images };
     if (mode === "exec") {
       const [command, ...parameters] = rest;
       if (!command) throw new Error("Provide the command to run with embedded worker images");

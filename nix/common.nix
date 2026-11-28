@@ -23,20 +23,20 @@ let
   # the filtered path is a derivation, and reading it would make evaluation
   # depend on building it, which `nix flake check --no-build` refuses.
   manifest = lib.importTOML ../Cargo.toml;
-  smokeInstall = ''
-    smoke_install() {
-      printf '\012\000\000\000"Shutdown"' | "$1" --axlauncher-worker install "$2" > install-ready.frame
-      if printf '\007\000\000\000"Ready"' | cmp - install-ready.frame; then
+  smokeWorker = ''
+    smoke_worker() {
+      if printf '\012\000\000\000"Shutdown"' | "$1" --axlauncher-worker "$2" "$3" > worker-ready.frame &&
+          printf '\007\000\000\000"Ready"' | cmp - worker-ready.frame; then
         return 0
       fi
-      echo "The install worker did not return the expected Ready frame." >&2
-      od -An -tx1 install-ready.frame >&2
+      echo "The $2 worker did not return the expected Ready frame." >&2
+      od -An -tx1 worker-ready.frame >&2
       return 1
     }
   '';
 in
 {
-  inherit src smokeInstall;
+  inherit src smokeWorker;
 
   version = manifest.workspace.package.version;
 
@@ -76,12 +76,15 @@ in
         --lib --crate-type cdylib
       cargo rustc --locked --offline --release -p axlauncher_install_runtime \
         --lib --crate-type cdylib
+      cargo rustc --locked --offline --release -p axlauncher_modrinth \
+        --lib --crate-type cdylib
 
       ${lib.optionalString patchImages ''
         patchelf --set-rpath "" target/release/libaxlauncher_download_engine.so
         patchelf --set-rpath "" target/release/libaxlauncher_accounts.so
         patchelf --set-rpath "" target/release/libaxlauncher_java_discovery.so
         patchelf --set-rpath "" target/release/libaxlauncher_instance_settings.so
+        patchelf --set-rpath "" target/release/libaxlauncher_modrinth.so
       ''}
       patchelf --set-rpath "" target/release/libaxlauncher_install_runtime.so
 
@@ -90,12 +93,14 @@ in
       cp "$PWD/target/release/libaxlauncher_java_discovery.so" "$PWD/libjava-discovery.so"
       cp "$PWD/target/release/libaxlauncher_instance_settings.so" "$PWD/libinstance-settings.so"
       cp "$PWD/target/release/libaxlauncher_install_runtime.so" "$PWD/libinstall.so"
+      cp "$PWD/target/release/libaxlauncher_modrinth.so" "$PWD/libmodrinth.so"
 
       export AXLAUNCHER_DOWNLOAD_IMAGE="$PWD/libdownload.so"
       export AXLAUNCHER_ACCOUNT_IMAGE="$PWD/libaccounts.so"
       export AXLAUNCHER_JAVA_DISCOVERY_IMAGE="$PWD/libjava-discovery.so"
       export AXLAUNCHER_INSTANCE_SETTINGS_IMAGE="$PWD/libinstance-settings.so"
       export AXLAUNCHER_INSTALL_IMAGE="$PWD/libinstall.so"
+      export AXLAUNCHER_MODRINTH_IMAGE="$PWD/libmodrinth.so"
 
       # include_bytes! does not fingerprint the image contents, so a cached
       # platform binary can retain an older worker image. Invalidate the
@@ -105,8 +110,9 @@ in
       cargo build --locked --offline --release -p axlauncher_platform_linux --bin axlauncher
 
       ${lib.optionalString smoke ''
-        ${smokeInstall}
-        smoke_install "$PWD/target/release/axlauncher" "$PWD/libinstall.so"
+        ${smokeWorker}
+        smoke_worker "$PWD/target/release/axlauncher" install "$PWD/libinstall.so"
+        smoke_worker "$PWD/target/release/axlauncher" modrinth "$PWD/libmodrinth.so"
       ''}
 
       runHook postBuild

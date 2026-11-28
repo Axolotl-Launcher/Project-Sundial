@@ -19,6 +19,8 @@ use axlauncher_worker::{Event, Images, Request, Service};
 mod installation;
 #[path = "embedded_workers/java_discovery.rs"]
 mod java_discovery;
+#[path = "embedded_workers/modrinth.rs"]
+mod modrinth;
 #[path = "embedded_workers/settings.rs"]
 mod settings;
 #[path = "../apps/core/lib/installation/tests/stand_in.rs"]
@@ -58,6 +60,7 @@ impl Fixture {
                     image("AXLAUNCHER_JAVA_DISCOVERY_IMAGE"),
                     image("AXLAUNCHER_INSTANCE_SETTINGS_IMAGE"),
                     image("AXLAUNCHER_INSTALL_IMAGE"),
+                    image("AXLAUNCHER_MODRINTH_IMAGE"),
                 )
             }),
         }
@@ -228,7 +231,7 @@ fn account_worker_never_reuses_sessions_across_data_roots() {
 #[ignore = "run node scripts/desktop.ts smoke to supply the packaged desktop executable"]
 fn mismatched_worker_image_is_refused_and_removed() {
     let fixture = Fixture::new();
-    let wrong = Images::new(b"", b"not the embedded library", b"", b"", b"");
+    let wrong = Images::new(b"", b"not the embedded library", b"", b"", b"", b"");
     let worker = Service::<Reply>::for_executable(wrong.accounts, fixture.executable.clone());
     let request = worker.request(
         &fixture.data,

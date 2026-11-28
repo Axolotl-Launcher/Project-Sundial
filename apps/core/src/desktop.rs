@@ -25,6 +25,25 @@ pub mod downloads {
     pub use axlauncher_worker::downloads::{Downloads, Route as DownloadRoute, stats};
 }
 
+pub mod modrinth {
+    pub use axlauncher_worker::modrinth::{
+        AllProjects, Amount, AnalyticsEvent, Batch, BulkUpdate, CatalogError, Category, Collection,
+        CollectionId, Comparison, ContentPlan, ContentRequest, ContentType, CountryCode,
+        Dependencies, DependencyType, DerivativeSource, DesktopModrinth, Disclosure, Disclosures,
+        DonationPlatform, Facet, FacetField, ForgeLoader, ForgeUpdates, GameVersion,
+        GameVersionFilter, GameVersionType, HashAlgorithm, HashBatch, HashLookup, IndividualUpdate,
+        IndividualUpdates, License, LicenseId, LicenseText, LinkPlatform, Loader, LoaderFieldQuery,
+        LoaderValue, MavenCoordinate, MavenMetadata, MavenPom, MavenResult, MavenVersioning,
+        MavenVersions, Member, ModernHit, ModernProject, ModernSearchPage, ModrinthLease,
+        Organization, PaymentInterval, PaymentMethod, PlatformRevenue, Project, ProjectCheck,
+        ProjectHit, ProjectKey, ProjectVersions, Redirect, ResolutionPreferences, ResolvedContent,
+        RevenuePoint, RevenueRange, Search, SearchMethod, SearchPage, SearchResult, SearchSort,
+        SkippedContent, SkippedReason, Statistics, TeamId, UpdateFilters, User, UserHit, UserKey,
+        Version, VersionDependency, VersionFile, VersionFilters, VersionHashes, VersionId,
+        VersionKey, VersionSearch, VersionType,
+    };
+}
+
 /// A desktop worker runs one operation with its own Tokio I/O driver.
 fn on_worker<T>(operation: impl Future<Output = T>) -> std::io::Result<T> {
     let runtime = tokio::runtime::Builder::new_current_thread()

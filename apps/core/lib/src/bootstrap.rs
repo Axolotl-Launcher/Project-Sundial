@@ -11,7 +11,7 @@ use crate::accounts::Reply;
 use crate::client::Service;
 use crate::java_discovery;
 use crate::native::{self, Image, WORKER_ARGUMENT};
-use crate::{instance_settings, settings_client};
+use crate::{instance_settings, modrinth, settings_client};
 
 #[derive(Clone, Copy)]
 pub struct Images {
@@ -20,6 +20,7 @@ pub struct Images {
     pub java_discovery: Image,
     pub instance_settings: Image,
     pub install: Image,
+    pub modrinth: Image,
 }
 
 impl Images {
@@ -29,6 +30,7 @@ impl Images {
         java_discovery: &'static [u8],
         instance_settings: &'static [u8],
         install: &'static [u8],
+        modrinth: &'static [u8],
     ) -> Self {
         Self {
             downloads: Image::new(WorkerLibrary::Downloads, downloads),
@@ -36,6 +38,7 @@ impl Images {
             java_discovery: Image::new(WorkerLibrary::JavaDiscovery, java_discovery),
             instance_settings: Image::new(WorkerLibrary::InstanceSettings, instance_settings),
             install: Image::new(WorkerLibrary::Install, install),
+            modrinth: Image::new(WorkerLibrary::Modrinth, modrinth),
         }
     }
 
@@ -56,6 +59,7 @@ impl Images {
         java_discovery::configure(self.java_discovery, executable.clone());
         settings_client::configure(self.instance_settings, executable.clone());
         account_client::configure(self.accounts, executable.clone());
+        modrinth::configure(self.modrinth, executable.clone());
         crate::installer_client::configure(self.install, executable);
     }
 
@@ -63,9 +67,10 @@ impl Images {
     pub fn begin_shutdown() -> JoinHandle<()> {
         let accounts = account_client::take_workers();
         let settings = settings_client::take_workers();
+        let catalogs = modrinth::take_workers();
         let wait_installs = crate::installer_client::close();
         std::thread::spawn(move || {
-            drain_workers(accounts, settings);
+            drain_workers(accounts, settings, catalogs);
             wait_installs();
         })
     }
@@ -95,6 +100,7 @@ impl Images {
             self.java_discovery,
             self.instance_settings,
             self.install,
+            self.modrinth,
         ]
         .into_iter()
         .find(|image| image.matches(&kind)) else {
@@ -107,6 +113,7 @@ impl Images {
 fn drain_workers(
     accounts: Vec<Arc<Service<Reply>>>,
     settings: Vec<Arc<Service<instance_settings::Reply>>>,
+    catalogs: Vec<Arc<Service<modrinth::Reply>>>,
 ) {
     crate::downloads::close();
     java_discovery::close();
@@ -116,10 +123,16 @@ fn drain_workers(
     for worker in &settings {
         worker.close();
     }
+    for worker in &catalogs {
+        worker.close();
+    }
     for worker in accounts {
         worker.close_and_wait();
     }
     for worker in settings {
+        worker.close_and_wait();
+    }
+    for worker in catalogs {
         worker.close_and_wait();
     }
     crate::downloads::wait_closed();

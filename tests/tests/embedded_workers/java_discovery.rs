@@ -53,7 +53,7 @@ async fn assert_scan(request: &mut Request<Candidate>) {
 #[ignore = "run node scripts/desktop.ts smoke to supply the packaged desktop executable"]
 fn a_java_discovery_image_not_matching_the_embedded_bytes_is_refused() {
     let fixture = Fixture::new();
-    let wrong = Images::new(b"", b"", b"not the embedded library", b"", b"");
+    let wrong = Images::new(b"", b"", b"not the embedded library", b"", b"", b"");
     let worker =
         Service::<Candidate>::for_executable(wrong.java_discovery, fixture.executable.clone());
     let error = worker.request(&fixture.data, Command::Scan).err().unwrap();

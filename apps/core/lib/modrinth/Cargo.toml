@@ -1,0 +1,24 @@
+[package]
+name = "axlauncher_modrinth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Modrinth public API in an on-demand embedded worker"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+axlauncher_network = { workspace = true }
+axlauncher_worker = { workspace = true }
+quick-xml = { workspace = true, features = ["serialize"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+url = { workspace = true }
+
+[dev-dependencies]
+reqwest = { workspace = true }
+
+[lints]
+workspace = true

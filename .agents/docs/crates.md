@@ -11,13 +11,14 @@ doubles and instantiate concrete providers to verify their SPI contracts.
 
 | Resource | Direct access belongs to | Entry point for callers |
 | --- | --- | --- |
-| HTTP and DNS | `network` owns HTTP clients, DNS routing, the OAuth loopback listener and transport error classification. | Inject `network_spi::Network` for metadata and transfers or `network_spi::auth::AuthNetwork` for credential-bearing exchanges. |
+| HTTP and DNS | `network` owns HTTP clients, DNS routing, the OAuth loopback listener and transport error classification. | Inject `network_spi::Network` for metadata and transfers or `network_spi::auth::AuthNetwork` for credential-bearing exchanges. The Modrinth worker uses Network's bounded metadata client to read HTTP rate-limit headers. |
 | Launcher data paths, blob storage and atomic writes | `storage` resolves directory defaults and overrides, and owns `DataDir`, `GameDir`, `RootedStorage` and `write_atomic`. | Use the [filesystem policy](filesystem-paths.md) and the storage path APIs rather than discovering or constructing managed locations. Use `Storage` for blobs and `write_atomic` for owned documents. |
 | Launcher accounts, Minecraft accounts and system credentials | `accounts` owns the device-user hierarchy, Microsoft and Yggdrasil authentication, and session refresh. `storage` owns the device-user digest and platform credential store. | Use `core::desktop::accounts::DesktopAccounts`. The worker receives the data directory, derives its own device-user scope, and returns only that scope's launcher summaries and selected launcher's Minecraft accounts, without credential references. |
 | Settings and instance manifests | `state` owns settings, `.axlprofile` creation and discovery, install status and runtime selections. | Use `load_settings` and `update_settings` for general settings. Use `core::desktop::instance_settings` for heap and display name edits; after worker validation Core requests a schema-checked field write in State with the original scope and field baseline. Use `profile::create`, `profile::discover` and `profile::scan_resources` for instances; use `profile::mark_installed` or `profile::mark_failed` for install outcomes. `StateStore` serves the separate ID-based `InstanceRecord` API. |
 | File downloads | `download_engine` schedules connections and ranges, manages shared bandwidth and buffers, tries alternate sources and verifies files before promotion. | Inject `download_spi::FileDownloader`. The desktop client uses the shared download worker; the standalone converter explicitly injects `download_engine::Direct`. |
 | Installation files and asset indexes | `install` plans missing files, exposes the game catalog and local readiness, and prepares the pinned third-party authentication agent. `install_runtime` performs game-file preparation, loader placement and managed Java provisioning. | Desktop callers use `desktop::installation`; the standalone converter injects its `Network` and `FileDownloader` directly into `install_runtime` under the storage lock. `auth_agent::prepare` remains on the host. |
 | Embedded service libraries and processes | `worker` owns native loading, process and request lifetimes, and the local wire protocol. `storage` owns the scratch layout. | Desktop shells embed the worker artifacts and dispatch worker mode before GPUI. Desktop clients share the same process manager and never link to the implementations. |
+| Public Modrinth API | `modrinth` owns a closed allowlist of public endpoints, validates query inputs at the service boundary and projects each response into typed results. | Use `core::desktop::modrinth::DesktopModrinth` for anonymous catalog lookups and public metadata. No caller can request an arbitrary URL; the worker does not follow download redirects, support authentication or store results. |
 | Mod loader metadata services | `loader` lists versions and resolves version profiles through an injected `Network`. | `loader::provider` supplies the `ModLoader` implementation. `install_runtime` places the resulting profile. |
 | Minecraft version naming | `mc_version` classifies Mojang catalog entries and matches the Maven versions published for each Forge or NeoForge game line. It has no I/O. | Call `core::mc_version::classify_java` for catalog classification. The loader uses `MavenTarget` for both listing and installation. Standalone tools may explicitly wrap `BuiltinJavaVersionParser` with the SPI fallback; the launcher installs no fallback parser. |
 | Game version documents, classpath, JARs and natives | `launch` reads version files and JARs, evaluates launch rules and extracts natives. | Use `flow::launch` for prepared installations. Installation planning reuses `version::Version`, the library model and `rules::Target` to decide what to download. |
@@ -131,6 +132,7 @@ queueing and transfer.
 | `axlauncher_download_engine` | [download_engine](../../apps/core/lib/download_engine/src/lib.rs) | Execution and progress reporting for file downloads. |
 | `axlauncher_java_discovery` | [java_discovery](../../apps/core/lib/java_discovery/src/lib.rs) | On-demand, read-only system Java candidate enumeration in an embedded worker. |
 | `axlauncher_instance_settings` | [instance_settings](../../apps/core/lib/instance_settings/src/lib.rs) | Validation of heap and display name edits only; no document, path, or installer access. |
+| `axlauncher_modrinth` | [modrinth](../../apps/core/lib/modrinth/src/lib.rs) | Public Modrinth catalog lookup through Network's bounded metadata transport; no authenticated routes, storage or account data. |
 | `axlauncher_worker` | [worker](../../apps/core/lib/src/lib.rs) | Verified native loading, request framing, and shared process lifetime. |
 | `axlauncher_install` | [install](../../apps/core/install/src/lib.rs) | Game catalogs, shared install models, file plans, local readiness and authentication agent preparation. |
 | `axlauncher_install_runtime` | [installation](../../apps/core/lib/installation/src/lib.rs) | Game file preparation, loader placement, Java provisioning and processor execution. It relays file writes to the shared desktop download service; it does not link the download engine. |
@@ -191,6 +193,9 @@ queueing and transfer.
    No production caller links to its implementation. Core and State resolve
    effective settings directly; startup, listing, diagnostics and launch do
    not request the settings service.
+   The Modrinth worker depends on `axlauncher_worker` for its versioned wire
+   types and `axlauncher_network` for HTTPS. No production crate links to
+   its implementation.
    The protocol reuses install progress and the loader selection contract.
    Install uses the SPI for planned files, storage for installation paths
    and atomic writes, network for metadata digest verification and launch for
@@ -209,7 +214,7 @@ queueing and transfer.
 
 `unsafe_code` is denied throughout the workspace. The only exceptions are the
 verified image loader, the versioned account, download, Java discovery,
-settings and installation C ABI exports, and the installation worker's
+settings, installation and Modrinth C ABI exports, and the installation worker's
 platform-specific process-tree containment; a policy test checks each exact
 file and function. Account workers remain live for in-flight work,
 a pending profile selection, or sessions that have no recoverable credential
@@ -217,6 +222,10 @@ in the system store. Otherwise the last request closes the child and releases
 its scratch files. Download batches hold one worker across file requests.
 Java discovery stays live only while a request is pending, without a lease. The
 settings process retains no data or lease after its last request.
+Modrinth requests use a process slot scoped to the active data, cache and
+profiles roots. A caller can lease that slot for a group of lookups; otherwise
+the last reply releases it. Only the provider's cooldown is shared across
+scopes and survives idle reaping, not catalog results.
 An installation worker exists only for its request. Runtime registration and
 game downloads complete through correlated host callbacks; registration returns
 the refreshed Java selection before a loader retry.

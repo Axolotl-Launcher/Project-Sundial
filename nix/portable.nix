@@ -10,7 +10,7 @@
   pkgs,
   version,
   meta,
-  smokeInstall,
+  smokeWorker,
 }:
 pkgs.runCommand "axlauncher-portable-${version}"
   {
@@ -48,6 +48,7 @@ pkgs.runCommand "axlauncher-portable-${version}"
       # binary itself does not list. Collect those dependencies before dropping
       # the store rpaths.
       for image in "${newest.workerProbe}/java-discovery-image" \
+        "${newest.workerProbe}/libmodrinth.so" \
         "${newest.installImage}/libinstall.so"; do
         "$loader" --library-path "$libdirs" --list "$image" > worker-store.txt
         if grep -q 'not found' worker-store.txt; then
@@ -119,13 +120,14 @@ pkgs.runCommand "axlauncher-portable-${version}"
         exit 1
       fi
 
-      ${smokeInstall}
+      ${smokeWorker}
       image="${newest.installImage}/libinstall.so"
       if readelf -d "$image" | grep -q 'NEEDED.*liblzma'; then
         echo "The embedded installer links a non-bundled liblzma" >&2
         exit 1
       fi
-      smoke_install "$out/bin/axlauncher" "$image"
+      smoke_worker "$out/bin/axlauncher" install "$image"
+      smoke_worker "$out/bin/axlauncher" modrinth "${newest.workerProbe}/libmodrinth.so"
 
       install -Dm644 resolved.txt "$out/share/doc/linked-libraries.txt"
       # Every step above runs only if the heredoc closed; the doc file proves it did.
