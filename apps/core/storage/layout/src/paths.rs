@@ -16,6 +16,7 @@ pub enum WorkerLibrary {
     JavaDiscovery,
     InstanceSettings,
     Install,
+    Modrinth,
 }
 
 impl WorkerLibrary {
@@ -26,6 +27,7 @@ impl WorkerLibrary {
             Self::JavaDiscovery => "java-discovery",
             Self::InstanceSettings => "instance-settings",
             Self::Install => "install",
+            Self::Modrinth => "modrinth",
         }
     }
 

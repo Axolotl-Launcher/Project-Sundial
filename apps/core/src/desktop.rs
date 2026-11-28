@@ -24,6 +24,13 @@ pub mod downloads {
     pub use axlauncher_worker::downloads::{Downloads, Route as DownloadRoute, stats};
 }
 
+pub mod modrinth {
+    pub use axlauncher_worker::modrinth::{
+        CatalogError, DesktopModrinth, ModrinthLease, Project, ProjectHit, ProjectKey, Search,
+        SearchPage, Version, VersionFile, VersionHashes, VersionType,
+    };
+}
+
 /// A desktop worker runs one operation with its own Tokio I/O driver.
 fn on_worker<T>(operation: impl Future<Output = T>) -> std::io::Result<T> {
     let runtime = tokio::runtime::Builder::new_current_thread()

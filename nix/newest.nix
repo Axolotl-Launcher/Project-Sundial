@@ -77,6 +77,7 @@ in
         # in the platform binary.
         install -Dm644 libjava-discovery.so \
           "$workerProbe/java-discovery-image"
+        install -Dm644 libmodrinth.so "$workerProbe/libmodrinth.so"
         # The install hooks rewrite toolchain and vendored-source paths in the
         # platform binary, including the embedded worker bytes. Normalize the
         # standalone images the same way so the launcher can verify them byte

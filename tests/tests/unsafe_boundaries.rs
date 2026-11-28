@@ -26,6 +26,10 @@ const EXPORTS: &[(&str, &str)] = &[
         "apps/core/lib/installation/src/worker.rs",
         "axlauncher_install_v1",
     ),
+    (
+        "apps/core/lib/modrinth/src/worker.rs",
+        "axlauncher_modrinth_v1",
+    ),
 ];
 
 #[test]

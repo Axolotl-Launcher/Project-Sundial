@@ -805,6 +805,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "axlauncher_modrinth"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_network",
+ "axlauncher_worker",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "axlauncher_network"
 version = "0.1.0"
 dependencies = [
@@ -973,6 +986,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.21",
  "tokio",
  "url",
  "uuid",

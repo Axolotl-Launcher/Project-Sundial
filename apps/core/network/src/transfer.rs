@@ -162,7 +162,7 @@ async fn read_excerpt(response: &mut Response, excerpt: &mut Vec<u8>) {
     }
 }
 
-fn retry_delay(value: &str, now: SystemTime) -> Option<Duration> {
+pub(super) fn retry_delay(value: &str, now: SystemTime) -> Option<Duration> {
     let value = value.trim();
     if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) {
         return Some(Duration::from_secs(value.parse().unwrap_or(u64::MAX)));

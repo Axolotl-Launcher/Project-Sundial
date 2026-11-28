@@ -79,6 +79,7 @@ fn permitted_edge(owner: &str, dependency: &str, target_dir: &Path) -> bool {
             dependency,
             "axlauncher_launch" | "axlauncher_storage" | "axlauncher_worker"
         ),
+        "axlauncher_modrinth" => matches!(dependency, "axlauncher_network" | "axlauncher_worker"),
         "axlauncher_storage" => {
             matches!(dependency, "axlauncher_spi" | "axlauncher_storage_layout")
         }

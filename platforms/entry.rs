@@ -19,6 +19,10 @@ const IMAGES: axlauncher_frontend::WorkerImages = axlauncher_frontend::WorkerIma
         "AXLAUNCHER_INSTALL_IMAGE",
         "Build the desktop launcher with pnpm build or pnpm dev."
     )),
+    include_bytes!(env!(
+        "AXLAUNCHER_MODRINTH_IMAGE",
+        "Build the desktop launcher with pnpm build or pnpm dev."
+    )),
 );
 
 pub(super) fn run() -> std::process::ExitCode {

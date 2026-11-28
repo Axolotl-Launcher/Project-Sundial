@@ -17,6 +17,7 @@ members = [
   "apps/core/lib/installation",
   "apps/core/lib/instance_settings",
   "apps/core/lib/java_discovery",
+  "apps/core/lib/modrinth",
   "apps/core/loader",
   "apps/core/mc_version",
   "apps/core/network",

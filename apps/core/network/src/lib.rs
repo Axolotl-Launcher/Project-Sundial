@@ -15,6 +15,7 @@ use url::Url;
 
 pub mod auth;
 mod dns;
+pub mod metadata;
 mod mirrors;
 mod transfer;
 
