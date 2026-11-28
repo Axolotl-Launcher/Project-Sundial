@@ -44,6 +44,14 @@ packaging. The account worker scopes records to the current device and OS
 principal; moving a data directory does not move that principal's saved
 accounts or system credentials to another machine or user.
 
+The worker keeps a device-user binding in `AXLauncher/device-users` under
+the platform's local user configuration directory, independent of
+`AXLAUNCHER_DATA_DIR`. It prefers the OS-derived device-user digest. When
+the machine ID is unavailable, it reuses the existing binding or creates
+a random installation namespace. An installation namespace stays stable
+when the native ID becomes available, then binds to that ID. A different
+native ID cannot claim an already-bound installation namespace.
+
 ## Layout and filesystem operations
 
 - Use `DataDir::game()` for the shared Minecraft tree, including the cache

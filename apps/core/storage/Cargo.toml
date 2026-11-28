@@ -16,9 +16,12 @@ axlauncher_storage_layout = { workspace = true }
 dirs = { workspace = true }
 hex = { workspace = true }
 keyring = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 sha2 = { workspace = true }
 sysinfo = { workspace = true, features = ["system"] }
 tempfile = { workspace = true }
+uuid = { workspace = true }
 
 [target."cfg(windows)".dependencies]
 sysinfo = { workspace = true, features = ["disk"] }

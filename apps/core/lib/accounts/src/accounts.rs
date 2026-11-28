@@ -108,7 +108,9 @@ pub enum AccountError {
     InvalidLauncherName,
     #[error("A launcher account already uses this name.")]
     DuplicateLauncherName,
-    #[error("Could not identify the current device user.")]
+    #[error(
+        "Could not identify the device user. Check that the launcher's local configuration directory is accessible."
+    )]
     DeviceUser,
     #[error("The account file uses unsupported schema {0}.")]
     UnsupportedSchema(u32),
