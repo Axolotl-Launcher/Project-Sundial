@@ -15,6 +15,10 @@ use crate::{redirect_policy, transfer};
 use transfer::TransferError;
 
 const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+// Applies to establishing a connection. The desktop gateway sets the full request deadline.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+// Reuse a few connections to each CDN without retaining the full request concurrency when idle.
+const MAX_IDLE_CONNECTIONS_PER_HOST: usize = 4;
 static CLIENT: OnceLock<Result<Client, ProjectImageError>> = OnceLock::new();
 
 /// A failure while retrieving an image for a project description.
@@ -132,8 +136,8 @@ fn image_client() -> Result<Client, ProjectImageError> {
     Client::builder()
         .user_agent(concat!("Axolotl-Launcher/", env!("CARGO_PKG_VERSION")))
         .redirect(redirect_policy(Some(allows_image), None))
-        .connect_timeout(Duration::from_secs(15))
-        .pool_max_idle_per_host(4)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .pool_max_idle_per_host(MAX_IDLE_CONNECTIONS_PER_HOST)
         .build()
         .map_err(|error| ProjectImageError::Internal(error.without_url().to_string()))
 }
