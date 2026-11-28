@@ -20,7 +20,7 @@ use crate::i18n::{interpolate, tr};
 use super::super::RootView;
 
 mod editor;
-pub(in crate::panel) use editor::open as open_editor;
+pub(in crate::panel) use editor::{MemoryScope, open as open_editor};
 
 impl RootView {
     pub(in crate::panel) fn render_memory(&self, cx: &mut Context<'_, Self>) -> AnyElement {
@@ -57,8 +57,7 @@ impl RootView {
         let view = cx.weak_entity();
         let saved = settings.memory().manual_heap();
         open_editor(
-            tr(cx, "settings.memory.title").into(),
-            tr(cx, "settings.memory.automatic"),
+            MemoryScope::Global,
             saved,
             MaximumHeap::default(),
             window,
@@ -82,7 +81,7 @@ impl RootView {
                 .as_ref()
                 .is_none_or(|paths| paths.path(DataPath::Root) != root)
         {
-            return Err("The settings location changed. Reopen the editor to continue.".into());
+            return Err(tr(cx, "settings.memory.editor.location-changed").into());
         }
         let allocation = heap.map_or(MemoryAllocation::Automatic, MemoryAllocation::Manual);
         let data = memory::set_global(root, allocation).map_err(|error| error.to_string())?;

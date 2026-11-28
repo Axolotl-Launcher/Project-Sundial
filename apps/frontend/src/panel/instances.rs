@@ -16,11 +16,14 @@ use axlauncher_ui::{
     Sizable, WeakEntity, Window, h_flex, v_flex,
 };
 
-use crate::i18n::tr;
+use crate::i18n::{interpolate, tr};
 
 use super::{
     RootView,
-    java::{InstancePicker, memory::open_editor},
+    java::{
+        InstancePicker,
+        memory::{MemoryScope, open_editor},
+    },
 };
 
 mod actions;
@@ -146,18 +149,18 @@ impl RootView {
         entry.profile.game()?;
         let directory = entry.directory.clone();
         let label = if entry.profile.memory().is_some() {
-            "Memory · Manual"
+            tr(cx, "instances.memory.manual")
         } else {
-            "Memory · Global"
+            tr(cx, "instances.memory.global")
         };
         let button =
             Button::new(ElementId::Name(
                 format!("instance-memory:{}", directory.display()).into(),
             ))
             .label(label)
-            .accessibility_label(format!(
-                "Configure memory for {}",
-                entry.profile.instance.name
+            .accessibility_label(interpolate(
+                tr(cx, "instances.memory.configure-name"),
+                &[("name", &entry.profile.instance.name)],
             ))
             .small()
             .on_click(cx.listener(move |view, _, window, cx| {
@@ -177,7 +180,7 @@ impl RootView {
         };
         let directory = entry.directory.clone();
         let id = entry.profile.id().to_owned();
-        let title = format!("Memory for {}", entry.profile.instance.name);
+        let scope = MemoryScope::Instance(entry.profile.instance.name.clone());
         let suggested = self
             .settings
             .as_ref()
@@ -185,8 +188,7 @@ impl RootView {
             .unwrap_or_default();
         let view = cx.weak_entity();
         open_editor(
-            title,
-            "Follow global settings",
+            scope,
             entry.profile.memory(),
             suggested,
             window,
@@ -210,7 +212,7 @@ impl RootView {
             .find(directory)
             .is_none_or(|entry| entry.profile.id() != id)
         {
-            return Err("This instance changed. Reopen the editor to continue.".into());
+            return Err(tr(cx, "instances.memory.instance-changed").into());
         }
         let updated =
             memory::set_instance(directory, id, heap).map_err(|error| error.to_string())?;

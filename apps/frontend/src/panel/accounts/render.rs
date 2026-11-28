@@ -209,7 +209,7 @@ impl AccountsPanel {
         let id = account.id();
         let label = account_label(account, persistence, cx);
         let details = if selected {
-            format!("{label} · Selected")
+            interpolate(tr(cx, "accounts.selected"), &[("account", &label)])
         } else {
             label
         };
@@ -232,10 +232,10 @@ impl AccountsPanel {
                     .child(
                         Button::new(account_element("select-account", id))
                             .label(tr(cx, "accounts.use"))
-                            .accessibility_label(format!(
-                                "Use {} {} account",
-                                account.name(),
-                                account_kind(id, cx)
+                            .accessibility_label(account_action_label(
+                                "accounts.use-name",
+                                account,
+                                cx,
                             ))
                             .disabled(disabled || selected)
                             .on_click(cx.listener(move |view, _, _, cx| {
@@ -246,10 +246,10 @@ impl AccountsPanel {
                     .child(
                         Button::new(account_element("remove-account", id))
                             .label(tr(cx, "accounts.remove"))
-                            .accessibility_label(format!(
-                                "Remove {} {} account",
-                                account.name(),
-                                account_kind(id, cx)
+                            .accessibility_label(account_action_label(
+                                "accounts.remove-name",
+                                account,
+                                cx,
                             ))
                             .ghost()
                             .disabled(disabled)
@@ -266,7 +266,10 @@ impl AccountsPanel {
         let server = account.server().map(|server| (id, server.url().to_owned()));
         Button::new(account_element("reauthenticate", id))
             .label(tr(cx, "accounts.reauthenticate"))
-            .accessibility_label(format!("Sign in again as {}", account.name()))
+            .accessibility_label(interpolate(
+                tr(cx, "accounts.reauthenticate-name"),
+                &[("name", account.name())],
+            ))
             .ghost()
             .disabled(disabled)
             .on_click(cx.listener(move |view, _, window, cx| {
@@ -346,6 +349,16 @@ fn account_provider<'a>(account: &'a Account, cx: &axlauncher_ui::App) -> &'a st
     account
         .server()
         .map_or_else(|| account_kind(account.id(), cx), |server| server.name())
+}
+
+fn account_action_label(key: &'static str, account: &Account, cx: &axlauncher_ui::App) -> String {
+    interpolate(
+        tr(cx, key),
+        &[
+            ("name", account.name()),
+            ("kind", account_kind(account.id(), cx)),
+        ],
+    )
 }
 
 fn account_kind(id: AccountId, cx: &axlauncher_ui::App) -> &'static str {

@@ -129,9 +129,9 @@ impl Form {
             .as_ref()
             .is_some_and(|attempt| attempt.cancellation.0.is_saving());
         let status = if saving {
-            "Saving account"
+            tr(cx, "accounts.status.saving")
         } else {
-            "Contacting the sign-in server"
+            tr(cx, "accounts.third-party.contacting")
         };
         let fields = match &self.choice {
             Some(choice) => {
@@ -142,7 +142,7 @@ impl Form {
                     .child(h_flex().gap_2().flex_wrap().children(buttons))
                     .into_any_element()
             }
-            None => self.render_fields(submit),
+            None => self.render_fields(submit, cx),
         };
         v_flex()
             .track_focus(&self.focus_scope)
@@ -167,26 +167,26 @@ impl Form {
             .into_any_element()
     }
 
-    fn render_fields(&self, submit: Button) -> AnyElement {
+    fn render_fields(&self, submit: Button, cx: &App) -> AnyElement {
         let disabled = self.is_working();
         v_flex()
             .gap_2()
             .child(field(
                 &self.url,
                 "third-party-url",
-                "Yggdrasil API URL",
+                tr(cx, "accounts.third-party.url"),
                 disabled || self.expected.is_some(),
             ))
             .child(field(
                 &self.username,
                 "third-party-user",
-                "Username",
+                tr(cx, "accounts.third-party.username"),
                 disabled,
             ))
             .child(field(
                 &self.password,
                 "third-party-password",
-                "Password",
+                tr(cx, "accounts.third-party.password"),
                 disabled,
             ))
             .child(h_flex().child(submit.disabled(disabled)))

@@ -3,9 +3,10 @@
 
 //! A shared dialog for editing a single heap preference.
 
-use crate::i18n::tr;
+use crate::i18n::{interpolate, language, text, tr};
 
 use axlauncher_core::domain::memory::MaximumHeap;
+use axlauncher_core::state::LauncherLanguage;
 use axlauncher_core::storage::PhysicalMemory;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
@@ -16,9 +17,31 @@ use axlauncher_ui::{
 
 type Commit = dyn Fn(Option<MaximumHeap>, &mut App) -> Result<(), String>;
 
+pub(in crate::panel) enum MemoryScope {
+    Global,
+    Instance(String),
+}
+
+impl MemoryScope {
+    fn title(&self, language: LauncherLanguage) -> String {
+        match self {
+            Self::Global => text(language, "settings.memory.title").into(),
+            Self::Instance(name) => {
+                interpolate(text(language, "instances.memory.title"), &[("name", name)])
+            }
+        }
+    }
+
+    fn inherited_key(&self) -> &'static str {
+        match self {
+            Self::Global => "settings.memory.automatic",
+            Self::Instance(_) => "instances.memory.inherit",
+        }
+    }
+}
+
 pub(in crate::panel) fn open(
-    title: String,
-    inherited_label: &'static str,
+    scope: MemoryScope,
     saved: Option<MaximumHeap>,
     suggested: MaximumHeap,
     window: &mut Window,
@@ -27,7 +50,7 @@ pub(in crate::panel) fn open(
 ) {
     let editor = cx.new(|cx| {
         MemoryEditor::new(
-            inherited_label,
+            scope.inherited_key(),
             saved,
             suggested,
             Box::new(commit),
@@ -35,10 +58,10 @@ pub(in crate::panel) fn open(
             cx,
         )
     });
-    window.open_dialog(cx, move |dialog, _, _| {
+    window.open_dialog(cx, move |dialog, _, cx| {
         let confirm = editor.clone();
         dialog
-            .title(title.clone())
+            .title(scope.title(language(cx)))
             .overlay_closable(false)
             .on_ok(move |_, _, cx| confirm.update(cx, MemoryEditor::submit))
             .child(editor.clone())
@@ -47,7 +70,7 @@ pub(in crate::panel) fn open(
 
 struct MemoryEditor {
     commit: Box<Commit>,
-    inherited_label: &'static str,
+    inherited_key: &'static str,
     manual: bool,
     limit_mib: u32,
     input: Entity<InputState>,
@@ -57,7 +80,7 @@ struct MemoryEditor {
 
 impl MemoryEditor {
     fn new(
-        inherited_label: &'static str,
+        inherited_key: &'static str,
         saved: Option<MaximumHeap>,
         suggested: MaximumHeap,
         commit: Box<Commit>,
@@ -94,7 +117,7 @@ impl MemoryEditor {
         .detach();
         Self {
             commit,
-            inherited_label,
+            inherited_key,
             manual: saved.is_some(),
             limit_mib,
             input,
@@ -147,17 +170,17 @@ impl MemoryEditor {
                     .w_24(),
             )
             .child(
-                h_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .child(Slider::new(&self.slider).accessibility_label("Maximum heap slider")),
+                h_flex().flex_1().min_w_0().child(
+                    Slider::new(&self.slider)
+                        .accessibility_label(tr(cx, "settings.memory.editor.slider-name")),
+                ),
             )
             .child(
                 NumberInput::new(&self.input)
                     .stepper(false)
                     .w_24()
                     .flex_none()
-                    .accessibility_label("Maximum heap in MiB")
+                    .accessibility_label(tr(cx, "settings.memory.editor.input-name"))
                     .suffix(Label::new("MiB").text_xs()),
             )
     }
@@ -170,7 +193,10 @@ impl Render for MemoryEditor {
             .gap_3()
             .child(
                 RadioGroup::horizontal("memory-allocation-mode")
-                    .children([self.inherited_label, "Manual"])
+                    .children([
+                        tr(cx, self.inherited_key),
+                        tr(cx, "settings.memory.editor.manual"),
+                    ])
                     .selected_index(Some(usize::from(self.manual)))
                     .on_change(cx.listener(Self::set_mode)),
             )
@@ -181,10 +207,12 @@ impl Render for MemoryEditor {
                     .text_color(cx.theme().muted_foreground),
             )
             .children(invalid.then(|| {
-                Label::new(format!(
-                    "Enter a maximum heap of {}–{} MiB.",
-                    MaximumHeap::MINIMUM_MIB,
-                    self.limit_mib
+                Label::new(interpolate(
+                    tr(cx, "settings.memory.editor.range"),
+                    &[
+                        ("min", &MaximumHeap::MINIMUM_MIB.to_string()),
+                        ("max", &self.limit_mib.to_string()),
+                    ],
                 ))
                 .text_sm()
                 .text_color(cx.theme().danger)
