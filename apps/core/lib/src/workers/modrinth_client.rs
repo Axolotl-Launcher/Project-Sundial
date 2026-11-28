@@ -92,15 +92,14 @@ impl DesktopModrinth {
 
     async fn execute(&self, operation: Operation) -> Result<Payload, CatalogError> {
         operation.validate()?;
-        let mut cooldown = COOLDOWN.lock().await;
-        check_cooldown(*cooldown, Instant::now())?;
-        let mut request = self
-            .worker
-            .request(&self.data, Command::V1(operation))
-            .map_err(|_| CatalogError::WorkerUnavailable)?;
-        let (delay, result) = receive(async || request.next().await).await?.into_parts();
-        *cooldown = delay.map(|seconds| Instant::now() + Duration::from_secs(seconds.into()));
-        result
+        execute_with_cooldown(&COOLDOWN, async {
+            let mut request = self
+                .worker
+                .request(&self.data, Command::V1(operation))
+                .map_err(|_| CatalogError::WorkerUnavailable)?;
+            receive(async || request.next().await).await
+        })
+        .await
     }
 }
 
@@ -182,6 +181,21 @@ public_lookups! {
 /// An optional process lease for a group of Modrinth requests.
 pub struct ModrinthLease<'a> {
     _lease: Lease<'a, Reply>,
+}
+
+async fn execute_with_cooldown(
+    cooldown: &tokio::sync::Mutex<Option<Instant>>,
+    request: impl Future<Output = Result<Reply, CatalogError>>,
+) -> Result<Payload, CatalogError> {
+    let deadline = *cooldown.lock().await;
+    check_cooldown(deadline, Instant::now())?;
+    let (delay, result) = request.await?.into_parts();
+    if let Some(seconds) = delay {
+        let retry_at = Instant::now() + Duration::from_secs(seconds.into());
+        let mut deadline = cooldown.lock().await;
+        *deadline = (*deadline).max(Some(retry_at));
+    }
+    result
 }
 
 fn check_cooldown(cooldown: Option<Instant>, now: Instant) -> Result<(), CatalogError> {

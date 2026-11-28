@@ -72,3 +72,50 @@ fn catalog_cooldown_does_not_round_down_or_extend_an_expired_window() {
     );
     assert_eq!(check_cooldown(Some(until), until), Ok(()));
 }
+
+#[tokio::test]
+async fn concurrent_catalog_scopes_preserve_a_rate_limit() {
+    let cooldown = tokio::sync::Mutex::new(None);
+    let (release, wait_for_release) = tokio::sync::oneshot::channel();
+    let mut first_scope = std::pin::pin!(execute_with_cooldown(&cooldown, async {
+        wait_for_release.await.unwrap();
+        Ok(Reply::new(None, Ok(Payload::Versions(Vec::new()))))
+    }));
+    assert!(futures::poll!(first_scope.as_mut()).is_pending());
+
+    let retry_after_seconds = 60;
+    let mut second_scope = std::pin::pin!(execute_with_cooldown(&cooldown, async {
+        Ok(Reply::new(
+            Some(retry_after_seconds),
+            Err(CatalogError::RateLimited {
+                retry_after_seconds,
+            }),
+        ))
+    }));
+    let std::task::Poll::Ready(result) = futures::poll!(second_scope.as_mut()) else {
+        panic!("the second scope must not wait for the first scope's reply");
+    };
+    assert_eq!(
+        result.unwrap_err(),
+        CatalogError::RateLimited {
+            retry_after_seconds,
+        }
+    );
+    let deadline = cooldown.lock().await.unwrap();
+
+    release.send(()).unwrap();
+    assert!(matches!(first_scope.await, Ok(Payload::Versions(_))));
+    assert_eq!(*cooldown.lock().await, Some(deadline));
+
+    let error = execute_with_cooldown(&cooldown, async {
+        panic!("a request must not reach a worker during the cooldown");
+    })
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        CatalogError::RateLimited {
+            retry_after_seconds: 1..,
+        }
+    ));
+}
