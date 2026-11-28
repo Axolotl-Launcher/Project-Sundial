@@ -9,7 +9,7 @@ use axlauncher_ui::{
     AppContext as _, Bounds, Context, IntoElement, Render, Window, WindowBounds, WindowExt as _,
     WindowOptions, kit, point, px, size,
 };
-use gpui::{Modifiers, TestAppContext, VisualTestContext};
+use gpui::{KeyDownEvent, KeyUpEvent, Keystroke, Modifiers, TestAppContext, VisualTestContext};
 use url::Url;
 
 static ATTEMPTS: AtomicUsize = AtomicUsize::new(0);
@@ -20,6 +20,7 @@ fn retries_a_failed_relative_image_then_opens_the_preview() {
     let (handle, view) = mount(
         &cx,
         retryable_image,
+        ContentType::Html,
         r#"<p><img src="images/badge.png#preview" width="64" height="48" alt="Badge"></p>"#,
     );
     let mut window = VisualTestContext::from_window(handle, &cx);
@@ -48,6 +49,7 @@ fn linked_html_image_opens_the_resolved_destination() {
             assert_eq!(url, "https://example.com/projects/images/badge.png");
             png()
         },
+        ContentType::Html,
         r#"<p><a href="/linkout?target=forge"><img src="images/badge.png" width="64" height="48" alt="Forge"></a></p>"#,
     );
     let mut window = VisualTestContext::from_window(handle, &cx);
@@ -60,6 +62,56 @@ fn linked_html_image_opens_the_resolved_destination() {
     cx.quit();
 }
 
+#[test]
+fn enter_opens_the_destination_of_a_focused_markdown_image_link() {
+    for available in [true, false] {
+        let cx = TestAppContext::single();
+        let (handle, _) = mount(
+            &cx,
+            move |url| markdown_badge(url, available),
+            ContentType::Markdown,
+            "[![Badge](images/badge.png)](/target)",
+        );
+        let mut window = VisualTestContext::from_window(handle, &cx);
+        window.run_until_parked();
+        window.update(|window, cx| {
+            window.focus_next(cx);
+            assert!(
+                window.focused(cx).is_some(),
+                "the link should be a tab stop"
+            );
+            window.draw(cx).clear(cx);
+        });
+        assert_eq!(cx.opened_url(), None);
+        press_key(&mut window, "enter");
+        assert_eq!(
+            cx.opened_url().as_deref(),
+            Some("https://example.com/target")
+        );
+        cx.quit();
+    }
+}
+
+async fn markdown_badge(url: String, available: bool) -> Result<Vec<u8>, String> {
+    assert_eq!(url, "https://example.com/projects/images/badge.png");
+    if available {
+        png()
+    } else {
+        Err("offline".into())
+    }
+}
+
+fn press_key(window: &mut VisualTestContext, key: &str) {
+    let keystroke =
+        window.update(|_, cx| Keystroke::parse_with_os(key, cx.platform_info().os).unwrap());
+    window.simulate_event(KeyDownEvent {
+        keystroke: keystroke.clone(),
+        is_held: false,
+        prefer_character_input: false,
+    });
+    window.simulate_event(KeyUpEvent { keystroke });
+}
+
 struct Preview(ContentDocument);
 
 impl Render for Preview {
@@ -70,8 +122,9 @@ impl Render for Preview {
 
 fn mount<Request: Future<Output = Result<Vec<u8>, String>> + Send + 'static>(
     cx: &TestAppContext,
-    fetch: fn(String) -> Request,
-    html: &str,
+    fetch: impl Fn(String) -> Request + Send + Sync + 'static,
+    content_type: ContentType,
+    source: &str,
 ) -> (
     axlauncher_ui::AnyWindowHandle,
     axlauncher_ui::Entity<Preview>,
@@ -90,7 +143,7 @@ fn mount<Request: Future<Output = Result<Vec<u8>, String>> + Send + 'static>(
             |_, cx| {
                 let base = Url::parse("https://example.com/projects/create").unwrap();
                 let document =
-                    ContentRenderer::new(fetch).document(ContentType::Html, html, Some(base), cx);
+                    ContentRenderer::new(fetch).document(content_type, source, Some(base), cx);
                 cx.new(|_| Preview(document))
             },
         )

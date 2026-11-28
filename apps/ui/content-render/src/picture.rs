@@ -6,11 +6,11 @@
 use std::sync::Arc;
 
 use axlauncher_ui::kit::Size;
+use axlauncher_ui::kit::base::Link;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, App, Button, ButtonVariants, ClickEvent, Div, IntoElement,
-    MouseButton, ObjectFit, Pixels, RenderImage, Role, SharedString, Skeleton, Stateful, div, img,
-    px, size,
+    MouseButton, ObjectFit, Pixels, RenderImage, Role, SharedString, Skeleton, div, img, px, size,
 };
 
 use super::images::{ImageState, SKELETON_HEIGHT, SKELETON_WIDTH};
@@ -59,7 +59,6 @@ fn loaded_picture(
     link: Option<SharedString>,
     cx: &App,
 ) -> AnyElement {
-    let ring = cx.theme().ring;
     let thumbnail = img(image.clone())
         .id("picture-image")
         .absolute()
@@ -82,14 +81,7 @@ fn loaded_picture(
             })
             .child(thumbnail)
             .into_any_element(),
-        link => div()
-            .id("picture")
-            .relative()
-            .w_full()
-            .aspect_ratio(ratio)
-            .aria_label(name)
-            .focus_visible(move |style| style.border_1().border_color(ring))
-            .map(|element| picture_role(element, link))
+        Some(link) => picture_link(link, name, ratio, cx)
             .child(thumbnail)
             .into_any_element(),
     }
@@ -100,24 +92,29 @@ fn unavailable_picture(
     name: SharedString,
     link: Option<SharedString>,
     cx: &App,
-) -> Stateful<Div> {
-    let ring = cx.theme().ring;
+) -> AnyElement {
     let label = if name.is_empty() {
         "Image unavailable".into()
     } else {
         SharedString::from(format!("Image unavailable: {name}"))
     };
-    div()
-        .id("picture")
-        .flex()
-        .items_center()
-        .justify_center()
-        .w_full()
-        .aspect_ratio(ratio)
-        .aria_label(label)
-        .focus_visible(move |style| style.border_1().border_color(ring))
-        .map(|element| picture_role(element, link))
-        .child(image_placeholder::icon(cx).max_w_full().max_h_full())
+    let icon = image_placeholder::icon(cx).max_w_full().max_h_full();
+    match link {
+        Some(link) => picture_link(link, label, ratio, cx)
+            .child(icon)
+            .into_any_element(),
+        None => div()
+            .id("picture")
+            .flex()
+            .items_center()
+            .justify_center()
+            .w_full()
+            .aspect_ratio(ratio)
+            .role(Role::Image)
+            .aria_label(label)
+            .child(icon)
+            .into_any_element(),
+    }
 }
 
 fn preview_label(name: &str) -> String {
@@ -127,17 +124,21 @@ fn preview_label(name: &str) -> String {
     format!("Open image preview for {name}")
 }
 
-fn picture_role(element: Stateful<Div>, link: Option<SharedString>) -> Stateful<Div> {
-    let Some(link) = link else {
-        return element.role(Role::Image);
-    };
+fn picture_link(link: SharedString, label: SharedString, ratio: f32, cx: &App) -> Link {
+    let ring = cx.theme().ring;
     let auxiliary_link = link.clone();
-    element
-        .role(Role::Link)
-        .focusable()
-        .tab_stop(true)
+    Link::new("picture")
+        .href(link)
+        .accessibility_label(label)
+        .relative()
+        .flex()
+        .items_center()
+        .justify_center()
+        .w_full()
+        .aspect_ratio(ratio)
         .cursor_pointer()
-        .on_click(move |_, _, cx| cx.open_url(&link))
+        .focus_visible(move |style| style.border_1().border_color(ring))
+        .open_with(|url, _, _, cx| cx.open_url(url))
         .on_aux_click(move |event, _, cx| {
             if matches!(event, ClickEvent::Mouse(click) if click.up.button == MouseButton::Middle) {
                 cx.open_url(&auxiliary_link);
