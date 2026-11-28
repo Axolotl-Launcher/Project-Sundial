@@ -138,7 +138,7 @@ impl RootView {
             Page::Home => vec![self.accounts.clone().into_any_element()],
             Page::Instances => vec![self.render_instances(cx)],
             Page::Settings => vec![
-                self.render_environment(cx),
+                self.render_environment(self.render_language_picker(cx), cx),
                 self.render_memory(cx),
                 self.java.clone().into_any_element(),
                 self.render_service_sources(cx),

@@ -1,15 +1,16 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-use axlauncher_core::state::{LauncherLanguage, SettingsOrigin, update_settings};
+use axlauncher_core::state::{LauncherLanguage, SettingsData, SettingsOrigin, update_settings};
 use axlauncher_core::storage::DataPath;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, Context, Entity, IndexPath, IntoElement, Label, Select, SelectEvent, SelectItem,
-    SelectState, SharedString, Window, rems, v_flex,
+    ActiveTheme, App, Context, Entity, IndexPath, IntoElement, Label, Select, SelectEvent,
+    SelectItem, SelectState, SharedString, Window, rems, v_flex,
 };
 
 use crate::i18n::{interpolate, language, set_language, tr};
+use crate::palette_for;
 
 use super::RootView;
 
@@ -65,11 +66,7 @@ impl RootView {
         self.save_launcher_language(*selected, window, cx);
     }
 
-    pub(super) fn render_language_picker(
-        &self,
-        cx: &Context<'_, Self>,
-        read_only: bool,
-    ) -> impl IntoElement + use<> {
+    pub(super) fn render_language_picker(&self, cx: &App) -> impl IntoElement + use<> {
         let label = tr(cx, "settings.launcher-language.label");
         v_flex()
             .gap_1()
@@ -80,7 +77,7 @@ impl RootView {
                     .accessibility_label(label)
                     .w_48()
                     .menu_width(rems(12.))
-                    .disabled(read_only),
+                    .disabled(self.settings_readonly()),
             )
             .child(
                 Label::new(tr(cx, "settings.launcher-language.description"))
@@ -98,18 +95,13 @@ impl RootView {
         if self.settings_readonly() || language(cx) == selected {
             return;
         }
-        let Some((paths, settings)) = self.paths.as_ref().zip(self.settings.as_mut()) else {
+        let Some(paths) = self.paths.as_ref() else {
             return;
         };
         match update_settings(paths.path(DataPath::Root), |data| {
             data.launcher_language = selected
         }) {
-            Ok(_) => {
-                settings.launcher_language = selected;
-                self.origin = Some(SettingsOrigin::Stored);
-                self.environment.clear_feedback();
-                self.apply_launcher_language(selected, window, cx);
-            }
+            Ok(saved) => self.apply_language_save(saved, window, cx),
             Err(error) => {
                 self.apply_launcher_language(language(cx), window, cx);
                 self.environment.show_error(interpolate(
@@ -119,6 +111,38 @@ impl RootView {
             }
         }
         cx.notify();
+    }
+
+    fn apply_language_save(
+        &mut self,
+        saved: SettingsData,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        let Some(previous) = &self.settings else {
+            return;
+        };
+        self.environment.sync_saved_game_language(
+            &previous.default_game_language,
+            &saved.default_game_language,
+            window,
+            cx,
+        );
+        if self.theme == previous.theme && self.theme != saved.theme {
+            self.theme = saved.theme;
+            palette_for(self.theme).apply(cx);
+        }
+        if previous.memory() != saved.memory()
+            || previous.use_fallen_proxy != saved.use_fallen_proxy
+        {
+            self.invalidate_inspection();
+        }
+        let selected = saved.launcher_language;
+        self.set_settings(Some(saved), cx);
+        self.origin = Some(SettingsOrigin::Stored);
+        self.environment.clear_feedback();
+        self.apply_launcher_language(selected, window, cx);
+        self.reload_sources(window, cx);
     }
 
     pub(super) fn apply_launcher_language(
@@ -140,12 +164,7 @@ impl RootView {
         self.download_sources.refresh_language(window, cx);
     }
 
-    fn sync_language_picker(
-        &self,
-        selected: LauncherLanguage,
-        window: &mut Window,
-        cx: &mut axlauncher_ui::App,
-    ) {
+    fn sync_language_picker(&self, selected: LauncherLanguage, window: &mut Window, cx: &mut App) {
         if self.language_picker.read(cx).selected_value() == Some(&selected) {
             return;
         }

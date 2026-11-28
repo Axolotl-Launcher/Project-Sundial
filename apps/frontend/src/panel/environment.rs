@@ -40,6 +40,18 @@ impl EnvironmentState {
             .update(cx, |input, cx| input.set_value(value, window, cx));
     }
 
+    pub(super) fn sync_saved_game_language(
+        &self,
+        previous: &str,
+        saved: &str,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if previous != saved && self.language(cx).as_ref() == previous {
+            self.set_game_language(saved.to_owned(), window, cx);
+        }
+    }
+
     pub(super) fn refresh_language(&self, window: &mut Window, cx: &mut App) {
         let placeholder = game_language_placeholder(cx);
         self.game_language.update(cx, |input, cx| {
@@ -143,7 +155,11 @@ impl RootView {
         }
     }
 
-    pub(super) fn render_environment(&mut self, cx: &mut Context<'_, Self>) -> AnyElement {
+    pub(super) fn render_environment(
+        &mut self,
+        language_picker: impl IntoElement,
+        cx: &mut Context<'_, Self>,
+    ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let paths = self.environment_paths(muted, cx);
         let read_only = self.settings_readonly();
@@ -163,7 +179,7 @@ impl RootView {
             .child(
                 v_flex()
                     .gap_3()
-                    .child(self.render_language_picker(cx, read_only))
+                    .child(language_picker)
                     .child(self.root_controls(cx))
                     .children(paths)
                     .child(self.settings_controls(cx, read_only, save_disabled))
