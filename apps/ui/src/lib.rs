@@ -24,6 +24,7 @@ pub use gpui_kit::component::{
     menu::{DropdownMenu, PopupMenu, PopupMenuItem},
     pagination::Pagination,
     radio::RadioGroup,
+    resizable::{HandleEdge, resize_handle},
     scroll::ScrollableElement,
     select::{SearchableVec, Select, SelectDelegate, SelectEvent, SelectItem, SelectState},
     separator::Separator,
