@@ -27,6 +27,7 @@ pub use gpui_kit::component::{
     scroll::ScrollableElement,
     select::{SearchableVec, Select, SelectDelegate, SelectEvent, SelectItem, SelectState},
     separator::Separator,
+    set_locale as set_component_locale,
     sidebar::{Sidebar, SidebarMenu},
     slider::{Slider, SliderEvent, SliderState},
     switch::Switch,

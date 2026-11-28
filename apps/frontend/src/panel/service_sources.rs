@@ -136,13 +136,9 @@ impl DownloadSources {
 }
 
 fn refresh_source_options(select: &SourceSelect, window: &mut Window, cx: &mut App) {
-    let selection = select.read(cx).selected_value().copied();
     select.update(cx, |state, cx| {
         state.set_items(source_options(cx), window, cx)
     });
-    if let Some(selection) = selection {
-        sync_select(select, selection, window, cx);
-    }
 }
 
 fn sync_select(select: &SourceSelect, value: SourcePreference, window: &mut Window, cx: &mut App) {

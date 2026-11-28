@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use axlauncher_core::state::{LauncherLanguage, SettingsData};
-use axlauncher_ui::{App, kit::Global};
+use axlauncher_ui::{App, kit::Global, set_component_locale};
 
 const ENGLISH: &str = include_str!("../locales/en-US.json");
 const CHINESE: &str = include_str!("../locales/zh-CN.json");
@@ -37,10 +37,18 @@ pub(crate) fn language(cx: &App) -> LauncherLanguage {
 }
 
 pub(crate) fn set_language(language: LauncherLanguage, cx: &mut App) {
-    if self::language(cx) != language {
-        cx.set_global(ActiveLanguage(language));
-        cx.refresh_windows();
+    if cx
+        .try_global::<ActiveLanguage>()
+        .is_some_and(|active| active.0 == language)
+    {
+        return;
     }
+    set_component_locale(match language {
+        LauncherLanguage::English => "en",
+        LauncherLanguage::SimplifiedChinese => "zh-CN",
+    });
+    cx.set_global(ActiveLanguage(language));
+    cx.refresh_windows();
 }
 
 pub(crate) fn tr(cx: &App, key: &'static str) -> &'static str {
