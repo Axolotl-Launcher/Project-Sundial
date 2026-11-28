@@ -10,6 +10,10 @@ description = "Standalone conversion of MultiMC exports into Axolotl profiles"
 repository.workspace = true
 license.workspace = true
 
+# cargo-shear does not find the dependency in the mirrored tests/ tree.
+[package.metadata.cargo-shear]
+ignored = ["tempfile"]
+
 [[bin]]
 name = "axlauncher-mmc-convert"
 path = "src/main.rs"

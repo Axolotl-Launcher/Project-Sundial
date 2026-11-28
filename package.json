@@ -7,7 +7,7 @@
     "node": ">=24.22.0"
   },
   "scripts": {
-    "build": "node scripts/turbo.ts build",
+    "build": "node scripts/desktop.ts build",
     "dev": "node scripts/turbo.ts dev",
     "dev:windows": "turbo run dev --filter=@axlauncher/platform-windows",
     "dev:linux": "turbo run dev --filter=@axlauncher/platform-linux",

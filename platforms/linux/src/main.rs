@@ -3,6 +3,8 @@
 
 //! Linux entry point. All UI construction lives in `axlauncher_frontend`.
 
+use axlauncher_frontend as frontend;
+
 #[path = "../../entry.rs"]
 mod entry;
 

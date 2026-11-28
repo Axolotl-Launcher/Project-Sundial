@@ -40,11 +40,13 @@ pnpm build
 pnpm dev
 ```
 
-The root `build`, `dev`, `test`, and `lint` scripts use
+`pnpm build` runs [`scripts/desktop.ts`](scripts/desktop.ts) to build the
+current OS's release launcher. The script builds the host worker libraries
+for embedding, then Cargo builds the desktop shell and its dependencies in
+one invocation. The root `dev`, `test`, and `lint` scripts use
 [`scripts/turbo.ts`](scripts/turbo.ts) to limit Turbo to `apps/*` and the
-current OS's platform shell. To target a shell directly, use a command such as
-`pnpm dev:windows` or `node scripts/desktop.ts build`. The desktop build
-compiles and embeds the worker libraries for the host. To invoke Cargo
+current OS's platform shell. To start a specific development shell, use a
+command such as `pnpm dev:windows`. To invoke Cargo
 directly for a desktop package, run it through `node scripts/desktop.ts exec`
 so the artifacts are available. The standalone converter does not need this step.
 The workspace enables incremental Cargo builds in

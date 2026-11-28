@@ -6,6 +6,8 @@
 //! The macOS bundle layout (Info.plist, icon, code signing) is produced around
 //! this binary; see `packaging/macos`.
 
+use axlauncher_frontend as frontend;
+
 #[path = "../../entry.rs"]
 mod entry;
 

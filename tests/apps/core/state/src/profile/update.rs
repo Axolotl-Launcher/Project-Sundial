@@ -48,6 +48,165 @@ fn rename_only_changes_the_exact_name_and_keeps_the_local_java_binding() {
 }
 
 #[test]
+fn renaming_a_folder_moves_the_instance_and_keeps_its_uuid_and_files() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = DataDir::isolated(root.path()).unwrap();
+    let instances = paths.path(DataPath::Profiles);
+    let (directory, id) = fixture(instances);
+    let mut before = manifest(&directory);
+    before["instance"]["extra"] = json!(true);
+    fs::write(
+        Document::Profile.path(&directory),
+        serde_json::to_vec(&before).unwrap(),
+    )
+    .unwrap();
+    fs::write(directory.join("save.dat"), b"player data").unwrap();
+    let folder = ProfileFolderName::new("New name").unwrap();
+
+    let moved = rename_with_folder_if_current(
+        &paths,
+        &directory,
+        &id,
+        "Original",
+        "New name",
+        &folder,
+        || true,
+    )
+    .unwrap();
+
+    assert_eq!(moved, instances.join("New name"));
+    assert!(!directory.exists());
+    assert_eq!(fs::read(moved.join("save.dat")).unwrap(), b"player data");
+    assert_eq!(profile::read(&moved).unwrap().unwrap().id(), id);
+    before["instance"]["name"] = json!("New name");
+    assert_eq!(manifest(&moved), before);
+}
+
+#[test]
+fn an_occupied_rename_destination_is_rejected_before_committing() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = DataDir::isolated(root.path()).unwrap();
+    let instances = paths.path(DataPath::Profiles);
+    let (directory, id) = fixture(instances);
+    let destination = instances.join("Other");
+    fs::create_dir(&destination).unwrap();
+    let folder = ProfileFolderName::new("Other").unwrap();
+
+    let result = rename_with_folder_if_current(
+        &paths,
+        &directory,
+        &id,
+        "Original",
+        "Other",
+        &folder,
+        || panic!("the conflict must be checked first"),
+    );
+
+    assert!(result.is_err());
+    assert_eq!(manifest(&directory)["instance"]["name"], "Original");
+    assert_eq!(fs::read_dir(destination).unwrap().count(), 0);
+}
+
+#[test]
+fn a_late_folder_collision_restores_the_original_marker() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = DataDir::isolated(root.path()).unwrap();
+    let instances = paths.path(DataPath::Profiles);
+    let (directory, id) = fixture(instances);
+    let marker = Document::Profile.path(&directory);
+    let original = fs::read(&marker).unwrap();
+    let destination = instances.join("Taken");
+    let folder = ProfileFolderName::new("Taken").unwrap();
+
+    let result = rename_with_folder_if_current(
+        &paths,
+        &directory,
+        &id,
+        "Original",
+        "Taken",
+        &folder,
+        || {
+            fs::create_dir(&destination).unwrap();
+            true
+        },
+    );
+
+    assert!(result.is_err());
+    assert_eq!(fs::read(marker).unwrap(), original);
+    assert_eq!(fs::read_dir(destination).unwrap().count(), 0);
+}
+
+#[test]
+fn a_case_only_rename_updates_the_spelling_on_disk() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = DataDir::isolated(root.path()).unwrap();
+    let instances = paths.path(DataPath::Profiles);
+    let (original, id) = fixture(instances);
+    let directory = instances.join("MyPack");
+    fs::rename(original, &directory).unwrap();
+    let folder = ProfileFolderName::new("mypack").unwrap();
+
+    let renamed = rename_with_folder_if_current(
+        &paths,
+        &directory,
+        &id,
+        "Original",
+        "mypack",
+        &folder,
+        || true,
+    )
+    .unwrap();
+
+    let found = profile::discover(instances);
+    assert_eq!(found.instances.len(), 1);
+    assert_eq!(found.instances[0].directory.file_name().unwrap(), "mypack");
+    assert_eq!(found.instances[0].directory, renamed);
+    assert_eq!(found.instances[0].profile.id(), id);
+}
+
+#[cfg(windows)]
+#[test]
+fn replacing_an_instance_with_a_junction_before_commit_leaves_the_target_untouched() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = DataDir::isolated(root.path()).unwrap();
+    let instances = paths.path(DataPath::Profiles);
+    let (directory, id) = fixture(instances);
+    let outside = root.path().join("outside");
+    let folder = ProfileFolderName::new("Renamed").unwrap();
+    let link_name = directory.file_name().unwrap();
+    let result = rename_with_folder_if_current(
+        &paths,
+        &directory,
+        &id,
+        "Original",
+        "Renamed",
+        &folder,
+        || {
+            fs::rename(&directory, &outside).unwrap();
+            let junction = std::process::Command::new("cmd.exe")
+                .args(["/d", "/c", "mklink", "/J"])
+                .arg(link_name)
+                .arg(&outside)
+                .current_dir(instances)
+                .output()
+                .unwrap();
+            assert!(junction.status.success(), "{:?}", junction.stderr);
+            true
+        },
+    );
+
+    assert!(result.is_err());
+    assert!(is_link(&fs::symlink_metadata(&directory).unwrap()));
+    assert_eq!(manifest(&outside)["instance"]["name"], "Original");
+    assert!(!instances.join("Renamed").exists());
+
+    let moved_link = instances.join("moved link");
+    move_instance_folder(&directory, &moved_link).unwrap();
+    assert!(is_link(&fs::symlink_metadata(moved_link).unwrap()));
+    assert_eq!(manifest(&outside)["instance"]["name"], "Original");
+}
+
+#[test]
 fn a_heap_write_observes_the_latest_other_fields_and_rejects_stale_overrides() {
     let root = tempfile::tempdir().unwrap();
     let (directory, id) = fixture(root.path());

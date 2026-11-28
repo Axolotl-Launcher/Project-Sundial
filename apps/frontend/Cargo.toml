@@ -10,6 +10,10 @@ description = "Axolotl Launcher application state, layout and window wiring"
 repository.workspace = true
 license.workspace = true
 
+# cargo-shear does not find the dependency in the mirrored tests/ tree.
+[package.metadata.cargo-shear]
+ignored = ["axlauncher_download_engine"]
+
 [dependencies]
 axlauncher_content_render = { workspace = true }
 axlauncher_core = { workspace = true }

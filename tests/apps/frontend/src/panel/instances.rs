@@ -23,7 +23,7 @@ fn completion_refreshes_the_list_after_reselecting_the_default_root() {
     )
     .unwrap();
 
-    assert!(state.refresh_after_install(Some(&current), &worker));
+    assert!(state.refresh_for(Some(&current), &worker));
     assert!(state.find(&installed).is_some());
 }
 
@@ -45,7 +45,7 @@ fn completion_leaves_another_instance_directory_untouched() {
     )
     .unwrap();
 
-    assert!(!state.refresh_after_install(Some(&current), &worker));
+    assert!(!state.refresh_for(Some(&current), &worker));
     assert!(state.find(&installed).is_none());
     assert_eq!(state.selected().unwrap().directory, selected);
 }

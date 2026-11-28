@@ -52,6 +52,7 @@ repository = "https://github.com/Axolotl-Launcher/Axolotl-2.0"
 license = "GPL-3.0-only"
 
 [workspace.dependencies]
+atomicwrites = "0.4.4"
 dirs = "6"
 embed-resource = "3.0.12"
 # gpui-kit 0.10.0 一揽子锁定 GPUI 家族（gpui-pre 0.3.12 快照、gpui-base、
@@ -68,51 +69,34 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 syn = "2.0.119"
 
-# Declared now so each system can start with what it needs. These mirror the
-# reference launcher's runtime dependencies, chosen per system; the selection
-# deliberately leaves out its Tauri shell, its internal crates, and everything
-# that exists only to read another launcher's data (see AGENTS.md).
-
 async-lock = "3.4.2"
-async-trait = "0.1.92"
-dashmap = "6.2.1"
 fastrand = "2.5.0"
 futures = "0.3.34"
-parking_lot = "0.13.0"
 # Async runtime and tasks: network, install, scheduler.
 tokio = { version = "1.54.1", features = ["rt", "sync", "time"] }
 
 base64 = "0.23.1"
 # Byte and text handling.
 bytes = "1.12.2"
-encoding_rs = "0.8.35"
 unicode-normalization = "0.1.25"
 
-crc32fast = "1.5.0"
 hex = "0.4.3"
 md-5 = "0.10.6"
 # Hashing and identity: downloads, library verification, mod fingerprints.
 sha1_smol = "1.0.1"
 sha2 = "0.11.1"
 
-flate2 = "1.1.11"
-tar = "0.4.46"
 xz2 = "0.1.7"
 # Archives: native extraction and modpack distribution inputs.
 zip = { version = "9.8.1", default-features = false }
 
-# Game metadata documents.
 quick-xml = "0.41.0"
-semver = "1.0.28"
-toml = "1.2.2"
 
 dunce = "1.0.5"
-fs4 = "1.1.0"
-notify = "9.0.0"
+objc2-foundation = { version = "0.3.2", default-features = false }
+open = "5.4.5"
 tempfile = "3.27.0"
 trash = "5.4.0"
-# Filesystem work beyond std.
-walkdir = "2.5.1"
 
 hickory-proto = { version = "0.26.3", default-features = false, features = ["std"] }
 # Networking.
@@ -125,15 +109,9 @@ libloading = "0.8.9"
 reqwest = { version = "0.13.5", default-features = false, features = ["http2", "json", "rustls", "stream"] }
 resvg = { version = "0.46.0", default-features = false, features = ["system-fonts", "text"] }
 roxmltree = "0.21.2"
-rustls = "0.23.46"
+rustix = "1.1.6"
 url = "2.5.9"
 uuid = { version = "1.29.3", features = ["serde", "v4"] }
-webpki-roots = "1.0.12"
-
-indicatif = "0.18.6"
-# Observability.
-tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 # Credentials in the platform store, for accounts.
 keyring = "4.2.0"
@@ -164,15 +142,8 @@ axlauncher_storage_layout = { path = "apps/core/storage/layout" }
 axlauncher_telemetry = { path = "apps/core/telemetry" }
 axlauncher_ui = { path = "apps/ui" }
 axlauncher_worker = { path = "apps/core/lib" }
-# Utility.
-chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde"] }
-itertools = "0.15.0"
-regex = "1.13.2"
-serde_with = "3.25.0"
-shlex = "2.0.1"
 sysinfo = { version = "0.31.4", default-features = false }
 thiserror = "2.0.21"
-which = "8.0.6"
 windows-registry = "0.6.1"
 windows-sys = "0.61.2"
 
@@ -218,41 +189,6 @@ wildcard_dependencies = "warn"
 rust_2018_idioms = { level = "warn", priority = -1 }
 unsafe_code = "deny"
 unused_must_use = "deny"
-
-# Reserved for the systems that will use them, declared ahead of implementation
-# so each system starts from a known set. cargo-shear fails on a declared but
-# unused dependency, so every entry here is an explicit, reviewable exception.
-#
-# This list is a to-do, not a policy: when a system starts using one of these
-# names, delete its line. The guard still catches a dependency neither used nor
-# listed.
-[workspace.metadata.cargo-shear]
-ignored = [
-  "async-trait",
-  "chrono",
-  "crc32fast",
-  "dashmap",
-  "encoding_rs",
-  "flate2",
-  "fs4",
-  "indicatif",
-  "itertools",
-  "notify",
-  "parking_lot",
-  "regex",
-  "rustls",
-  "semver",
-  "serde_with",
-  "shlex",
-  "tar",
-  "toml",
-  "tracing",
-  "tracing-subscriber",
-  "trash",
-  "walkdir",
-  "webpki-roots",
-  "which",
-]
 
 # Development keeps line tables but skips variable-level debug info: enough for
 # a backtrace, materially faster to build and link.

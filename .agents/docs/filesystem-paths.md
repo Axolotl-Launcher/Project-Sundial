@@ -70,7 +70,10 @@ native ID cannot claim an already-bound installation namespace.
 - Use `Document` for writer coordination and paths of transactional documents,
   and `ManagedFile` for other fixed file locations. Acquire game-tree and
   native extraction locks through `GameDir::lock`, never by opening a lock
-  file at the call site.
+  file at the call site. `Document::Profile` stores a separate lock for each
+  instance directory in a `.profile-lock-*` file beside the instance. Keep
+  lock files in place so concurrent writers to a restored instance acquire the
+  same lock.
 - Create disposable scratch space through storage. Keep atomic writes,
   download staging, and profile publication beside the destination when they
   rely on a rename. The application scratch root is not a substitute for

@@ -5,6 +5,10 @@ use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 
+use sha2::{Digest, Sha256};
+
+use crate::instance_paths::PROFILE_LOCK_PREFIX;
+
 #[derive(Debug)]
 pub struct LockError {
     path: PathBuf,
@@ -46,6 +50,29 @@ pub(super) fn in_existing_directory(path: &Path, mode: Mode) -> Result<File, Loc
         path: path.to_owned(),
         source,
     })
+}
+
+pub(super) fn profile(directory: &Path) -> Result<File, LockError> {
+    let directory_error = |source| LockError {
+        path: directory.to_owned(),
+        source,
+    };
+    if !directory
+        .symlink_metadata()
+        .map_err(directory_error)?
+        .is_dir()
+    {
+        return Err(directory_error(io::ErrorKind::NotADirectory.into()));
+    }
+    let canonical = fs::canonicalize(directory).map_err(directory_error)?;
+    let name = canonical
+        .file_name()
+        .ok_or_else(|| directory_error(io::ErrorKind::InvalidInput.into()))?;
+    // A fixed-size sibling filename fits even when the instance name does not
+    // have room for a suffix. No directory in the instance list owns the locks.
+    let digest = hex::encode(Sha256::digest(name.as_encoded_bytes()));
+    let lock_path = canonical.with_file_name(format!("{PROFILE_LOCK_PREFIX}{digest}"));
+    in_existing_directory(&lock_path, Mode::WaitExclusive)
 }
 
 pub(super) fn with_parents(path: &Path, mode: Mode) -> Result<File, LockError> {

@@ -173,7 +173,7 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Entity<ModpackImport> {
-        let modpack = cx.new(ModpackImport::new);
+        let modpack = cx.new(|cx| ModpackImport::new(window, cx));
         modpack.update(cx, |view, cx| view.set_enabled(enabled, cx));
         cx.subscribe_in(&modpack, window, Self::modpack_event)
             .detach();
@@ -414,10 +414,7 @@ impl RootView {
     ) {
         self.activity.success(format!("Installed {name}"));
         self.refresh_java_after_install(paths, cx);
-        if self
-            .instances
-            .refresh_after_install(self.paths.as_ref(), paths)
-        {
+        if self.instances.refresh_for(self.paths.as_ref(), paths) {
             self.select_instance(directory.to_path_buf(), cx);
         }
         cx.notify();

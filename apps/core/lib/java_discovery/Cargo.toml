@@ -7,6 +7,10 @@ description = "System Java candidate enumeration for the embedded discovery work
 repository.workspace = true
 license.workspace = true
 
+# cargo-shear does not find the dependency in the mirrored tests/ tree.
+[package.metadata.cargo-shear]
+ignored = ["tempfile"]
+
 [dependencies]
 axlauncher_launch = { workspace = true }
 axlauncher_storage = { workspace = true }

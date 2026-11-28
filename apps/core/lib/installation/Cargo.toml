@@ -7,6 +7,10 @@ description = "Execution of Minecraft installations in the embedded worker and s
 repository.workspace = true
 license.workspace = true
 
+# cargo-shear does not find the dependency in the mirrored tests/ tree.
+[package.metadata.cargo-shear]
+ignored = ["axlauncher_download_engine"]
+
 [dependencies]
 axlauncher_download_spi = { workspace = true }
 axlauncher_install = { workspace = true }

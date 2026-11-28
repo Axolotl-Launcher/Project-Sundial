@@ -2,17 +2,18 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use std::collections::BTreeSet;
+use std::io;
 use std::path::PathBuf;
 
-use axlauncher_core::storage::DataDir;
+use axlauncher_core::{state::profile::ProfileFolderName, storage::DataDir};
 use std::sync::Arc;
 
 use axlauncher_modpack::{OptionId, Pack, PackSource, PlanOptions};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, App, AsyncWindowContext, Button, ButtonVariants, Context, Disableable,
-    Entity, EventEmitter, FocusHandle, IntoElement, KeyDownEvent, Label, Pagination, Render,
-    WeakEntity, Window, h_flex, v_flex,
+    Entity, EventEmitter, FocusHandle, InputState, IntoElement, KeyDownEvent, Label, Pagination,
+    Render, WeakEntity, Window, h_flex, v_flex,
 };
 
 use crate::file_picker::choose_file;
@@ -44,6 +45,7 @@ pub(crate) struct ModpackImport {
     focus_scope: FocusHandle,
     trigger: FocusHandle,
     preview_focus: FocusHandle,
+    folder_name: Entity<InputState>,
     state: State,
     error: Option<String>,
     root_data_packs: bool,
@@ -80,11 +82,15 @@ impl Preview {
 }
 
 impl ModpackImport {
-    pub(crate) fn new(cx: &mut Context<'_, Self>) -> Self {
+    pub(crate) fn new(window: &mut Window, cx: &mut Context<'_, Self>) -> Self {
+        let folder_name =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Enter a folder name"));
+        cx.observe(&folder_name, |_, _, cx| cx.notify()).detach();
         Self {
             focus_scope: cx.focus_handle(),
             trigger: cx.focus_handle(),
             preview_focus: cx.focus_handle(),
+            folder_name,
             state: State::Idle,
             error: None,
             root_data_packs: false,
@@ -142,6 +148,7 @@ impl ModpackImport {
         let pack = &preview.pack;
         let waiting = preview.pending.is_some();
         let locked = progress.is_some() || waiting;
+        let invalid_name = self.profile_folder(cx).err();
         let loader = pack.game().loader().map_or_else(
             || "Vanilla".to_owned(),
             |(kind, version)| format!("{kind} {version}"),
@@ -169,6 +176,12 @@ impl ModpackImport {
                 .text_xs()
                 .text_color(muted),
             )
+            .child(controls::folder_field(
+                &self.folder_name,
+                progress.is_some() || !self.enabled,
+                invalid_name.as_ref(),
+                cx,
+            ))
             .when(!pack.optional_files().is_empty(), |column| {
                 column.child(self.render_modpack_options(preview, locked, cx))
             })
@@ -188,6 +201,7 @@ impl ModpackImport {
                 preview.manual.read(cx).picking(),
                 waiting,
                 preview.manual.read(cx).has_pending(),
+                invalid_name.is_none(),
                 cx,
             ))
             .into_any_element()
@@ -243,6 +257,7 @@ impl ModpackImport {
         picking: bool,
         waiting: bool,
         has_manual: bool,
+        valid_name: bool,
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
         let status = progress.map(Progress::message);
@@ -266,13 +281,17 @@ impl ModpackImport {
                     .primary()
                     .track_focus(&self.preview_focus)
                     .loading(progress.is_some())
-                    .disabled(!self.enabled || picking)
+                    .disabled(!self.enabled || picking || !valid_name)
                     .on_click(cx.listener(|view, _, window, cx| view.request_install(window, cx))),
             )
             .when_some(status, |row, status| {
                 row.child(Label::new(status).text_sm())
             })
             .into_any_element()
+    }
+
+    fn profile_folder(&self, cx: &App) -> io::Result<ProfileFolderName> {
+        ProfileFolderName::new(&self.folder_name.read(cx).value())
     }
 
     fn choose_modpack(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
@@ -298,14 +317,19 @@ impl ModpackImport {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        self.state = match result {
-            Ok(Some(pack)) => State::Preview(Preview::new(pack, cx)),
-            Ok(None) => State::Idle,
-            Err(error) => {
-                self.error = Some(error);
-                State::Idle
+        let pack = match result {
+            Ok(Some(pack)) => pack,
+            other => {
+                self.error = other.err();
+                self.state = State::Idle;
+                self.focus_modpack(window, cx);
+                return;
             }
         };
+        self.folder_name.update(cx, |input, cx| {
+            input.set_value(pack.name().to_owned(), window, cx)
+        });
+        self.state = State::Preview(Preview::new(pack, cx));
         self.focus_modpack(window, cx);
     }
 

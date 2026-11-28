@@ -16,6 +16,12 @@ mod credentials;
 pub use credentials::SystemCredentials;
 mod device_user;
 pub use device_user::DeviceUserId;
+mod folders;
+pub use folders::{FolderRemoval, open_folder, remove_folder};
+mod instance_folders;
+pub use instance_folders::{
+    instance_move_path, is_reserved_instance_directory, move_instance_folder,
+};
 
 /// Opens an existing file for sequential verification.
 pub fn open_for_read(path: &Path) -> io::Result<fs::File> {
