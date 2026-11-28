@@ -44,7 +44,7 @@ fn linked_html_image_opens_the_resolved_destination() {
     let cx = TestAppContext::single();
     let (handle, _) = mount(
         &cx,
-        |url| {
+        |url| async move {
             assert_eq!(url, "https://example.com/projects/images/badge.png");
             png()
         },
@@ -68,9 +68,9 @@ impl Render for Preview {
     }
 }
 
-fn mount(
+fn mount<Request: Future<Output = Result<Vec<u8>, String>> + Send + 'static>(
     cx: &TestAppContext,
-    fetch: fn(&str) -> Result<Vec<u8>, String>,
+    fetch: fn(String) -> Request,
     html: &str,
 ) -> (
     axlauncher_ui::AnyWindowHandle,
@@ -98,7 +98,7 @@ fn mount(
     })
 }
 
-fn retryable_image(url: &str) -> Result<Vec<u8>, String> {
+async fn retryable_image(url: String) -> Result<Vec<u8>, String> {
     assert_eq!(url, "https://example.com/projects/images/badge.png");
     if ATTEMPTS.fetch_add(1, Ordering::SeqCst) == 0 {
         return Err("offline".into());

@@ -5,17 +5,25 @@
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
+use async_lock::{Mutex, Semaphore};
 use axlauncher_ui::{
     App, AppContext as _, Asset, Entity, EntityId, ImageSource, RenderImage, SharedUri, Window,
 };
 
 use super::image_placeholder;
-use super::images::{ImageFetcher, ImageState, MAX_DECODED_BYTES, load_image, skeleton};
+use super::images::{ImageState, MAX_DECODED_BYTES, decode, report_failure, skeleton};
 
 const MAX_IMAGES: usize = 128;
+const MAX_IMAGE_LOADS: usize = 8;
+const MAX_IMAGE_DECODES: usize = 2;
+static IMAGE_LOADS: Semaphore = Semaphore::new(MAX_IMAGE_LOADS);
+static IMAGE_DECODES: Semaphore = Semaphore::new(MAX_IMAGE_DECODES);
+
+type ImageDownload = Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + Send>>;
+pub(super) type ImageFetcher = Arc<dyn Fn(String) -> ImageDownload + Send + Sync>;
 
 pub(super) fn source(uri: Option<SharedUri>, cache: Entity<ImageCache>) -> ImageSource {
     ImageSource::Custom(Arc::new(move |window, cx| {
@@ -35,7 +43,7 @@ pub(super) struct ImageCache {
     document: EntityId,
     fetch: ImageFetcher,
     requests: HashMap<SharedUri, ImageRequest>,
-    decoded_bytes: Arc<AtomicUsize>,
+    remaining_bytes: Arc<Mutex<usize>>,
 }
 
 impl ImageCache {
@@ -46,7 +54,7 @@ impl ImageCache {
                 document: cx.entity_id(),
                 fetch,
                 requests: HashMap::new(),
-                decoded_bytes: Arc::default(),
+                remaining_bytes: Arc::new(Mutex::new(MAX_DECODED_BYTES)),
             }
         })
     }
@@ -92,8 +100,8 @@ impl ImageCache {
         let request = ImageRequest {
             document: self.document,
             uri: uri.clone(),
-            fetch: self.fetch,
-            decoded_bytes: self.decoded_bytes.clone(),
+            fetch: self.fetch.clone(),
+            remaining_bytes: self.remaining_bytes.clone(),
         };
         self.requests.insert(uri, request.clone());
         Some(request)
@@ -111,7 +119,7 @@ struct ImageRequest {
     document: EntityId,
     uri: SharedUri,
     fetch: ImageFetcher,
-    decoded_bytes: Arc<AtomicUsize>,
+    remaining_bytes: Arc<Mutex<usize>>,
 }
 
 impl ImageRequest {
@@ -153,20 +161,18 @@ impl Asset for DocumentImage {
 }
 
 async fn load(request: ImageRequest) -> Option<Arc<RenderImage>> {
-    let image = load_image(request.uri.as_ref(), request.fetch)?;
-    let bytes = (0..image.frame_count())
-        .filter_map(|index| image.as_bytes(index))
-        .map(<[u8]>::len)
-        .sum();
-    reserve_bytes(&request.decoded_bytes, bytes).then_some(image)
-}
-
-fn reserve_bytes(used: &AtomicUsize, bytes: usize) -> bool {
-    used.try_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
-        used.checked_add(bytes)
-            .filter(|total| *total <= MAX_DECODED_BYTES)
-    })
-    .is_ok()
+    let uri = request.uri.as_ref();
+    // Hold the load slot through decode so downloaded responses cannot pile up.
+    let _loading = IMAGE_LOADS.acquire().await;
+    let bytes = (request.fetch)(uri.to_owned())
+        .await
+        .inspect_err(|error| report_failure(uri, "download", error))
+        .ok()?;
+    let mut remaining = request.remaining_bytes.lock().await;
+    let _decoding = IMAGE_DECODES.acquire().await;
+    decode(&bytes, &mut remaining)
+        .inspect_err(|error| report_failure(uri, "decode", error))
+        .ok()
 }
 
 #[cfg(test)]

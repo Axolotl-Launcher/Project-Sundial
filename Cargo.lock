@@ -618,6 +618,7 @@ dependencies = [
 name = "axlauncher_content_render"
 version = "0.1.0"
 dependencies = [
+ "async-lock",
  "axlauncher_ui",
  "gpui-pre",
  "html5ever",

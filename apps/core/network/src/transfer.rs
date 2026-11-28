@@ -28,7 +28,7 @@ pub(super) async fn open(
     range: Option<RangeRequest<'_>>,
     key: Option<&HeaderValue>,
     connect_failed: impl FnOnce(),
-) -> Result<DownloadResponse<impl DownloadBody>, FetchError> {
+) -> Result<DownloadResponse<ResponseBody>, FetchError> {
     let mut request = client.get(url).header(ACCEPT_ENCODING, "identity");
     if let Some(key) = key {
         request = request.header("x-api-key", key.clone());
@@ -207,7 +207,7 @@ fn parse_range(value: &str) -> Option<ResponseRange> {
     })
 }
 
-struct ResponseBody {
+pub(super) struct ResponseBody {
     response: Response,
     timeout: Duration,
 }

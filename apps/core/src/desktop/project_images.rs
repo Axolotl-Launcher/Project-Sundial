@@ -6,23 +6,27 @@
 use std::{future::Future, sync::OnceLock, time::Duration};
 
 use axlauncher_network_spi::FetchError;
-use tokio::{runtime::Runtime, sync::Semaphore};
+use tokio::{
+    runtime::Runtime,
+    sync::{Semaphore, oneshot},
+};
 
 const IMAGE_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_ACTIVE_REQUESTS: usize = 8;
 static RUNTIME: OnceLock<Result<Runtime, String>> = OnceLock::new();
 static REQUESTS: Semaphore = Semaphore::const_new(MAX_ACTIVE_REQUESTS);
 
-/// Downloads an image for a project description. Call from a background task.
-pub fn project_image(url: &str) -> Result<Vec<u8>, String> {
+/// Downloads a project description image on the shared network runtime.
+pub async fn project_image(url: String) -> Result<Vec<u8>, String> {
     run_image_request(
-        axlauncher_network::project_images::project_image(url),
+        async move { axlauncher_network::project_images::project_image(&url).await },
         IMAGE_TIMEOUT,
     )
+    .await
 }
 
-fn run_image_request(
-    request: impl Future<Output = Result<Vec<u8>, FetchError>>,
+async fn run_image_request(
+    request: impl Future<Output = Result<Vec<u8>, FetchError>> + Send + 'static,
     timeout: Duration,
 ) -> Result<Vec<u8>, String> {
     let runtime = RUNTIME
@@ -36,10 +40,23 @@ fn run_image_request(
             .expect("the image semaphore is never closed");
         request.await
     };
-    runtime
-        .block_on(async { tokio::time::timeout(timeout, transfer).await })
-        .map_err(|_| "The project image request timed out".to_owned())?
-        .map_err(|error| error.to_string())
+    let (mut reply, response) = oneshot::channel();
+    runtime.spawn(async move {
+        tokio::select! {
+            biased;
+            () = reply.closed() => {}
+            result = tokio::time::timeout(timeout, transfer) => {
+                let result = match result {
+                    Ok(result) => result.map_err(|error| error.to_string()),
+                    Err(_) => Err("The project image request timed out".to_owned()),
+                };
+                let _ = reply.send(result);
+            }
+        }
+    });
+    response
+        .await
+        .map_err(|_| "The project image task ended without a response".to_owned())?
 }
 
 fn image_runtime() -> Result<Runtime, String> {

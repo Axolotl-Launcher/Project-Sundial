@@ -15,6 +15,7 @@ name = "document"
 path = "../../../tests/apps/ui/content-render/tests/document.rs"
 
 [dependencies]
+async-lock = { workspace = true }
 axlauncher_ui = { workspace = true }
 html5ever = { workspace = true }
 image = { workspace = true, features = ["gif", "jpeg", "webp"] }

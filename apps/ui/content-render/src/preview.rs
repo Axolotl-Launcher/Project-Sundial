@@ -12,9 +12,9 @@ use url::Url;
 
 use super::blocks::{Block, ImageBlock, parse_block};
 use super::html::ImageLinks;
-use super::image_cache::{self, ImageCache};
+use super::image_cache::{self, ImageCache, ImageFetcher};
 use super::image_preview;
-use super::images::{ImageFetcher, ImageState};
+use super::images::ImageState;
 use super::picture::picture;
 
 const MARKDOWN_BLOCK: &str = "markdown-html-block";
@@ -32,9 +32,15 @@ pub struct ContentRenderer {
 }
 
 impl ContentRenderer {
-    /// The transport runs on a background thread and returns image bytes or a diagnostic error.
-    pub fn new(fetch: fn(&str) -> Result<Vec<u8>, String>) -> Self {
-        Self { fetch }
+    /// Supplies an asynchronous transport that returns image bytes or a diagnostic error.
+    pub fn new<F, Request>(fetch: F) -> Self
+    where
+        F: Fn(String) -> Request + Send + Sync + 'static,
+        Request: Future<Output = Result<Vec<u8>, String>> + Send + 'static,
+    {
+        Self {
+            fetch: std::sync::Arc::new(move |url| Box::pin(fetch(url))),
+        }
     }
 
     /// A complete source snapshot. The optional HTTP(S) base resolves relative links and images.
@@ -47,7 +53,7 @@ impl ContentRenderer {
     ) -> ContentDocument {
         let resources = DocumentResources {
             base_url: base_url.filter(is_web_url).map(std::sync::Arc::new),
-            images: ImageCache::new(self.fetch, cx),
+            images: ImageCache::new(self.fetch.clone(), cx),
         };
         // TextViewState::set_text may reparse only the tail and miss references
         // whose definitions were appended after earlier paragraphs.

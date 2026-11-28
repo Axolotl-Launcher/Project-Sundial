@@ -6,10 +6,12 @@ use std::pin::pin;
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
-use image::codecs::gif::{GifDecoder, GifEncoder};
+use image::codecs::gif::GifEncoder;
 use image::{Delay, DynamicImage, Frame, ImageFormat, Rgba, RgbaImage};
 
-use super::{SKELETON_HEIGHT, SKELETON_WIDTH, decode, decode_animation, log_target, make_skeleton};
+use super::{
+    MAX_DECODED_BYTES, SKELETON_HEIGHT, SKELETON_WIDTH, decode, log_target, make_skeleton,
+};
 
 #[test]
 fn skeleton_pulses_without_varying_size_or_hue() {
@@ -52,46 +54,59 @@ fn skeleton_pulses_without_varying_size_or_hue() {
 #[test]
 fn decodes_png_and_webp_from_content_and_preserves_alpha() {
     for format in [ImageFormat::Png, ImageFormat::WebP] {
-        let image = decode(&encode(1, format)).expect("renderable image");
+        let mut budget = 4;
+        let image = decode(&encode(1, format), &mut budget).expect("renderable image");
         assert_eq!(image.frame_count(), 1);
         assert_eq!(image.as_bytes(0), Some([30, 20, 10, 128].as_slice()));
+        assert_eq!(budget, 0);
     }
 }
 
 #[test]
 fn decodes_gif_and_webp_animation_frames_and_delays() {
     for (bytes, alpha) in [(animated_gif().as_slice(), 255), (ANIMATED_WEBP, 128)] {
-        let image = decode(bytes).expect("renderable animation");
+        let mut budget = 8;
+        let image = decode(bytes, &mut budget).expect("renderable animation");
         assert_eq!(image.frame_count(), 2);
         assert_eq!(image.size(0), image.size(1));
         assert_eq!(image.as_bytes(0), Some([30, 20, 10, 255].as_slice()));
         assert_eq!(image.as_bytes(1), Some([60, 50, 40, alpha].as_slice()));
         assert_eq!(Duration::from(image.delay(0)), Duration::from_millis(80));
         assert_eq!(Duration::from(image.delay(1)), Duration::from_millis(170));
+        assert_eq!(budget, 0);
     }
 }
 
 #[test]
-fn rejects_animations_that_exceed_the_decoded_byte_limit() {
-    let decoder = GifDecoder::new(Cursor::new(animated_gif())).unwrap();
+fn failed_animation_leaves_room_for_a_smaller_image() {
+    let mut budget = 7;
     assert!(matches!(
-        decode_animation(decoder, ImageFormat::Gif, 7),
+        decode(&animated_gif(), &mut budget),
+        Err(image::ImageError::Limits(_))
+    ));
+    assert_eq!(budget, 7);
+    decode(&encode(1, ImageFormat::Png), &mut budget).unwrap();
+    assert_eq!(budget, 3);
+    assert!(matches!(
+        decode(&encode(1, ImageFormat::Png), &mut budget),
         Err(image::ImageError::Limits(_))
     ));
 }
 
 #[test]
 fn rejects_oversize_and_unrecognized_images() {
+    let mut budget = MAX_DECODED_BYTES;
     for format in [ImageFormat::Png, ImageFormat::Gif, ImageFormat::WebP] {
         assert!(matches!(
-            decode(&encode(4097, format)),
+            decode(&encode(4097, format), &mut budget),
             Err(image::ImageError::Limits(_))
         ));
     }
     assert!(matches!(
-        decode(b"not an image"),
+        decode(b"not an image", &mut budget),
         Err(image::ImageError::Unsupported(_))
     ));
+    assert_eq!(budget, MAX_DECODED_BYTES);
 }
 
 #[test]
