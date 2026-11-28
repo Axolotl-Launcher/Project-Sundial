@@ -14,6 +14,7 @@ use axlauncher_core::storage::{DataDir, DataPath};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{Context, Entity, InputEvent, InputState, Window};
 
+use crate::content_debug::ContentDebug;
 use crate::installations::Installation;
 use crate::launches::Launch;
 use crate::modpacks::{ImportEvent, ModpackImport};
@@ -21,7 +22,6 @@ use crate::{Loaded, Startup, load_at, palette_for};
 
 pub(crate) mod accounts;
 mod activity;
-mod content_debug;
 mod download_debug;
 mod environment;
 mod instances;
@@ -49,7 +49,7 @@ pub(crate) struct RootView {
     java: Entity<java::JavaPanel>,
     modpack: Entity<ModpackImport>,
     download_debug: Entity<download_debug::DownloadDebug>,
-    content_debug: Entity<content_debug::ContentDebug>,
+    content_debug: Entity<ContentDebug>,
     download_sources: service_sources::DownloadSources,
     inspection: instances::launch::Inspection,
     memory_edits: memory_edits::MemoryEdits,
@@ -84,7 +84,7 @@ impl RootView {
         let modpack = Self::new_modpack_import(loaded.paths.is_some(), window, cx);
         let download_debug =
             Self::new_download_debug(loaded.paths.clone(), loaded.settings.as_ref(), window, cx);
-        let content_debug = cx.new(|cx| content_debug::ContentDebug::new(window, cx));
+        let content_debug = cx.new(|cx| ContentDebug::new(window, cx));
         let download_sources = Self::new_download_sources(loaded.settings.as_ref(), window, cx);
         let accounts = Self::new_accounts(&loaded, player_input.clone(), window, cx);
         let game_language = loaded
