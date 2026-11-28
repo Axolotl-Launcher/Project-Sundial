@@ -7,7 +7,9 @@ use axlauncher_domain::{
     is_visible_instance_name,
     memory::{MaximumHeap, MemoryAllocation},
 };
-use axlauncher_state::profile::{self, DiscoveredProfile, Profile, ProfileUpdateError};
+use axlauncher_state::profile::{
+    self, DiscoveredProfile, Profile, ProfileFolderName, ProfileUpdateError,
+};
 use axlauncher_state::{self as state, SettingsError};
 use axlauncher_storage::{DataDir, DataPath};
 use axlauncher_worker::instance_settings::{self, Edit, InvalidEdit, Reply, ValidatedEdit};
@@ -139,11 +141,7 @@ pub fn rename(
     name: &str,
     cancel: &EditCancellation,
 ) -> Result<Profile, EditError> {
-    instance.check_scope(data)?;
-    let edit = Edit::Rename(name.to_owned());
-    let ValidatedEdit::Rename(name) = checked(data, &edit, cancel)? else {
-        return Err(different_edit());
-    };
+    let name = checked_name(data, instance, name, cancel)?;
     profile::rename_if_current(
         instance.directory(),
         instance.id(),
@@ -152,6 +150,41 @@ pub fn rename(
         || cancel.begin_commit(),
     )
     .map_err(EditError::Instance)
+}
+
+/// Keeps the display name and folder move in one profile writer operation.
+pub fn rename_with_folder(
+    data: &DataDir,
+    instance: &InstanceTarget,
+    name: &str,
+    folder: &ProfileFolderName,
+    cancel: &EditCancellation,
+) -> Result<PathBuf, EditError> {
+    let name = checked_name(data, instance, name, cancel)?;
+    profile::rename_with_folder_if_current(
+        data,
+        instance.directory(),
+        instance.id(),
+        &instance.name,
+        &name,
+        folder,
+        || cancel.begin_commit(),
+    )
+    .map_err(EditError::Instance)
+}
+
+fn checked_name(
+    data: &DataDir,
+    instance: &InstanceTarget,
+    name: &str,
+    cancel: &EditCancellation,
+) -> Result<String, EditError> {
+    instance.check_scope(data)?;
+    let edit = Edit::Rename(name.to_owned());
+    match checked(data, &edit, cancel)? {
+        ValidatedEdit::Rename(name) => Ok(name),
+        _ => Err(different_edit()),
+    }
 }
 
 fn checked(

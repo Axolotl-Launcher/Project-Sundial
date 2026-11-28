@@ -1,53 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use axlauncher_domain::{is_portable_directory_name, is_visible_instance_name};
-use axlauncher_storage::{is_reserved_instance_directory, publish_instance, stage_instance};
+use axlauncher_storage::{move_instance_folder, stage_instance};
 
-use super::{Profile, ProfileWriteError, installation::set_ready, save, validate};
-
-/// A user-selected name for a single directory in the profile root.
-#[derive(Debug)]
-pub struct ProfileFolderName(String);
-
-impl ProfileFolderName {
-    pub fn new(name: &str) -> io::Result<Self> {
-        const MAX_NAME_BYTES: usize = 255;
-        let error = |message| io::Error::new(io::ErrorKind::InvalidInput, message);
-        if !is_visible_instance_name(name) || !is_portable_directory_name(name) {
-            return Err(error(
-                "Enter a folder name that is valid on Windows, macOS, and Linux.",
-            ));
-        }
-        if name.len() > MAX_NAME_BYTES {
-            return Err(error("The folder name is too long."));
-        }
-        if is_reserved_instance_directory(name) {
-            return Err(error("This folder name is reserved by the launcher."));
-        }
-        Ok(Self(name.to_owned()))
-    }
-
-    /// A dangling symlink still reserves the chosen folder name.
-    pub fn check_available(&self, instances: &Path) -> io::Result<()> {
-        let destination = instances.join(&self.0);
-        match fs::symlink_metadata(&destination) {
-            Ok(_) => Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                format!(
-                    "{} already exists. Choose another folder name.",
-                    destination.display()
-                ),
-            )),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error),
-        }
-    }
-}
+use super::{
+    Profile, ProfileFolderName, ProfileWriteError, installation::set_ready, save, validate,
+};
 
 /// A new instance that becomes discoverable only when it is published.
 pub struct StagedProfile {
@@ -83,7 +44,7 @@ impl StagedProfile {
         version_id: &str,
         folder: &ProfileFolderName,
     ) -> Result<PathBuf, ProfileWriteError> {
-        let destination = self.instances().join(&folder.0);
+        let destination = folder.path_in(self.instances());
         self.publish(profile, version_id, destination)
     }
 
@@ -107,7 +68,7 @@ impl StagedProfile {
         }
         validate(&profile).map_err(|reason| ProfileWriteError::Invalid { reason })?;
         save(&self.directory, &profile)?;
-        publish_instance(&self.directory, &destination).map_err(|source| {
+        move_instance_folder(&self.directory, &destination).map_err(|source| {
             ProfileWriteError::Write {
                 path: destination.clone(),
                 source,

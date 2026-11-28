@@ -49,7 +49,29 @@ fn packaged_settings_edits_preserve_scope_and_do_not_affect_launch() {
     startup_inspection_preview_and_offline_launch_do_not_start_settings(&fixture, &instance);
     settings_worker_failure_does_not_write_and_retry_respects_overridden_roots(&fixture, &instance);
     settings_edits_keep_inheritance_explicit_and_rename_in_place(&fixture, &instance);
+    rename_with_folder(&fixture);
     Images::begin_shutdown().join().unwrap();
+}
+
+fn rename_with_folder(fixture: &Fixture) {
+    let current = target(&fixture.data);
+    let folder = profile::ProfileFolderName::new("Renamed").unwrap();
+    let destination = instance_settings::rename_with_folder(
+        &fixture.data,
+        &current,
+        " Renamed ",
+        &folder,
+        &EditCancellation::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        destination,
+        fixture.data.path(DataPath::Profiles).join("Renamed")
+    );
+    assert!(!current.directory().exists());
+    let renamed = target(&fixture.data);
+    assert_eq!(renamed.id(), current.id());
+    assert_eq!(name(&renamed), "Renamed");
 }
 
 fn settings_edits_keep_inheritance_explicit_and_rename_in_place(

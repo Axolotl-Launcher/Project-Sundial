@@ -33,6 +33,7 @@ libc = { workspace = true }
 objc2-foundation = { workspace = true, features = ["FoundationErrors", "NSArray", "NSError", "NSFileManager", "NSString", "NSURL", "std"] }
 
 [target."cfg(windows)".dependencies]
+atomicwrites = { workspace = true }
 sysinfo = { workspace = true, features = ["disk"] }
 windows-registry = { workspace = true }
 windows-sys = { workspace = true, features = ["Win32_UI_Shell"] }

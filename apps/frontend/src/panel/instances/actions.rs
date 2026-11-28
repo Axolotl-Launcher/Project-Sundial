@@ -32,8 +32,7 @@ impl RootView {
         game: &Game,
         cx: &mut Context<'_, Self>,
     ) {
-        if self.instances.installing.contains(directory)
-            || self.instances.deleting.contains(directory)
+        if self.instances.installing.contains(directory) || self.instance_folder_is_busy(directory)
         {
             return;
         }
@@ -183,7 +182,7 @@ impl RootView {
 
     pub(crate) fn launch(&mut self, directory: &Path, cx: &mut Context<'_, Self>) {
         if self.instances.installing.contains(directory)
-            || self.instances.deleting.contains(directory)
+            || self.instance_folder_is_busy(directory)
             || self.account_selection_pending(cx)
         {
             return;

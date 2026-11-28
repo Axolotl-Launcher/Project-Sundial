@@ -43,7 +43,7 @@ impl RootView {
             .ghost()
             .label("Open Folder")
             .accessibility_label(format!("Open Folder for {name}"))
-            .disabled(deleting)
+            .disabled(self.instance_folder_is_busy(directory))
             .on_click(cx.listener(move |view, _, window, cx| {
                 view.open_instance_folder(&open_directory, window, cx);
             })),
@@ -61,9 +61,9 @@ impl RootView {
         ]
     }
 
-    fn instance_files_busy(&self, directory: &Path) -> bool {
+    pub(super) fn instance_files_busy(&self, directory: &Path) -> bool {
         self.instances.installing.contains(directory)
-            || self.instances.deleting.contains(directory)
+            || self.instance_folder_is_busy(directory)
             || self
                 .launches
                 .get(directory)

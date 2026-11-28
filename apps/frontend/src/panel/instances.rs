@@ -32,6 +32,7 @@ mod actions;
 mod folders;
 mod instance_row;
 pub(super) mod launch;
+mod rename;
 
 use instance_row::RowAction;
 
@@ -48,6 +49,7 @@ pub(super) struct InstancesState {
     selected: Option<PathBuf>,
     installing: HashSet<PathBuf>,
     deleting: HashSet<PathBuf>,
+    renaming: HashSet<PathBuf>,
 }
 
 impl InstancesState {
@@ -61,6 +63,7 @@ impl InstancesState {
             selected,
             installing: HashSet::new(),
             deleting: HashSet::new(),
+            renaming: HashSet::new(),
         }
     }
 
@@ -139,6 +142,10 @@ fn find_previous<'a>(
 }
 
 impl RootView {
+    fn instance_folder_is_busy(&self, directory: &Path) -> bool {
+        self.instances.deleting.contains(directory) || self.instances.renaming.contains(directory)
+    }
+
     pub(crate) fn select_instance(&mut self, directory: PathBuf, cx: &mut Context<'_, Self>) {
         if self.instances.selected.as_ref() == Some(&directory) {
             return;
@@ -183,7 +190,7 @@ impl RootView {
                 entry.profile.instance.name
             ))
             .small()
-            .disabled(self.instances.deleting.contains(&directory))
+            .disabled(self.instance_folder_is_busy(&directory))
             .on_click(cx.listener(move |view, _, window, cx| {
                 view.open_instance_memory(&directory, window, cx)
             }));
@@ -241,7 +248,7 @@ impl RootView {
             target,
             expected,
         } = edit;
-        if self.instances.deleting.contains(target.directory())
+        if self.instance_folder_is_busy(target.directory())
             || !scope.matches(&self.memory_edits.scope())
             || self
                 .instances
@@ -352,7 +359,7 @@ impl RootView {
             installations,
             self.launches.get(&entry.directory),
             instance_row::Availability {
-                deleting: self.instances.deleting.contains(&entry.directory),
+                changing_folder: self.instance_folder_is_busy(&entry.directory),
                 launch_pending: self.account_selection_pending(cx)
                     || self.java_write_pending(entry.profile.id(), cx),
             },
@@ -368,6 +375,7 @@ impl RootView {
                     .gap_2()
                     .flex_wrap()
                     .children(self.instance_memory_button(entry, cx))
+                    .child(self.rename_instance_button(entry, cx))
                     .children(self.instance_folder_buttons(entry, cx)),
             )
     }

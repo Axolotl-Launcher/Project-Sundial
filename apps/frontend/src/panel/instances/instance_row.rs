@@ -24,7 +24,7 @@ pub(super) enum RowAction {
 }
 
 pub(super) struct Availability {
-    pub(super) deleting: bool,
+    pub(super) changing_folder: bool,
     pub(super) launch_pending: bool,
 }
 
@@ -162,7 +162,7 @@ fn instance_actions(
         Some(Installation::Complete) if !recorded => None,
         other => other,
     };
-    let busy = availability.deleting
+    let busy = availability.changing_folder
         || launch.is_some_and(Launch::is_active)
         || matches!(slot, Some(Installation::Running(_)));
     let message = action_message(installation, launch);

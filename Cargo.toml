@@ -51,6 +51,7 @@ repository = "https://github.com/Axolotl-Launcher/Axolotl-2.0"
 license = "GPL-3.0-only"
 
 [workspace.dependencies]
+atomicwrites = "0.4.4"
 dirs = "6"
 embed-resource = "3.0.12"
 # gpui-kit 0.10.0 一揽子锁定 GPUI 家族（gpui-pre 0.3.12 快照、gpui-base、

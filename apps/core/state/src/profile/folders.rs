@@ -7,9 +7,55 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use axlauncher_storage::{self as storage, DataDir, DataPath, Document, FolderRemoval};
+use axlauncher_domain::{is_portable_directory_name, is_visible_instance_name};
+use axlauncher_storage::{
+    self as storage, DataDir, DataPath, Document, FolderRemoval, is_reserved_instance_directory,
+};
 
 use super::{is_link, read};
+
+/// A user-selected name for a single directory in the profile root.
+#[derive(Debug)]
+pub struct ProfileFolderName(String);
+
+impl ProfileFolderName {
+    pub fn new(name: &str) -> io::Result<Self> {
+        const MAX_NAME_BYTES: usize = 255;
+        let error = |message| io::Error::new(io::ErrorKind::InvalidInput, message);
+        if !is_visible_instance_name(name) || !is_portable_directory_name(name) {
+            return Err(error(
+                "Enter a folder name that is valid on Windows, macOS, and Linux.",
+            ));
+        }
+        if name.len() > MAX_NAME_BYTES {
+            return Err(error("The folder name is too long."));
+        }
+        if is_reserved_instance_directory(name) {
+            return Err(error("This folder name is reserved by the launcher."));
+        }
+        Ok(Self(name.to_owned()))
+    }
+
+    /// A dangling symlink still reserves the chosen folder name.
+    pub fn check_available(&self, instances: &Path) -> io::Result<()> {
+        let destination = self.path_in(instances);
+        match fs::symlink_metadata(&destination) {
+            Ok(_) => Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!(
+                    "{} already exists. Choose another folder name.",
+                    destination.display()
+                ),
+            )),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
+    pub(super) fn path_in(&self, instances: &Path) -> PathBuf {
+        instances.join(&self.0)
+    }
+}
 
 /// Opens the directory of the profile the caller saw in discovery.
 pub fn open_folder(paths: &DataDir, directory: &Path, id: &str) -> io::Result<()> {
@@ -27,7 +73,11 @@ pub fn delete_folder(paths: &DataDir, directory: &Path, id: &str) -> io::Result<
     storage::remove_folder(&directory)
 }
 
-fn current_directory(paths: &DataDir, directory: &Path, id: &str) -> io::Result<PathBuf> {
+pub(super) fn current_directory(
+    paths: &DataDir,
+    directory: &Path,
+    id: &str,
+) -> io::Result<PathBuf> {
     let profiles = paths.path(DataPath::Profiles);
     let Some(name) = directory
         .file_name()
