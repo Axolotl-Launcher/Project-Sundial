@@ -7,6 +7,7 @@
 
 mod blocks;
 mod html;
+mod image_placeholder;
 mod image_preview;
 mod images;
 mod picture;

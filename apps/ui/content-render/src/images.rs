@@ -9,13 +9,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axlauncher_ui::{
-    ActiveTheme, App, Asset, Global, ImageSource, ImgResourceLoader, RenderImage, Resource, Rgba,
-    SharedUri, Window, bounce, ease_in_out,
+    ActiveTheme, App, Asset, Global, ImageSource, RenderImage, Rgba, SharedUri, Window, bounce,
+    ease_in_out,
 };
 use image::{Delay, Frame, ImageReader, Limits, RgbaImage};
 use url::Url;
 
-const PLACEHOLDER: &str = "icons/circle-alert.svg";
+use super::image_placeholder;
+
 const MAX_IMAGE_EDGE: u32 = 4096;
 pub(super) const SKELETON_WIDTH: u32 = 160;
 pub(super) const SKELETON_HEIGHT: u32 = 90;
@@ -79,12 +80,6 @@ impl ImageRequest {
     }
 }
 
-pub(super) fn placeholder(window: &mut Window, cx: &mut App) -> Option<Arc<RenderImage>> {
-    window
-        .use_asset::<ImgResourceLoader>(&Resource::Embedded(PLACEHOLDER.into()), cx)
-        .and_then(Result::ok)
-}
-
 pub(super) fn source(uri: &SharedUri, fetch: ImageFetcher) -> ImageSource {
     let request = ImageRequest::new(uri.clone(), fetch);
     ImageSource::Custom(Arc::new(move |window, cx| {
@@ -94,7 +89,7 @@ pub(super) fn source(uri: &SharedUri, fetch: ImageFetcher) -> ImageSource {
                 window.use_asset::<InlineSkeleton>(&color, cx)
             }
             ImageState::Ready(image) => Some(image),
-            ImageState::Unavailable => placeholder(window, cx),
+            ImageState::Unavailable => image_placeholder::inline(window, cx),
         }
         .map(Ok)
     }))

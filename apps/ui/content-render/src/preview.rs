@@ -225,7 +225,6 @@ fn render_image(
             image.height(),
             name.to_owned().into(),
             link,
-            window,
             cx,
         ))
 }

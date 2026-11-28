@@ -7,11 +7,11 @@ use axlauncher_ui::kit::Size;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, App, Button, ButtonVariants, ClickEvent, Div, MouseButton, ObjectFit, Pixels,
-    Role, SharedString, Skeleton, Stateful, Window, div, img, px, size,
+    Role, SharedString, Skeleton, Stateful, div, img, px, size,
 };
 
-use super::image_preview;
-use super::images::{ImageState, SKELETON_HEIGHT, SKELETON_WIDTH, placeholder};
+use super::images::{ImageState, SKELETON_HEIGHT, SKELETON_WIDTH};
+use super::{image_placeholder, image_preview};
 
 fn picture_skeleton(width: Option<u16>, height: Option<u16>) -> Div {
     let intrinsic = size(px(SKELETON_WIDTH as f32), px(SKELETON_HEIGHT as f32));
@@ -36,37 +36,31 @@ pub(super) fn picture(
     height: Option<u16>,
     name: SharedString,
     link: Option<SharedString>,
-    window: &mut Window,
-    cx: &mut App,
+    cx: &App,
 ) -> Div {
-    let (image, placeholder) = match state {
+    let image = match state {
         ImageState::Loading => return picture_skeleton(width, height),
-        ImageState::Ready(image) => (Some(image), None),
-        ImageState::Unavailable => (None, placeholder(window, cx)),
+        ImageState::Ready(image) => image,
+        ImageState::Unavailable => return unavailable_picture(width, height, name, link, cx),
     };
-    let displayed = image.as_ref().or(placeholder.as_ref());
-    let intrinsic = displayed.map(|image| {
-        image
-            .size(0)
-            .map(|dimension| px(i32::from(dimension) as f32))
-    });
-    let preferred = preferred_size(intrinsic, width, height);
+    let intrinsic = image
+        .size(0)
+        .map(|dimension| px(i32::from(dimension) as f32));
+    let preferred = preferred_size(Some(intrinsic), width, height);
     let ring = cx.theme().ring;
-    let thumbnail = displayed.cloned().map(|image| {
-        img(image)
-            .absolute()
-            .inset_0()
-            .size_full()
-            .object_fit(ObjectFit::Contain)
-    });
+    let thumbnail = img(image.clone())
+        .absolute()
+        .inset_0()
+        .size_full()
+        .object_fit(ObjectFit::Contain);
 
     // Resolve the parent's width before applying the aspect ratio. An img with
     // a max width still contributes its original explicit height to layout.
     div()
         .w_full()
         .max_w(preferred.width)
-        .map(|frame| match (image, link) {
-            (Some(image), None) if preferred.height > Pixels::ZERO => frame.child(
+        .map(|frame| match link {
+            None if preferred.height > Pixels::ZERO => frame.child(
                 Button::new("open-image-preview")
                     .ghost()
                     .relative()
@@ -79,9 +73,9 @@ pub(super) fn picture(
                     .on_click(move |_, window, cx| {
                         image_preview::open(image.clone(), name.clone(), window, cx)
                     })
-                    .children(thumbnail),
+                    .child(thumbnail),
             ),
-            (_, link) => frame.child(
+            link => frame.child(
                 div()
                     .id("picture")
                     .relative()
@@ -90,8 +84,43 @@ pub(super) fn picture(
                     .aria_label(name)
                     .focus_visible(move |style| style.border_1().border_color(ring))
                     .map(|element| picture_role(element, link))
-                    .children(thumbnail),
+                    .child(thumbnail),
             ),
+        })
+}
+
+fn unavailable_picture(
+    width: Option<u16>,
+    height: Option<u16>,
+    name: SharedString,
+    link: Option<SharedString>,
+    cx: &App,
+) -> Div {
+    let intrinsic = size(px(SKELETON_WIDTH as f32), px(SKELETON_HEIGHT as f32));
+    let preferred = preferred_size(Some(intrinsic), width, height);
+    let ring = cx.theme().ring;
+    let label = if name.is_empty() {
+        "Image unavailable".into()
+    } else {
+        SharedString::from(format!("Image unavailable: {name}"))
+    };
+    div()
+        .w_full()
+        .max_w(preferred.width)
+        .when(preferred.height > Pixels::ZERO, |frame| {
+            frame.child(
+                div()
+                    .id("picture")
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .w_full()
+                    .aspect_ratio(aspect_ratio(preferred))
+                    .aria_label(label)
+                    .focus_visible(move |style| style.border_1().border_color(ring))
+                    .map(|element| picture_role(element, link))
+                    .child(image_placeholder::icon(cx).max_w_full().max_h_full()),
+            )
         })
 }
 
