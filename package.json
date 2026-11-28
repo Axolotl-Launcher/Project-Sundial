@@ -32,8 +32,8 @@
     "test:scripts": "node --test scripts/*.test.ts"
   },
   "devDependencies": {
-    "turbo": "~2.11.11",
-    "typescript": "6.0.3",
+    "turbo": "~2.11.13",
+    "typescript": "7.0.2",
     "@types/node": "26.6.6",
     "eslint": "10.15.0",
     "typescript-eslint": "8.73.0",
