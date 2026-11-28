@@ -1,6 +1,5 @@
 //! Bounded transport for credential-free metadata requests.
 
-use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, LOCATION, RETRY_AFTER};
@@ -36,10 +35,7 @@ pub enum MetadataError {
 
 impl MetadataHttp {
     pub fn desktop(user_agent: &str) -> Result<Self, MetadataError> {
-        let resolver = super::dns::DohResolver::new(super::DohConfig::default())
-            .map_err(|_| MetadataError::Transport)?;
         Client::builder()
-            .dns_resolver(Arc::new(resolver))
             .https_only(true)
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(CONNECT_TIMEOUT)
