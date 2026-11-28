@@ -25,7 +25,7 @@ use axlauncher_storage::{DataDir, DataPath, GameAccess, GameDir};
 use crate::launch_accounts;
 
 use super::{
-    accounts::{AccountId, DesktopAccounts},
+    accounts::{AccountKey, DesktopAccounts},
     java, on_worker,
     sources::DownloadOptions,
 };
@@ -34,9 +34,9 @@ pub const LAUNCHER_LANGUAGE: &str = "en_us";
 
 pub enum Player {
     Offline(Session),
-    Online {
+    Saved {
         service: Arc<DesktopAccounts>,
-        id: AccountId,
+        key: AccountKey,
         fallen_proxy: Option<ServiceHost>,
     },
 }
@@ -214,28 +214,28 @@ async fn resolve_session(
     options: DownloadOptions,
     account_resolved: impl FnOnce(Arc<DesktopAccounts>),
 ) -> Result<Session, String> {
-    let (service, id, fallen_proxy) = match player {
+    let (service, key, fallen_proxy) = match player {
         Player::Offline(session) => return Ok(session),
-        Player::Online {
+        Player::Saved {
             service,
-            id,
+            key,
             fallen_proxy,
-        } => (service, id, fallen_proxy),
+        } => (service, key, fallen_proxy),
     };
-    let session = online_session(&service, id, options, fallen_proxy).await;
+    let session = saved_session(&service, key, options, fallen_proxy).await;
     account_resolved(service);
     session
 }
 
-async fn online_session(
+async fn saved_session(
     service: &DesktopAccounts,
-    id: AccountId,
+    key: AccountKey,
     options: DownloadOptions,
     fallen_proxy: Option<ServiceHost>,
 ) -> Result<Session, String> {
-    let identity = service.resolve(id, fallen_proxy.clone()).await?;
+    let identity = service.resolve(key, fallen_proxy.clone()).await?;
     let data = service.data_dir();
-    launch_accounts::prepare(identity, id, &data, &options.downloader(&data))
+    launch_accounts::prepare(identity, key.id(), &data, &options.downloader(&data))
         .await
         .map(|session| session.with_fallen_proxy(fallen_proxy))
 }

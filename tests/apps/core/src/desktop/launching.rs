@@ -8,6 +8,35 @@ use axlauncher_storage::{Directory, Document, VersionPath};
 use super::*;
 
 #[test]
+fn a_saved_offline_player_does_not_bypass_account_resolution() {
+    use crate::desktop::accounts::{AccountId, LauncherId};
+
+    let root = tempfile::tempdir().unwrap();
+    let service = DesktopAccounts::new(DataDir::isolated(root.path()).unwrap());
+    let key = AccountKey::new(
+        LauncherId::new("ac623055-ddf7-4b0c-bf84-add27126654f".parse().unwrap()),
+        AccountId::Offline("b50ad385-829d-3141-a216-7e7d7539ba7f".parse().unwrap()),
+    );
+    let player = Player::Saved {
+        service: Arc::clone(&service),
+        key,
+        fallen_proxy: None,
+    };
+    let session = on_worker(resolve_session(
+        player,
+        DownloadOptions::from_settings(None),
+        |finished| {
+            assert!(Arc::ptr_eq(&finished, &service));
+        },
+    ))
+    .unwrap();
+    assert_eq!(
+        session.err().unwrap(),
+        "The embedded account worker is unavailable."
+    );
+}
+
+#[test]
 fn a_launch_job_retains_the_directory_snapshot_used_for_installation() {
     let root = tempfile::tempdir().unwrap();
     let mut paths = DataDir::isolated(root.path()).unwrap();

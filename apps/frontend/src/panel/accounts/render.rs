@@ -3,11 +3,12 @@
 
 //! The Accounts section of the development panel.
 
-use axlauncher_core::desktop::accounts::{Account, AccountId, Persistence};
+use axlauncher_core::desktop::accounts::{Account, AccountId, AccountKey, LauncherId, Persistence};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, Button, ButtonVariants, ClipboardItem, Context, Disableable,
-    ElementId, GroupBox, Input, IntoElement, Label, Render, Window, h_flex, v_flex,
+    DropdownMenu, ElementId, GroupBox, IconName, Input, IntoElement, Label, PopupMenuItem, Render,
+    WeakEntity, Window, h_flex, v_flex,
 };
 
 use super::login::{Method, Stage};
@@ -17,36 +18,39 @@ impl Render for AccountsPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
         let danger = cx.theme().danger;
-        let selected = self.selected();
-        let unavailable = self.service.is_none() || self.is_busy();
-        let identity = selected.map_or_else(
-            || {
-                format!(
-                    "Launch as {} · temporary offline player",
-                    self.player_name(cx)
-                )
-            },
-            |account| {
-                format!(
-                    "Launch as {} · {}",
-                    account.name(),
-                    account_provider(account)
-                )
-            },
-        );
-        let rows = self
-            .snapshot
-            .as_ref()
-            .map(|snapshot| Self::account_rows(snapshot, unavailable, cx));
+        let disabled = self.service.is_none()
+            || self.is_busy()
+            || self.add_offline.is_some()
+            || self.third_party.is_open();
+        let snapshot = self.snapshot.as_ref();
+        let rows = snapshot.map_or_else(Vec::new, |snapshot| {
+            Self::account_rows(snapshot, disabled, cx)
+        });
+        let empty = snapshot.is_some() && rows.is_empty();
         GroupBox::new()
             .id("accounts")
             .title(Label::new("Accounts").text_sm().text_color(muted))
             .child(
                 v_flex()
                     .gap_3()
-                    .child(Label::new(identity))
-                    .child(self.account_commands(unavailable, cx))
-                    .when(self.add_offline, |panel| panel.child(self.offline_form(cx)))
+                    .when_some(snapshot, |panel, snapshot| {
+                        panel.child(self.launcher_controls(snapshot, disabled, cx))
+                    })
+                    .when(self.working && snapshot.is_none(), |panel| {
+                        panel.child(Label::new("Loading accounts…"))
+                    })
+                    .child(Label::new("Minecraft accounts").text_sm())
+                    .child(
+                        Label::new(self.launch_label(cx))
+                            .text_sm()
+                            .text_color(muted),
+                    )
+                    .when_some(snapshot, |panel, snapshot| {
+                        panel.child(self.account_commands(snapshot.launcher(), disabled, cx))
+                    })
+                    .when(self.add_offline.is_some(), |panel| {
+                        panel.child(self.offline_form(cx))
+                    })
                     .when(self.login.is_some(), |panel| {
                         panel.child(self.login_status(cx))
                     })
@@ -56,17 +60,121 @@ impl Render for AccountsPanel {
                     .when_some(self.error.clone(), |panel, error| {
                         panel.child(Label::new(error).text_sm().text_color(danger))
                     })
-                    .children(rows.into_iter().flatten()),
+                    .when(empty, |panel| {
+                        panel.child(
+                            Label::new("No saved Minecraft accounts")
+                                .text_sm()
+                                .text_color(muted),
+                        )
+                    })
+                    .children(rows),
             )
     }
 }
 
 impl AccountsPanel {
-    fn account_commands(&self, disabled: bool, cx: &mut Context<'_, Self>) -> AnyElement {
-        let disabled = disabled || self.third_party.is_open();
+    fn launch_label(&self, cx: &Context<'_, Self>) -> String {
+        match self.selected() {
+            Some(account) => format!(
+                "Launch as {} · {}",
+                account.name(),
+                account_provider(account)
+            ),
+            None => format!(
+                "Launch as {} · temporary offline player",
+                self.player_name(cx)
+            ),
+        }
+    }
+
+    fn launcher_controls(
+        &self,
+        snapshot: &AccountSnapshot,
+        disabled: bool,
+        cx: &Context<'_, Self>,
+    ) -> AnyElement {
+        v_flex()
+            .gap_2()
+            .child(Label::new("Launcher account for this device user").text_sm())
+            .child(
+                h_flex()
+                    .gap_2()
+                    .flex_wrap()
+                    .child(Self::launcher_picker(snapshot, disabled, cx))
+                    .child(
+                        Input::new(&self.launcher_name)
+                            .id("launcher-account-name")
+                            .aria_label("New local launcher account name")
+                            .w_48()
+                            .disabled(disabled),
+                    )
+                    .child(
+                        Button::new("add-launcher-account")
+                            .label("Add local account")
+                            .ghost()
+                            .disabled(disabled)
+                            .on_click(cx.listener(|view, _, window, cx| {
+                                view.submit_launcher_form(window, cx);
+                            })),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    fn launcher_picker(
+        snapshot: &AccountSnapshot,
+        disabled: bool,
+        cx: &Context<'_, Self>,
+    ) -> AnyElement {
+        let selected = snapshot.launcher();
+        let options: Vec<_> = snapshot
+            .launchers()
+            .iter()
+            .map(|launcher| {
+                (
+                    launcher.id(),
+                    launcher.name().unwrap_or("Anonymous (local)").to_owned(),
+                )
+            })
+            .collect();
+        let label = options
+            .iter()
+            .find(|(id, _)| *id == selected)
+            .map_or("Launcher account", |(_, name)| name);
+        let trigger = Button::new("launcher-account-picker")
+            .label(label.to_owned())
+            .accessibility_label(format!("Launcher account: {label}"))
+            .outline()
+            .icon(IconName::ChevronDown);
+        if disabled {
+            return trigger.disabled(true).into_any_element();
+        }
+        let view = cx.weak_entity();
+        trigger
+            .dropdown_menu(move |menu, _, _| {
+                options
+                    .iter()
+                    .fold(menu.scrollable(true), |menu, (id, name)| {
+                        menu.item(launcher_menu_item(
+                            *id,
+                            name.clone(),
+                            *id == selected,
+                            view.clone(),
+                        ))
+                    })
+            })
+            .into_any_element()
+    }
+
+    fn account_commands(
+        &self,
+        launcher: LauncherId,
+        disabled: bool,
+        cx: &mut Context<'_, Self>,
+    ) -> AnyElement {
         let temporary = self
             .selected()
-            .map(|_| Self::temporary_button(disabled, cx));
+            .map(|_| Self::temporary_button(launcher, disabled, cx));
         h_flex()
             .gap_2()
             .flex_wrap()
@@ -74,28 +182,30 @@ impl AccountsPanel {
                 Button::new("sign-in-microsoft")
                     .label("Sign in with Microsoft…")
                     .disabled(disabled)
-                    .on_click(
-                        cx.listener(|view, _, _, cx| view.sign_in(Method::Browser, None, cx)),
-                    ),
+                    .on_click(cx.listener(move |view, _, _, cx| {
+                        view.sign_in(launcher, Method::Browser, None, cx)
+                    })),
             )
             .child(
                 Button::new("sign-in-device")
                     .label("Use a device code…")
                     .ghost()
                     .disabled(disabled)
-                    .on_click(cx.listener(|view, _, _, cx| view.sign_in(Method::Device, None, cx))),
+                    .on_click(cx.listener(move |view, _, _, cx| {
+                        view.sign_in(launcher, Method::Device, None, cx)
+                    })),
             )
             .child(
                 Button::new("add-offline-account")
                     .label("Add offline account…")
                     .track_focus(&self.offline_trigger)
-                    .disabled(disabled || self.add_offline)
-                    .toggled(self.add_offline)
-                    .on_click(
-                        cx.listener(|view, _, window, cx| view.open_offline_form(window, cx)),
-                    ),
+                    .disabled(disabled)
+                    .toggled(self.add_offline.is_some())
+                    .on_click(cx.listener(move |view, _, window, cx| {
+                        view.open_offline_form(launcher, window, cx)
+                    })),
             )
-            .child(self.third_party_button(disabled, cx))
+            .child(self.third_party_button(launcher, disabled, cx))
             .children(temporary)
             .into_any_element()
     }
@@ -180,6 +290,7 @@ impl AccountsPanel {
             .iter()
             .map(|account| {
                 Self::account_row(
+                    AccountKey::new(snapshot.launcher(), account.id()),
                     account,
                     snapshot.persistence(account.id()),
                     selected == Some(account),
@@ -191,6 +302,7 @@ impl AccountsPanel {
     }
 
     fn account_row(
+        key: AccountKey,
         account: &Account,
         persistence: Option<Persistence>,
         selected: bool,
@@ -206,14 +318,14 @@ impl AccountsPanel {
         };
         let reauth = id
             .is_online()
-            .then(|| Self::reauth_button(account, disabled, cx));
+            .then(|| Self::reauth_button(key, account, disabled, cx));
         h_flex()
             .gap_3()
             .justify_between()
             .flex_wrap()
             .child(
                 Label::new(details)
-                    .id(account_element("account", id))
+                    .id(account_element("account", key))
                     .text_sm()
                     .text_color(cx.theme().muted_foreground),
             )
@@ -221,7 +333,7 @@ impl AccountsPanel {
                 h_flex()
                     .gap_2()
                     .child(
-                        Button::new(account_element("select-account", id))
+                        Button::new(account_element("select-account", key))
                             .label("Use account")
                             .accessibility_label(format!(
                                 "Use {} {} account",
@@ -230,12 +342,18 @@ impl AccountsPanel {
                             ))
                             .disabled(disabled || selected)
                             .on_click(cx.listener(move |view, _, _, cx| {
-                                view.change_accounts(AccountAction::Select(Some(id)), cx)
+                                view.change_accounts(
+                                    AccountAction::Select {
+                                        launcher: key.launcher(),
+                                        id: Some(id),
+                                    },
+                                    cx,
+                                )
                             })),
                     )
                     .children(reauth)
                     .child(
-                        Button::new(account_element("remove-account", id))
+                        Button::new(account_element("remove-account", key))
                             .label("Remove")
                             .accessibility_label(format!(
                                 "Remove {} {} account",
@@ -245,48 +363,57 @@ impl AccountsPanel {
                             .ghost()
                             .disabled(disabled)
                             .on_click(cx.listener(move |view, _, _, cx| {
-                                view.change_accounts(AccountAction::Remove(id), cx)
+                                view.change_accounts(AccountAction::Remove(key), cx)
                             })),
                     ),
             )
             .into_any_element()
     }
 
-    fn reauth_button(account: &Account, disabled: bool, cx: &Context<'_, Self>) -> Button {
+    fn reauth_button(
+        key: AccountKey,
+        account: &Account,
+        disabled: bool,
+        cx: &Context<'_, Self>,
+    ) -> Button {
         let id = account.id();
         let server = account.server().map(|server| (id, server.url().to_owned()));
-        Button::new(account_element("reauthenticate", id))
+        Button::new(account_element("reauthenticate", key))
             .label("Sign in again…")
             .accessibility_label(format!("Sign in again as {}", account.name()))
             .ghost()
             .disabled(disabled)
             .on_click(cx.listener(move |view, _, window, cx| {
-                view.reauthenticate(id, server.clone(), window, cx);
+                view.reauthenticate(key, server.clone(), window, cx);
             }))
     }
 
     fn reauthenticate(
         &mut self,
-        id: AccountId,
+        key: AccountKey,
         server: Option<(AccountId, String)>,
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
-        match id {
-            AccountId::Microsoft(_) => self.sign_in(Method::Browser, Some(id), cx),
-            AccountId::Yggdrasil { .. } => self.open_third_party(server, window, cx),
+        match key.id() {
+            AccountId::Microsoft(_) => {
+                self.sign_in(key.launcher(), Method::Browser, Some(key.id()), cx)
+            }
+            AccountId::Yggdrasil { .. } => {
+                self.open_third_party(key.launcher(), server, window, cx)
+            }
             AccountId::Offline(_) => (),
         }
     }
 
-    fn temporary_button(disabled: bool, cx: &Context<'_, Self>) -> Button {
+    fn temporary_button(launcher: LauncherId, disabled: bool, cx: &Context<'_, Self>) -> Button {
         Button::new("use-temporary-player")
             .label("Use temporary player")
             .ghost()
             .disabled(disabled)
-            .on_click(
-                cx.listener(|view, _, _, cx| view.change_accounts(AccountAction::Select(None), cx)),
-            )
+            .on_click(cx.listener(move |view, _, _, cx| {
+                view.change_accounts(AccountAction::Select { launcher, id: None }, cx)
+            }))
     }
 
     fn device_controls(url: &str, code: &str, cx: &Context<'_, Self>) -> AnyElement {
@@ -315,6 +442,26 @@ impl AccountsPanel {
     }
 }
 
+fn launcher_menu_item(
+    id: LauncherId,
+    name: String,
+    selected: bool,
+    view: WeakEntity<AccountsPanel>,
+) -> PopupMenuItem {
+    let item = PopupMenuItem::element(move |_, _| {
+        Label::new(name.clone()).id(ElementId::Name(format!("launcher-option:{id}").into()))
+    })
+    .checked(selected);
+    if selected {
+        return item;
+    }
+    item.on_click(move |_, _, cx| {
+        let _ = view.update(cx, |view, cx| {
+            view.change_accounts(AccountAction::SelectLauncher(id), cx);
+        });
+    })
+}
+
 fn account_label(account: &Account, persistence: Option<Persistence>) -> String {
     let kind = account_provider(account);
     let status = match persistence {
@@ -340,6 +487,6 @@ fn account_kind(id: AccountId) -> &'static str {
     }
 }
 
-fn account_element(role: &str, id: AccountId) -> ElementId {
-    ElementId::Name(format!("{role}:{id:?}").into())
+fn account_element(role: &str, key: AccountKey) -> ElementId {
+    ElementId::Name(format!("{role}:{}:{:?}", key.launcher(), key.id()).into())
 }

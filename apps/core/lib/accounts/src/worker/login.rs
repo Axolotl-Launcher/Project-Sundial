@@ -5,7 +5,7 @@ use axlauncher_network::auth::{AuthHttp, BrowserCallback, CallbackError};
 use axlauncher_network_spi::ServiceHost;
 use axlauncher_spi::credentials::CredentialStore;
 use axlauncher_worker::Responder;
-use axlauncher_worker::accounts::{AccountId, ChoiceId, Method, Profile, Reply};
+use axlauncher_worker::accounts::{AccountId, ChoiceId, LauncherId, Method, Profile, Reply};
 use uuid::Uuid;
 
 use crate::accounts::microsoft::{
@@ -15,13 +15,25 @@ use crate::accounts::{AccountError, SignInCommit, yggdrasil};
 
 use super::{Accounts, auth};
 
-pub(super) type Choices = HashMap<ChoiceId, yggdrasil::ProfileChoice>;
+pub(super) type Choices = HashMap<ChoiceId, (Target, yggdrasil::ProfileChoice)>;
+
+pub(super) struct Target {
+    launcher: LauncherId,
+    expected: Option<AccountId>,
+}
+
+impl Target {
+    pub(super) fn new(launcher: LauncherId, expected: Option<AccountId>) -> Self {
+        Self { launcher, expected }
+    }
+}
 
 pub(super) enum ThirdParty {
     SignIn {
         url: String,
         username: String,
         password: String,
+        target: Target,
     },
     Choose {
         choice: ChoiceId,
@@ -33,11 +45,14 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
     pub(super) async fn microsoft(
         &self,
         method: Method,
-        expected: Option<AccountId>,
+        target: Target,
         proxy: Option<ServiceHost>,
         reply: Responder<Reply>,
         commit: &SignInCommit,
     ) -> Result<(), String> {
+        self.service
+            .require_launcher(target.launcher, target.expected)
+            .map_err(|error| error.to_string())?;
         let network = auth(proxy)?;
         let verified = tokio::select! {
             biased;
@@ -46,7 +61,7 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
         };
         self.finish(
             self.service
-                .remember_with_commit(verified, expected, commit)
+                .remember_with_commit(target.launcher, verified, target.expected, commit)
                 .await,
             reply,
         )
@@ -56,23 +71,29 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
     pub(super) async fn third_party(
         self: &Rc<Self>,
         action: ThirdParty,
-        expected: Option<AccountId>,
         reply: Responder<Reply>,
         commit: &SignInCommit,
     ) -> Result<(), String> {
         let network = auth(None)?;
-        let outcome = tokio::select! {
+        let (target, outcome) = tokio::select! {
             biased;
             () = commit.cancelled() => return reply.send(Reply::Cancelled),
             result = self.authenticate(action, &network) => result?,
         };
         match outcome {
-            yggdrasil::SignIn::Choose(choice) if commit.is_pending() => self.offer(choice, reply),
+            yggdrasil::SignIn::Choose(choice) if commit.is_pending() => {
+                self.offer(target, choice, reply)
+            }
             yggdrasil::SignIn::Choose(_) => reply.send(Reply::Cancelled),
             yggdrasil::SignIn::Complete(verified) => {
                 self.finish(
                     self.service
-                        .remember_yggdrasil_with_commit(verified, expected, commit)
+                        .remember_yggdrasil_with_commit(
+                            target.launcher,
+                            verified,
+                            target.expected,
+                            commit,
+                        )
                         .await,
                     reply,
                 )
@@ -97,31 +118,49 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
         &self,
         action: ThirdParty,
         network: &AuthHttp,
-    ) -> Result<yggdrasil::SignIn, String> {
-        let outcome = match action {
+    ) -> Result<(Target, yggdrasil::SignIn), String> {
+        let (target, outcome) = match action {
             ThirdParty::SignIn {
                 url,
                 username,
                 password,
-            } => yggdrasil::sign_in(network, &url, &username, &password).await,
+                target,
+            } => {
+                self.service
+                    .require_launcher(target.launcher, target.expected)
+                    .map_err(|error| error.to_string())?;
+                (
+                    target,
+                    yggdrasil::sign_in(network, &url, &username, &password).await,
+                )
+            }
             ThirdParty::Choose { choice, profile } => {
-                let choice = self
+                let (target, choice) = self
                     .choices
                     .borrow_mut()
                     .remove(&choice)
                     .ok_or(yggdrasil::YggdrasilError::Expired)
                     .map_err(|error| error.to_string())?;
-                choice
-                    .finish(network, profile)
-                    .await
-                    .map(yggdrasil::SignIn::Complete)
+                self.service
+                    .require_launcher(target.launcher, target.expected)
+                    .map_err(|error| error.to_string())?;
+                (
+                    target,
+                    choice
+                        .finish(network, profile)
+                        .await
+                        .map(yggdrasil::SignIn::Complete),
+                )
             }
         };
-        outcome.map_err(|error| error.to_string())
+        outcome
+            .map(|outcome| (target, outcome))
+            .map_err(|error| error.to_string())
     }
 
     fn offer(
         self: &Rc<Self>,
+        target: Target,
         choice: yggdrasil::ProfileChoice,
         reply: Responder<Reply>,
     ) -> Result<(), String> {
@@ -135,7 +174,7 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
             choice: id,
             profiles,
         })?;
-        self.choices.borrow_mut().insert(id, choice);
+        self.choices.borrow_mut().insert(id, (target, choice));
         let accounts = Rc::clone(self);
         let retention = reply.retention();
         tokio::task::spawn_local(accounts.expire_choice(id, retention));

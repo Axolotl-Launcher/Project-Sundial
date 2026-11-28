@@ -1,12 +1,28 @@
 //! Account view data and private account requests, without credential-store references.
 
 use std::path::PathBuf;
+use std::{fmt, fmt::Display};
 
 use axlauncher_network_spi::ServiceHost;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub use crate::Cancellation as SignInCommit;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct LauncherId(Uuid);
+
+impl LauncherId {
+    pub fn new(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl Display for LauncherId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "uuid", rename_all = "snake_case")]
@@ -27,6 +43,27 @@ impl AccountId {
 
     pub fn is_online(self) -> bool {
         !matches!(self, Self::Offline(_))
+    }
+}
+
+/// A Minecraft identity within one launcher account.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct AccountKey {
+    launcher: LauncherId,
+    id: AccountId,
+}
+
+impl AccountKey {
+    pub fn new(launcher: LauncherId, id: AccountId) -> Self {
+        Self { launcher, id }
+    }
+
+    pub fn launcher(self) -> LauncherId {
+        self.launcher
+    }
+
+    pub fn id(self) -> AccountId {
+        self.id
     }
 }
 
@@ -96,13 +133,33 @@ pub enum Persistence {
 
 #[derive(Serialize, Deserialize)]
 pub struct AccountSnapshot {
+    launchers: Vec<LauncherAccount>,
+    launcher: LauncherId,
     accounts: Vec<Account>,
     selected: Option<AccountId>,
 }
 
 impl AccountSnapshot {
-    pub fn new(accounts: Vec<Account>, selected: Option<AccountId>) -> Self {
-        Self { accounts, selected }
+    pub fn new(
+        launchers: Vec<LauncherAccount>,
+        launcher: LauncherId,
+        accounts: Vec<Account>,
+        selected: Option<AccountId>,
+    ) -> Self {
+        Self {
+            launchers,
+            launcher,
+            accounts,
+            selected,
+        }
+    }
+
+    pub fn launchers(&self) -> &[LauncherAccount] {
+        &self.launchers
+    }
+
+    pub fn launcher(&self) -> LauncherId {
+        self.launcher
     }
 
     pub fn iter(&self) -> impl ExactSizeIterator<Item = &Account> {
@@ -116,11 +173,35 @@ impl AccountSnapshot {
             .find(|account| account.id() == selected)
     }
 
+    pub fn selected_key(&self) -> Option<AccountKey> {
+        Some(AccountKey::new(self.launcher, self.selected()?.id()))
+    }
+
     pub fn persistence(&self, id: AccountId) -> Option<Persistence> {
         self.accounts
             .iter()
             .find(|account| account.id() == id)?
             .persistence
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct LauncherAccount {
+    id: LauncherId,
+    name: Option<String>,
+}
+
+impl LauncherAccount {
+    pub fn new(id: LauncherId, name: Option<String>) -> Self {
+        Self { id, name }
+    }
+
+    pub fn id(&self) -> LauncherId {
+        self.id
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
     }
 }
 
@@ -179,20 +260,33 @@ impl Command {
 #[derive(Serialize, Deserialize)]
 pub enum Change {
     Read,
-    AddOffline { name: String, uuid: String },
-    Select(Option<AccountId>),
-    Remove(AccountId),
+    CreateLauncher {
+        name: String,
+    },
+    SelectLauncher(LauncherId),
+    AddOffline {
+        launcher: LauncherId,
+        name: String,
+        uuid: String,
+    },
+    Select {
+        launcher: LauncherId,
+        id: Option<AccountId>,
+    },
+    Remove(AccountKey),
 }
 
 #[derive(Serialize, Deserialize)]
 pub enum Action {
     Change(Change),
     Microsoft {
+        launcher: LauncherId,
         method: Method,
         expected: Option<AccountId>,
         proxy: Option<ServiceHost>,
     },
     Yggdrasil {
+        launcher: LauncherId,
         url: String,
         username: String,
         password: String,
@@ -201,11 +295,10 @@ pub enum Action {
     Choose {
         choice: ChoiceId,
         profile: Profile,
-        expected: Option<AccountId>,
     },
     DiscardChoice(ChoiceId),
     Resolve {
-        id: AccountId,
+        key: AccountKey,
         proxy: Option<ServiceHost>,
     },
 }

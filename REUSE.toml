@@ -66,8 +66,11 @@ SPDX-License-Identifier = "GPL-3.0-only"
 path = [
   ".agents/docs/filesystem-paths.md",
   "apps/core/storage/layout/**",
+  "apps/core/storage/src/device_user.rs",
+  "tests/apps/core/storage/src/device_user.rs",
   "tests/apps/core/storage/layout/**",
   "tests/apps/frontend/src/panel/instances.rs",
+  "tests/apps/frontend/src/panel/accounts.rs",
   "tests/tests/filesystem_paths.rs",
   "tests/tests/filesystem_paths/rules.rs",
 ]

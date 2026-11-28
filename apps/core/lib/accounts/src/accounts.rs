@@ -3,38 +3,38 @@
 
 //! Minecraft account identity and a versioned account document.
 
-use std::{fs, io};
+use std::io;
 
-use axlauncher_storage::{DataDir, DataPath, Document as ManagedDocument, write_atomic};
 use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use uuid::Uuid;
 
+mod document;
+mod hierarchy;
 pub mod microsoft;
 mod sessions;
 mod sign_in;
 pub use sign_in::SignInCommit;
 pub mod yggdrasil;
 pub use axlauncher_worker::accounts::AccountId;
-#[cfg(test)]
-pub use sessions::Persistence;
+use axlauncher_worker::accounts::{AccountKey, LauncherId};
 pub use sessions::{AccountService, LaunchIdentity};
 
-// Older writers must leave the durable credential cleanup queue intact.
-const SCHEMA_VERSION: u32 = 3;
-
 /// A saved Minecraft identity with its local credential reference.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Account {
+#[derive(Clone, Serialize, Deserialize)]
+pub struct McAccount {
     id: AccountId,
     name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    credential: Option<Uuid>,
+    credential: Option<CredentialRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     server: Option<axlauncher_worker::accounts::Server>,
+    #[serde(flatten)]
+    extra: Map<String, Value>,
 }
 
-impl Account {
+impl McAccount {
     /// An offline identity with Minecraft's name-based UUID as the default.
     pub fn offline(name: &str, uuid: Option<&str>) -> Result<Self, AccountError> {
         let name = name.trim();
@@ -54,12 +54,8 @@ impl Account {
             name: name.to_owned(),
             credential: None,
             server: None,
+            extra: Map::new(),
         })
-    }
-
-    #[cfg(test)]
-    pub fn id(&self) -> AccountId {
-        self.id
     }
 
     pub fn name(&self) -> &str {
@@ -69,6 +65,23 @@ impl Account {
     pub fn server(&self) -> Option<&axlauncher_worker::accounts::Server> {
         self.server.as_ref()
     }
+
+    fn has_expected_provider(&self) -> bool {
+        match self.id {
+            AccountId::Yggdrasil { .. } => self
+                .server()
+                .is_some_and(|server| yggdrasil::account_id(server, self.id.uuid()) == self.id),
+            AccountId::Microsoft(_) => self.server.is_none(),
+            AccountId::Offline(_) => self.server.is_none() && self.credential.is_none(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(untagged)]
+enum CredentialRef {
+    Legacy(Uuid),
+    Scoped { key: Uuid },
 }
 
 fn offline_uuid(name: &str) -> Uuid {
@@ -89,14 +102,24 @@ pub enum AccountError {
     Duplicate,
     #[error("This account is no longer available.")]
     Missing,
+    #[error("This launcher account is no longer available.")]
+    MissingLauncher,
+    #[error("Enter a launcher account name of 1–48 characters without line breaks or tabs.")]
+    InvalidLauncherName,
+    #[error("A launcher account already uses this name.")]
+    DuplicateLauncherName,
+    #[error("Could not identify the current device user.")]
+    DeviceUser,
     #[error("The account file uses unsupported schema {0}.")]
     UnsupportedSchema(u32),
     #[error("Could not read the account file: {0}")]
     Read(#[source] io::Error),
-    #[error("The account file is unreadable: {0}")]
-    Decode(#[source] serde_json::Error),
-    #[error("The account file contains an invalid third-party server identity.")]
+    #[error("The account file is unreadable.")]
+    Decode,
+    #[error("The account file contains an invalid Minecraft account provider.")]
     InvalidServer,
+    #[error("The account file contains invalid or duplicate account references.")]
+    InvalidHierarchy,
     #[error("Could not save the account file: {0}")]
     Write(#[source] io::Error),
     #[error("Could not access the system credential store. Unlock it or sign in again.")]
@@ -105,127 +128,4 @@ pub enum AccountError {
     Microsoft(#[from] microsoft::MicrosoftError),
     #[error(transparent)]
     Yggdrasil(#[from] yggdrasil::YggdrasilError),
-}
-
-#[derive(Deserialize)]
-struct Schema {
-    schema_version: u32,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct Document {
-    accounts: Vec<Account>,
-    selected: Option<AccountId>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    retired_credentials: Vec<Uuid>,
-}
-
-impl Document {
-    fn load(data: &DataDir) -> Result<Self, AccountError> {
-        match fs::read(Self::path(data)) {
-            Ok(bytes) => decode(&bytes),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Self::default()),
-            Err(error) => Err(AccountError::Read(error)),
-        }
-    }
-
-    fn find(&self, id: AccountId) -> Result<&Account, AccountError> {
-        self.accounts
-            .iter()
-            .find(|account| account.id == id)
-            .ok_or(AccountError::Missing)
-    }
-
-    fn add_offline(&mut self, account: Account) -> Result<(), AccountError> {
-        if self.find(account.id).is_ok() {
-            return Err(AccountError::Duplicate);
-        }
-        self.selected = Some(account.id);
-        self.accounts.push(account);
-        Ok(())
-    }
-
-    fn select(&mut self, id: Option<AccountId>) -> Result<(), AccountError> {
-        if let Some(id) = id {
-            self.find(id)?;
-        }
-        self.selected = id;
-        Ok(())
-    }
-
-    fn remove(&mut self, id: AccountId) -> Result<Option<Uuid>, AccountError> {
-        let credential = self.find(id)?.credential;
-        self.accounts.retain(|account| account.id != id);
-        self.selected = self.selected.filter(|selected| *selected != id);
-        self.retired_credentials.extend(credential);
-        Ok(credential)
-    }
-
-    fn remember(&mut self, account: Account) {
-        self.accounts.retain(|existing| existing.id != account.id);
-        self.selected = Some(account.id);
-        self.accounts.push(account);
-    }
-
-    fn update<T>(
-        data: &DataDir,
-        change: impl FnOnce(&mut Self) -> Result<T, AccountError>,
-    ) -> Result<T, AccountError> {
-        let _lock = Self::lock(data)?;
-        let mut document = Self::load(data)?;
-        let output = change(&mut document)?;
-        document.save(data)?;
-        Ok(output)
-    }
-
-    fn save(&self, data: &DataDir) -> Result<(), AccountError> {
-        let bytes = serde_json::to_vec_pretty(&Encoded {
-            schema_version: SCHEMA_VERSION,
-            document: self,
-        })
-        .expect("account document serializes");
-        write_atomic(&Self::path(data), &bytes).map_err(AccountError::Write)
-    }
-
-    fn path(data: &DataDir) -> std::path::PathBuf {
-        ManagedDocument::Accounts.path(data.path(DataPath::Root))
-    }
-
-    fn lock(data: &DataDir) -> Result<fs::File, AccountError> {
-        ManagedDocument::Accounts
-            .lock(data.path(DataPath::Root))
-            .map_err(|error| AccountError::Write(error.into()))
-    }
-}
-
-#[derive(Serialize)]
-struct Encoded<'a> {
-    schema_version: u32,
-    #[serde(flatten)]
-    document: &'a Document,
-}
-
-fn decode(bytes: &[u8]) -> Result<Document, AccountError> {
-    let schema: Schema = serde_json::from_slice(bytes).map_err(AccountError::Decode)?;
-    if !(1..=SCHEMA_VERSION).contains(&schema.schema_version) {
-        return Err(AccountError::UnsupportedSchema(schema.schema_version));
-    }
-    let document: Document = serde_json::from_slice(bytes).map_err(AccountError::Decode)?;
-    if document
-        .accounts
-        .iter()
-        .any(|account| !account_has_expected_server(account))
-    {
-        return Err(AccountError::InvalidServer);
-    }
-    Ok(document)
-}
-
-fn account_has_expected_server(account: &Account) -> bool {
-    match account.id {
-        AccountId::Yggdrasil { .. } => account
-            .server()
-            .is_some_and(|server| yggdrasil::account_id(server, account.id.uuid()) == account.id),
-        _ => account.server().is_none(),
-    }
 }

@@ -3,121 +3,124 @@
 
 //! Coordinates the account document with the system credential store.
 
-use std::collections::HashSet;
-
 use axlauncher_spi::credentials::CredentialStore;
+use axlauncher_worker::accounts::Persistence;
 use uuid::Uuid;
 
 use super::{
-    Account, AccountError, AccountId, AccountService, Cached, Document, MicrosoftError,
-    Persistence, SignInCommit, yggdrasil,
+    AccountError, AccountId, AccountKey, AccountService, Cached, CredentialRef, LauncherId,
+    McAccount, MicrosoftError, SignInCommit, yggdrasil,
 };
 
 impl<S: CredentialStore> AccountService<S> {
     pub(super) fn persist(
         &self,
-        account: Account,
+        launcher: LauncherId,
+        account: McAccount,
         expected: Option<AccountId>,
         secret: &str,
         commit: &SignInCommit,
-    ) -> Result<(Option<Uuid>, bool), AccountError> {
-        let result = self.persist_locked(account, expected, secret, commit);
+    ) -> Result<(Option<CredentialRef>, bool), AccountError> {
+        if !commit.is_pending() {
+            return Err(AccountError::Cancelled);
+        }
+        let result = self.persist_locked(launcher, account, expected, secret, commit);
         let _ = self.cleanup_retired();
         result
     }
 
     fn persist_locked(
         &self,
-        mut account: Account,
+        launcher: LauncherId,
+        mut account: McAccount,
         expected: Option<AccountId>,
         secret: &str,
         commit: &SignInCommit,
-    ) -> Result<(Option<Uuid>, bool), AccountError> {
-        let _lock = Document::lock(&self.data)?;
+    ) -> Result<(Option<CredentialRef>, bool), AccountError> {
+        let mut transaction = self.file.lock()?;
         if !commit.is_pending() {
             return Err(AccountError::Cancelled);
         }
-        let mut document = Document::load(&self.data)?;
-        let old = document
+        let target = transaction.root().launcher(launcher)?;
+        let old = target
             .find(account.id)
             .ok()
             .and_then(|account| account.credential);
         if let Some(expected) = expected {
-            document.find(expected)?;
+            target.find(expected)?;
         }
-        let key = Uuid::new_v4();
+        let key = CredentialRef::Scoped {
+            key: Uuid::new_v4(),
+        };
         // Reserve before touching the keyring so a failed or interrupted save is recoverable.
-        document.retired_credentials.push(key);
-        document.save(&self.data)?;
-        let persisted = self.store.write(&key.to_string(), secret).is_ok();
+        transaction.root_mut().retire([key]);
+        transaction.save()?;
+        let persisted = self
+            .store
+            .write(&self.file.credential_key(key), secret)
+            .is_ok();
         commit.begin()?;
         let credential = if persisted { Some(key) } else { old };
         account.credential = credential;
-        document.remember(account);
+        let root = transaction.root_mut();
+        root.launcher_mut(launcher)?.remember(account);
         if persisted {
-            document
-                .retired_credentials
-                .retain(|candidate| *candidate != key);
-            document.retired_credentials.extend(old);
+            root.keep_retired(|candidate| *candidate != key);
+            root.retire(old);
         }
-        document.save(&self.data)?;
+        transaction.save()?;
         Ok((credential, persisted))
     }
 
-    pub(super) fn cleanup_retired(&self) -> Result<Vec<Uuid>, AccountError> {
-        let _lock = Document::lock(&self.data)?;
-        let mut document = Document::load(&self.data)?;
-        let before = document.retired_credentials.len();
-        let live = document
-            .accounts
-            .iter()
-            .filter_map(|account| account.credential)
-            .collect::<HashSet<_>>();
-        document
-            .retired_credentials
-            .retain(|key| !live.contains(key) && self.store.remove(&key.to_string()).is_err());
-        if document.retired_credentials.len() != before {
-            document.save(&self.data)?;
+    pub(super) fn cleanup_retired(&self) -> Result<Vec<CredentialRef>, AccountError> {
+        let mut transaction = self.file.lock()?;
+        let root = transaction.root_mut();
+        let before = root.retired().len();
+        let live = root.live_credentials();
+        root.keep_retired(|key| {
+            !live.contains(key) && self.store.remove(&self.file.credential_key(*key)).is_err()
+        });
+        let remaining = root.retired().to_vec();
+        if remaining.len() != before {
+            transaction.save()?;
         }
-        Ok(document.retired_credentials)
+        Ok(remaining)
     }
 
     pub(super) fn write_current_secret(
         &self,
-        id: AccountId,
-        key: Uuid,
+        key: AccountKey,
+        credential: CredentialRef,
         secret: &str,
     ) -> Result<bool, AccountError> {
-        let _lock = Document::lock(&self.data)?;
-        let document = Document::load(&self.data)?;
-        if document.find(id)?.credential != Some(key) {
+        let transaction = self.file.lock()?;
+        if transaction.root().find(key)?.credential != Some(credential) {
             return Err(AccountError::Missing);
         }
-        Ok(self.store.write(&key.to_string(), secret).is_ok())
+        Ok(self
+            .store
+            .write(&self.file.credential_key(credential), secret)
+            .is_ok())
     }
-}
 
-pub(super) fn status(
-    store: &impl CredentialStore,
-    account: &Account,
-    cached: Option<&Cached>,
-) -> Persistence {
-    if cached.is_some_and(|entry| {
-        entry.third_party_sign_in_required
-            || matches!(entry.failure, Some((_, MicrosoftError::SignInAgain)))
-    }) {
-        return Persistence::SignInRequired;
-    }
-    if cached.is_some_and(|entry| entry.session_only) {
-        return Persistence::SessionOnly;
-    }
-    let Some(key) = account.credential else {
-        return Persistence::SignInRequired;
-    };
-    match store.read(&key.to_string()) {
-        Ok(Some(secret)) if usable_credential(account.id, &secret) => Persistence::Saved,
-        Ok(_) => Persistence::SignInRequired,
-        Err(_) => Persistence::StoreUnavailable,
+    pub(super) fn persistence(&self, account: &McAccount, cached: Option<&Cached>) -> Persistence {
+        if cached.is_some_and(|entry| {
+            entry.third_party_sign_in_required
+                || matches!(entry.failure, Some((_, MicrosoftError::SignInAgain)))
+        }) {
+            return Persistence::SignInRequired;
+        }
+        if cached.is_some_and(|entry| entry.session_only) {
+            return Persistence::SessionOnly;
+        }
+        let Some(key) = account.credential else {
+            return Persistence::SignInRequired;
+        };
+        match self.store.read(&self.file.credential_key(key)) {
+            Ok(Some(secret)) if usable_credential(account.id, &secret) => Persistence::Saved,
+            Ok(_) => Persistence::SignInRequired,
+            Err(_) => Persistence::StoreUnavailable,
+        }
     }
 }
 

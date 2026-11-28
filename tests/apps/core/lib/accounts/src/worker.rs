@@ -69,7 +69,9 @@ async fn cancelling_launch_metadata_returns_no_identity() {
     let accounts = Accounts::new(
         DataDir::isolated(root.path()).unwrap(),
         UnavailableCredentials,
-    );
+    )
+    .unwrap();
+    let launcher = accounts.service.snapshot().await.unwrap().launcher();
     let sign_in = yggdrasil::sign_in(&SignInProvider, ROOT, "example", "test-password")
         .await
         .unwrap();
@@ -78,11 +80,11 @@ async fn cancelling_launch_metadata_returns_no_identity() {
     };
     accounts
         .service
-        .remember_yggdrasil(account, None)
+        .remember_yggdrasil(launcher, account, None)
         .await
         .unwrap();
-    let snapshot = accounts.service.snapshot().await.unwrap().into_reply();
-    let id = snapshot.selected().unwrap().id();
+    let snapshot = accounts.service.snapshot().await.unwrap();
+    let key = snapshot.selected_key().unwrap();
     let network = PendingMetadata(Notify::new());
     let cancel = Cancellation::default();
     let cancel_request = async {
@@ -90,7 +92,10 @@ async fn cancelling_launch_metadata_returns_no_identity() {
         cancel.cancel();
     };
     let (reply, ()) = tokio::time::timeout(Duration::from_secs(5), async {
-        tokio::join!(accounts.launch_reply(id, &network, &cancel), cancel_request)
+        tokio::join!(
+            accounts.launch_reply(key, &network, &cancel),
+            cancel_request
+        )
     })
     .await
     .expect("cancellation did not interrupt the metadata request");

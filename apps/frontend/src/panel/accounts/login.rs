@@ -5,8 +5,7 @@
 
 use std::sync::Arc;
 
-use axlauncher_core::desktop::accounts::{AccountId, Action, Reply, SignInCommit};
-use axlauncher_core::network_spi::ServiceHost;
+use axlauncher_core::desktop::accounts::{AccountId, Action, LauncherId, Reply, SignInCommit};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{AsyncApp, Context, Task, WeakEntity};
 use tokio::sync::mpsc;
@@ -31,6 +30,7 @@ pub(super) enum Stage {
 impl AccountsPanel {
     pub(super) fn sign_in(
         &mut self,
+        launcher: LauncherId,
         method: Method,
         expected: Option<AccountId>,
         cx: &mut Context<'_, Self>,
@@ -51,10 +51,14 @@ impl AccountsPanel {
         });
         self.error = None;
         let worker = Arc::clone(&service);
-        let fallen_proxy = self.proxy.clone();
-        let task = cx.background_spawn(async move {
-            run(&worker, method, expected, fallen_proxy, &sender, &commit).await
-        });
+        let request = Action::Microsoft {
+            launcher,
+            method,
+            expected,
+            proxy: self.proxy.clone(),
+        };
+        let task =
+            cx.background_spawn(async move { run(&worker, request, &sender, &commit).await });
         cx.spawn(async move |view, cx| {
             Self::show_attempt(view, cx, service, events, task).await;
         })
@@ -122,17 +126,10 @@ impl AccountsPanel {
 
 async fn run(
     service: &DesktopAccounts,
-    method: Method,
-    expected: Option<AccountId>,
-    fallen_proxy: Option<ServiceHost>,
+    request: Action,
     sender: &mpsc::UnboundedSender<Stage>,
     commit: &SignInCommit,
 ) -> LoginResult {
-    let request = Action::Microsoft {
-        method,
-        expected,
-        proxy: fallen_proxy,
-    };
     match service
         .sign_in(request, commit, |reply| match reply {
             Reply::Saving => commit.confirm_commit(),

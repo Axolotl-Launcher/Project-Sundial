@@ -14,6 +14,8 @@ mod atomic_file;
 pub use atomic_file::AtomicFile;
 mod credentials;
 pub use credentials::SystemCredentials;
+mod device_user;
+pub use device_user::DeviceUserId;
 
 /// Opens an existing file for sequential verification.
 pub fn open_for_read(path: &Path) -> io::Result<fs::File> {
