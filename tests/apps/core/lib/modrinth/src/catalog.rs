@@ -1,13 +1,18 @@
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use axlauncher_worker::modrinth::{ProjectKey, Search, VersionType};
+use axlauncher_worker::modrinth::{
+    Payload, ProjectKey, ProjectVersions, Search, VersionFilters, VersionType,
+};
 
-use super::{Catalog, CatalogError, MetadataHttp, Operation, Payload, USER_AGENT, Url};
+use super::{Catalog, CatalogError, MetadataHttp, Operation, USER_AGENT, Url};
 
 const TIMEOUT: Duration = Duration::from_secs(3);
+
+#[path = "catalog/coverage.rs"]
+mod coverage;
 
 #[tokio::test]
 async fn searches_with_encoded_parameters_and_returns_typed_public_hits() {
@@ -36,9 +41,9 @@ async fn searches_with_encoded_parameters_and_returns_typed_public_hits() {
     assert_eq!((page.offset, page.limit, page.total_hits), (20, 10, 42));
     assert_eq!(page.hits[0].project_id, "AABBCCDD");
     let request = server.join().unwrap();
-    assert!(
-        request.starts_with("GET /v2/search?query=snow+%2B+ice+%26+%E9%9B%AA&offset=20&limit=10 ")
-    );
+    assert!(request.starts_with(
+        "GET /v2/search?query=snow+%2B+ice+%26+%E9%9B%AA&offset=20&limit=10&index=relevance "
+    ));
     let headers = request.to_ascii_lowercase();
     assert!(headers.contains(&format!("user-agent: {}", USER_AGENT.to_ascii_lowercase())));
     assert!(headers.contains("accept: application/json"));
@@ -81,7 +86,7 @@ async fn requests_project_details_by_slug_and_versions_by_id() {
     }]"#;
     let (catalog, server) = mock(response("200 OK", "", body), Duration::ZERO, TIMEOUT);
     let Payload::Versions(versions) = catalog
-        .lookup(Operation::Versions(ProjectKey::new("AABBCCDD").unwrap()))
+        .lookup(version_query("AABBCCDD"))
         .await
         .into_parts()
         .1
@@ -181,11 +186,16 @@ async fn versions_reply(
     headers: &str,
 ) -> (Option<u32>, Result<Payload, CatalogError>) {
     let (catalog, server) = mock(response(status, headers, "[]"), Duration::ZERO, TIMEOUT);
-    let reply = catalog
-        .lookup(Operation::Versions(ProjectKey::new("my-mod").unwrap()))
-        .await;
+    let reply = catalog.lookup(version_query("my-mod")).await;
     server.join().unwrap();
     reply.into_parts()
+}
+
+fn version_query(key: &str) -> Operation {
+    Operation::Versions(ProjectVersions {
+        project: ProjectKey::new(key).unwrap(),
+        filters: VersionFilters::default(),
+    })
 }
 
 fn response(status: &str, headers: &str, body: &str) -> String {
@@ -240,12 +250,21 @@ fn accept(listener: &TcpListener) -> TcpStream {
 fn read_request(stream: &TcpStream) -> String {
     let mut reader = BufReader::new(stream);
     let mut request = String::new();
+    let mut length = 0;
     loop {
         let mut line = String::new();
         assert!(reader.read_line(&mut line).unwrap() > 0);
         if line == "\r\n" {
-            return request;
+            break;
+        }
+        if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+            length = value.trim().parse().unwrap();
         }
         request.push_str(&line);
     }
+    request.push_str("\r\n");
+    let mut bytes = vec![0; length];
+    reader.read_exact(&mut bytes).unwrap();
+    request.push_str(&String::from_utf8(bytes).unwrap());
+    request
 }

@@ -4,8 +4,23 @@ use serde::{Deserialize, Serialize};
 
 #[path = "modrinth_client.rs"]
 mod client;
+#[path = "modrinth/query_filters.rs"]
+mod filters;
+#[path = "modrinth/query_hashes.rs"]
+mod hashes;
+#[path = "modrinth/keys.rs"]
+mod keys;
+#[path = "modrinth/models.rs"]
+mod models;
+#[path = "modrinth/queries.rs"]
+mod queries;
 pub use client::{DesktopModrinth, ModrinthLease};
 pub(crate) use client::{configure, take_workers};
+pub use filters::*;
+pub use hashes::*;
+pub use keys::*;
+pub use models::*;
+pub use queries::*;
 
 const MAX_QUERY_BYTES: usize = 512;
 const MAX_PROJECT_KEY_BYTES: usize = 128;
@@ -21,14 +36,111 @@ pub enum Command {
 pub enum Operation {
     Search(Search),
     Project(ProjectKey),
-    Versions(ProjectKey),
+    Projects(Batch<ProjectKey>),
+    RandomProjects(u8),
+    CheckProject(ProjectKey),
+    Dependencies(ProjectKey),
+    Versions(ProjectVersions),
+    Version(VersionId),
+    ProjectVersion(ProjectKey, VersionKey),
+    BatchVersions(Batch<VersionId>),
+    FindVersions(VersionSearch),
+    FileVersion(HashLookup),
+    FileDownload(HashLookup),
+    FileUpdate(HashLookup, UpdateFilters),
+    ProjectsByHash(HashBatch),
+    VersionsByHash(HashBatch),
+    UpdatesByHash(BulkUpdate),
+    AllUpdatesByHash(BulkUpdate),
+    IndividualUpdates(IndividualUpdates),
+    User(UserKey),
+    Users(Batch<UserKey>),
+    SearchUsers(String),
+    UserProjects(UserKey),
+    UserAllProjects(UserKey),
+    ProjectMembers(ProjectKey),
+    TeamMembers(TeamId),
+    Teams(Batch<TeamId>),
+    Organization(ProjectKey),
+    Organizations(Batch<ProjectKey>),
+    ProjectOrganization(ProjectKey),
+    OrganizationProjects(ProjectKey),
+    OrganizationMembers(ProjectKey),
+    UserOrganizations(UserKey),
+    Collection(CollectionId),
+    Collections(Batch<CollectionId>),
+    UserCollections(UserKey),
+    ResolveContent(ContentRequest),
+    Disclosures(ProjectKey),
+    Tags(Tags),
+    License(LicenseId),
+    GameVersions(GameVersionFilter),
+    LoaderField(LoaderFieldQuery),
+    ForgeUpdates(ProjectKey, ForgeLoader),
+    Statistics,
+    AnalyticsEvents,
+    PaymentMethods(Option<CountryCode>),
+    PlatformRevenue(RevenueRange),
+    MavenMetadata(ProjectKey),
+    MavenArtifact(MavenCoordinate),
+    MavenHead(MavenCoordinate),
+    MavenHash(MavenCoordinate, HashAlgorithm),
 }
 
 impl Operation {
     pub fn validate(&self) -> Result<(), CatalogError> {
         match self {
             Self::Search(search) => search.validate(),
-            Self::Project(key) | Self::Versions(key) => key.validate(),
+            Self::Project(key)
+            | Self::CheckProject(key)
+            | Self::Dependencies(key)
+            | Self::ProjectMembers(key)
+            | Self::Organization(key)
+            | Self::ProjectOrganization(key)
+            | Self::OrganizationProjects(key)
+            | Self::OrganizationMembers(key)
+            | Self::Disclosures(key)
+            | Self::ForgeUpdates(key, _)
+            | Self::MavenMetadata(key) => key.validate(),
+            Self::Projects(keys) | Self::Organizations(keys) => keys.validate(ProjectKey::validate),
+            Self::RandomProjects(count) if *count <= MAX_SEARCH_LIMIT => Ok(()),
+            Self::RandomProjects(_) => Err(CatalogError::InvalidRequest),
+            Self::Versions(query) => query.validate(),
+            Self::Version(id) => id.validate(),
+            Self::ProjectVersion(project, version) => {
+                project.validate().and_then(|()| version.validate())
+            }
+            Self::BatchVersions(ids) => ids.validate(VersionId::validate),
+            Self::FindVersions(query) => query.validate(),
+            Self::FileVersion(hash) | Self::FileDownload(hash) => hash.validate(),
+            Self::FileUpdate(hash, filters) => hash.validate().and_then(|()| filters.validate()),
+            Self::ProjectsByHash(hashes) | Self::VersionsByHash(hashes) => hashes.validate(),
+            Self::UpdatesByHash(query) | Self::AllUpdatesByHash(query) => query.validate(),
+            Self::IndividualUpdates(query) => query.validate(),
+            Self::User(key)
+            | Self::UserProjects(key)
+            | Self::UserAllProjects(key)
+            | Self::UserOrganizations(key)
+            | Self::UserCollections(key) => key.validate(),
+            Self::Users(keys) => keys.validate(UserKey::validate),
+            Self::SearchUsers(query) => validate_query(query, false),
+            Self::TeamMembers(id) => id.validate(),
+            Self::Teams(ids) => ids.validate(TeamId::validate),
+            Self::Collection(id) => id.validate(),
+            Self::Collections(ids) => ids.validate(CollectionId::validate),
+            Self::ResolveContent(query) => query.validate(),
+            Self::License(id) => id.validate(),
+            Self::PaymentMethods(Some(country)) => country.validate(),
+            Self::PlatformRevenue(range) => range.validate(),
+            Self::MavenArtifact(coordinate)
+            | Self::MavenHead(coordinate)
+            | Self::MavenHash(coordinate, _) => coordinate.validate(),
+            Self::Statistics
+            | Self::Tags(_)
+            | Self::AnalyticsEvents
+            | Self::PaymentMethods(None)
+            | Self::GameVersions(_)
+            | Self::LoaderField(_) => Ok(()),
         }
     }
 }
@@ -40,15 +152,24 @@ pub struct Search {
     query: String,
     offset: u32,
     limit: u8,
+    #[serde(default)]
+    pub sort: SearchSort,
+    #[serde(default)]
+    pub facets: Vec<Vec<Facet>>,
+    #[serde(default)]
+    pub method: SearchMethod,
 }
 
 impl Search {
-    /// An empty query browses the catalog; a page contains 1 to 100 hits.
+    /// An empty query browses the catalog; the provider caps each page at 100 hits.
     pub fn new(query: impl Into<String>, offset: u32, limit: u8) -> Result<Self, CatalogError> {
         let search = Self {
             query: query.into(),
             offset,
             limit,
+            sort: SearchSort::Relevance,
+            facets: Vec::new(),
+            method: SearchMethod::Get,
         };
         search.validate()?;
         Ok(search)
@@ -59,13 +180,21 @@ impl Search {
     }
 
     fn validate(&self) -> Result<(), CatalogError> {
-        if self.query.len() > MAX_QUERY_BYTES
-            || self.query.chars().any(char::is_control)
-            || !(1..=MAX_SEARCH_LIMIT).contains(&self.limit)
+        validate_query(&self.query, true)?;
+        if self.limit > MAX_SEARCH_LIMIT
+            || matches!(self.method, SearchMethod::Post) && self.limit == 0
+            || self.facets.len() > 10
         {
             return Err(CatalogError::InvalidRequest);
         }
-        Ok(())
+        if self
+            .facets
+            .iter()
+            .any(|group| group.is_empty() || group.len() > 8)
+        {
+            return Err(CatalogError::InvalidRequest);
+        }
+        self.facets.iter().flatten().try_for_each(Facet::validate)
     }
 }
 
@@ -129,6 +258,12 @@ pub struct Project {
     pub project_type: String,
     pub icon_url: Option<String>,
     pub downloads: u64,
+    pub team: Option<String>,
+    pub organization: Option<String>,
+    #[serde(default)]
+    pub categories: Vec<String>,
+    #[serde(default)]
+    pub game_versions: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -142,9 +277,14 @@ pub struct Version {
     pub game_versions: Vec<String>,
     pub loaders: Vec<String>,
     pub files: Vec<VersionFile>,
+    pub changelog: Option<String>,
+    pub featured: Option<bool>,
+    pub downloads: Option<u64>,
+    #[serde(default)]
+    pub dependencies: Vec<VersionDependency>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum VersionType {
     Release,
@@ -194,8 +334,48 @@ pub enum CatalogError {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Payload {
     Search(SearchPage),
+    ModernSearch(ModernSearchPage),
     Project(Project),
+    Projects(Vec<Project>),
+    ProjectCheck(ProjectCheck),
+    Dependencies(Dependencies),
+    Version(Version),
     Versions(Vec<Version>),
+    ProjectsByHash(std::collections::BTreeMap<String, Project>),
+    VersionsByHash(std::collections::BTreeMap<String, Version>),
+    UpdatesByHash(std::collections::BTreeMap<String, Vec<Version>>),
+    User(User),
+    Users(Vec<User>),
+    SearchUsers(Vec<UserHit>),
+    AllProjects(AllProjects),
+    Members(Vec<Member>),
+    Teams(Vec<Vec<Member>>),
+    Organization(Organization),
+    Organizations(Vec<Organization>),
+    OrganizationProjects(Vec<ModernProject>),
+    Collection(Collection),
+    Collections(Vec<Collection>),
+    Content(ContentPlan),
+    Disclosures(Disclosures),
+    Categories(Vec<Category>),
+    Loaders(Vec<Loader>),
+    GameVersions(Vec<GameVersion>),
+    Licenses(Vec<License>),
+    LicenseText(LicenseText),
+    DonationPlatforms(Vec<DonationPlatform>),
+    LinkPlatforms(Vec<LinkPlatform>),
+    TagNames(Vec<String>),
+    LoaderValues(Vec<LoaderValue>),
+    ForgeUpdates(ForgeUpdates),
+    Statistics(Statistics),
+    AnalyticsEvents(Vec<AnalyticsEvent>),
+    PaymentMethods(Vec<PaymentMethod>),
+    PlatformRevenue(PlatformRevenue),
+    Download(Redirect),
+    MavenMetadata(MavenResult<MavenMetadata>),
+    MavenArtifact(MavenResult<MavenPom>),
+    MavenHead(MavenResult<()>),
+    MavenHash(MavenResult<String>),
 }
 
 #[derive(Debug, Serialize, Deserialize)]

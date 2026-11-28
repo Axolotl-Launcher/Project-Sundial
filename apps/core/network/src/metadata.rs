@@ -1,9 +1,9 @@
-//! Bounded JSON transport for public catalog requests.
+//! Bounded transport for credential-free metadata requests.
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use reqwest::header::{ACCEPT, HeaderMap, RETRY_AFTER};
+use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, LOCATION, RETRY_AFTER};
 use reqwest::{Client, Response, StatusCode};
 use url::Url;
 
@@ -14,6 +14,17 @@ const DEFAULT_COOLDOWN_SECONDS: u32 = 60;
 
 /// A metadata client that does not redirect, use mirrors, or send credentials.
 pub struct MetadataHttp(Client);
+
+pub enum MetadataMethod {
+    Get,
+    Head,
+    PostJson(Vec<u8>),
+}
+
+pub enum MetadataResponse {
+    Body(Vec<u8>),
+    Redirect { status: u16, location: String },
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetadataError {
@@ -45,28 +56,48 @@ impl MetadataHttp {
     }
 
     /// An exhausted rate window can accompany an unsuccessful or incomplete response.
-    pub async fn get(
+    pub async fn send(
         &self,
+        method: MetadataMethod,
         url: Url,
-    ) -> Result<(Option<u32>, Result<Vec<u8>, MetadataError>), MetadataError> {
-        let response = self
-            .0
-            .get(url)
-            .header(ACCEPT, "application/json")
+        accept: &'static str,
+    ) -> Result<(Option<u32>, Result<MetadataResponse, MetadataError>), MetadataError> {
+        let request = match method {
+            MetadataMethod::Get => self.0.get(url),
+            MetadataMethod::Head => self.0.head(url),
+            MetadataMethod::PostJson(body) => self
+                .0
+                .post(url)
+                .header(CONTENT_TYPE, "application/json")
+                .body(body),
+        };
+        let response = request
+            .header(ACCEPT, accept)
             .send()
             .await
             .map_err(request_error)?;
         let status = response.status();
         let cooldown = cooldown_seconds(status, response.headers());
-        let result = if status.is_success() {
-            read_body(response).await
-        } else {
-            Err(MetadataError::Http(status.as_u16()))
-        };
-        Ok((cooldown, result))
+        Ok((cooldown, metadata(response).await))
     }
 }
 
+async fn metadata(response: Response) -> Result<MetadataResponse, MetadataError> {
+    let status = response.status();
+    if status.is_success() {
+        return read_body(response).await.map(MetadataResponse::Body);
+    }
+    if status.is_redirection()
+        && let Some(location) = response.headers().get(LOCATION)
+        && let Ok(location) = location.to_str()
+    {
+        return Ok(MetadataResponse::Redirect {
+            status: status.as_u16(),
+            location: location.to_owned(),
+        });
+    }
+    Err(MetadataError::Http(status.as_u16()))
+}
 fn request_error(error: reqwest::Error) -> MetadataError {
     if error.is_timeout() {
         MetadataError::Timeout
