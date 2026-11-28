@@ -16,14 +16,23 @@ axlauncher_storage_layout = { workspace = true }
 dirs = { workspace = true }
 hex = { workspace = true }
 keyring = { workspace = true }
+open = { workspace = true }
 sha2 = { workspace = true }
 sysinfo = { workspace = true, features = ["system"] }
 tempfile = { workspace = true }
 uuid = { workspace = true }
 
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
+trash = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = { workspace = true }
+objc2-foundation = { workspace = true, features = ["FoundationErrors", "NSArray", "NSError", "NSFileManager", "NSString", "NSURL", "std"] }
+
 [target."cfg(windows)".dependencies]
 sysinfo = { workspace = true, features = ["disk"] }
 windows-registry = { workspace = true }
+windows-sys = { workspace = true, features = ["Win32_UI_Shell"] }
 
 [lints]
 workspace = true

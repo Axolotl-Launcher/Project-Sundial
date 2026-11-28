@@ -32,6 +32,11 @@ impl RootView {
         game: &Game,
         cx: &mut Context<'_, Self>,
     ) {
+        if self.instances.installing.contains(directory)
+            || self.instances.deleting.contains(directory)
+        {
+            return;
+        }
         let Some(paths) = self.paths.clone() else {
             return;
         };
@@ -52,6 +57,7 @@ impl RootView {
         if self.install_in_progress(game_root, &key, game) {
             return;
         }
+        self.instances.installing.insert(directory.to_owned());
         let options = DownloadOptions::from_settings(self.settings.as_ref());
         self.activity
             .info(format!("Installing {version} in {}", game_root.display()));
@@ -129,6 +135,7 @@ impl RootView {
         outcome: Result<Option<String>, String>,
         cx: &mut Context<'_, Self>,
     ) {
+        self.instances.installing.remove(directory);
         let installation = match outcome {
             Ok(Some(version)) => {
                 self.activity
@@ -138,11 +145,7 @@ impl RootView {
             Ok(None) => Installation::Complete,
             Err(error) => Installation::Failed(error),
         };
-        if recorded_profile
-            && self
-                .instances
-                .refresh_after_install(self.paths.as_ref(), paths)
-        {
+        if recorded_profile && self.instances.refresh_for(self.paths.as_ref(), paths) {
             self.invalidate_inspection();
         }
         self.set_installation(paths.game().root(), key, installation, cx);
@@ -179,7 +182,10 @@ impl RootView {
     }
 
     pub(crate) fn launch(&mut self, directory: &Path, cx: &mut Context<'_, Self>) {
-        if self.account_selection_pending(cx) {
+        if self.instances.installing.contains(directory)
+            || self.instances.deleting.contains(directory)
+            || self.account_selection_pending(cx)
+        {
             return;
         }
         let Some(entry) = self.instances.find(directory) else {

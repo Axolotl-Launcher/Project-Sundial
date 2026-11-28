@@ -161,3 +161,29 @@ fn locking_a_missing_profile_does_not_recreate_its_directory() {
     assert_eq!(io::Error::from(error).kind(), io::ErrorKind::NotFound);
     assert!(!instance.exists());
 }
+
+#[test]
+fn profile_locks_serialize_one_instance_without_blocking_its_neighbors() {
+    let root = TempDir::new();
+    let first = root.0.join("first");
+    let second = root.0.join("second");
+    fs::create_dir(&first).unwrap();
+    fs::create_dir(&second).unwrap();
+    let held = Document::Profile.lock(&first).unwrap();
+    let lock_directory = root.0.join(".profile-locks/files");
+
+    let first_lock = fs::File::open(lock_directory.join("first")).unwrap();
+    assert!(matches!(
+        first_lock.try_lock(),
+        Err(fs::TryLockError::WouldBlock)
+    ));
+
+    let (send, receive) = std::sync::mpsc::channel();
+    let writer = std::thread::spawn(move || send.send(Document::Profile.lock(&second)));
+    let locked = receive.recv_timeout(std::time::Duration::from_secs(5));
+    drop(held);
+    writer.join().unwrap().unwrap();
+    let _second_lock = locked
+        .expect("the neighbor must lock before release")
+        .unwrap();
+}

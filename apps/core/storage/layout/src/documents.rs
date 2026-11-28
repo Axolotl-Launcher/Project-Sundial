@@ -29,18 +29,17 @@ impl Document {
 
     /// Serializes writers. Runtime installers use a nonblocking lock.
     pub fn lock(self, directory: &Path) -> Result<File, LockError> {
-        let path = directory.join(match self {
-            Self::Accounts => "accounts.lock",
-            Self::Settings => "settings.lock",
-            Self::JavaCatalog => "javas.lock",
-            Self::Profile => ".axlprofile.lock",
-            Self::RuntimeReceipt => ".axlauncher-install.lock",
-        });
-        match self {
-            Self::Profile => file_lock::in_existing_directory(&path, Mode::WaitExclusive),
-            Self::RuntimeReceipt => file_lock::with_parents(&path, Mode::TryExclusive),
-            _ => file_lock::with_parents(&path, Mode::WaitExclusive),
-        }
+        let (name, mode) = match self {
+            Self::Profile => {
+                // Windows cannot move a directory while its lock file is open inside it.
+                return file_lock::profile(directory);
+            }
+            Self::Accounts => ("accounts.lock", Mode::WaitExclusive),
+            Self::Settings => ("settings.lock", Mode::WaitExclusive),
+            Self::JavaCatalog => ("javas.lock", Mode::WaitExclusive),
+            Self::RuntimeReceipt => (".axlauncher-install.lock", Mode::TryExclusive),
+        };
+        file_lock::with_parents(&directory.join(name), mode)
     }
 }
 

@@ -23,13 +23,18 @@ pub(super) enum RowAction {
     Launch,
 }
 
+pub(super) struct Availability {
+    pub(super) deleting: bool,
+    pub(super) launch_pending: bool,
+}
+
 /// What one row's buttons need to know about its profile.
 struct ActionState<'a> {
     directory: &'a Path,
     install: Option<Option<&'a Installation>>,
     launch: Option<&'a Launch>,
     launchable: bool,
-    launch_pending: bool,
+    availability: Availability,
     /// Whether this profile recorded its own version id. A shared install slot
     /// can be Complete from another profile, and this one still needs the
     /// button that would produce its id.
@@ -46,7 +51,7 @@ pub(super) fn row(
     selected: bool,
     installations: Option<&HashMap<String, Installation>>,
     launch: Option<&(String, Launch)>,
-    launch_pending: bool,
+    availability: Availability,
     muted: Hsla,
     on_action: impl Fn(RowAction, &mut App) + Clone + 'static,
 ) -> Div {
@@ -69,7 +74,7 @@ pub(super) fn row(
                     install,
                     launch,
                     launchable: version.is_some(),
-                    launch_pending,
+                    availability,
                     recorded: game.version_id.is_some(),
                 },
                 muted,
@@ -147,7 +152,7 @@ fn instance_actions(
         install,
         launch,
         launchable,
-        launch_pending,
+        availability,
         recorded,
     } = state;
     let slot = install.flatten();
@@ -157,8 +162,9 @@ fn instance_actions(
         Some(Installation::Complete) if !recorded => None,
         other => other,
     };
-    let busy =
-        launch.is_some_and(Launch::is_active) || matches!(slot, Some(Installation::Running(_)));
+    let busy = availability.deleting
+        || launch.is_some_and(Launch::is_active)
+        || matches!(slot, Some(Installation::Running(_)));
     let message = action_message(installation, launch);
     let install_button = install.and_then(|_| {
         let label = install_label(slot, recorded)?;
@@ -173,10 +179,10 @@ fn instance_actions(
             .on_click(move |_, _, cx| on_action(RowAction::Install, cx)),
         )
     });
-    let buttons =
-        div().h_flex().gap_2().children(install_button).children(
-            launchable.then(|| launch_button(directory, busy || launch_pending, on_action)),
-        );
+    let buttons = div().h_flex().gap_2().children(install_button).children(
+        launchable
+            .then(|| launch_button(directory, busy || availability.launch_pending, on_action)),
+    );
     div()
         .v_flex()
         .gap_1()

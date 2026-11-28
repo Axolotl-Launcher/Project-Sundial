@@ -410,10 +410,7 @@ impl RootView {
     ) {
         self.activity.success(format!("Installed {name}"));
         self.refresh_java_after_install(paths, cx);
-        if self
-            .instances
-            .refresh_after_install(self.paths.as_ref(), paths)
-        {
+        if self.instances.refresh_for(self.paths.as_ref(), paths) {
             self.select_instance(directory.to_path_buf(), cx);
         }
         cx.notify();

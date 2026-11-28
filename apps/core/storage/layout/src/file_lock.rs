@@ -48,6 +48,29 @@ pub(super) fn in_existing_directory(path: &Path, mode: Mode) -> Result<File, Loc
     })
 }
 
+pub(super) fn profile(directory: &Path) -> Result<File, LockError> {
+    const LOCK_DIRECTORY: &str = ".profile-locks";
+    let directory_error = |source| LockError {
+        path: directory.to_owned(),
+        source,
+    };
+    if !directory.metadata().map_err(directory_error)?.is_dir() {
+        return Err(directory_error(io::ErrorKind::NotADirectory.into()));
+    }
+    let canonical = fs::canonicalize(directory).map_err(directory_error)?;
+    let name = canonical
+        .file_name()
+        .filter(|name| !name.eq_ignore_ascii_case(LOCK_DIRECTORY))
+        .ok_or_else(|| directory_error(io::ErrorKind::InvalidInput.into()))?;
+    // Profile directory names can match the marker filename. Discovery checks
+    // the lock directory for a marker, so keep lock filenames one level deeper.
+    let lock_path = canonical
+        .with_file_name(LOCK_DIRECTORY)
+        .join("files")
+        .join(name);
+    with_parents(&lock_path, Mode::WaitExclusive)
+}
+
 pub(super) fn with_parents(path: &Path, mode: Mode) -> Result<File, LockError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|source| LockError {

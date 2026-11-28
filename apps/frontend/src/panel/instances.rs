@@ -3,6 +3,7 @@
 
 //! Profile discovery, selection and desktop actions.
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -15,9 +16,11 @@ use axlauncher_core::state::profile::{DiscoveredProfile, ProfileDiscovery, disco
 use axlauncher_core::storage::{DataDir, DataPath};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, AnyElement, App, Button, Context, ElementId, GroupBox, Input, IntoElement, Label,
-    Sizable, Task, WeakEntity, Window, h_flex, v_flex,
+    ActiveTheme, AnyElement, App, Button, Context, Disableable, ElementId, GroupBox, Hsla, Input,
+    IntoElement, Label, Sizable, Task, WeakEntity, Window, h_flex, v_flex,
 };
+
+use crate::installations::Installation;
 
 use super::{
     RootView,
@@ -26,6 +29,7 @@ use super::{
 };
 
 mod actions;
+mod folders;
 mod instance_row;
 pub(super) mod launch;
 
@@ -42,6 +46,8 @@ struct InstanceMemoryEdit {
 pub(super) struct InstancesState {
     discovered: ProfileDiscovery,
     selected: Option<PathBuf>,
+    installing: HashSet<PathBuf>,
+    deleting: HashSet<PathBuf>,
 }
 
 impl InstancesState {
@@ -53,6 +59,8 @@ impl InstancesState {
         Self {
             discovered,
             selected,
+            installing: HashSet::new(),
+            deleting: HashSet::new(),
         }
     }
 
@@ -65,11 +73,7 @@ impl InstancesState {
         self.discovered = discovered;
     }
 
-    pub(super) fn refresh_after_install(
-        &mut self,
-        current: Option<&DataDir>,
-        job: &DataDir,
-    ) -> bool {
+    pub(super) fn refresh_for(&mut self, current: Option<&DataDir>, job: &DataDir) -> bool {
         let instances = job.path(DataPath::Profiles);
         if current.map(|paths| paths.path(DataPath::Profiles)) != Some(instances) {
             return false;
@@ -161,7 +165,7 @@ impl RootView {
         &self,
         entry: &DiscoveredProfile,
         cx: &mut Context<'_, Self>,
-    ) -> Option<AnyElement> {
+    ) -> Option<Button> {
         entry.profile.game()?;
         let directory = entry.directory.clone();
         let label = if entry.profile.memory().is_some() {
@@ -179,10 +183,11 @@ impl RootView {
                 entry.profile.instance.name
             ))
             .small()
+            .disabled(self.instances.deleting.contains(&directory))
             .on_click(cx.listener(move |view, _, window, cx| {
                 view.open_instance_memory(&directory, window, cx)
             }));
-        Some(h_flex().child(button).into_any_element())
+        Some(button)
     }
 
     fn open_instance_memory(
@@ -236,7 +241,8 @@ impl RootView {
             target,
             expected,
         } = edit;
-        if !scope.matches(&self.memory_edits.scope())
+        if self.instances.deleting.contains(target.directory())
+            || !scope.matches(&self.memory_edits.scope())
             || self
                 .instances
                 .find(target.directory())
@@ -322,26 +328,48 @@ impl RootView {
                             && self.accounts.read(cx).selected().is_none(),
                         |column| column.child(self.offline_player()),
                     )
-                    .children(profiles.instances.iter().map(|entry| {
-                        let selected = self.instances.selected.as_ref() == Some(&entry.directory);
-                        let row = instance_row::row(
-                            entry,
-                            selected,
-                            installations,
-                            self.launches.get(&entry.directory),
-                            self.account_selection_pending(cx)
-                                || self.java_write_pending(entry.profile.id(), cx),
-                            muted,
-                            Self::row_listener(entry.directory.clone(), cx),
-                        );
-                        v_flex()
-                            .gap_2()
-                            .child(row)
-                            .child(InstancePicker::new(self.java.clone(), entry))
-                            .children(self.instance_memory_button(entry, cx))
-                    })),
+                    .children(
+                        profiles
+                            .instances
+                            .iter()
+                            .map(|entry| self.render_instance(entry, installations, muted, cx)),
+                    ),
             )
             .into_any_element()
+    }
+
+    fn render_instance(
+        &self,
+        entry: &DiscoveredProfile,
+        installations: Option<&HashMap<String, Installation>>,
+        muted: Hsla,
+        cx: &mut Context<'_, Self>,
+    ) -> impl IntoElement + use<> {
+        let selected = self.instances.selected.as_ref() == Some(&entry.directory);
+        let row = instance_row::row(
+            entry,
+            selected,
+            installations,
+            self.launches.get(&entry.directory),
+            instance_row::Availability {
+                deleting: self.instances.deleting.contains(&entry.directory),
+                launch_pending: self.account_selection_pending(cx)
+                    || self.java_write_pending(entry.profile.id(), cx),
+            },
+            muted,
+            Self::row_listener(entry.directory.clone(), cx),
+        );
+        v_flex()
+            .gap_2()
+            .child(row)
+            .child(InstancePicker::new(self.java.clone(), entry))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .flex_wrap()
+                    .children(self.instance_memory_button(entry, cx))
+                    .children(self.instance_folder_buttons(entry, cx)),
+            )
     }
 
     fn row_listener(

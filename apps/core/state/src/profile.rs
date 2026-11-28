@@ -20,6 +20,7 @@ use crate::document::Schema;
 
 mod create;
 mod discovery;
+mod folders;
 mod game;
 mod installation;
 mod resources;
@@ -27,6 +28,7 @@ mod staged;
 mod update;
 pub use create::create;
 pub use discovery::{DiscoveredProfile, DiscoveryError, ProfileDiscovery, discover};
+pub use folders::{delete_folder, open_folder};
 pub use game::{Game, Loader};
 pub use installation::{mark_failed, mark_installed};
 pub use resources::{Resource, ResourceKind, count_enabled_mods, scan_resources};
