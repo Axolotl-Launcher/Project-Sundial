@@ -169,7 +169,7 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) -> Entity<ModpackImport> {
-        let modpack = cx.new(ModpackImport::new);
+        let modpack = cx.new(|cx| ModpackImport::new(window, cx));
         modpack.update(cx, |view, cx| view.set_enabled(enabled, cx));
         cx.subscribe_in(&modpack, window, Self::modpack_event)
             .detach();

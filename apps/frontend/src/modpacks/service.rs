@@ -9,8 +9,8 @@ use std::thread;
 
 use axlauncher_core::install::prepare::Progress as GameProgress;
 use axlauncher_core::network::auth::AuthHttp;
-use axlauncher_core::state::profile::Game;
-use axlauncher_core::storage::DataDir;
+use axlauncher_core::state::profile::{Game, ProfileFolderName};
+use axlauncher_core::storage::{DataDir, DataPath};
 use axlauncher_modpack::{ModpackPlugin, OptionId, Pack, PlanOptions};
 
 use axlauncher_core::desktop::{
@@ -82,11 +82,15 @@ pub(super) fn inspect(path: &Path) -> Result<Pack, String> {
 pub(super) fn install(
     data: DataDir,
     pack: &Pack,
+    folder: &ProfileFolderName,
     selected: &BTreeSet<OptionId>,
     policy: PlanOptions,
     options: DownloadOptions,
     report: impl Fn(ProgressUpdate) + Sync,
 ) -> Result<Outcome, String> {
+    folder
+        .check_available(data.path(DataPath::Profiles))
+        .map_err(|error| error.to_string())?;
     report(ProgressUpdate::Pack(PackState::Planning));
     let api = AuthHttp::desktop()
         .map_err(|error| format!("Could not start the metadata client: {error:?}"))?;
@@ -98,44 +102,60 @@ pub(super) fn install(
         game = game.with_loader(kind.as_str(), Some(version.to_owned()));
     }
     let staged = StagedPack::new(plan, &data)?;
-    Box::new(PendingInstall {
+    Ok(Box::new(PendingInstall {
         data,
         pack: staged,
         game,
         version: None,
     })
-    .resume(&BTreeMap::new(), options, report)
+    .resume(folder, &BTreeMap::new(), options, report))
 }
 
 impl PendingInstall {
     pub(in crate::modpacks) fn resume(
         mut self: Box<Self>,
+        folder: &ProfileFolderName,
         local: &BTreeMap<String, PathBuf>,
         options: DownloadOptions,
         report: impl Fn(ProgressUpdate) + Sync,
-    ) -> Result<Outcome, String> {
+    ) -> Outcome {
+        if let Err(error) = folder.check_available(self.data.path(DataPath::Profiles)) {
+            return self.pending(Some(error.to_string()));
+        }
         let (pack_result, game_error) = self.prepare(local, options, &report);
         if self.pack.is_ready()
             && let Some(version) = self.version.take()
         {
             report(ProgressUpdate::Pack(PackState::Publishing));
-            let root_data_packs = self.pack.has_root_data_packs();
-            let directory = self.pack.publish(self.game, version)?;
-            return Ok(Outcome::Installed {
-                paths: self.data,
-                directory,
-                root_data_packs,
-            });
+            return self.publish(folder, version);
         }
         let error = match (pack_result.err(), game_error) {
             (Some(files), Some(game)) => Some(format!("{files}\n{game}")),
             (files, game) => files.or(game),
         };
-        Ok(Outcome::Pending {
+        self.pending(error)
+    }
+
+    fn publish(mut self: Box<Self>, folder: &ProfileFolderName, version: String) -> Outcome {
+        match self.pack.publish(&self.game, &version, folder) {
+            Ok(directory) => Outcome::Installed {
+                paths: self.data,
+                directory,
+                root_data_packs: self.pack.has_root_data_packs(),
+            },
+            Err(error) => {
+                self.version = Some(version);
+                self.pending(Some(error))
+            }
+        }
+    }
+
+    fn pending(self: Box<Self>, error: Option<String>) -> Outcome {
+        Outcome::Pending {
             files: self.pack.manual_files(),
             install: self,
             error,
-        })
+        }
     }
 
     fn prepare(

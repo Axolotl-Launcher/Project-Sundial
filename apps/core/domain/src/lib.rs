@@ -14,22 +14,27 @@ pub fn is_visible_instance_name(name: &str) -> bool {
 /// A portable directory name for a Minecraft version. The official catalog
 /// includes IDs with internal spaces, including historical pre-releases.
 pub fn is_version_id(id: &str) -> bool {
-    if id.is_empty()
-        || id.ends_with(['.', ' '])
-        || id.contains(['/', '\\', ':', '<', '>', '"', '|', '?', '*'])
-        || id.chars().any(char::is_control)
+    is_portable_directory_name(id)
+}
+
+/// A single directory name usable on Windows, macOS, and Linux.
+pub fn is_portable_directory_name(name: &str) -> bool {
+    if name.is_empty()
+        || name.ends_with(['.', ' '])
+        || name.contains(['/', '\\', ':', '<', '>', '"', '|', '?', '*'])
+        || name.chars().any(char::is_control)
     {
         return false;
     }
     // A device name remains reserved on Windows even with an extension.
-    let stem = id
+    let stem = name
         .split('.')
         .next()
         .unwrap_or_default()
         .trim_end_matches(' ');
     !matches!(
         stem.to_ascii_uppercase().as_str(),
-        "CON" | "PRN" | "AUX" | "NUL"
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
     ) && !is_numbered_device(stem)
 }
 

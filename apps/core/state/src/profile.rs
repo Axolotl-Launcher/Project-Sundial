@@ -32,7 +32,7 @@ pub use folders::{delete_folder, open_folder};
 pub use game::{Game, Loader};
 pub use installation::{mark_failed, mark_installed};
 pub use resources::{Resource, ResourceKind, count_enabled_mods, scan_resources};
-pub use staged::StagedProfile;
+pub use staged::{ProfileFolderName, StagedProfile};
 pub use update::{ProfileUpdateError, rename_if_current, set_memory_if_current};
 
 const SCHEMA_VERSION: u32 = 1;

@@ -5,9 +5,49 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use axlauncher_storage::stage_instance;
+use axlauncher_domain::{is_portable_directory_name, is_visible_instance_name};
+use axlauncher_storage::{is_reserved_instance_directory, publish_instance, stage_instance};
 
 use super::{Profile, ProfileWriteError, installation::set_ready, save, validate};
+
+/// A user-selected name for a single directory in the profile root.
+#[derive(Debug)]
+pub struct ProfileFolderName(String);
+
+impl ProfileFolderName {
+    pub fn new(name: &str) -> io::Result<Self> {
+        const MAX_NAME_BYTES: usize = 255;
+        let error = |message| io::Error::new(io::ErrorKind::InvalidInput, message);
+        if !is_visible_instance_name(name) || !is_portable_directory_name(name) {
+            return Err(error(
+                "Enter a folder name that is valid on Windows, macOS, and Linux.",
+            ));
+        }
+        if name.len() > MAX_NAME_BYTES {
+            return Err(error("The folder name is too long."));
+        }
+        if is_reserved_instance_directory(name) {
+            return Err(error("This folder name is reserved by the launcher."));
+        }
+        Ok(Self(name.to_owned()))
+    }
+
+    /// A dangling symlink still reserves the chosen folder name.
+    pub fn check_available(&self, instances: &Path) -> io::Result<()> {
+        let destination = instances.join(&self.0);
+        match fs::symlink_metadata(&destination) {
+            Ok(_) => Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!(
+                    "{} already exists. Choose another folder name.",
+                    destination.display()
+                ),
+            )),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+}
 
 /// A new instance that becomes discoverable only when it is published.
 pub struct StagedProfile {
@@ -29,8 +69,36 @@ impl StagedProfile {
     /// A staged profile becomes visible with the version that was prepared for it.
     pub fn publish_installed(
         self,
+        profile: Profile,
+        version_id: &str,
+    ) -> Result<PathBuf, ProfileWriteError> {
+        let destination = self.instances().join(profile.id());
+        self.publish(profile, version_id, destination)
+    }
+
+    /// Publishes to the chosen folder and keeps staging intact if publishing fails.
+    pub fn publish_named(
+        &self,
+        profile: Profile,
+        version_id: &str,
+        folder: &ProfileFolderName,
+    ) -> Result<PathBuf, ProfileWriteError> {
+        let destination = self.instances().join(&folder.0);
+        self.publish(profile, version_id, destination)
+    }
+
+    fn instances(&self) -> &Path {
+        self.staging
+            .path()
+            .parent()
+            .expect("staged below the profile root")
+    }
+
+    fn publish(
+        &self,
         mut profile: Profile,
         version_id: &str,
+        destination: PathBuf,
     ) -> Result<PathBuf, ProfileWriteError> {
         if !set_ready(&mut profile, version_id) {
             return Err(ProfileWriteError::Invalid {
@@ -38,22 +106,12 @@ impl StagedProfile {
             });
         }
         validate(&profile).map_err(|reason| ProfileWriteError::Invalid { reason })?;
-        let instances = self
-            .staging
-            .path()
-            .parent()
-            .expect("staged below the profile root");
-        let destination = instances.join(profile.id());
-        if destination.exists() {
-            return Err(ProfileWriteError::Write {
-                path: destination,
-                source: io::Error::from(io::ErrorKind::AlreadyExists),
-            });
-        }
         save(&self.directory, &profile)?;
-        fs::rename(&self.directory, &destination).map_err(|source| ProfileWriteError::Write {
-            path: destination.clone(),
-            source,
+        publish_instance(&self.directory, &destination).map_err(|source| {
+            ProfileWriteError::Write {
+                path: destination.clone(),
+                source,
+            }
         })?;
         Ok(destination)
     }

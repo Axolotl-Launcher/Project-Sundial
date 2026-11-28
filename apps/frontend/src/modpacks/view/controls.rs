@@ -1,12 +1,38 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::path::PathBuf;
+use std::{io, path::PathBuf};
 
 use axlauncher_modpack::{OptionId, OptionalFile, Pack};
+use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    App, BackgroundExecutor, Checkbox, Disableable, ElementId, Label, SharedString, Window,
+    ActiveTheme, App, BackgroundExecutor, Checkbox, Disableable, ElementId, Entity, Input,
+    InputState, IntoElement, Label, SharedString, Window, v_flex,
 };
+
+pub(super) fn folder_field(
+    input: &Entity<InputState>,
+    disabled: bool,
+    error: Option<&io::Error>,
+    cx: &App,
+) -> impl IntoElement + use<> {
+    v_flex()
+        .gap_1()
+        .child(Label::new("Instance folder name").text_sm())
+        .child(
+            Input::new(input)
+                .id("modpack-folder-name")
+                .aria_label("Instance folder name")
+                .disabled(disabled),
+        )
+        .when_some(error, |field, error| {
+            field.child(
+                Label::new(error.to_string())
+                    .text_sm()
+                    .text_color(cx.theme().danger),
+            )
+        })
+}
 
 pub(super) fn data_pack_notice() -> Label {
     Label::new(

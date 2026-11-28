@@ -9,7 +9,7 @@ use super::{PackState, install_runtime};
 use axlauncher_core::desktop::downloads::{DownloadRoute, Downloads};
 use axlauncher_core::download_spi::{DEFAULT_CONCURRENCY, DownloadJob, FileDownloader};
 use axlauncher_core::network::verify_reader;
-use axlauncher_core::state::profile::{Game, Profile, StagedProfile};
+use axlauncher_core::state::profile::{Game, Profile, ProfileFolderName, StagedProfile};
 use axlauncher_core::storage::{AtomicFile, DataDir, DataPath, open_for_read};
 use axlauncher_modpack::{Download, InstallPlan};
 use futures::{StreamExt, stream};
@@ -117,10 +117,15 @@ impl StagedPack {
         self.plan.has_root_data_packs()
     }
 
-    pub(super) fn publish(self, game: Game, version: String) -> Result<PathBuf, String> {
-        let profile = Profile::new(self.plan.name(), Some(game));
+    pub(super) fn publish(
+        &self,
+        game: &Game,
+        version: &str,
+        folder: &ProfileFolderName,
+    ) -> Result<PathBuf, String> {
+        let profile = Profile::new(self.plan.name(), Some(game.clone()));
         self.staging
-            .publish_installed(profile, &version)
+            .publish_named(profile, version, folder)
             .map_err(|error| error.to_string())
     }
 }

@@ -5,6 +5,8 @@ use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::instance_paths::PROFILE_LOCK_DIRECTORY;
+
 #[derive(Debug)]
 pub struct LockError {
     path: PathBuf,
@@ -49,7 +51,6 @@ pub(super) fn in_existing_directory(path: &Path, mode: Mode) -> Result<File, Loc
 }
 
 pub(super) fn profile(directory: &Path) -> Result<File, LockError> {
-    const LOCK_DIRECTORY: &str = ".profile-locks";
     let directory_error = |source| LockError {
         path: directory.to_owned(),
         source,
@@ -60,12 +61,12 @@ pub(super) fn profile(directory: &Path) -> Result<File, LockError> {
     let canonical = fs::canonicalize(directory).map_err(directory_error)?;
     let name = canonical
         .file_name()
-        .filter(|name| !name.eq_ignore_ascii_case(LOCK_DIRECTORY))
+        .filter(|name| !name.eq_ignore_ascii_case(PROFILE_LOCK_DIRECTORY))
         .ok_or_else(|| directory_error(io::ErrorKind::InvalidInput.into()))?;
     // Profile directory names can match the marker filename. Discovery checks
     // the lock directory for a marker, so keep lock filenames one level deeper.
     let lock_path = canonical
-        .with_file_name(LOCK_DIRECTORY)
+        .with_file_name(PROFILE_LOCK_DIRECTORY)
         .join("files")
         .join(name);
     with_parents(&lock_path, Mode::WaitExclusive)

@@ -32,6 +32,14 @@ impl ModpackImport {
         window: &mut Window,
         cx: &mut Context<'_, Self>,
     ) {
+        let folder = match self.profile_folder(cx) {
+            Ok(folder) => folder,
+            Err(error) => {
+                self.error = Some(error.to_string());
+                cx.notify();
+                return;
+            }
+        };
         let previous = std::mem::replace(&mut self.state, State::Idle);
         let State::Preview(mut preview) = previous else {
             self.state = previous;
@@ -48,8 +56,8 @@ impl ModpackImport {
         let task = cx.background_spawn(async move {
             let report = |change| report_progress(&progress, change);
             match pending {
-                Some(install) => install.resume(&local, options, report),
-                None => service::install(paths, &pack, &selected, policy, options, report),
+                Some(install) => Ok(install.resume(&folder, &local, options, report)),
+                None => service::install(paths, &pack, &folder, &selected, policy, options, report),
             }
         });
         cx.spawn_in(window, async move |view, cx| {
