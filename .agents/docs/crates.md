@@ -101,6 +101,8 @@ resolves the name. Single-label hosts and local DNS suffixes use the system
 resolver directly. Applications can supply more suffixes through `DohConfig`.
 The transport handles IP literals and proxy requests without a DNS-over-HTTPS
 lookup for the destination.
+Project description images use the system resolver so their external hosts follow
+the user's network routing.
 
 ## Workspace inventory
 

@@ -6,7 +6,7 @@
 use axlauncher_network_spi::{DownloadBody, DownloadProtocol, FetchError, Network};
 use url::Url;
 
-use crate::ReqwestNetwork;
+use crate::{DohConfig, MirrorSettings, ReqwestNetwork};
 
 const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
 
@@ -18,7 +18,12 @@ fn allows_image(url: &Url) -> bool {
 
 /// Reads a bounded response and validates every request URL, including redirects.
 pub async fn project_image(url: &str) -> Result<Vec<u8>, FetchError> {
-    let client = ReqwestNetwork::desktop_with_download_policy(allows_image, None)?;
+    // Document images can come from arbitrary hosts routed by the system DNS or proxy.
+    let dns = DohConfig {
+        upstreams: Vec::new(),
+        system_suffixes: Vec::new(),
+    };
+    let client = ReqwestNetwork::build(dns, MirrorSettings::default(), Some(allows_image), None)?;
     let response = client
         .open_download(url, DownloadProtocol::Automatic, None)
         .await?;
