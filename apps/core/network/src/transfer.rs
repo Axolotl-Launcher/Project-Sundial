@@ -222,10 +222,21 @@ impl DownloadBody for ResponseBody {
 }
 
 fn request_error(error: reqwest::Error) -> FetchError {
-    if error.is_builder() || error.is_redirect() {
-        FetchError::Fatal(error.without_url().to_string())
+    use std::error::Error as _;
+    use std::fmt::Write as _;
+
+    let fatal = error.is_builder() || error.is_redirect();
+    let error = error.without_url();
+    let mut detail = error.to_string();
+    let mut cause = error.source();
+    while let Some(error) = cause {
+        let _ = write!(detail, ": {error}");
+        cause = error.source();
+    }
+    if fatal {
+        FetchError::Fatal(detail)
     } else {
-        FetchError::Retryable(error.without_url().to_string())
+        FetchError::Retryable(detail)
     }
 }
 

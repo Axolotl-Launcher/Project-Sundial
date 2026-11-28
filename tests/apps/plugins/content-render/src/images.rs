@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
 
-use super::{SKELETON_HEIGHT, SKELETON_WIDTH, decode, make_skeleton};
+use super::{SKELETON_HEIGHT, SKELETON_WIDTH, decode, log_target, make_skeleton};
 
 #[test]
 fn skeleton_pulses_without_varying_size_or_hue() {
@@ -58,8 +58,23 @@ fn decodes_png_and_webp_from_content_and_preserves_alpha() {
 
 #[test]
 fn rejects_oversize_and_unrecognized_images() {
-    assert!(decode(encode(4097, ImageFormat::Png)).is_none());
-    assert!(decode(b"not an image".to_vec()).is_none());
+    assert!(matches!(
+        decode(encode(4097, ImageFormat::Png)),
+        Err(image::ImageError::Limits(_))
+    ));
+    assert!(matches!(
+        decode(b"not an image".to_vec()),
+        Err(image::ImageError::Unsupported(_))
+    ));
+}
+
+#[test]
+fn diagnostic_urls_omit_credentials_and_query_parameters() {
+    assert_eq!(
+        log_target("https://user:secret@example.com/image.png?token=secret#preview"),
+        "https://example.com/image.png"
+    );
+    assert_eq!(log_target("data:image/png;base64,embedded"), "<data URL>");
 }
 
 fn encode(width: u32, format: ImageFormat) -> Vec<u8> {

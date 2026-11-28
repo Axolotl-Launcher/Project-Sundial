@@ -32,8 +32,8 @@ pub struct ContentRenderer {
 }
 
 impl ContentRenderer {
-    /// The transport runs on a background thread and returns bytes or an unavailable image.
-    pub fn new(fetch: fn(&str) -> Option<Vec<u8>>) -> Self {
+    /// The transport runs on a background thread and returns image bytes or a diagnostic error.
+    pub fn new(fetch: fn(&str) -> Result<Vec<u8>, String>) -> Self {
         let extensions = MarkdownExtensions::default()
             .block_parser(|node, context| {
                 let block = parse_block(node, context.source())?;
@@ -57,6 +57,7 @@ impl ContentRenderer {
         source: &str,
         cx: &mut App,
     ) -> ContentDocument {
+        images::retry_failed_images(self.fetch, cx);
         // TextViewState::set_text may reparse only the tail and miss references
         // whose definitions were appended after earlier paragraphs.
         let html = (content_type == ContentType::Html)

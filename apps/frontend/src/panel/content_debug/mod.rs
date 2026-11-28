@@ -53,7 +53,7 @@ impl ContentDebug {
             source,
             content_type: ContentType::Markdown,
             preview: None,
-            renderer: ContentRenderer::new(|uri| project_image(uri).ok()),
+            renderer: ContentRenderer::new(project_image),
             height: DEFAULT_HEIGHT,
             resize_focus: cx.focus_handle().tab_stop(true),
             resize_start: None,

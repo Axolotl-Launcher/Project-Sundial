@@ -3,29 +3,49 @@
 
 //! Loads and decodes document images through the supplied transport.
 
+use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 
 use axlauncher_ui::{
-    ActiveTheme, App, Asset, ImageSource, ImgResourceLoader, RenderImage, Resource, Rgba,
+    ActiveTheme, App, Asset, Global, ImageSource, ImgResourceLoader, RenderImage, Resource, Rgba,
     SharedUri, Window, bounce, ease_in_out,
 };
 use image::{Delay, Frame, ImageReader, Limits, RgbaImage};
+use url::Url;
 
-const PLACEHOLDER: &str = "icons/image.svg";
+const PLACEHOLDER: &str = "icons/circle-alert.svg";
 const MAX_IMAGE_EDGE: u32 = 4096;
 pub(super) const SKELETON_WIDTH: u32 = 160;
 pub(super) const SKELETON_HEIGHT: u32 = 90;
 const SKELETON_CYCLE_MS: u32 = 2_000;
 const SKELETON_FRAME_MS: u32 = 50;
 
-pub(super) type ImageFetcher = fn(&str) -> Option<Vec<u8>>;
+pub(super) type ImageFetcher = fn(&str) -> Result<Vec<u8>, String>;
 
 pub(super) enum ImageState {
     Loading,
     Ready(Arc<RenderImage>),
     Unavailable,
+}
+
+#[derive(Default)]
+struct FailedImages(HashMap<usize, HashSet<SharedUri>>);
+
+impl Global for FailedImages {}
+
+pub(super) fn retry_failed_images(fetch: ImageFetcher, cx: &mut App) {
+    let Some(uris) = cx
+        .default_global::<FailedImages>()
+        .0
+        .remove(&(fetch as usize))
+    else {
+        return;
+    };
+    for uri in uris {
+        cx.remove_asset::<DocumentImage>(&ImageRequest::new(uri, fetch));
+    }
 }
 
 #[derive(Clone, Hash)]
@@ -43,7 +63,14 @@ impl ImageRequest {
         match window.use_asset::<DocumentImage>(self, cx) {
             None => ImageState::Loading,
             Some(Some(image)) => ImageState::Ready(image),
-            Some(None) => ImageState::Unavailable,
+            Some(None) => {
+                cx.default_global::<FailedImages>()
+                    .0
+                    .entry(self.fetch as usize)
+                    .or_default()
+                    .insert(self.uri.clone());
+                ImageState::Unavailable
+            }
         }
     }
 
@@ -130,23 +157,52 @@ impl Asset for DocumentImage {
 }
 
 async fn load_image(request: ImageRequest) -> Option<Arc<RenderImage>> {
-    let bytes = (request.fetch)(request.uri.as_ref())?;
-    decode(bytes)
+    let uri = request.uri.as_ref();
+    match (request.fetch)(uri) {
+        Ok(bytes) => decode(bytes)
+            .inspect_err(|error| report_failure(uri, "decode", error))
+            .ok(),
+        Err(error) => {
+            report_failure(uri, "download", error);
+            None
+        }
+    }
 }
 
-fn decode(bytes: Vec<u8>) -> Option<Arc<RenderImage>> {
-    let mut reader = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .ok()?;
+fn report_failure(uri: &str, stage: &str, error: impl std::fmt::Display) {
+    if cfg!(debug_assertions) {
+        eprintln!(
+            "[content-render] Image {stage} failed for {}: {error}",
+            log_target(uri)
+        );
+    }
+}
+
+fn log_target(uri: &str) -> String {
+    let Ok(mut url) = Url::parse(uri) else {
+        return "<invalid URL>".to_owned();
+    };
+    if !matches!(url.scheme(), "http" | "https") {
+        return format!("<{} URL>", url.scheme());
+    }
+    url.set_query(None);
+    url.set_fragment(None);
+    let _ = url.set_password(None);
+    let _ = url.set_username("");
+    url.into()
+}
+
+fn decode(bytes: Vec<u8>) -> image::ImageResult<Arc<RenderImage>> {
+    let mut reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_IMAGE_EDGE);
     limits.max_image_height = Some(MAX_IMAGE_EDGE);
     reader.limits(limits);
-    let mut pixels = reader.decode().ok()?.into_rgba8();
+    let mut pixels = reader.decode()?.into_rgba8();
     for pixel in pixels.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
-    Some(Arc::new(RenderImage::new([Frame::new(pixels)])))
+    Ok(Arc::new(RenderImage::new([Frame::new(pixels)])))
 }
 
 #[cfg(test)]
