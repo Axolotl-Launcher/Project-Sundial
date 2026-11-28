@@ -10,6 +10,10 @@ description = "Native Markdown and HTML rendering for project descriptions"
 repository.workspace = true
 license.workspace = true
 
+[[test]]
+name = "document"
+path = "../../../tests/apps/ui/content-render/tests/document.rs"
+
 [dependencies]
 axlauncher_ui = { workspace = true }
 html5ever = { workspace = true }
@@ -17,6 +21,10 @@ image = { workspace = true, features = ["gif", "jpeg", "webp"] }
 markdown = { workspace = true }
 markup5ever_rcdom = { workspace = true }
 url = { workspace = true }
+
+[dev-dependencies]
+# Enable the pinned GPUI test context without enabling GPUI Kit's optional fast backend.
+gpui-pre = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

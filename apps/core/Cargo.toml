@@ -29,7 +29,7 @@ axlauncher_state = { workspace = true }
 axlauncher_storage = { workspace = true }
 axlauncher_telemetry = { workspace = true }
 axlauncher_worker = { workspace = true }
-tokio = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

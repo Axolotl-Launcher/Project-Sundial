@@ -3,19 +3,13 @@
 
 //! Loads and decodes document images through the supplied transport.
 
-use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axlauncher_ui::{
-    ActiveTheme, App, Asset, Global, ImageSource, RenderImage, Rgba, SharedUri, Window, bounce,
-    ease_in_out,
-};
+use axlauncher_ui::{ActiveTheme, App, Asset, RenderImage, Rgba, Window, bounce, ease_in_out};
 use image::{Delay, Frame, ImageReader, Limits, RgbaImage};
 use url::Url;
-
-use super::image_placeholder;
 
 const MAX_IMAGE_EDGE: u32 = 4096;
 pub(super) const SKELETON_WIDTH: u32 = 160;
@@ -31,68 +25,9 @@ pub(super) enum ImageState {
     Unavailable,
 }
 
-#[derive(Default)]
-struct FailedImages(HashMap<usize, HashSet<SharedUri>>);
-
-impl Global for FailedImages {}
-
-pub(super) fn retry_failed_images(fetch: ImageFetcher, cx: &mut App) {
-    let Some(uris) = cx
-        .default_global::<FailedImages>()
-        .0
-        .remove(&(fetch as usize))
-    else {
-        return;
-    };
-    for uri in uris {
-        cx.remove_asset::<DocumentImage>(&ImageRequest::new(uri, fetch));
-    }
-}
-
-#[derive(Clone, Hash)]
-pub(super) struct ImageRequest {
-    uri: SharedUri,
-    fetch: ImageFetcher,
-}
-
-impl ImageRequest {
-    pub(super) fn new(uri: SharedUri, fetch: ImageFetcher) -> Self {
-        Self { uri, fetch }
-    }
-
-    pub(super) fn state(&self, window: &mut Window, cx: &mut App) -> ImageState {
-        match window.use_asset::<DocumentImage>(self, cx) {
-            None => ImageState::Loading,
-            Some(Some(image)) => ImageState::Ready(image),
-            Some(None) => {
-                cx.default_global::<FailedImages>()
-                    .0
-                    .entry(self.fetch as usize)
-                    .or_default()
-                    .insert(self.uri.clone());
-                ImageState::Unavailable
-            }
-        }
-    }
-
-    pub(super) fn loaded(&self, cx: &mut App) -> Option<Arc<RenderImage>> {
-        cx.fetch_asset::<DocumentImage>(self).flatten()
-    }
-}
-
-pub(super) fn source(uri: &SharedUri, fetch: ImageFetcher) -> ImageSource {
-    let request = ImageRequest::new(uri.clone(), fetch);
-    ImageSource::Custom(Arc::new(move |window, cx| {
-        match request.state(window, cx) {
-            ImageState::Loading => {
-                let color = Rgba::from(cx.theme().skeleton).into();
-                window.use_asset::<InlineSkeleton>(&color, cx)
-            }
-            ImageState::Ready(image) => Some(image),
-            ImageState::Unavailable => image_placeholder::inline(window, cx),
-        }
-        .map(Ok)
-    }))
+pub(super) fn skeleton(window: &mut Window, cx: &mut App) -> Option<Arc<RenderImage>> {
+    let color = Rgba::from(cx.theme().skeleton).into();
+    window.use_asset::<InlineSkeleton>(&color, cx)
 }
 
 // TextView accepts image frames, which GPUI plays while the image request is pending.
@@ -137,23 +72,8 @@ fn skeleton_pixels(fill: image::Rgba<u8>) -> RgbaImage {
     })
 }
 
-struct DocumentImage;
-
-impl Asset for DocumentImage {
-    type Source = ImageRequest;
-    type Output = Option<Arc<RenderImage>>;
-
-    fn load(
-        request: Self::Source,
-        _: &mut App,
-    ) -> impl Future<Output = Self::Output> + Send + 'static {
-        load_image(request)
-    }
-}
-
-async fn load_image(request: ImageRequest) -> Option<Arc<RenderImage>> {
-    let uri = request.uri.as_ref();
-    match (request.fetch)(uri) {
+pub(super) fn load_image(uri: &str, fetch: ImageFetcher) -> Option<Arc<RenderImage>> {
+    match fetch(uri) {
         Ok(bytes) => decode(bytes)
             .inspect_err(|error| report_failure(uri, "decode", error))
             .ok(),

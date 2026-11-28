@@ -12,8 +12,9 @@ use url::Url;
 
 use super::blocks::{Block, ImageBlock, parse_block};
 use super::html::ImageLinks;
+use super::image_cache::{self, ImageCache};
 use super::image_preview;
-use super::images::{self, ImageFetcher, ImageRequest};
+use super::images::{ImageFetcher, ImageState};
 use super::picture::picture;
 
 const MARKDOWN_BLOCK: &str = "markdown-html-block";
@@ -28,36 +29,26 @@ pub enum ContentType {
 /// Native document rendering with cached images loaded on demand.
 pub struct ContentRenderer {
     fetch: ImageFetcher,
-    extensions: MarkdownExtensions,
 }
 
 impl ContentRenderer {
     /// The transport runs on a background thread and returns image bytes or a diagnostic error.
     pub fn new(fetch: fn(&str) -> Result<Vec<u8>, String>) -> Self {
-        let extensions = MarkdownExtensions::default()
-            .block_parser(|node, context| {
-                let block = parse_block(node, context.source())?;
-                let text = block_text(&block);
-                Some(
-                    MarkdownNode::new(MARKDOWN_BLOCK, block)
-                        .text(text)
-                        .markdown(context.node_source(node)?),
-                )
-            })
-            .block_renderer(MARKDOWN_BLOCK, move |node, window, cx| {
-                render_block(node, fetch, window, cx)
-            });
-        Self { fetch, extensions }
+        Self { fetch }
     }
 
-    /// A complete source snapshot with its text state and rendering configuration.
+    /// A complete source snapshot. The optional HTTP(S) base resolves relative links and images.
     pub fn document(
         &self,
         content_type: ContentType,
         source: &str,
+        base_url: Option<Url>,
         cx: &mut App,
     ) -> ContentDocument {
-        images::retry_failed_images(self.fetch, cx);
+        let resources = DocumentResources {
+            base_url: base_url.filter(is_web_url).map(std::sync::Arc::new),
+            images: ImageCache::new(self.fetch, cx),
+        };
         // TextViewState::set_text may reparse only the tail and miss references
         // whose definitions were appended after earlier paragraphs.
         let html = (content_type == ContentType::Html)
@@ -71,8 +62,9 @@ impl ContentRenderer {
         });
         ContentDocument {
             state,
-            fetch: self.fetch,
-            extensions: (content_type == ContentType::Markdown).then(|| self.extensions.clone()),
+            extensions: (content_type == ContentType::Markdown)
+                .then(|| extensions(resources.clone())),
+            resources,
             image_links: html.map(|(_, links)| links),
         }
     }
@@ -81,7 +73,7 @@ impl ContentRenderer {
 /// A retained document that can be mounted in a GPUI view.
 pub struct ContentDocument {
     state: Entity<TextViewState>,
-    fetch: ImageFetcher,
+    resources: DocumentResources,
     extensions: Option<MarkdownExtensions>,
     image_links: Option<ImageLinks>,
 }
@@ -89,12 +81,55 @@ pub struct ContentDocument {
 impl ContentDocument {
     /// A native text view with this document's image and link handling.
     pub fn view(&self) -> TextView {
-        let view = text_view(TextView::new(&self.state), self.fetch)
+        let view = text_view(TextView::new(&self.state), &self.resources)
             .when_some(self.extensions.clone(), TextView::markdown_extensions);
         view.when_some(self.image_links.clone(), |view, links| {
-            bind_image_links(view, links, self.fetch)
+            bind_image_links(view, links, &self.resources)
         })
     }
+
+    /// Retries only failed image requests in this document.
+    pub fn retry_images(&self, cx: &mut App) {
+        self.resources
+            .images
+            .update(cx, |cache, cx| cache.retry(cx));
+        self.state.update(cx, |_, cx| cx.notify());
+    }
+}
+
+#[derive(Clone)]
+struct DocumentResources {
+    base_url: Option<std::sync::Arc<Url>>,
+    images: Entity<ImageCache>,
+}
+
+impl DocumentResources {
+    fn url(&self, raw: &str) -> Option<Url> {
+        web_url(raw, self.base_url.as_deref())
+    }
+
+    fn image_uri(&self, raw: &str) -> Option<SharedUri> {
+        self.url(raw).map(|mut url| {
+            url.set_fragment(None);
+            SharedUri::from(String::from(url))
+        })
+    }
+}
+
+fn extensions(resources: DocumentResources) -> MarkdownExtensions {
+    MarkdownExtensions::default()
+        .block_parser(|node, context| {
+            let block = parse_block(node, context.source())?;
+            let text = block_text(&block);
+            Some(
+                MarkdownNode::new(MARKDOWN_BLOCK, block)
+                    .text(text)
+                    .markdown(context.node_source(node)?),
+            )
+        })
+        .block_renderer(MARKDOWN_BLOCK, move |node, window, cx| {
+            render_block(node, &resources, window, cx)
+        })
 }
 
 fn block_text(block: &Block) -> String {
@@ -108,26 +143,49 @@ fn block_text(block: &Block) -> String {
     }
 }
 
-fn text_view(view: TextView, fetch: ImageFetcher) -> TextView {
-    view.image_source(move |uri| images::source(uri, fetch))
-        .link(|link, _| Some(link.clone().url(web_url(&link.url)?.as_str())))
+fn text_view(view: TextView, resources: &DocumentResources) -> TextView {
+    let images = resources.clone();
+    let base = resources.base_url.clone();
+    view.image_source(move |uri| {
+        image_cache::source(images.image_uri(uri.as_ref()), images.images.clone())
+    })
+    .link(move |link, _| {
+        Some(
+            link.clone()
+                .url(web_url(&link.url, base.as_deref())?.as_str()),
+        )
+    })
 }
 
-fn web_url(raw: &str) -> Option<Url> {
-    let url = Url::parse(raw).ok()?;
-    matches!(url.scheme(), "http" | "https").then_some(url)
+fn web_url(raw: &str, base: Option<&Url>) -> Option<Url> {
+    Url::options()
+        .base_url(base)
+        .parse(raw)
+        .ok()
+        .filter(is_web_url)
 }
 
-fn bind_image_links(view: TextView, images: ImageLinks, fetch: ImageFetcher) -> TextView {
+fn is_web_url(url: &Url) -> bool {
+    matches!(url.scheme(), "http" | "https")
+        && url.username().is_empty()
+        && url.password().is_none()
+}
+
+fn bind_image_links(view: TextView, images: ImageLinks, resources: &DocumentResources) -> TextView {
     let links = images.clone();
+    let base = resources.base_url.clone();
+    let resources = resources.clone();
     view.link(move |link, _| {
         if links.image(&link.url).is_some() {
             return Some(link.clone());
         }
-        Some(link.clone().url(web_url(&link.url)?.as_str()))
+        Some(
+            link.clone()
+                .url(web_url(&link.url, base.as_deref())?.as_str()),
+        )
     })
     .on_link_click(move |url, event, window, cx| {
-        activate_link(&images, url, event, fetch, window, cx);
+        activate_link(&images, url, event, &resources, window, cx);
     })
 }
 
@@ -135,7 +193,7 @@ fn activate_link(
     images: &ImageLinks,
     url: &str,
     event: &ClickEvent,
-    fetch: ImageFetcher,
+    resources: &DocumentResources,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -145,7 +203,10 @@ fn activate_link(
         ClickEvent::Touch(click) => !click.long_press,
     };
     if let Some((uri, name)) = images.image(url) {
-        if primary && let Some(image) = ImageRequest::new(uri.clone(), fetch).loaded(cx) {
+        if primary
+            && let Some(uri) = resources.image_uri(uri.as_ref())
+            && let Some(image) = ImageCache::loaded(&resources.images, uri, cx)
+        {
             image_preview::open(image, name.clone(), window, cx);
         }
         return;
@@ -153,7 +214,7 @@ fn activate_link(
     let middle =
         matches!(event, ClickEvent::Mouse(click) if click.up.button == MouseButton::Middle);
     if (primary || middle)
-        && let Some(url) = web_url(url)
+        && let Some(url) = resources.url(url)
     {
         cx.open_url(url.as_str());
     }
@@ -161,7 +222,7 @@ fn activate_link(
 
 fn render_block(
     node: &MarkdownNode,
-    fetch: ImageFetcher,
+    resources: &DocumentResources,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -176,18 +237,18 @@ fn render_block(
             .child(
                 text_view(
                     TextView::html(("centered-html", start), html.clone()),
-                    fetch,
+                    resources,
                 )
                 .max_w_full(),
             )
             .into_any_element(),
-        Block::Image(image) => render_image(image, start, fetch, window, cx).into_any_element(),
+        Block::Image(image) => render_image(image, start, resources, window, cx).into_any_element(),
         Block::Superscript(notes) => v_flex()
             .id(("superscript-notes", start))
             .children(notes.iter().enumerate().map(|(line, note)| {
                 text_view(
                     TextView::markdown(("note", line), note.markdown().to_owned()),
-                    fetch,
+                    resources,
                 )
                 .text_xs()
             }))
@@ -198,11 +259,10 @@ fn render_block(
 fn render_image(
     image: &ImageBlock,
     start: usize,
-    fetch: ImageFetcher,
+    resources: &DocumentResources,
     window: &mut Window,
     cx: &mut App,
 ) -> impl IntoElement + use<> {
-    let request = ImageRequest::new(SharedUri::from(image.src().to_owned()), fetch);
     let name = if image.alt().is_empty() {
         image.title().unwrap_or_default()
     } else {
@@ -210,9 +270,13 @@ fn render_image(
     };
     let link = image
         .link()
-        .and_then(web_url)
+        .and_then(|link| resources.url(link))
         .map(|url| SharedString::from(url.as_str()));
-    let state = request.state(window, cx);
+    let state = resources
+        .image_uri(image.src())
+        .map_or(ImageState::Unavailable, |uri| {
+            ImageCache::state(&resources.images, uri, window, cx)
+        });
     v_flex()
         .id(("image-block", start))
         .w_full()

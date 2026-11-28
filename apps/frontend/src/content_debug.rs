@@ -7,10 +7,12 @@ use axlauncher_content_render::{ContentDocument, ContentRenderer, ContentType};
 use axlauncher_core::desktop::project_images::project_image;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, Axis, Button, Context, DragMoveEvent, Entity, FocusHandle, GroupBox, HandleEdge,
-    IntoElement, KeyDownEvent, Label, MouseButton, MouseDownEvent, Pixels, RadioGroup, Render,
-    Sizable, Textarea, TextareaState, Window, div, h_flex, relative, rems, resize_handle, v_flex,
+    ActiveTheme, App, Axis, Button, ButtonVariants, Context, DragMoveEvent, Entity, FocusHandle,
+    GroupBox, HandleEdge, Input, InputState, IntoElement, KeyDownEvent, Label, MouseButton,
+    MouseDownEvent, Pixels, RadioGroup, Render, Sizable, Textarea, TextareaState, Window, div,
+    h_flex, relative, rems, resize_handle, v_flex,
 };
+use url::Url;
 
 const PANE_BASIS_REMS: f32 = 16.;
 const DEFAULT_HEIGHT: f32 = 21.;
@@ -24,6 +26,8 @@ const FORMATS: [(ContentType, &str); 2] = [
 
 pub(super) struct ContentDebug {
     source: Entity<TextareaState>,
+    base_url: Entity<InputState>,
+    base_url_invalid: bool,
     content_type: ContentType,
     preview: Option<ContentDocument>,
     renderer: ContentRenderer,
@@ -51,6 +55,8 @@ impl ContentDebug {
             .new(|cx| TextareaState::new(window, cx).placeholder("Type or paste document source"));
         Self {
             source,
+            base_url: cx.new(|cx| InputState::new(window, cx).placeholder("Base URL (optional)")),
+            base_url_invalid: false,
             content_type: ContentType::Markdown,
             preview: None,
             renderer: ContentRenderer::new(project_image),
@@ -61,9 +67,22 @@ impl ContentDebug {
     }
 
     fn render_document(&mut self, cx: &mut Context<'_, Self>) {
+        let base = self.base_url.read(cx).value();
+        let base_url = Url::parse(base.trim()).ok().filter(|url| {
+            matches!(url.scheme(), "http" | "https")
+                && url.username().is_empty()
+                && url.password().is_none()
+        });
+        self.base_url_invalid = !base.trim().is_empty() && base_url.is_none();
+        if self.base_url_invalid {
+            cx.notify();
+            return;
+        }
         let source = self.source.read(cx).value();
-        self.preview = (!source.trim().is_empty())
-            .then(|| self.renderer.document(self.content_type, &source, cx));
+        self.preview = (!source.trim().is_empty()).then(|| {
+            self.renderer
+                .document(self.content_type, &source, base_url, cx)
+        });
         cx.notify();
     }
 
@@ -71,6 +90,12 @@ impl ContentDebug {
         if let Some((kind, _)) = FORMATS.get(*index) {
             self.content_type = *kind;
             cx.notify();
+        }
+    }
+
+    fn retry_images(&self, cx: &mut App) {
+        if let Some(preview) = &self.preview {
+            preview.retry_images(cx);
         }
     }
 
@@ -95,11 +120,30 @@ impl ContentDebug {
                     .label("Render")
                     .on_click(cx.listener(|view, _, _, cx| view.render_document(cx))),
             );
-        let editor = Textarea::new(&self.source)
-            .accessibility_id("content-source")
-            .aria_label("Document source")
-            .w_full()
-            .h(relative(1.));
+        let editor = v_flex()
+            .size_full()
+            .gap_2()
+            .child(
+                Input::new(&self.base_url)
+                    .small()
+                    .aria_label("Base URL for relative addresses"),
+            )
+            .when(self.base_url_invalid, |editor| {
+                editor.child(
+                    Label::new("Enter an HTTP or HTTPS base URL")
+                        .text_sm()
+                        .text_color(cx.theme().danger),
+                )
+            })
+            .child(
+                div().flex_1().min_h_0().child(
+                    Textarea::new(&self.source)
+                        .accessibility_id("content-source")
+                        .aria_label("Document source")
+                        .w_full()
+                        .h(relative(1.)),
+                ),
+            );
         pane(header, editor)
     }
 
@@ -120,7 +164,21 @@ impl ContentDebug {
                         .text_color(theme.muted_foreground),
                 ),
             });
-        pane(Label::new("Preview").text_sm(), preview)
+        let header = h_flex()
+            .w_full()
+            .justify_between()
+            .gap_2()
+            .child(Label::new("Preview").text_sm())
+            .when(self.preview.is_some(), |header| {
+                header.child(
+                    Button::new("retry-content-images")
+                        .small()
+                        .ghost()
+                        .label("Retry images")
+                        .on_click(cx.listener(|view, _, _, cx| view.retry_images(cx))),
+                )
+            });
+        pane(header, preview)
     }
 
     fn resize_handle(&self, cx: &Context<'_, Self>) -> impl IntoElement + use<> {

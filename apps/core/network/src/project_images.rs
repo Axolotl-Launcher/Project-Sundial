@@ -3,12 +3,17 @@
 
 //! Bounded retrieval of remote images embedded in project descriptions.
 
-use axlauncher_network_spi::{DownloadBody, DownloadProtocol, FetchError, Network};
+use std::sync::OnceLock;
+use std::time::Duration;
+
+use axlauncher_network_spi::{DownloadBody, FetchError};
+use reqwest::Client;
 use url::Url;
 
-use crate::{DohConfig, MirrorSettings, ReqwestNetwork};
+use crate::{redirect_policy, transfer};
 
 const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+static CLIENT: OnceLock<Result<Client, FetchError>> = OnceLock::new();
 
 fn allows_image(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https")
@@ -18,15 +23,14 @@ fn allows_image(url: &Url) -> bool {
 
 /// Reads a bounded response and validates every request URL, including redirects.
 pub async fn project_image(url: &str) -> Result<Vec<u8>, FetchError> {
-    // Document images can come from arbitrary hosts routed by the system DNS or proxy.
-    let dns = DohConfig {
-        upstreams: Vec::new(),
-        system_suffixes: Vec::new(),
-    };
-    let client = ReqwestNetwork::build(dns, MirrorSettings::default(), Some(allows_image), None)?;
-    let response = client
-        .open_download(url, DownloadProtocol::Automatic, None)
-        .await?;
+    if !Url::parse(url).is_ok_and(|url| allows_image(&url)) {
+        return Err(FetchError::Fatal("Invalid project image URL".into()));
+    }
+    let client = CLIENT
+        .get_or_init(image_client)
+        .as_ref()
+        .map_err(Clone::clone)?;
+    let response = transfer::open(client, url, None, None, None, || {}).await?;
     if response
         .length
         .is_some_and(|size| size > MAX_IMAGE_BYTES as u64)
@@ -43,6 +47,17 @@ pub async fn project_image(url: &str) -> Result<Vec<u8>, FetchError> {
         bytes.extend_from_slice(&chunk);
     }
     Ok(bytes)
+}
+
+fn image_client() -> Result<Client, FetchError> {
+    // External image hosts follow the configured system resolver and proxy.
+    Client::builder()
+        .user_agent(concat!("Axolotl-Launcher/", env!("CARGO_PKG_VERSION")))
+        .redirect(redirect_policy(Some(allows_image), None))
+        .connect_timeout(Duration::from_secs(15))
+        .pool_max_idle_per_host(4)
+        .build()
+        .map_err(|error| FetchError::Fatal(error.without_url().to_string()))
 }
 
 fn image_too_large() -> FetchError {

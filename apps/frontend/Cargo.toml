@@ -17,6 +17,7 @@ axlauncher_modpack = { workspace = true }
 axlauncher_ui = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
+url = { workspace = true }
 
 [dev-dependencies]
 axlauncher_download_engine = { workspace = true }
