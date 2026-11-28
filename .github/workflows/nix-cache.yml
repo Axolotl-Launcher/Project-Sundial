@@ -63,6 +63,11 @@ jobs:
       # The two binaries share no build output: different stdenv, different
       # glibc. Each dependency stage is cached under its own name so that a
       # workspace change only recompiles the workspace.
+      # `cachix push` uploads the paths it is given and nothing else. A dependency
+      # stage references the toolchain and the vendored crates, and a substituter
+      # cannot hand it over while those are missing, so push the closure. The
+      # cache keeps only what cache.nixos.org does not already serve, so the check
+      # covers the stages themselves rather than walking the whole closure.
       - name: Publish the crate dependencies
         # Build output goes to its own cache so a burst of CI output cannot
         # evict a release.
@@ -70,14 +75,18 @@ jobs:
         env:
           CACHIX_AUTH_TOKEN: ${{ env.AXLM_BUILD_TOKEN }}
         run: |
-          nix build --print-out-paths .#axlauncher-cargo-deps | cachix push axlmc-cache
+          paths=$(nix build --print-out-paths .#axlauncher-cargo-deps)
+          nix path-info --recursive $paths | xargs cachix push axlmc-cache
+          nix path-info --store https://axlmc-cache.cachix.org $paths >/dev/null
 
       - name: Publish the legacy crate dependencies
         if: ${{ inputs.isLegacy && env.AXLM_BUILD_TOKEN != '' }}
         env:
           CACHIX_AUTH_TOKEN: ${{ env.AXLM_BUILD_TOKEN }}
         run: |
-          nix build --print-out-paths .#axlauncher-legacy-deps | cachix push axlmc-cache
+          paths=$(nix build --print-out-paths .#axlauncher-legacy-deps)
+          nix path-info --recursive $paths | xargs cachix push axlmc-cache
+          nix path-info --store https://axlmc-cache.cachix.org $paths >/dev/null
 
       - name: Build
         run: |
