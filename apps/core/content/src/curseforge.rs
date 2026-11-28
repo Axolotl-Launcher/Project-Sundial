@@ -71,18 +71,19 @@ impl<N: AuthNetwork> Catalog<N> {
         let url: Option<String> = self
             .get(&format!("{}/download-url", file_path(mod_id, file_id)?))
             .await?;
-        url.map(|value| {
-            Url::parse(&value)
-                .ok()
-                .filter(|url| {
-                    url.scheme() == "https"
-                        && url.host_str().is_some()
-                        && url.username().is_empty()
-                        && url.password().is_none()
-                })
-                .ok_or(CatalogError::InvalidResponse)
-        })
-        .transpose()
+        let Some(value) = url else {
+            return Ok(None);
+        };
+        Url::parse(&value)
+            .ok()
+            .filter(|url| {
+                url.scheme() == "https"
+                    && url.host_str().is_some()
+                    && url.username().is_empty()
+                    && url.password().is_none()
+            })
+            .map(Some)
+            .ok_or(CatalogError::InvalidResponse)
     }
 
     /// Project descriptions are untrusted provider HTML.
@@ -178,11 +179,11 @@ impl<N: AuthNetwork> Catalog<N> {
         let mut results = Vec::new();
         for chunk in ids.chunks(limit) {
             let body = Body::Json(serde_json::json!({ field: chunk }).to_string());
-            let files: Vec<T> = self.data(url.clone(), Some(body)).await?;
-            if files.len() > chunk.len() {
-                return Err(CatalogError::InvalidResponse);
-            }
-            results.extend(files);
+            let items: Vec<T> = self.data(url.clone(), Some(body)).await?;
+            let items = (items.len() <= chunk.len())
+                .then_some(items)
+                .ok_or(CatalogError::InvalidResponse)?;
+            results.extend(items);
         }
         Ok(results)
     }

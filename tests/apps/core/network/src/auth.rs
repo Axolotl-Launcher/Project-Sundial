@@ -52,25 +52,9 @@ fn fallen_proxy_only_accepts_marked_official_minecraft_service_requests() {
 #[tokio::test]
 async fn sends_api_key_and_user_agent_and_only_returns_safe_error_metadata() {
     let key = ApiKey::new(&"x".repeat(32)).unwrap();
-    let (url, server) = serve_once({
-        let key = key.clone();
-        move |stream, headers| {
-            assert!(headers.iter().any(|(name, value)| {
-                name.eq_ignore_ascii_case("x-api-key") && value == key.expose_secret()
-            }));
-            assert!(headers.iter().any(|(name, value)| {
-                name.eq_ignore_ascii_case("user-agent") && value == "Axolotl-Launcher/test"
-            }));
-            let echo = key.expose_secret();
-            write!(
-                stream,
-                "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 12\r\n\
-                Content-Length: {}\r\nConnection: close\r\n\r\n{echo}",
-                echo.len()
-            )
-            .unwrap();
-        }
-    });
+    let expected = key.clone();
+    let (url, server) =
+        serve_once(move |stream, headers| reject_request(stream, headers, &expected));
     let response = loopback(Duration::from_secs(3))
         .send(Request::new(&url, "Axolotl-Launcher/test").with_api_key(&key))
         .await
@@ -79,6 +63,24 @@ async fn sends_api_key_and_user_agent_and_only_returns_safe_error_metadata() {
     assert_eq!(response.retry_after_seconds, Some(12));
     assert!(response.body.is_empty());
     server.join().unwrap();
+}
+
+fn reject_request(stream: &mut TcpStream, headers: Vec<(String, String)>, key: &ApiKey) {
+    let has_header = |expected: &str, text: &str| {
+        headers
+            .iter()
+            .any(|(name, value)| name.eq_ignore_ascii_case(expected) && value == text)
+    };
+    let echo = key.expose_secret();
+    assert!(has_header("x-api-key", echo));
+    assert!(has_header("user-agent", "Axolotl-Launcher/test"));
+    write!(
+        stream,
+        "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 12\r\n\
+        Content-Length: {}\r\nConnection: close\r\n\r\n{echo}",
+        echo.len()
+    )
+    .unwrap();
 }
 
 #[tokio::test]
@@ -138,17 +140,20 @@ fn serve_once(
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();
-        let mut headers = Vec::new();
-        for line in BufReader::new(&mut stream).lines() {
-            let line = line.expect("request must contain a header block");
-            if line.is_empty() {
-                break;
-            }
-            if let Some((name, value)) = line.split_once(':') {
-                headers.push((name.to_owned(), value.trim().to_owned()));
-            }
-        }
+        let headers = request_headers(&mut stream);
         reply(&mut stream, headers);
     });
     (url, server)
+}
+
+fn request_headers(stream: &mut TcpStream) -> Vec<(String, String)> {
+    BufReader::new(stream)
+        .lines()
+        .map(|line| line.expect("request must contain a header block"))
+        .take_while(|line| !line.is_empty())
+        .filter_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            Some((name.to_owned(), value.trim().to_owned()))
+        })
+        .collect()
 }

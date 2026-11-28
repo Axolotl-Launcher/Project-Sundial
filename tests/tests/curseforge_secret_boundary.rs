@@ -27,15 +27,17 @@ fn workers_do_not_load_curseforge_credentials() {
 fn frontend_and_plugin_do_not_receive_or_resolve_the_key() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     for directory in ["apps/frontend/src", "apps/plugins/modpack"] {
-        for_rust_file(&root.join(directory), &|path, source| {
-            for banned in ["CURSEFORGE_API_KEY", "ApiKey", "cdn_key", "download_key"] {
-                assert!(!source.contains(banned), "credential path in {path:?}");
-            }
-        });
+        for_rust_file(&root.join(directory), &assert_credential_free);
     }
     let operations = include_str!("../../apps/core/spi/src/desktop/operations/content.rs");
     assert!(!operations.contains("curseforge_set_api_key"));
     assert!(!operations.contains("curseforge_api_key_override"));
+}
+
+fn assert_credential_free(path: &Path, source: &str) {
+    for banned in ["CURSEFORGE_API_KEY", "ApiKey", "cdn_key", "download_key"] {
+        assert!(!source.contains(banned), "credential path in {path:?}");
+    }
 }
 
 fn for_rust_file(root: &Path, verify: &impl Fn(&Path, &str)) {
