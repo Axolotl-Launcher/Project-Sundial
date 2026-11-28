@@ -30,6 +30,7 @@ pub use gpui_kit::component::{
     select::{SearchableVec, Select, SelectDelegate, SelectEvent, SelectItem, SelectState},
     separator::Separator,
     sidebar::{Sidebar, SidebarMenu},
+    skeleton::Skeleton,
     slider::{Slider, SliderEvent, SliderState},
     switch::Switch,
     text::{MarkdownExtensions, MarkdownNode, TextView, TextViewState},

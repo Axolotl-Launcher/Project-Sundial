@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! A zoomable modal view of a decoded Markdown image.
+//! A zoomable modal view of a decoded document image.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -371,5 +371,5 @@ fn fit_image(intrinsic: Size<Pixels>, available: Size<Pixels>) -> Size<Pixels> {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/plugins/markdown/src/image_preview.rs"]
+#[path = "../../../../tests/apps/plugins/content-render/src/image_preview.rs"]
 mod tests;

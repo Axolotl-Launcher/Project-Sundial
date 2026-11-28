@@ -135,7 +135,7 @@ impl RootView {
                 self.render_service_sources(cx),
             ],
             Page::Debug => vec![
-                self.markdown_debug.clone().into_any_element(),
+                self.content_debug.clone().into_any_element(),
                 self.render_launch(cx),
                 self.render_download_debug(cx),
                 self.render_activity(cx),

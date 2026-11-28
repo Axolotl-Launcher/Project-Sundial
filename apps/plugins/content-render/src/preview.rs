@@ -1,28 +1,37 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-//! Adapts Markdown extension blocks to GPUI's native text view.
+//! Adapts Markdown and HTML documents to GPUI's native text view.
 
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    AnyElement, App, Entity, IntoElement, MarkdownExtensions, MarkdownNode, SharedString,
-    SharedUri, TextView, TextViewState, Window, div, v_flex,
+    AnyElement, App, ClickEvent, Entity, IntoElement, MarkdownExtensions, MarkdownNode,
+    MouseButton, SharedString, SharedUri, TextView, TextViewState, Window, div, v_flex,
 };
 use url::Url;
 
 use super::blocks::{Block, ImageBlock, parse_block};
+use super::html::ImageLinks;
+use super::image_preview;
 use super::images::{self, ImageFetcher, ImageRequest};
 use super::picture::picture;
 
 const MARKDOWN_BLOCK: &str = "markdown-html-block";
 
-/// Native Markdown rendering with cached images loaded on demand.
-pub struct Markdown {
+/// The format of the provider's document source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContentType {
+    Markdown,
+    Html,
+}
+
+/// Native document rendering with cached images loaded on demand.
+pub struct ContentRenderer {
     fetch: ImageFetcher,
     extensions: MarkdownExtensions,
 }
 
-impl Markdown {
+impl ContentRenderer {
     /// The transport runs on a background thread and returns bytes or an unavailable image.
     pub fn new(fetch: fn(&str) -> Option<Vec<u8>>) -> Self {
         let extensions = MarkdownExtensions::default()
@@ -41,16 +50,49 @@ impl Markdown {
         Self { fetch, extensions }
     }
 
-    /// Parses a complete source document into retained GPUI text state.
-    pub fn parse(&self, source: &str, cx: &mut App) -> Entity<TextViewState> {
+    /// A complete source snapshot with its text state and rendering configuration.
+    pub fn document(
+        &self,
+        content_type: ContentType,
+        source: &str,
+        cx: &mut App,
+    ) -> ContentDocument {
         // TextViewState::set_text may reparse only the tail and miss references
         // whose definitions were appended after earlier paragraphs.
-        cx.new(|cx| TextViewState::markdown(source, cx))
+        let html = (content_type == ContentType::Html)
+            .then(|| ImageLinks::prepare(source))
+            .flatten();
+        let state = cx.new(|cx| match content_type {
+            ContentType::Markdown => TextViewState::markdown(source, cx),
+            ContentType::Html => {
+                TextViewState::html(html.as_ref().map_or(source, |(html, _)| html), cx)
+            }
+        });
+        ContentDocument {
+            state,
+            fetch: self.fetch,
+            extensions: (content_type == ContentType::Markdown).then(|| self.extensions.clone()),
+            image_links: html.map(|(_, links)| links),
+        }
     }
+}
 
-    /// Builds a GPUI text view for the caller's Markdown document state.
-    pub fn text_view(&self, state: &Entity<TextViewState>) -> TextView {
-        document(TextView::new(state), self.fetch).markdown_extensions(self.extensions.clone())
+/// A retained document that can be mounted in a GPUI view.
+pub struct ContentDocument {
+    state: Entity<TextViewState>,
+    fetch: ImageFetcher,
+    extensions: Option<MarkdownExtensions>,
+    image_links: Option<ImageLinks>,
+}
+
+impl ContentDocument {
+    /// A native text view with this document's image and link handling.
+    pub fn view(&self) -> TextView {
+        let view = text_view(TextView::new(&self.state), self.fetch)
+            .when_some(self.extensions.clone(), TextView::markdown_extensions);
+        view.when_some(self.image_links.clone(), |view, links| {
+            bind_image_links(view, links, self.fetch)
+        })
     }
 }
 
@@ -65,7 +107,7 @@ fn block_text(block: &Block) -> String {
     }
 }
 
-fn document(view: TextView, fetch: ImageFetcher) -> TextView {
+fn text_view(view: TextView, fetch: ImageFetcher) -> TextView {
     view.image_source(move |uri| images::source(uri, fetch))
         .link(|link, _| Some(link.clone().url(web_url(&link.url)?.as_str())))
 }
@@ -73,6 +115,47 @@ fn document(view: TextView, fetch: ImageFetcher) -> TextView {
 fn web_url(raw: &str) -> Option<Url> {
     let url = Url::parse(raw).ok()?;
     matches!(url.scheme(), "http" | "https").then_some(url)
+}
+
+fn bind_image_links(view: TextView, images: ImageLinks, fetch: ImageFetcher) -> TextView {
+    let links = images.clone();
+    view.link(move |link, _| {
+        if links.image(&link.url).is_some() {
+            return Some(link.clone());
+        }
+        Some(link.clone().url(web_url(&link.url)?.as_str()))
+    })
+    .on_link_click(move |url, event, window, cx| {
+        activate_link(&images, url, event, fetch, window, cx);
+    })
+}
+
+fn activate_link(
+    images: &ImageLinks,
+    url: &str,
+    event: &ClickEvent,
+    fetch: ImageFetcher,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let primary = match event {
+        ClickEvent::Mouse(click) => click.up.button == MouseButton::Left,
+        ClickEvent::Keyboard(_) => true,
+        ClickEvent::Touch(click) => !click.long_press,
+    };
+    if let Some((uri, name)) = images.image(url) {
+        if primary && let Some(image) = ImageRequest::new(uri.clone(), fetch).loaded(cx) {
+            image_preview::open(image, name.clone(), window, cx);
+        }
+        return;
+    }
+    let middle =
+        matches!(event, ClickEvent::Mouse(click) if click.up.button == MouseButton::Middle);
+    if (primary || middle)
+        && let Some(url) = web_url(url)
+    {
+        cx.open_url(url.as_str());
+    }
 }
 
 fn render_block(
@@ -90,7 +173,7 @@ fn render_block(
             .w_full()
             .items_center()
             .child(
-                document(
+                text_view(
                     TextView::html(("centered-html", start), html.clone()),
                     fetch,
                 )
@@ -101,7 +184,7 @@ fn render_block(
         Block::Superscript(notes) => v_flex()
             .id(("superscript-notes", start))
             .children(notes.iter().enumerate().map(|(line, note)| {
-                document(
+                text_view(
                     TextView::markdown(("note", line), note.markdown().to_owned()),
                     fetch,
                 )
@@ -128,11 +211,7 @@ fn render_image(
         .link()
         .and_then(web_url)
         .map(|url| SharedString::from(url.as_str()));
-    let loaded = request.loaded(window, cx);
-    let placeholder = loaded
-        .is_none()
-        .then(|| images::placeholder(window, cx))
-        .flatten();
+    let state = request.state(window, cx);
     v_flex()
         .id(("image-block", start))
         .w_full()
@@ -140,12 +219,12 @@ fn render_image(
         .items_start()
         .when(image.is_centered(), |row| row.items_center())
         .child(picture(
-            loaded,
-            placeholder,
+            state,
             image.width(),
             image.height(),
             name.to_owned().into(),
             link,
+            window,
             cx,
         ))
 }

@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 [package]
-name = "axlauncher_markdown"
+name = "axlauncher_content_render"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Markdown extensions for project descriptions"
+description = "Native Markdown and HTML rendering for project descriptions"
 repository.workspace = true
 license.workspace = true
 

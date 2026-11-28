@@ -3,26 +3,47 @@
 
 //! A standalone image whose width and height scale together.
 
-use std::sync::Arc;
-
 use axlauncher_ui::kit::Size;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, App, Button, ButtonVariants, ClickEvent, Div, IntoElement, MouseButton, ObjectFit,
-    Pixels, RenderImage, Role, SharedString, Stateful, div, img, px, size,
+    ActiveTheme, App, Button, ButtonVariants, ClickEvent, Div, MouseButton, ObjectFit, Pixels,
+    Role, SharedString, Skeleton, Stateful, Window, div, img, px, size,
 };
 
 use super::image_preview;
+use super::images::{ImageState, SKELETON_HEIGHT, SKELETON_WIDTH, placeholder};
+
+fn picture_skeleton(width: Option<u16>, height: Option<u16>) -> Div {
+    let intrinsic = size(px(SKELETON_WIDTH as f32), px(SKELETON_HEIGHT as f32));
+    let preferred = preferred_size(Some(intrinsic), width, height);
+    div()
+        .w_full()
+        .max_w(preferred.width)
+        .when(preferred.height > Pixels::ZERO, |frame| {
+            frame.child(
+                Skeleton::new()
+                    .w_full()
+                    .h_auto()
+                    .border_0()
+                    .aspect_ratio(aspect_ratio(preferred)),
+            )
+        })
+}
 
 pub(super) fn picture(
-    image: Option<Arc<RenderImage>>,
-    placeholder: Option<Arc<RenderImage>>,
+    state: ImageState,
     width: Option<u16>,
     height: Option<u16>,
     name: SharedString,
     link: Option<SharedString>,
-    cx: &App,
-) -> impl IntoElement + use<> {
+    window: &mut Window,
+    cx: &mut App,
+) -> Div {
+    let (image, placeholder) = match state {
+        ImageState::Loading => return picture_skeleton(width, height),
+        ImageState::Ready(image) => (Some(image), None),
+        ImageState::Unavailable => (None, placeholder(window, cx)),
+    };
     let displayed = image.as_ref().or(placeholder.as_ref());
     let intrinsic = displayed.map(|image| {
         image
@@ -126,5 +147,5 @@ fn aspect_ratio(size: Size<Pixels>) -> f32 {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/plugins/markdown/src/picture.rs"]
+#[path = "../../../../tests/apps/plugins/content-render/src/picture.rs"]
 mod tests;

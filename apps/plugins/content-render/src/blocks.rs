@@ -3,11 +3,11 @@
 
 //! Converts embedded HTML conventions into renderable Markdown blocks.
 
-use html5ever::tendril::TendrilSink as _;
-use html5ever::{ParseOpts, QualName, serialize::SerializeOpts};
-use html5ever::{local_name, namespace_url, ns, parse_fragment, serialize};
+use html5ever::local_name;
 use markdown::mdast::{Node, Paragraph};
-use markup5ever_rcdom::{Handle, NodeData, RcDom, SerializableHandle};
+use markup5ever_rcdom::{Handle, NodeData};
+
+use super::html::{fragment, inner_html};
 
 /// A block with presentation semantics that require custom Markdown rendering.
 #[derive(Debug, PartialEq, Eq)]
@@ -129,13 +129,7 @@ fn html_block(html: &str) -> Option<Block> {
         return None;
     }
 
-    let dom = parse_fragment(
-        RcDom::default(),
-        ParseOpts::default(),
-        QualName::new(None, ns!(html), local_name!("div")),
-        vec![],
-    )
-    .one(html);
+    let dom = fragment(html);
     let root = only_content(&dom.document, false)?;
     let element = only_content(&root, false)?;
     if tag.eq_ignore_ascii_case("img") {
@@ -144,14 +138,7 @@ fn html_block(html: &str) -> Option<Block> {
     if let Some(image) = only_content(&element, true).and_then(|child| image(&child, true)) {
         return Some(Block::Image(image));
     }
-    let mut contents = Vec::new();
-    serialize(
-        &mut contents,
-        &SerializableHandle::from(element),
-        SerializeOpts::default(),
-    )
-    .ok()?;
-    String::from_utf8(contents).ok().map(Block::CenteredHtml)
+    inner_html(element).map(Block::CenteredHtml)
 }
 
 fn only_content(parent: &Handle, skip_empty_paragraph: bool) -> Option<Handle> {
@@ -247,5 +234,5 @@ fn is_whitespace(node: &Node) -> bool {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/plugins/markdown/src/blocks.rs"]
+#[path = "../../../../tests/apps/plugins/content-render/src/blocks.rs"]
 mod tests;
