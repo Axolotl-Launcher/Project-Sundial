@@ -8,45 +8,77 @@ use std::sync::Arc;
 use axlauncher_ui::kit::Size;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, App, ClickEvent, Div, IntoElement, MouseButton, ObjectFit, Pixels, RenderImage,
-    Role, SharedString, Stateful, div, img, px, size,
+    ActiveTheme, App, Button, ButtonVariants, ClickEvent, Div, IntoElement, MouseButton, ObjectFit,
+    Pixels, RenderImage, Role, SharedString, Stateful, div, img, px, size,
 };
+
+use super::image_preview;
 
 pub(super) fn picture(
     image: Option<Arc<RenderImage>>,
+    placeholder: Option<Arc<RenderImage>>,
     width: Option<u16>,
     height: Option<u16>,
     name: SharedString,
     link: Option<SharedString>,
     cx: &App,
 ) -> impl IntoElement + use<> {
-    let intrinsic = image.as_ref().map(|image| {
+    let displayed = image.as_ref().or(placeholder.as_ref());
+    let intrinsic = displayed.map(|image| {
         image
             .size(0)
             .map(|dimension| px(i32::from(dimension) as f32))
     });
     let preferred = preferred_size(intrinsic, width, height);
     let ring = cx.theme().ring;
+    let thumbnail = displayed.cloned().map(|image| {
+        img(image)
+            .absolute()
+            .inset_0()
+            .size_full()
+            .object_fit(ObjectFit::Contain)
+    });
 
     // Resolve the parent's width before applying the aspect ratio. An img with
     // a max width still contributes its original explicit height to layout.
-    div().w_full().max_w(preferred.width).child(
-        div()
-            .id("picture")
-            .relative()
-            .w_full()
-            .aspect_ratio(aspect_ratio(preferred))
-            .aria_label(name)
-            .focus_visible(move |style| style.border_1().border_color(ring))
-            .map(|element| picture_role(element, link))
-            .children(image.map(|image| {
-                img(image)
-                    .absolute()
-                    .inset_0()
-                    .size_full()
-                    .object_fit(ObjectFit::Contain)
-            })),
-    )
+    div()
+        .w_full()
+        .max_w(preferred.width)
+        .map(|frame| match (image, link) {
+            (Some(image), None) if preferred.height > Pixels::ZERO => frame.child(
+                Button::new("open-image-preview")
+                    .ghost()
+                    .relative()
+                    .w_full()
+                    .h_auto()
+                    .aspect_ratio(aspect_ratio(preferred))
+                    .p_0()
+                    .accessibility_label(preview_label(&name))
+                    .tooltip("Open image preview")
+                    .on_click(move |_, window, cx| {
+                        image_preview::open(image.clone(), name.clone(), window, cx)
+                    })
+                    .children(thumbnail),
+            ),
+            (_, link) => frame.child(
+                div()
+                    .id("picture")
+                    .relative()
+                    .w_full()
+                    .aspect_ratio(aspect_ratio(preferred))
+                    .aria_label(name)
+                    .focus_visible(move |style| style.border_1().border_color(ring))
+                    .map(|element| picture_role(element, link))
+                    .children(thumbnail),
+            ),
+        })
+}
+
+fn preview_label(name: &str) -> String {
+    if name.is_empty() {
+        return "Open image preview".to_owned();
+    }
+    format!("Open image preview for {name}")
 }
 
 fn picture_role(element: Stateful<Div>, link: Option<SharedString>) -> Stateful<Div> {

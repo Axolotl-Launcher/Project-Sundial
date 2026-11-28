@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 mod blocks;
+mod image_preview;
 mod images;
 mod picture;
 mod preview;

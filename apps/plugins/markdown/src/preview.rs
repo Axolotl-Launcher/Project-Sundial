@@ -128,6 +128,11 @@ fn render_image(
         .link()
         .and_then(web_url)
         .map(|url| SharedString::from(url.as_str()));
+    let loaded = request.loaded(window, cx);
+    let placeholder = loaded
+        .is_none()
+        .then(|| images::placeholder(window, cx))
+        .flatten();
     v_flex()
         .id(("image-block", start))
         .w_full()
@@ -135,7 +140,8 @@ fn render_image(
         .items_start()
         .when(image.is_centered(), |row| row.items_center())
         .child(picture(
-            request.loaded(window, cx),
+            loaded,
+            placeholder,
             image.width(),
             image.height(),
             name.to_owned().into(),

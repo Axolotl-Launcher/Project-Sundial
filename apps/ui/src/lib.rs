@@ -16,6 +16,7 @@ pub use gpui_kit::component::{
     ActiveTheme, Disableable, Icon, IconName, IndexPath, Sizable, Size, StyledExt, WindowExt,
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
+    dialog::DialogEntrance,
     group_box::{GroupBox, GroupBoxVariants},
     h_flex,
     input::{Input, InputEvent, InputState, NumberInput, Textarea, TextareaState},

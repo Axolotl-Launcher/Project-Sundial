@@ -30,21 +30,26 @@ impl ImageRequest {
         window: &mut axlauncher_ui::Window,
         cx: &mut App,
     ) -> Option<Arc<RenderImage>> {
-        window
-            .use_asset::<MarkdownImage>(self, cx)
-            .flatten()
-            .or_else(|| {
-                window
-                    .use_asset::<ImgResourceLoader>(&Resource::Embedded(PLACEHOLDER.into()), cx)
-                    .and_then(Result::ok)
-            })
+        window.use_asset::<MarkdownImage>(self, cx).flatten()
     }
+}
+
+pub(super) fn placeholder(
+    window: &mut axlauncher_ui::Window,
+    cx: &mut App,
+) -> Option<Arc<RenderImage>> {
+    window
+        .use_asset::<ImgResourceLoader>(&Resource::Embedded(PLACEHOLDER.into()), cx)
+        .and_then(Result::ok)
 }
 
 pub(super) fn source(uri: &SharedUri, fetch: ImageFetcher) -> ImageSource {
     let request = ImageRequest::new(uri.clone(), fetch);
     ImageSource::Custom(Arc::new(move |window, cx| {
-        request.loaded(window, cx).map(Ok)
+        request
+            .loaded(window, cx)
+            .or_else(|| placeholder(window, cx))
+            .map(Ok)
     }))
 }
 
