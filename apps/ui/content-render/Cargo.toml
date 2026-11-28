@@ -21,6 +21,8 @@ html5ever = { workspace = true }
 image = { workspace = true, features = ["gif", "jpeg", "webp"] }
 markdown = { workspace = true }
 markup5ever_rcdom = { workspace = true }
+resvg = { workspace = true }
+roxmltree = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]

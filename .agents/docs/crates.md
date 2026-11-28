@@ -162,6 +162,9 @@ queueing and transfer.
   two concurrent decodes globally and one per document. Each document owns its
   cache, up to 128 image requests, and a 128 MiB decoded pixel budget. A manual
   retry invalidates only transient failures whose minimum delay has elapsed.
+  Injected transports must enforce the 8 MiB cap while receiving a response.
+  The renderer checks the completed payload before decoding and charges SVG
+  rasterization to the same pixel budget. SVG image references are skipped.
 
 ## Reusing and extending interfaces
 

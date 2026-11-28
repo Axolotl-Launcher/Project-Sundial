@@ -16,6 +16,8 @@ use image::{
 };
 use url::Url;
 
+mod svg;
+
 const MAX_IMAGE_EDGE: u32 = 4096;
 const MAX_ANIMATION_FRAMES: usize = 1024;
 pub(super) const MAX_DECODED_BYTES: usize = 128 * 1024 * 1024;
@@ -124,6 +126,9 @@ pub(super) fn decode(
             } else {
                 vec![decode_static(decoder, limits, &mut remaining)?]
             }
+        }
+        None if let Some(source) = svg::xml_source(bytes) => {
+            vec![svg::decode(source, &limits, &mut remaining)?]
         }
         _ => {
             reader.limits(limits.clone());

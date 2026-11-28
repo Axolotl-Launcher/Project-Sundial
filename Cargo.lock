@@ -625,6 +625,8 @@ dependencies = [
  "image",
  "markdown",
  "markup5ever_rcdom",
+ "resvg 0.46.0",
+ "roxmltree 0.21.2",
  "url",
 ]
 

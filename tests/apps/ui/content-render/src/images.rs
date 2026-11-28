@@ -110,6 +110,43 @@ fn rejects_oversize_and_unrecognized_images() {
 }
 
 #[test]
+fn decodes_svg_badges_by_content_and_charges_their_pixels() {
+    let mut budget = 24;
+    let image = decode(SVG_BADGE.as_bytes(), &mut budget).expect("renderable SVG badge");
+    assert_eq!(image.frame_count(), 1);
+    let pixels = image.as_bytes(0).unwrap();
+    assert_eq!(pixels.len(), 24);
+    assert_eq!(&pixels[..4], &[30, 20, 10, 255]);
+    assert_eq!(budget, 0);
+}
+
+#[test]
+fn svg_rejects_canvas_over_budget_without_spending_it() {
+    let mut budget = 23;
+    let oversized = SVG_BADGE.replace("width='3'", "width='4097'");
+    for source in [SVG_BADGE, &oversized] {
+        assert!(matches!(
+            decode(source.as_bytes(), &mut budget),
+            Err(image::ImageError::Limits(_))
+        ));
+        assert_eq!(budget, 23);
+    }
+}
+
+#[test]
+fn svg_does_not_render_nested_image_resources() {
+    let badge = SVG_BADGE.replace("</svg>", concat!(
+        "<image width='3' height='2' href='data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%223%22%20height=%222%22%3E",
+        "%3Crect%20width=%223%22%20height=%222%22%20fill=%22red%22/%3E%3C/svg%3E'/></svg>",
+    ));
+    let mut budget = 24;
+    let image = decode(badge.as_bytes(), &mut budget).unwrap();
+    assert_eq!(&image.as_bytes(0).unwrap()[..4], &[30, 20, 10, 255]);
+}
+
+const SVG_BADGE: &str = "\u{feff}<?xml version='1.0'?><!-- badge --><svg xmlns='http://www.w3.org/2000/svg' width='3' height='2'><rect width='3' height='2' fill='#0a141e'/></svg>";
+
+#[test]
 fn diagnostic_urls_omit_credentials_and_query_parameters() {
     assert_eq!(
         log_target("https://user:secret@example.com/image.png?token=secret#preview"),

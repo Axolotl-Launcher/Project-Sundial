@@ -19,6 +19,7 @@ use super::image_placeholder;
 use super::images::{ImageState, MAX_DECODED_BYTES, decode, report_failure, skeleton};
 
 const MAX_IMAGES: usize = 128;
+const MAX_ENCODED_IMAGE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_IMAGE_LOADS: usize = 8;
 const MAX_IMAGE_DECODES: usize = 2;
 static IMAGE_LOADS: Semaphore = Semaphore::new(MAX_IMAGE_LOADS);
@@ -56,6 +57,7 @@ impl ImageFetchError {
 enum ImageFailure {
     RetryAfter { failed_at: Instant, delay: Duration },
     DownloadRejected,
+    EncodedLimit,
     Decode,
     DecodeLimit,
 }
@@ -213,6 +215,15 @@ async fn load(
     let bytes = (request.fetch)(uri.to_owned())
         .await
         .map_err(|error| download_failure(uri, error, executor.now()))?;
+    if bytes.len() > MAX_ENCODED_IMAGE_BYTES {
+        report_failure(
+            uri,
+            "download (limit)",
+            format_args!("image response exceeds {MAX_ENCODED_IMAGE_BYTES} bytes"),
+        );
+        return Err(ImageFailure::EncodedLimit);
+    }
+    let bytes = bytes.into_boxed_slice();
     let mut remaining = request.remaining_bytes.lock().await;
     let _decoding = IMAGE_DECODES.acquire().await;
     decode(&bytes, &mut remaining).map_err(|error| decode_failure(uri, &error))

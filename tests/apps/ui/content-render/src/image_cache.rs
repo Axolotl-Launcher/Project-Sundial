@@ -13,7 +13,7 @@ use image::{Frame, RgbaImage};
 
 use super::{
     DocumentImage, ImageCache, ImageFailure, ImageFetchError, ImageFetcher, ImageRequest,
-    MAX_DECODED_BYTES,
+    MAX_DECODED_BYTES, MAX_ENCODED_IMAGE_BYTES,
 };
 
 #[test]
@@ -54,6 +54,37 @@ fn distinct_images_in_a_document_start_before_either_download_finishes() {
             MAX_DECODED_BYTES - 16,
         );
     });
+    cx.quit();
+}
+
+#[test]
+fn oversized_custom_response_is_rejected_before_decode() {
+    let cx = TestAppContext::single();
+    let fetch: ImageFetcher = Arc::new(|_| {
+        Box::pin(async {
+            let mut bytes = animated_image();
+            bytes.resize(MAX_ENCODED_IMAGE_BYTES + 1, 0);
+            Ok(bytes)
+        })
+    });
+    let (document, request) = cx.update(|cx| {
+        let document = ImageCache::new(fetch, cx);
+        let request = queue_image(&document, "oversized.gif", cx);
+        (document, request)
+    });
+    cx.run_until_parked();
+    cx.update(|cx| {
+        assert!(matches!(
+            cx.fetch_asset::<DocumentImage>(&request),
+            Some(Err(ImageFailure::EncodedLimit))
+        ));
+        assert!(!document.update(cx, |cache, cx| cache.retry(cx)));
+        assert_eq!(
+            *document.read(cx).remaining_bytes.try_lock().unwrap(),
+            MAX_DECODED_BYTES
+        );
+    });
+    drop(document);
     cx.quit();
 }
 

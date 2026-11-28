@@ -14,6 +14,7 @@ use gpui::{KeyDownEvent, KeyUpEvent, Keystroke, Modifiers, TestAppContext, Visua
 use url::Url;
 
 static ATTEMPTS: AtomicUsize = AtomicUsize::new(0);
+const SVG_BADGE: &[u8] = br##"<svg xmlns="http://www.w3.org/2000/svg" width="64" height="48"><rect width="64" height="48" fill="#4c1"/></svg>"##;
 
 #[test]
 fn retries_a_failed_relative_image_then_opens_the_preview() {
@@ -22,7 +23,7 @@ fn retries_a_failed_relative_image_then_opens_the_preview() {
         &cx,
         retryable_image,
         ContentType::Html,
-        r#"<p><img src="images/badge.png#preview" width="64" height="48" alt="Badge"></p>"#,
+        r#"<p><img src="images/badge#preview" width="64" height="48" alt="Badge"></p>"#,
     );
     let mut window = VisualTestContext::from_window(handle, &cx);
     window.run_until_parked();
@@ -60,6 +61,22 @@ fn linked_html_image_opens_the_resolved_destination() {
         cx.opened_url().as_deref(),
         Some("https://example.com/linkout?target=forge")
     );
+    cx.quit();
+}
+
+#[test]
+fn opens_a_downloaded_svg_in_the_markdown_image_preview() {
+    let cx = TestAppContext::single();
+    let (handle, _) = mount(
+        &cx,
+        |_| async { Ok(SVG_BADGE.to_vec()) },
+        ContentType::Markdown,
+        "![Badge](images/badge.svg)",
+    );
+    let mut window = VisualTestContext::from_window(handle, &cx);
+    window.run_until_parked();
+    window.simulate_click(point(px(20.), px(20.)), Modifiers::default());
+    window.update(|window, cx| assert!(window.has_active_dialog(cx)));
     cx.quit();
 }
 
@@ -153,11 +170,11 @@ fn mount<Request: Future<Output = Result<Vec<u8>, ImageFetchError>> + Send + 'st
 }
 
 async fn retryable_image(url: String) -> Result<Vec<u8>, ImageFetchError> {
-    assert_eq!(url, "https://example.com/projects/images/badge.png");
+    assert_eq!(url, "https://example.com/projects/images/badge");
     if ATTEMPTS.fetch_add(1, Ordering::SeqCst) == 0 {
         return Err(ImageFetchError::retryable("offline", Duration::ZERO));
     }
-    Ok(png())
+    Ok(SVG_BADGE.to_vec())
 }
 
 fn png() -> Vec<u8> {

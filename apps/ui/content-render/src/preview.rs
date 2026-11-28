@@ -33,6 +33,9 @@ pub struct ContentRenderer {
 
 impl ContentRenderer {
     /// Supplies an asynchronous transport that returns image bytes or a diagnostic error.
+    ///
+    /// Buffer at most 8 MiB per response during transfer. The renderer checks
+    /// completed responses before decoding, after the transport has allocated them.
     pub fn new<F, Request>(fetch: F) -> Self
     where
         F: Fn(String) -> Request + Send + Sync + 'static,
