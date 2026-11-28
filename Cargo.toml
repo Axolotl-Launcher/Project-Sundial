@@ -32,6 +32,7 @@ members = [
   "apps/frontend",
   "apps/plugins/modpack",
   "apps/ui",
+  "apps/ui/content-render",
   "platforms/linux",
   "platforms/macos",
   "platforms/windows",
@@ -58,12 +59,17 @@ embed-resource = "3.0.12"
 # gpui-component 与 Lucide 资源），是 Zed crates/gpui 的长期跟进快照。
 # 升级时须整体升级 gpui-kit，不要单独改 gpui-pre。
 gpui-kit = "0.10.0"
+gpui-pre = "=0.3.12"
+html5ever = "0.27"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
+markdown = "1.0.0"
+markup5ever_rcdom = "0.3"
 proc-macro2 = "1.0.107"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 syn = "2.0.119"
 
+async-lock = "3.4.2"
 fastrand = "2.5.0"
 futures = "0.3.34"
 # Async runtime and tasks: network, install, scheduler.
@@ -101,6 +107,8 @@ hyper-util = "0.1"
 libc = "0.2.191"
 libloading = "0.8.9"
 reqwest = { version = "0.13.5", default-features = false, features = ["http2", "json", "rustls", "stream"] }
+resvg = { version = "0.46.0", default-features = false, features = ["system-fonts", "text"] }
+roxmltree = "0.21.2"
 rustix = "1.1.6"
 url = "2.5.9"
 uuid = { version = "1.29.3", features = ["serde", "v4"] }
@@ -109,6 +117,7 @@ uuid = { version = "1.29.3", features = ["serde", "v4"] }
 keyring = "4.2.0"
 
 axlauncher_content = { path = "apps/core/content" }
+axlauncher_content_render = { path = "apps/ui/content-render" }
 axlauncher_core = { path = "apps/core" }
 axlauncher_domain = { path = "apps/core/domain" }
 axlauncher_download_engine = { path = "apps/core/lib/download_engine" }

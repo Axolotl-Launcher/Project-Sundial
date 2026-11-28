@@ -103,6 +103,10 @@ resolves the name. Single-label hosts and local DNS suffixes use the system
 resolver directly. Applications can supply more suffixes through `DohConfig`.
 The transport handles IP literals and proxy requests without a DNS-over-HTTPS
 lookup for the destination.
+Project description images use the system resolver so their external hosts follow
+the user's network routing. Their desktop service shares an HTTP connection pool
+and runtime, with up to eight active requests and a 15-second deadline covering
+queueing and transfer.
 
 ## Workspace inventory
 
@@ -134,6 +138,7 @@ lookup for the destination.
 | `axlauncher_telemetry` | [telemetry](../../apps/core/telemetry/src/lib.rs) | Event sink implementation, currently `LoggingTelemetry`. |
 | `axlauncher_core` | [core](../../apps/core/src/lib.rs) | Application-facing system re-exports and desktop request orchestration. Delegates each operation to its owning system or SPI provider. |
 | `axlauncher_ui` | [ui](../../apps/ui/src/lib.rs) | Palette, theme installation and component re-exports. |
+| `axlauncher_content_render` | [content-render](../../apps/ui/content-render/src/lib.rs) | UI library for native Markdown and HTML rendering, with shared link and image handling. It uses `axlauncher_ui` for rendering and an injected asynchronous image transport. Callers can supply a document base URL. Each document owns up to 128 image requests, charges its 128 MiB pixel budget during decoding, and releases its image assets on destruction. The library bounds concurrent loads and decodes. HTTP access stays with `network`. |
 | `axlauncher_frontend` | [frontend](../../apps/frontend/src/lib.rs) | Root view, interaction state, windows and UI task lifecycle. |
 | `axlauncher_modpack` | [modpack](../../apps/plugins/modpack/src/lib.rs) | Registered readers for modpack distribution inputs, plus file selection and override planning. It may depend on provider contracts, never their implementations. |
 | `axlauncher_mmc_convert` | [mmc-convert](../../tools/mmc-convert/src/main.rs) | Standalone conversion of selected MultiMC exports with custom launch components into native, isolated profiles. It uses the modpack archive reader and the core facade. |
@@ -141,6 +146,25 @@ lookup for the destination.
 | `axlauncher_platform_linux` | [Linux](../../platforms/linux/src/main.rs) | Linux executable entry point. |
 | `axlauncher_platform_macos` | [macOS](../../platforms/macos/src/main.rs) | macOS executable entry point. |
 | `axlauncher_policy_tests` | [tests](../../tests/tests) | Repository policies, architecture checks and cross-crate SPI contract tests. |
+
+### Project description images
+
+- Desktop callers use `core::desktop::project_images::project_image`. The
+  gateway shares one runtime, admits up to eight concurrent HTTP requests, and
+  starts a 15-second deadline at entry, including the gateway queue. Dropping
+  the caller cancels outstanding work and releases its request slot.
+- `network` owns the shared HTTP client, system DNS and proxy, URL and redirect
+  validation, and the 8 MiB response cap. The gateway result preserves transport
+  failure categories, HTTP status, and the server's minimum retry delay.
+- `content-render` shares the loader across Markdown and HTML. Its eight load
+  slots cover download and decode, so downloaded responses cannot build up. Time
+  waiting for a load slot precedes the gateway deadline. The renderer allows
+  two concurrent decodes globally and one per document. Each document owns its
+  cache, up to 128 image requests, and a 128 MiB decoded pixel budget. A manual
+  retry invalidates only transient failures whose minimum delay has elapsed.
+  Injected transports must enforce the 8 MiB cap while receiving a response.
+  The renderer checks the completed payload before decoding and charges SVG
+  rasterization to the same pixel budget. SVG image references are skipped.
 
 ## Reusing and extending interfaces
 

@@ -18,6 +18,7 @@ use axlauncher_core::storage::{DataDir, DataPath};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{Bounds, Palette, TitlebarOptions, WindowBounds, WindowOptions, kit, px, size};
 
+mod content_debug;
 mod file_picker;
 mod installation_progress;
 mod installations;

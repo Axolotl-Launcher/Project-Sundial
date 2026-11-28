@@ -83,9 +83,13 @@ fn permitted_edge(owner: &str, dependency: &str, target_dir: &Path) -> bool {
             matches!(dependency, "axlauncher_spi" | "axlauncher_storage_layout")
         }
         "axlauncher_core" => core_system(dependency, target_dir),
+        "axlauncher_content_render" => dependency == "axlauncher_ui",
         "axlauncher_frontend" => matches!(
             dependency,
-            "axlauncher_ui" | "axlauncher_core" | "axlauncher_modpack"
+            "axlauncher_ui"
+                | "axlauncher_core"
+                | "axlauncher_content_render"
+                | "axlauncher_modpack"
         ),
         "axlauncher_modpack" => provider_contract(dependency),
         "axlauncher_mmc_convert" => matches!(
