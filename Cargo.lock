@@ -661,6 +661,7 @@ version = "0.1.0"
 dependencies = [
  "axlauncher_core",
  "axlauncher_download_engine",
+ "axlauncher_markdown",
  "axlauncher_modpack",
  "axlauncher_ui",
  "futures",
@@ -720,6 +721,18 @@ dependencies = [
  "serde_json",
  "tokio",
  "zip",
+]
+
+[[package]]
+name = "axlauncher_markdown"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_ui",
+ "html5ever",
+ "image",
+ "markdown",
+ "markup5ever_rcdom",
+ "url",
 ]
 
 [[package]]

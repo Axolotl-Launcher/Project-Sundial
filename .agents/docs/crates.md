@@ -130,6 +130,7 @@ lookup for the destination.
 | `axlauncher_core` | [core](../../apps/core/src/lib.rs) | Application-facing system re-exports and desktop request orchestration. Delegates each operation to its owning system or SPI provider. |
 | `axlauncher_ui` | [ui](../../apps/ui/src/lib.rs) | Palette, theme installation and component re-exports. |
 | `axlauncher_frontend` | [frontend](../../apps/frontend/src/lib.rs) | Root view, interaction state, windows and UI task lifecycle. |
+| `axlauncher_markdown` | [markdown](../../apps/plugins/markdown/src/lib.rs) | Markdown parsing, native rendering, and on-demand image loading. It uses `axlauncher_ui` for rendering and an injected image transport. Service-specific origins and HTTP access stay with `network`. |
 | `axlauncher_modpack` | [modpack](../../apps/plugins/modpack/src/lib.rs) | Registered readers for modpack distribution inputs, plus file selection and override planning. It may depend on provider contracts, never their implementations. |
 | `axlauncher_mmc_convert` | [mmc-convert](../../tools/mmc-convert/src/main.rs) | Standalone conversion of selected MultiMC exports with custom launch components into native, isolated profiles. It uses the modpack archive reader and the core facade. |
 | `axlauncher_platform_windows` | [Windows](../../platforms/windows/src/main.rs) | Windows executable entry point. |

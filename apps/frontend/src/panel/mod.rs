@@ -25,6 +25,7 @@ mod download_debug;
 mod environment;
 mod instances;
 mod java;
+mod markdown_debug;
 mod profile_creation;
 mod service_sources;
 mod shell;
@@ -47,6 +48,7 @@ pub(crate) struct RootView {
     java: Entity<java::JavaPanel>,
     modpack: Entity<ModpackImport>,
     download_debug: Entity<download_debug::DownloadDebug>,
+    markdown_debug: Entity<markdown_debug::MarkdownDebug>,
     download_sources: service_sources::DownloadSources,
     inspection: instances::launch::Inspection,
     installations: HashMap<PathBuf, HashMap<String, Installation>>,
@@ -80,6 +82,7 @@ impl RootView {
         let modpack = Self::new_modpack_import(loaded.paths.is_some(), window, cx);
         let download_debug =
             Self::new_download_debug(loaded.paths.clone(), loaded.settings.as_ref(), window, cx);
+        let markdown_debug = cx.new(|cx| markdown_debug::MarkdownDebug::new(window, cx));
         let download_sources = Self::new_download_sources(loaded.settings.as_ref(), window, cx);
         let accounts = Self::new_accounts(&loaded, player_input.clone(), window, cx);
         let game_language = loaded
@@ -104,6 +107,7 @@ impl RootView {
             java,
             modpack,
             download_debug,
+            markdown_debug,
             download_sources,
             inspection: instances::launch::Inspection::default(),
             installations: HashMap::new(),

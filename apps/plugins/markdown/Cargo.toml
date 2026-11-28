@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2026 Axolotl Team
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "axlauncher_markdown"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Markdown extensions for project descriptions"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+axlauncher_ui = { workspace = true }
+html5ever = { workspace = true }
+image = { workspace = true, features = ["gif", "jpeg", "webp"] }
+markdown = { workspace = true }
+markup5ever_rcdom = { workspace = true }
+url = { workspace = true }
+
+[lints]
+workspace = true

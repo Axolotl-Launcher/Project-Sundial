@@ -12,6 +12,7 @@ license.workspace = true
 
 [dependencies]
 axlauncher_core = { workspace = true }
+axlauncher_markdown = { workspace = true }
 axlauncher_modpack = { workspace = true }
 axlauncher_ui = { workspace = true }
 futures = { workspace = true }

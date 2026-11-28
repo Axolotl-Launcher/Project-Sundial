@@ -27,6 +27,7 @@ members = [
   "apps/core/storage/layout",
   "apps/core/telemetry",
   "apps/frontend",
+  "apps/plugins/markdown",
   "apps/plugins/modpack",
   "apps/ui",
   "platforms/linux",
@@ -54,7 +55,10 @@ embed-resource = "3.0.12"
 # gpui-component 与 Lucide 资源），是 Zed crates/gpui 的长期跟进快照。
 # 升级时须整体升级 gpui-kit，不要单独改 gpui-pre。
 gpui-kit = "0.10.0"
+html5ever = "0.27"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
+markdown = "1.0.0"
+markup5ever_rcdom = "0.3"
 proc-macro2 = "1.0.107"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -135,6 +139,7 @@ axlauncher_frontend = { path = "apps/frontend" }
 axlauncher_install = { path = "apps/core/install" }
 axlauncher_launch = { path = "apps/core/launch" }
 axlauncher_loader = { path = "apps/core/loader" }
+axlauncher_markdown = { path = "apps/plugins/markdown" }
 axlauncher_mc_version = { path = "apps/core/mc_version" }
 axlauncher_mod_metadata = { path = "apps/core/content/mod_metadata" }
 axlauncher_modpack = { path = "apps/plugins/modpack" }

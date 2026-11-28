@@ -30,6 +30,7 @@ pub use gpui_kit::component::{
     sidebar::{Sidebar, SidebarMenu},
     slider::{Slider, SliderEvent, SliderState},
     switch::Switch,
+    text::{MarkdownExtensions, MarkdownNode, TextView, TextViewState},
     tooltip::Tooltip,
     v_flex,
 };
