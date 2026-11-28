@@ -14,4 +14,5 @@ mod images;
 mod picture;
 mod preview;
 
+pub use image_cache::ImageFetchError;
 pub use preview::{ContentDocument, ContentRenderer, ContentType};

@@ -12,7 +12,7 @@ use url::Url;
 
 use super::blocks::{Block, ImageBlock, parse_block};
 use super::html::ImageLinks;
-use super::image_cache::{self, ImageCache, ImageFetcher};
+use super::image_cache::{self, ImageCache, ImageFetchError, ImageFetcher};
 use super::image_preview;
 use super::images::ImageState;
 use super::picture::picture;
@@ -36,7 +36,7 @@ impl ContentRenderer {
     pub fn new<F, Request>(fetch: F) -> Self
     where
         F: Fn(String) -> Request + Send + Sync + 'static,
-        Request: Future<Output = Result<Vec<u8>, String>> + Send + 'static,
+        Request: Future<Output = Result<Vec<u8>, ImageFetchError>> + Send + 'static,
     {
         Self {
             fetch: std::sync::Arc::new(move |url| Box::pin(fetch(url))),
@@ -94,12 +94,15 @@ impl ContentDocument {
         })
     }
 
-    /// Retries only failed image requests in this document.
+    /// Invalidates retryable image failures whose minimum delay has elapsed.
     pub fn retry_images(&self, cx: &mut App) {
-        self.resources
+        let changed = self
+            .resources
             .images
             .update(cx, |cache, cx| cache.retry(cx));
-        self.state.update(cx, |_, cx| cx.notify());
+        if changed {
+            self.state.update(cx, |_, cx| cx.notify());
+        }
     }
 }
 

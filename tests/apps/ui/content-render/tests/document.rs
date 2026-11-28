@@ -3,8 +3,9 @@
 
 use std::io::Cursor;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
-use axlauncher_content_render::{ContentDocument, ContentRenderer, ContentType};
+use axlauncher_content_render::{ContentDocument, ContentRenderer, ContentType, ImageFetchError};
 use axlauncher_ui::{
     AppContext as _, Bounds, Context, IntoElement, Render, Window, WindowBounds, WindowExt as _,
     WindowOptions, kit, point, px, size,
@@ -47,7 +48,7 @@ fn linked_html_image_opens_the_resolved_destination() {
         &cx,
         |url| async move {
             assert_eq!(url, "https://example.com/projects/images/badge.png");
-            png()
+            Ok(png())
         },
         ContentType::Html,
         r#"<p><a href="/linkout?target=forge"><img src="images/badge.png" width="64" height="48" alt="Forge"></a></p>"#,
@@ -92,12 +93,12 @@ fn enter_opens_the_destination_of_a_focused_markdown_image_link() {
     }
 }
 
-async fn markdown_badge(url: String, available: bool) -> Result<Vec<u8>, String> {
+async fn markdown_badge(url: String, available: bool) -> Result<Vec<u8>, ImageFetchError> {
     assert_eq!(url, "https://example.com/projects/images/badge.png");
     if available {
-        png()
+        Ok(png())
     } else {
-        Err("offline".into())
+        Err(ImageFetchError::permanent("offline"))
     }
 }
 
@@ -120,7 +121,7 @@ impl Render for Preview {
     }
 }
 
-fn mount<Request: Future<Output = Result<Vec<u8>, String>> + Send + 'static>(
+fn mount<Request: Future<Output = Result<Vec<u8>, ImageFetchError>> + Send + 'static>(
     cx: &TestAppContext,
     fetch: impl Fn(String) -> Request + Send + Sync + 'static,
     content_type: ContentType,
@@ -151,18 +152,18 @@ fn mount<Request: Future<Output = Result<Vec<u8>, String>> + Send + 'static>(
     })
 }
 
-async fn retryable_image(url: String) -> Result<Vec<u8>, String> {
+async fn retryable_image(url: String) -> Result<Vec<u8>, ImageFetchError> {
     assert_eq!(url, "https://example.com/projects/images/badge.png");
     if ATTEMPTS.fetch_add(1, Ordering::SeqCst) == 0 {
-        return Err("offline".into());
+        return Err(ImageFetchError::retryable("offline", Duration::ZERO));
     }
-    png()
+    Ok(png())
 }
 
-fn png() -> Result<Vec<u8>, String> {
+fn png() -> Vec<u8> {
     let mut bytes = Cursor::new(Vec::new());
     image::DynamicImage::new_rgb8(64, 48)
         .write_to(&mut bytes, image::ImageFormat::Png)
-        .map_err(|error| error.to_string())?;
-    Ok(bytes.into_inner())
+        .unwrap();
+    bytes.into_inner()
 }

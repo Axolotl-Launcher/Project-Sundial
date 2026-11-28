@@ -3,7 +3,7 @@
 
 //! The Debug page's editor and preview for Markdown and HTML.
 
-use axlauncher_content_render::{ContentDocument, ContentRenderer, ContentType};
+use axlauncher_content_render::{ContentDocument, ContentRenderer, ContentType, ImageFetchError};
 use axlauncher_core::desktop::project_images::project_image;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
@@ -59,9 +59,7 @@ impl ContentDebug {
             base_url_invalid: false,
             content_type: ContentType::Markdown,
             preview: None,
-            renderer: ContentRenderer::new(|url| async move {
-                project_image(url).await.map_err(|error| error.to_string())
-            }),
+            renderer: ContentRenderer::new(fetch_image),
             height: DEFAULT_HEIGHT,
             resize_focus: cx.focus_handle().tab_stop(true),
             resize_start: None,
@@ -258,6 +256,16 @@ impl Render for ContentDebug {
             )
             .child(self.resize_handle(cx))
     }
+}
+
+async fn fetch_image(url: String) -> Result<Vec<u8>, ImageFetchError> {
+    project_image(url).await.map_err(|error| {
+        let detail = error.to_string();
+        match error.retry_delay() {
+            Some(delay) => ImageFetchError::retryable(detail, delay),
+            None => ImageFetchError::permanent(detail),
+        }
+    })
 }
 
 fn pane(header: impl IntoElement, body: impl IntoElement) -> impl IntoElement {

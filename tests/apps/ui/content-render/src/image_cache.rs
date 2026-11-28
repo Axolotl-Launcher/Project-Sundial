@@ -3,13 +3,18 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{future::pending, time::Duration};
 
 use async_lock::Semaphore;
+use axlauncher_ui::{App, Entity};
 use gpui::TestAppContext;
 use image::codecs::gif::GifEncoder;
 use image::{Frame, RgbaImage};
 
-use super::{DocumentImage, ImageCache, ImageFetcher, MAX_DECODED_BYTES};
+use super::{
+    DocumentImage, ImageCache, ImageFailure, ImageFetchError, ImageFetcher, ImageRequest,
+    MAX_DECODED_BYTES,
+};
 
 #[test]
 fn distinct_images_in_a_document_start_before_either_download_finishes() {
@@ -29,11 +34,8 @@ fn distinct_images_in_a_document_start_before_either_download_finishes() {
     });
     let (document, requests) = cx.update(|cx| {
         let document = ImageCache::new(fetch, cx);
-        let requests = ["https://example.com/one.gif", "https://example.com/two.gif"].map(|url| {
-            let request = document.update(cx, |cache, _| cache.admit(url.into()).unwrap());
-            assert!(cx.fetch_asset::<DocumentImage>(&request).is_none());
-            request
-        });
+        let requests = ["one.gif", "two.gif"].map(|path| queue_image(&document, path, cx));
+        queue_image(&document, "one.gif", cx);
         (document, requests)
     });
     cx.run_until_parked();
@@ -42,7 +44,10 @@ fn distinct_images_in_a_document_start_before_either_download_finishes() {
     cx.run_until_parked();
     cx.update(|cx| {
         for request in &requests {
-            assert!(cx.fetch_asset::<DocumentImage>(request).flatten().is_some());
+            assert!(matches!(
+                cx.fetch_asset::<DocumentImage>(request),
+                Some(Ok(_))
+            ));
         }
         assert_eq!(
             *document.read(cx).remaining_bytes.try_lock().unwrap(),
@@ -77,11 +82,11 @@ fn releasing_one_document_evicts_only_its_image_assets() {
     cx.update(|cx| {
         assert!(matches!(
             cx.fetch_asset::<DocumentImage>(&request),
-            Some(Some(_))
+            Some(Ok(_))
         ));
         assert!(matches!(
             cx.fetch_asset::<DocumentImage>(&other_request),
-            Some(Some(_))
+            Some(Ok(_))
         ));
         for cache in [&document, &other] {
             assert_eq!(
@@ -98,6 +103,93 @@ fn releasing_one_document_evicts_only_its_image_assets() {
     });
     drop(other);
     cx.quit();
+}
+
+#[test]
+fn releasing_a_document_cancels_a_pending_image_asset() {
+    let cx = TestAppContext::single();
+    let loading = Arc::new(Semaphore::new(1));
+    let fetch_loading = loading.clone();
+    let fetch: ImageFetcher = Arc::new(move |_| Box::pin(hold_image(fetch_loading.clone())));
+    let (document, request) = cx.update(|cx| {
+        let document = ImageCache::new(fetch, cx);
+        let request = document.update(cx, |cache, _| {
+            cache
+                .admit("https://example.com/pending.gif".into())
+                .unwrap()
+        });
+        assert!(cx.fetch_asset::<DocumentImage>(&request).is_none());
+        (document, request)
+    });
+    cx.run_until_parked();
+    assert!(loading.try_acquire().is_none());
+    drop(document);
+    cx.update(|_| {});
+    cx.run_until_parked();
+    cx.update(|cx| assert!(!cx.has_asset::<DocumentImage>(&request)));
+    assert!(loading.try_acquire().is_some());
+    cx.quit();
+}
+
+async fn hold_image(loading: Arc<Semaphore>) -> Result<Vec<u8>, ImageFetchError> {
+    let _permit = loading.acquire().await;
+    pending().await
+}
+
+#[test]
+fn retry_respects_server_delay_and_keeps_other_image_results() {
+    let cx = TestAppContext::single();
+    let fetch: ImageFetcher = Arc::new(|url| Box::pin(retry_fixture(url)));
+    let (document, requests) = cx.update(|cx| {
+        let document = ImageCache::new(fetch, cx);
+        let requests = ["wait", "offline", "rejected", "invalid", "ready", "pending"]
+            .map(|path| queue_image(&document, path, cx));
+        (document, requests)
+    });
+    cx.run_until_parked();
+    let [delayed, offline, rejected, invalid, ready, loading] = requests;
+    cx.update(|cx| {
+        assert!(matches!(
+            cx.fetch_asset::<DocumentImage>(&invalid),
+            Some(Err(ImageFailure::Decode))
+        ));
+        assert!(document.update(cx, |cache, cx| cache.retry(cx)));
+        assert!(!cx.has_asset::<DocumentImage>(&offline));
+        assert!(cx.has_asset::<DocumentImage>(&delayed));
+        assert!(!document.update(cx, |cache, cx| cache.retry(cx)));
+    });
+    cx.executor().advance_clock(Duration::from_secs(5));
+    cx.update(|cx| {
+        assert!(document.update(cx, |cache, cx| cache.retry(cx)));
+        assert!(!cx.has_asset::<DocumentImage>(&delayed));
+        for request in [rejected, invalid, ready, loading] {
+            assert!(cx.has_asset::<DocumentImage>(&request));
+        }
+    });
+    drop(document);
+    cx.quit();
+}
+
+fn queue_image(document: &Entity<ImageCache>, path: &str, cx: &mut App) -> ImageRequest {
+    let uri = format!("https://example.com/{path}").into();
+    let request = document.update(cx, |cache, _| cache.admit(uri).unwrap());
+    assert!(cx.fetch_asset::<DocumentImage>(&request).is_none());
+    request
+}
+
+async fn retry_fixture(url: String) -> Result<Vec<u8>, ImageFetchError> {
+    match url.rsplit('/').next().unwrap() {
+        "wait" => Err(ImageFetchError::retryable(
+            "HTTP 429",
+            Duration::from_secs(5),
+        )),
+        "offline" => Err(ImageFetchError::retryable("offline", Duration::ZERO)),
+        "rejected" => Err(ImageFetchError::permanent("HTTP 404")),
+        "invalid" => Ok(Vec::new()),
+        "ready" => Ok(animated_image()),
+        "pending" => pending().await,
+        path => panic!("unexpected path {path}"),
+    }
 }
 
 fn animated_image() -> Vec<u8> {

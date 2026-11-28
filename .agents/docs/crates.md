@@ -147,6 +147,22 @@ queueing and transfer.
 | `axlauncher_platform_macos` | [macOS](../../platforms/macos/src/main.rs) | macOS executable entry point. |
 | `axlauncher_policy_tests` | [tests](../../tests/tests) | Repository policies, architecture checks and cross-crate SPI contract tests. |
 
+### Project description images
+
+- Desktop callers use `core::desktop::project_images::project_image`. The
+  gateway shares one runtime, admits up to eight concurrent HTTP requests, and
+  starts a 15-second deadline at entry, including the gateway queue. Dropping
+  the caller cancels outstanding work and releases its request slot.
+- `network` owns the shared HTTP client, system DNS and proxy, URL and redirect
+  validation, and the 8 MiB response cap. The gateway result preserves transport
+  failure categories, HTTP status, and the server's minimum retry delay.
+- `content-render` shares the loader across Markdown and HTML. Its eight load
+  slots cover download and decode, so downloaded responses cannot build up. Time
+  waiting for a load slot precedes the gateway deadline. The renderer allows
+  two concurrent decodes globally and one per document. Each document owns its
+  cache, up to 128 image requests, and a 128 MiB decoded pixel budget. A manual
+  retry invalidates only transient failures whose minimum delay has elapsed.
+
 ## Reusing and extending interfaces
 
 1. Check the provider contracts in the inventory and the resource owner above.
