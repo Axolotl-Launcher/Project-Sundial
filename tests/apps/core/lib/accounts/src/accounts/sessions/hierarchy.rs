@@ -17,7 +17,7 @@ async fn anonymous_and_named_launchers_have_independent_minecraft_lists_and_sele
     let empty = service.snapshot().await.unwrap();
     let anonymous = empty.launcher();
     assert_eq!(empty.launchers().len(), 1);
-    assert!(empty.launchers()[0].name().is_none());
+    assert!(empty.launchers().next().unwrap().name().is_none());
     assert!(empty.selected().is_none());
     assert_eq!(empty.iter().len(), 0);
 
@@ -27,7 +27,14 @@ async fn anonymous_and_named_launchers_have_independent_minecraft_lists_and_sele
     let snapshot = service.snapshot().await.unwrap();
     let second = snapshot.launcher();
     assert_ne!(anonymous, second);
-    assert_eq!(snapshot.launchers()[1].name(), Some("Second"));
+    assert_eq!(
+        snapshot
+            .launchers()
+            .find(|launcher| launcher.id() == second)
+            .unwrap()
+            .name(),
+        Some("Second")
+    );
     assert_eq!(snapshot.iter().len(), 0);
     assert!(matches!(
         service.select(second, Some(first.id())),
@@ -188,7 +195,7 @@ async fn verify_migration(schema: u32) {
     );
     assert_eq!(snapshot.iter().len(), 3);
     assert_eq!(snapshot.launchers().len(), 1);
-    assert!(snapshot.launchers()[0].name().is_none());
+    assert!(snapshot.launchers().next().unwrap().name().is_none());
 
     let migrated: Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
     assert_eq!(migrated["schema_version"], 4);

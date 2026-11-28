@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use super::hierarchy::DeviceRootUser;
-use super::{AccountError, AccountId, CredentialRef, McAccount};
+use super::{AccountError, AccountId, AccountKey, CredentialRef, McAccount};
 
 const SCHEMA_VERSION: u32 = 4;
 
@@ -40,10 +40,7 @@ impl AccountFile {
         &self,
         change: impl FnOnce(&mut DeviceRootUser) -> Result<T, AccountError>,
     ) -> Result<T, AccountError> {
-        let mut transaction = self.lock()?;
-        let output = change(transaction.root_mut())?;
-        transaction.save()?;
-        Ok(output)
+        self.lock()?.update(change)
     }
 
     pub(super) fn lock(&self) -> Result<Transaction<'_>, AccountError> {
@@ -85,17 +82,36 @@ pub(super) struct Transaction<'file> {
 }
 
 impl Transaction<'_> {
-    pub(super) fn root(&self) -> &DeviceRootUser {
-        &self.root
+    pub(super) fn credential(
+        &self,
+        key: AccountKey,
+    ) -> Result<Option<CredentialRef>, AccountError> {
+        Ok(self.root.find(key)?.credential)
     }
 
-    pub(super) fn root_mut(&mut self) -> &mut DeviceRootUser {
-        &mut self.root
+    pub(super) fn update<T>(
+        &mut self,
+        change: impl FnOnce(&mut DeviceRootUser) -> Result<T, AccountError>,
+    ) -> Result<T, AccountError> {
+        let output = change(&mut self.root)?;
+        self.save()?;
+        Ok(output)
     }
 
-    pub(super) fn save(&mut self) -> Result<(), AccountError> {
-        self.root().validate()?;
-        let value = serde_json::to_value(self.root()).expect("device root serializes");
+    pub(super) fn cleanup_retired(
+        &mut self,
+        target: Option<CredentialRef>,
+        remove: impl FnMut(CredentialRef) -> bool,
+    ) -> Result<bool, AccountError> {
+        if self.root.prune_retired(remove) {
+            self.save()?;
+        }
+        Ok(target.is_none_or(|key| !self.root.is_retired(key)))
+    }
+
+    fn save(&mut self) -> Result<(), AccountError> {
+        self.root.validate()?;
+        let value = serde_json::to_value(&self.root).expect("device root serializes");
         self.file
             .device_roots
             .insert(self.owner.principal.clone(), value);
@@ -158,15 +174,20 @@ struct FlatAccounts {
 
 impl FlatAccounts {
     fn migrate(self, principal: &str) -> FileData {
-        let root =
-            DeviceRootUser::from_flat(self.accounts, self.selected, self.retired_credentials);
         let mut file = FileData {
             extra: self.extra,
             ..FileData::default()
         };
+        let mut root_extra = Map::new();
         if let Some(value) = file.extra.remove("device_roots") {
-            file.extra.insert("legacy_device_roots".to_owned(), value);
+            root_extra.insert("device_roots".to_owned(), value);
         }
+        let root = DeviceRootUser::from_flat(
+            self.accounts,
+            self.selected,
+            self.retired_credentials,
+            root_extra,
+        );
         file.device_roots.insert(
             principal.to_owned(),
             serde_json::to_value(root).expect("migrated device root serializes"),

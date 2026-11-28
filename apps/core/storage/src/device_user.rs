@@ -42,7 +42,7 @@ fn process_principal() -> Option<String> {
     #[cfg(not(windows))]
     let principal = process.effective_user_id()?;
     let mut value = String::new();
-    write!(&mut value, "{}", &**principal).ok()?;
+    write!(&mut value, "{}", **principal).ok()?;
     Some(value)
 }
 

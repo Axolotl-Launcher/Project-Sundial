@@ -140,7 +140,7 @@ fn one_executable_loads_accounts_only_on_demand() {
     let empty = account_snapshot(&fixture, &worker);
     assert!(empty.selected().is_none());
     assert_eq!(empty.launchers().len(), 1);
-    assert!(empty.launchers()[0].name().is_none());
+    assert!(empty.launchers().next().unwrap().name().is_none());
     let mut add = fixture.account(
         &worker,
         Action::Change(Change::AddOffline {

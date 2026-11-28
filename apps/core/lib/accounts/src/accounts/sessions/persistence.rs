@@ -25,14 +25,14 @@ impl<S: CredentialStore> AccountService<S> {
             return Err(AccountError::Cancelled);
         }
         let result = self.persist_locked(launcher, account, expected, secret, commit);
-        let _ = self.cleanup_retired();
+        let _ = self.cleanup_retired(None);
         result
     }
 
     fn persist_locked(
         &self,
         launcher: LauncherId,
-        mut account: McAccount,
+        account: McAccount,
         expected: Option<AccountId>,
         secret: &str,
         commit: &SignInCommit,
@@ -41,50 +41,39 @@ impl<S: CredentialStore> AccountService<S> {
         if !commit.is_pending() {
             return Err(AccountError::Cancelled);
         }
-        let target = transaction.root().launcher(launcher)?;
-        let old = target
-            .find(account.id)
-            .ok()
-            .and_then(|account| account.credential);
+        let old = match transaction.credential(AccountKey::new(launcher, account.id)) {
+            Ok(credential) => credential,
+            Err(AccountError::Missing) => None,
+            Err(error) => return Err(error),
+        };
         if let Some(expected) = expected {
-            target.find(expected)?;
+            transaction.credential(AccountKey::new(launcher, expected))?;
         }
         let key = CredentialRef::Scoped {
             key: Uuid::new_v4(),
         };
         // Reserve before touching the keyring so a failed or interrupted save is recoverable.
-        transaction.root_mut().retire([key]);
-        transaction.save()?;
+        transaction.update(|root| {
+            root.retire([key]);
+            Ok(())
+        })?;
         let persisted = self
             .store
             .write(&self.file.credential_key(key), secret)
             .is_ok();
         commit.begin()?;
-        let credential = if persisted { Some(key) } else { old };
-        account.credential = credential;
-        let root = transaction.root_mut();
-        root.launcher_mut(launcher)?.remember(account);
-        if persisted {
-            root.keep_retired(|candidate| *candidate != key);
-            root.retire(old);
-        }
-        transaction.save()?;
+        let fresh = persisted.then_some(key);
+        let credential = transaction.update(|root| root.remember(launcher, account, old, fresh))?;
         Ok((credential, persisted))
     }
 
-    pub(super) fn cleanup_retired(&self) -> Result<Vec<CredentialRef>, AccountError> {
-        let mut transaction = self.file.lock()?;
-        let root = transaction.root_mut();
-        let before = root.retired().len();
-        let live = root.live_credentials();
-        root.keep_retired(|key| {
-            !live.contains(key) && self.store.remove(&self.file.credential_key(*key)).is_err()
-        });
-        let remaining = root.retired().to_vec();
-        if remaining.len() != before {
-            transaction.save()?;
-        }
-        Ok(remaining)
+    pub(super) fn cleanup_retired(
+        &self,
+        target: Option<CredentialRef>,
+    ) -> Result<bool, AccountError> {
+        self.file.lock()?.cleanup_retired(target, |key| {
+            self.store.remove(&self.file.credential_key(key)).is_ok()
+        })
     }
 
     pub(super) fn write_current_secret(
@@ -94,7 +83,7 @@ impl<S: CredentialStore> AccountService<S> {
         secret: &str,
     ) -> Result<bool, AccountError> {
         let transaction = self.file.lock()?;
-        if transaction.root().find(key)?.credential != Some(credential) {
+        if transaction.credential(key)? != Some(credential) {
             return Err(AccountError::Missing);
         }
         Ok(self

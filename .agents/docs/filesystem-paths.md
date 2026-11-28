@@ -39,6 +39,11 @@ Changing app data also changes paths derived from it, including the default
 instance directory. Cache and scratch defaults follow app data only in
 isolated mode; otherwise they keep their platform defaults.
 
+The account document uses the active app data root, including in portable
+packaging. The account worker scopes records to the current device and OS
+principal; moving a data directory does not move that principal's saved
+accounts or system credentials to another machine or user.
+
 ## Layout and filesystem operations
 
 - Use `DataDir::game()` for the shared Minecraft tree, including the cache

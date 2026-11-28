@@ -189,17 +189,21 @@ impl<Store: CredentialStore + 'static> Accounts<Store> {
         cancel: &Cancellation,
     ) -> Result<(), String> {
         if !key.id().is_online() {
-            if !cancel.begin_commit() {
-                return reply.send(Reply::Cancelled);
-            }
-            let name = self
-                .service
-                .offline_name(key)
-                .map_err(|error| error.to_string())?;
-            return reply.send(Reply::Identity(Identity::Offline { name }));
+            return reply.send(self.offline_reply(key, cancel)?);
         }
         let network = auth(proxy)?;
         reply.send(self.launch_reply(key, &network, cancel).await?)
+    }
+
+    fn offline_reply(&self, key: AccountKey, cancel: &Cancellation) -> Result<Reply, String> {
+        if !cancel.begin_commit() {
+            return Ok(Reply::Cancelled);
+        }
+        let name = self
+            .service
+            .offline_name(key)
+            .map_err(|error| error.to_string())?;
+        Ok(Reply::Identity(Identity::Offline { name }))
     }
 
     async fn launch_reply(

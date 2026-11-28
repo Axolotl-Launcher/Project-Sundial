@@ -129,8 +129,7 @@ impl AccountsPanel {
         self.error = None;
         self.working = false;
         self.add_offline = None;
-        self.launcher_name
-            .update(cx, |input, cx| input.set_value("", window, cx));
+        self.clear_launcher_name(window, cx);
         self.login = None;
         self.third_party.reset(window, cx);
     }
@@ -199,6 +198,12 @@ impl AccountsPanel {
 
     fn change_accounts(&mut self, action: AccountAction, cx: &mut Context<'_, Self>) {
         self.start_account_action(action, None, cx);
+    }
+
+    fn select_launcher(&mut self, id: LauncherId, cx: &mut Context<'_, Self>) {
+        if self.add_offline.is_none() && !self.third_party.is_open() {
+            self.change_accounts(AccountAction::SelectLauncher(id), cx);
+        }
     }
 
     fn start_account_action(
@@ -374,12 +379,15 @@ impl AccountsPanel {
         if self.is_current(service) && result.1.is_none() {
             match form {
                 AccountForm::Offline => self.close_offline_form(window, cx),
-                AccountForm::Launcher => self.launcher_name.update(cx, |input, cx| {
-                    input.set_value("", window, cx);
-                }),
+                AccountForm::Launcher => self.clear_launcher_name(window, cx),
             }
         }
         self.finish_account_action(service, result, cx);
+    }
+
+    fn clear_launcher_name(&self, window: &mut Window, cx: &mut App) {
+        self.launcher_name
+            .update(cx, |input, cx| input.set_value("", window, cx));
     }
 
     async fn show_account_action(

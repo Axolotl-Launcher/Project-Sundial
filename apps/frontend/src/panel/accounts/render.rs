@@ -7,8 +7,8 @@ use axlauncher_core::desktop::accounts::{Account, AccountId, AccountKey, Launche
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, AnyElement, Button, ButtonVariants, ClipboardItem, Context, Disableable,
-    DropdownMenu, ElementId, GroupBox, IconName, Input, IntoElement, Label, PopupMenuItem, Render,
-    WeakEntity, Window, h_flex, v_flex,
+    DropdownMenu, ElementId, GroupBox, IconName, Input, IntoElement, Label, PopupMenu,
+    PopupMenuItem, Render, WeakEntity, Window, h_flex, v_flex,
 };
 
 use super::login::{Method, Stage};
@@ -129,7 +129,6 @@ impl AccountsPanel {
         let selected = snapshot.launcher();
         let options: Vec<_> = snapshot
             .launchers()
-            .iter()
             .map(|launcher| {
                 (
                     launcher.id(),
@@ -151,19 +150,44 @@ impl AccountsPanel {
         }
         let view = cx.weak_entity();
         trigger
-            .dropdown_menu(move |menu, _, _| {
-                options
-                    .iter()
-                    .fold(menu.scrollable(true), |menu, (id, name)| {
-                        menu.item(launcher_menu_item(
-                            *id,
-                            name.clone(),
-                            *id == selected,
-                            view.clone(),
-                        ))
-                    })
-            })
+            .dropdown_menu(move |menu, _, _| Self::launcher_menu(menu, &options, selected, &view))
             .into_any_element()
+    }
+
+    fn launcher_menu(
+        mut menu: PopupMenu,
+        options: &[(LauncherId, String)],
+        selected: LauncherId,
+        view: &WeakEntity<Self>,
+    ) -> PopupMenu {
+        menu = menu.scrollable(true);
+        for (id, name) in options {
+            menu = menu.item(Self::launcher_menu_item(
+                *id,
+                name.clone(),
+                *id == selected,
+                view.clone(),
+            ));
+        }
+        menu
+    }
+
+    fn launcher_menu_item(
+        id: LauncherId,
+        name: String,
+        selected: bool,
+        view: WeakEntity<Self>,
+    ) -> PopupMenuItem {
+        let item = PopupMenuItem::element(move |_, _| {
+            Label::new(name.clone()).id(ElementId::Name(format!("launcher-option:{id}").into()))
+        })
+        .checked(selected);
+        if selected {
+            return item;
+        }
+        item.on_click(move |_, _, cx| {
+            let _ = view.update(cx, |view, cx| view.select_launcher(id, cx));
+        })
     }
 
     fn account_commands(
@@ -440,26 +464,6 @@ impl AccountsPanel {
             .label("Open browser")
             .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url)))
     }
-}
-
-fn launcher_menu_item(
-    id: LauncherId,
-    name: String,
-    selected: bool,
-    view: WeakEntity<AccountsPanel>,
-) -> PopupMenuItem {
-    let item = PopupMenuItem::element(move |_, _| {
-        Label::new(name.clone()).id(ElementId::Name(format!("launcher-option:{id}").into()))
-    })
-    .checked(selected);
-    if selected {
-        return item;
-    }
-    item.on_click(move |_, _, cx| {
-        let _ = view.update(cx, |view, cx| {
-            view.change_accounts(AccountAction::SelectLauncher(id), cx);
-        });
-    })
 }
 
 fn account_label(account: &Account, persistence: Option<Persistence>) -> String {

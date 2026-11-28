@@ -10,6 +10,7 @@ use axlauncher_network_spi::auth::AuthNetwork;
 use axlauncher_spi::credentials::CredentialStore;
 use axlauncher_storage::{DataDir, DeviceUserId};
 use axlauncher_worker::accounts::{Account as ViewAccount, AccountSnapshot};
+use serde_json::Map;
 use tokio::sync::Mutex;
 
 use super::document::AccountFile;
@@ -75,22 +76,22 @@ impl<S: CredentialStore> AccountService<S> {
     pub async fn snapshot(&self) -> Result<AccountSnapshot, AccountError> {
         let sessions = self.sessions.lock().await;
         let root = self.file.read()?;
-        if !root.retired().is_empty() {
-            let _ = self.cleanup_retired();
+        if root.has_retired() {
+            let _ = self.cleanup_retired(None);
         }
         let launcher = root.active();
         let accounts = launcher
             .accounts()
-            .iter()
             .map(|account| {
                 let key = AccountKey::new(launcher.id(), account.id);
-                let status = account.id.is_online().then(|| {
-                    let cached = sessions
-                        .accounts
-                        .get(&key)
-                        .filter(|entry| entry.credential == account.credential);
-                    self.persistence(account, cached)
-                });
+                let cached = sessions
+                    .accounts
+                    .get(&key)
+                    .filter(|entry| entry.credential == account.credential);
+                let status = account
+                    .id
+                    .is_online()
+                    .then(|| self.persistence(account, cached));
                 ViewAccount::new(
                     account.id,
                     account.name.clone(),
@@ -158,10 +159,7 @@ impl<S: CredentialStore> AccountService<S> {
         let mut sessions = self.sessions.lock().await;
         let credential = self.file.update(|root| root.remove(key))?;
         sessions.accounts.remove(&key);
-        Ok(credential.is_none_or(|key| {
-            self.cleanup_retired()
-                .is_ok_and(|remaining| !remaining.contains(&key))
-        }))
+        Ok(credential.is_none() || self.cleanup_retired(credential).unwrap_or(false))
     }
 
     /// Saves a verified account or replaces the credentials for the expected identity.
@@ -193,7 +191,7 @@ impl<S: CredentialStore> AccountService<S> {
             name: verified.profile.name,
             credential: None,
             server: None,
-            extra: Default::default(),
+            extra: Map::new(),
         };
         self.save(
             launcher,
@@ -237,7 +235,7 @@ impl<S: CredentialStore> AccountService<S> {
             name: verified.profile.name().to_owned(),
             credential: None,
             server: Some(verified.server),
-            extra: Default::default(),
+            extra: Map::new(),
         };
         let secret = serde_json::to_string(&verified.tokens).expect("Yggdrasil tokens serialize");
         let cached = Cached {

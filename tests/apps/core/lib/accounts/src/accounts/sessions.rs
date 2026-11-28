@@ -85,7 +85,7 @@ fn cancelling_during_a_keyring_write_never_saves_or_selects_the_account() {
             "Previous"
         );
         assert!(keyring.values.lock().unwrap().is_empty());
-        assert!(service.file.read().unwrap().retired().is_empty());
+        assert!(!service.file.read().unwrap().has_retired());
     });
 }
 
@@ -133,12 +133,12 @@ fn failed_reauthentication_keeps_the_saved_key_and_removal_retries_after_restart
         );
         keyring.fail_remove.store(true, Ordering::Relaxed);
         assert!(!restarted.remove(key).await.unwrap());
-        assert!(restarted.file.read().unwrap().retired().contains(&old));
+        assert!(restarted.file.read().unwrap().is_retired(old));
         keyring.fail_remove.store(false, Ordering::Relaxed);
         let restarted = AccountService::new(data, &keyring).unwrap();
         assert!(restarted.snapshot().await.unwrap().selected().is_none());
         assert!(keyring.values.lock().unwrap().is_empty());
-        assert!(restarted.file.read().unwrap().retired().is_empty());
+        assert!(!restarted.file.read().unwrap().has_retired());
     });
 }
 

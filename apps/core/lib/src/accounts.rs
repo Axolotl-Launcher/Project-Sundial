@@ -154,8 +154,8 @@ impl AccountSnapshot {
         }
     }
 
-    pub fn launchers(&self) -> &[LauncherAccount] {
-        &self.launchers
+    pub fn launchers(&self) -> impl ExactSizeIterator<Item = &LauncherAccount> {
+        self.launchers.iter()
     }
 
     pub fn launcher(&self) -> LauncherId {

@@ -26,15 +26,14 @@ impl DeviceRootUser {
         accounts: Vec<McAccount>,
         selected: Option<AccountId>,
         retired_credentials: Vec<CredentialRef>,
+        extra: Map<String, Value>,
     ) -> Self {
-        let mut launcher = LauncherAccount::new(None);
-        launcher.selected = selected.filter(|id| accounts.iter().any(|account| account.id == *id));
-        launcher.mc_accounts = accounts;
+        let launcher = LauncherAccount::from_flat(accounts, selected);
         Self {
             selected_launcher: Some(launcher.id()),
             launcher_accounts: vec![launcher],
             retired_credentials,
-            ..Self::default()
+            extra,
         }
     }
 
@@ -50,15 +49,16 @@ impl DeviceRootUser {
         let mut launchers = HashSet::new();
         let mut credentials = HashSet::new();
         for launcher in &self.launcher_accounts {
-            if !launchers.insert(launcher.id()) {
-                return Err(AccountError::InvalidHierarchy);
-            }
+            launchers
+                .insert(launcher.id())
+                .then_some(())
+                .ok_or(AccountError::InvalidHierarchy)?;
             launcher.validate(&mut credentials)?;
         }
         let anonymous_count = self
             .launcher_accounts
             .iter()
-            .filter(|launcher| launcher.name.is_none())
+            .filter(|launcher| launcher.is_anonymous())
             .count();
         let valid = if launchers.is_empty() {
             self.selected_launcher.is_none()
@@ -74,7 +74,7 @@ impl DeviceRootUser {
     pub(super) fn summaries(&self) -> Vec<LauncherSummary> {
         self.launcher_accounts
             .iter()
-            .map(|launcher| LauncherSummary::new(launcher.id(), launcher.name.clone()))
+            .map(LauncherAccount::summary)
             .collect()
     }
 
@@ -110,12 +110,11 @@ impl DeviceRootUser {
         {
             return Err(AccountError::InvalidLauncherName);
         }
-        if self.launcher_accounts.iter().any(|launcher| {
-            launcher
-                .name
-                .as_ref()
-                .is_some_and(|existing| existing.eq_ignore_ascii_case(name))
-        }) {
+        if self
+            .launcher_accounts
+            .iter()
+            .any(|launcher| launcher.is_named(name))
+        {
             return Err(AccountError::DuplicateLauncherName);
         }
         self.insert_launcher(Some(name.to_owned()));
@@ -151,20 +150,42 @@ impl DeviceRootUser {
         self.retired_credentials.extend(credential);
     }
 
-    pub(super) fn keep_retired(&mut self, keep: impl FnMut(&CredentialRef) -> bool) {
-        self.retired_credentials.retain(keep);
+    pub(super) fn remember(
+        &mut self,
+        launcher: LauncherId,
+        mut account: McAccount,
+        old: Option<CredentialRef>,
+        fresh: Option<CredentialRef>,
+    ) -> Result<Option<CredentialRef>, AccountError> {
+        let credential = fresh.or(old);
+        account.credential = credential;
+        self.launcher_mut(launcher)?.remember(account);
+        if let Some(fresh) = fresh {
+            self.retired_credentials
+                .retain(|candidate| *candidate != fresh);
+            self.retire(old);
+        }
+        Ok(credential)
     }
 
-    pub(super) fn retired(&self) -> &[CredentialRef] {
-        &self.retired_credentials
+    pub(super) fn has_retired(&self) -> bool {
+        !self.retired_credentials.is_empty()
     }
 
-    pub(super) fn live_credentials(&self) -> HashSet<CredentialRef> {
-        self.launcher_accounts
+    pub(super) fn is_retired(&self, credential: CredentialRef) -> bool {
+        self.retired_credentials.contains(&credential)
+    }
+
+    pub(super) fn prune_retired(&mut self, mut remove: impl FnMut(CredentialRef) -> bool) -> bool {
+        let before = self.retired_credentials.len();
+        let live: HashSet<_> = self
+            .launcher_accounts
             .iter()
-            .flat_map(LauncherAccount::accounts)
-            .filter_map(|account| account.credential)
-            .collect()
+            .flat_map(LauncherAccount::credentials)
+            .collect();
+        self.retired_credentials
+            .retain(|key| !live.contains(key) && !remove(*key));
+        self.retired_credentials.len() != before
     }
 }
 
@@ -189,12 +210,38 @@ impl LauncherAccount {
         }
     }
 
+    fn from_flat(accounts: Vec<McAccount>, selected: Option<AccountId>) -> Self {
+        Self {
+            selected: selected.filter(|id| accounts.iter().any(|account| account.id == *id)),
+            mc_accounts: accounts,
+            ..Self::new(None)
+        }
+    }
+
     pub(super) fn id(&self) -> LauncherId {
         self.id
     }
 
-    pub(super) fn accounts(&self) -> &[McAccount] {
-        &self.mc_accounts
+    fn is_anonymous(&self) -> bool {
+        self.name.is_none()
+    }
+
+    fn is_named(&self, name: &str) -> bool {
+        self.name
+            .as_ref()
+            .is_some_and(|existing| existing.eq_ignore_ascii_case(name))
+    }
+
+    fn summary(&self) -> LauncherSummary {
+        LauncherSummary::new(self.id, self.name.clone())
+    }
+
+    pub(super) fn accounts(&self) -> impl ExactSizeIterator<Item = &McAccount> {
+        self.mc_accounts.iter()
+    }
+
+    fn credentials(&self) -> impl Iterator<Item = CredentialRef> {
+        self.accounts().filter_map(|account| account.credential)
     }
 
     pub(super) fn selection(&self) -> Option<AccountId> {
@@ -204,16 +251,13 @@ impl LauncherAccount {
     fn validate(&self, credentials: &mut HashSet<CredentialRef>) -> Result<(), AccountError> {
         let mut identities = HashSet::new();
         for account in self.accounts() {
-            if !account.has_expected_provider() {
-                return Err(AccountError::InvalidServer);
-            }
-            if !identities.insert(account.id)
-                || account
-                    .credential
-                    .is_some_and(|key| !credentials.insert(key))
-            {
-                return Err(AccountError::InvalidHierarchy);
-            }
+            account
+                .has_expected_provider()
+                .then_some(())
+                .ok_or(AccountError::InvalidServer)?;
+            let unique = identities.insert(account.id)
+                && account.credential.is_none_or(|key| credentials.insert(key));
+            unique.then_some(()).ok_or(AccountError::InvalidHierarchy)?;
         }
         if self.selected.is_some_and(|id| !identities.contains(&id)) {
             return Err(AccountError::InvalidHierarchy);
@@ -252,7 +296,7 @@ impl LauncherAccount {
         Ok(credential)
     }
 
-    pub(super) fn remember(&mut self, mut account: McAccount) {
+    fn remember(&mut self, mut account: McAccount) {
         if let Some(index) = self
             .mc_accounts
             .iter()
