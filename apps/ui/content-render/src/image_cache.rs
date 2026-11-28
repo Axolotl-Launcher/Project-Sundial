@@ -13,10 +13,9 @@ use axlauncher_ui::{
 };
 
 use super::image_placeholder;
-use super::images::{ImageFetcher, ImageState, load_image, skeleton};
+use super::images::{ImageFetcher, ImageState, MAX_DECODED_BYTES, load_image, skeleton};
 
 const MAX_IMAGES: usize = 128;
-const MAX_DECODED_BYTES: usize = 128 * 1024 * 1024;
 
 pub(super) fn source(uri: Option<SharedUri>, cache: Entity<ImageCache>) -> ImageSource {
     ImageSource::Custom(Arc::new(move |window, cx| {
@@ -155,7 +154,10 @@ impl Asset for DocumentImage {
 
 async fn load(request: ImageRequest) -> Option<Arc<RenderImage>> {
     let image = load_image(request.uri.as_ref(), request.fetch)?;
-    let bytes = image.as_bytes(0)?.len();
+    let bytes = (0..image.frame_count())
+        .filter_map(|index| image.as_bytes(index))
+        .map(<[u8]>::len)
+        .sum();
     reserve_bytes(&request.decoded_bytes, bytes).then_some(image)
 }
 

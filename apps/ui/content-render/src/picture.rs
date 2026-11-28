@@ -61,6 +61,7 @@ fn loaded_picture(
 ) -> AnyElement {
     let ring = cx.theme().ring;
     let thumbnail = img(image.clone())
+        .id("picture-image")
         .absolute()
         .inset_0()
         .size_full()

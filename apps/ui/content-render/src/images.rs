@@ -8,10 +8,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axlauncher_ui::{ActiveTheme, App, Asset, RenderImage, Rgba, Window, bounce, ease_in_out};
-use image::{Delay, Frame, ImageReader, Limits, RgbaImage};
+use image::codecs::{gif::GifDecoder, webp::WebPDecoder};
+use image::error::{DecodingError, LimitError, LimitErrorKind};
+use image::{
+    AnimationDecoder, Delay, DynamicImage, Frame, ImageDecoder, ImageError, ImageFormat,
+    ImageReader, Limits, RgbaImage,
+};
 use url::Url;
 
 const MAX_IMAGE_EDGE: u32 = 4096;
+const MAX_ANIMATION_FRAMES: usize = 1024;
+pub(super) const MAX_DECODED_BYTES: usize = 128 * 1024 * 1024;
 pub(super) const SKELETON_WIDTH: u32 = 160;
 pub(super) const SKELETON_HEIGHT: u32 = 90;
 const SKELETON_CYCLE_MS: u32 = 2_000;
@@ -74,7 +81,7 @@ fn skeleton_pixels(fill: image::Rgba<u8>) -> RgbaImage {
 
 pub(super) fn load_image(uri: &str, fetch: ImageFetcher) -> Option<Arc<RenderImage>> {
     match fetch(uri) {
-        Ok(bytes) => decode(bytes)
+        Ok(bytes) => decode(&bytes)
             .inspect_err(|error| report_failure(uri, "decode", error))
             .ok(),
         Err(error) => {
@@ -107,17 +114,67 @@ fn log_target(uri: &str) -> String {
     url.into()
 }
 
-fn decode(bytes: Vec<u8>) -> image::ImageResult<Arc<RenderImage>> {
+fn decode(bytes: &[u8]) -> image::ImageResult<Arc<RenderImage>> {
     let mut reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_IMAGE_EDGE);
     limits.max_image_height = Some(MAX_IMAGE_EDGE);
-    reader.limits(limits);
-    let mut pixels = reader.decode()?.into_rgba8();
-    for pixel in pixels.as_chunks_mut::<4>().0 {
+    let pixels = match reader.format() {
+        Some(ImageFormat::Gif) => {
+            let mut decoder = GifDecoder::new(Cursor::new(bytes))?;
+            decoder.set_limits(limits)?;
+            return decode_animation(decoder, ImageFormat::Gif, MAX_DECODED_BYTES);
+        }
+        Some(ImageFormat::WebP) => {
+            let mut decoder = WebPDecoder::new(Cursor::new(bytes))?;
+            limits.reserve(decoder.total_bytes())?;
+            decoder.set_limits(limits)?;
+            if decoder.has_animation() {
+                return decode_animation(decoder, ImageFormat::WebP, MAX_DECODED_BYTES);
+            }
+            DynamicImage::from_decoder(decoder)?
+        }
+        _ => {
+            reader.limits(limits);
+            reader.decode()?
+        }
+    };
+    let frame = bgra_frame(Frame::new(pixels.into_rgba8()));
+    Ok(Arc::new(RenderImage::new([frame])))
+}
+
+fn decode_animation<'a>(
+    decoder: impl AnimationDecoder<'a>,
+    format: ImageFormat,
+    max_bytes: usize,
+) -> image::ImageResult<Arc<RenderImage>> {
+    let mut limits = Limits::default();
+    limits.max_alloc = Some(max_bytes as u64);
+    let mut frames = Vec::new();
+    for frame in decoder.into_frames() {
+        let frame = frame?;
+        if frames.len() == MAX_ANIMATION_FRAMES {
+            return Err(ImageError::Limits(LimitError::from_kind(
+                LimitErrorKind::InsufficientMemory,
+            )));
+        }
+        limits.reserve_usize(frame.buffer().len())?;
+        frames.push(bgra_frame(frame));
+    }
+    if frames.is_empty() {
+        return Err(ImageError::Decoding(DecodingError::new(
+            format.into(),
+            "Image contains no frames",
+        )));
+    }
+    Ok(Arc::new(RenderImage::new(frames)))
+}
+
+fn bgra_frame(mut frame: Frame) -> Frame {
+    for pixel in frame.buffer_mut().as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
-    Ok(Arc::new(RenderImage::new([Frame::new(pixels)])))
+    frame
 }
 
 #[cfg(test)]

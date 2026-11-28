@@ -10,10 +10,10 @@ use std::sync::Arc;
 use axlauncher_ui::kit::Size;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    ActiveTheme, App, Bounds, Button, ButtonVariants, ClickEvent, Context, Corners, CursorStyle,
-    DialogEntrance, Disableable, DragMoveEvent, IconName, IntoElement, MouseButton, MouseDownEvent,
-    PinchEvent, Pixels, Point, Render, RenderImage, Role, ScrollEvent, SharedString, Sizable,
-    Window, WindowExt, canvas, div, h_flex, point,
+    ActiveTheme, App, AvailableSpace, Bounds, Button, ButtonVariants, ClickEvent, Context,
+    CursorStyle, DialogEntrance, Disableable, DragMoveEvent, IconName, IntoElement, MouseButton,
+    MouseDownEvent, PinchEvent, Pixels, Point, Render, RenderImage, Role, ScrollEvent,
+    SharedString, Sizable, Window, WindowExt, canvas, div, h_flex, img, point,
 };
 
 const MIN_ZOOM: f32 = 0.25;
@@ -183,16 +183,25 @@ impl ImageViewer {
         let intrinsic = self.intrinsic;
         let image = self.image.clone();
         canvas(
-            move |bounds, window, _| {
+            move |bounds, window, cx| {
                 let image_layout =
                     ImageLayout::new(intrinsic, bounds, window.viewport_size(), window.rem_size());
                 layout.set(image_layout);
-                transform.bounds(image_layout)
+                let bounds = transform.bounds(image_layout);
+                let mut image = img(image)
+                    .id("preview-image")
+                    .w(bounds.size.width)
+                    .h(bounds.size.height)
+                    .into_any_element();
+                image.prepaint_as_root(
+                    bounds.origin,
+                    bounds.size.map(AvailableSpace::Definite),
+                    window,
+                    cx,
+                );
+                image
             },
-            move |bounds, image_bounds, window, _| {
-                let _ =
-                    window.paint_image(bounds, image_bounds, Corners::default(), image, 0, false);
-            },
+            |_, mut image, window, cx| image.paint(window, cx),
         )
         .size_full()
     }

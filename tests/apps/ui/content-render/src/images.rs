@@ -6,9 +6,10 @@ use std::pin::pin;
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
-use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
+use image::codecs::gif::{GifDecoder, GifEncoder};
+use image::{Delay, DynamicImage, Frame, ImageFormat, Rgba, RgbaImage};
 
-use super::{SKELETON_HEIGHT, SKELETON_WIDTH, decode, log_target, make_skeleton};
+use super::{SKELETON_HEIGHT, SKELETON_WIDTH, decode, decode_animation, log_target, make_skeleton};
 
 #[test]
 fn skeleton_pulses_without_varying_size_or_hue() {
@@ -51,19 +52,44 @@ fn skeleton_pulses_without_varying_size_or_hue() {
 #[test]
 fn decodes_png_and_webp_from_content_and_preserves_alpha() {
     for format in [ImageFormat::Png, ImageFormat::WebP] {
-        let image = decode(encode(1, format)).expect("renderable image");
+        let image = decode(&encode(1, format)).expect("renderable image");
+        assert_eq!(image.frame_count(), 1);
         assert_eq!(image.as_bytes(0), Some([30, 20, 10, 128].as_slice()));
     }
 }
 
 #[test]
-fn rejects_oversize_and_unrecognized_images() {
+fn decodes_gif_and_webp_animation_frames_and_delays() {
+    for (bytes, alpha) in [(animated_gif().as_slice(), 255), (ANIMATED_WEBP, 128)] {
+        let image = decode(bytes).expect("renderable animation");
+        assert_eq!(image.frame_count(), 2);
+        assert_eq!(image.size(0), image.size(1));
+        assert_eq!(image.as_bytes(0), Some([30, 20, 10, 255].as_slice()));
+        assert_eq!(image.as_bytes(1), Some([60, 50, 40, alpha].as_slice()));
+        assert_eq!(Duration::from(image.delay(0)), Duration::from_millis(80));
+        assert_eq!(Duration::from(image.delay(1)), Duration::from_millis(170));
+    }
+}
+
+#[test]
+fn rejects_animations_that_exceed_the_decoded_byte_limit() {
+    let decoder = GifDecoder::new(Cursor::new(animated_gif())).unwrap();
     assert!(matches!(
-        decode(encode(4097, ImageFormat::Png)),
+        decode_animation(decoder, ImageFormat::Gif, 7),
         Err(image::ImageError::Limits(_))
     ));
+}
+
+#[test]
+fn rejects_oversize_and_unrecognized_images() {
+    for format in [ImageFormat::Png, ImageFormat::Gif, ImageFormat::WebP] {
+        assert!(matches!(
+            decode(&encode(4097, format)),
+            Err(image::ImageError::Limits(_))
+        ));
+    }
     assert!(matches!(
-        decode(b"not an image".to_vec()),
+        decode(b"not an image"),
         Err(image::ImageError::Unsupported(_))
     ));
 }
@@ -85,3 +111,25 @@ fn encode(width: u32, format: ImageFormat) -> Vec<u8> {
         .expect("encode test image");
     buffer.into_inner()
 }
+
+fn animated_gif() -> Vec<u8> {
+    let mut buffer = Vec::new();
+    let frames = [([10, 20, 30, 255], 80), ([40, 50, 60, 255], 170)].map(|(color, delay)| {
+        Frame::from_parts(
+            RgbaImage::from_pixel(1, 1, Rgba(color)),
+            0,
+            0,
+            Delay::from_saturating_duration(Duration::from_millis(delay)),
+        )
+    });
+    GifEncoder::new(&mut buffer).encode_frames(frames).unwrap();
+    buffer
+}
+
+// Two 1x1 lossless WebP frames generated with Pillow, with delays of 80 and 170 ms.
+const ANIMATED_WEBP: &[u8] = b"RIFF\x88\0\0\0WEBPVP8X\x0a\0\0\0\x12\0\0\0\0\0\0\0\0\0\
+    ANIM\x06\0\0\0\0\0\0\0\0\0\
+    ANMF\x2a\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x50\0\0\x02\
+    VP8L\x11\0\0\0\x2f\0\0\0\0\x07\x50\x8a\x2a\xd4\xa3\xff\x81\x88\xe8\x7f\0\0\
+    ANMF\x2a\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\xaa\0\0\x02\
+    VP8L\x11\0\0\0\x2f\0\0\0\x10\x07\x50\x99\xa2\x94\xa7\x80\x81\x88\xe8\x7f\0\0";

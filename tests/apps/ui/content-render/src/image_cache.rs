@@ -4,6 +4,8 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use gpui::TestAppContext;
+use image::codecs::gif::GifEncoder;
+use image::{Frame, RgbaImage};
 
 use super::{DocumentImage, ImageCache, MAX_DECODED_BYTES, reserve_bytes};
 
@@ -21,11 +23,13 @@ fn decoded_images_cannot_exceed_the_document_budget() {
 fn releasing_one_document_evicts_only_its_image_assets() {
     let cx = TestAppContext::single();
     let fetch = |_: &str| {
-        let mut bytes = std::io::Cursor::new(Vec::new());
-        image::DynamicImage::new_rgb8(1, 1)
-            .write_to(&mut bytes, image::ImageFormat::Png)
-            .unwrap();
-        Ok(bytes.into_inner())
+        let mut bytes = Vec::new();
+        let frames = [
+            Frame::new(RgbaImage::new(1, 1)),
+            Frame::new(RgbaImage::new(1, 1)),
+        ];
+        GifEncoder::new(&mut bytes).encode_frames(frames).unwrap();
+        Ok(bytes)
     };
     let (document, other, request, other_request) = cx.update(|cx| {
         let document = ImageCache::new(fetch, cx);
@@ -54,6 +58,8 @@ fn releasing_one_document_evicts_only_its_image_assets() {
             cx.fetch_asset::<DocumentImage>(&other_request),
             Some(Some(_))
         ));
+        assert_eq!(document.read(cx).decoded_bytes.load(Ordering::Relaxed), 8);
+        assert_eq!(other.read(cx).decoded_bytes.load(Ordering::Relaxed), 8);
     });
     drop(document);
     cx.update(|_| {});

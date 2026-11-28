@@ -1,9 +1,40 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
-use axlauncher_ui::{Bounds, point, px, size};
+use std::sync::Arc;
 
-use super::{ImageLayout, ViewTransform, clamp_offset, fit_image};
+use axlauncher_ui::{Bounds, RenderImage, kit, point, px, size};
+use gpui::TestAppContext;
+use image::{Frame, Rgba, RgbaImage};
+
+use super::{ImageLayout, ImageViewer, ViewTransform, clamp_offset, fit_image};
+
+#[test]
+fn preview_paints_both_animation_frames() {
+    let mut cx = TestAppContext::single();
+    cx.update(kit::init);
+    let frames = [[255, 0, 0, 255], [0, 0, 255, 255]]
+        .map(|color| Frame::new(RgbaImage::from_pixel(32, 24, Rgba(color))));
+    let image = Arc::new(RenderImage::new(Vec::from(frames)));
+    let window = cx.add_window(|window, _| {
+        window.activate_window();
+        ImageViewer::new(image.clone(), "Animation".into())
+    });
+    cx.run_until_parked();
+    window
+        .update(&mut cx, |_, window, cx| {
+            assert!(window.is_window_active());
+            assert!(window.simulate_next_frame(cx) > 0);
+        })
+        .unwrap();
+    cx.run_until_parked();
+    window
+        .update(&mut cx, |_, window, _| {
+            assert!(window.has_image_atlas_entry(&image));
+        })
+        .unwrap();
+    cx.quit();
+}
 
 #[test]
 fn wide_and_tall_images_fit_without_cropping() {
