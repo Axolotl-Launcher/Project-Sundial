@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use axlauncher_ui::{Bounds, RenderImage, kit, point, px, size};
-use gpui::TestAppContext;
+use gpui::{KeyDownEvent, KeyUpEvent, Keystroke, TestAppContext, VisualTestContext};
 use image::{Frame, Rgba, RgbaImage};
 
 use super::{ImageLayout, ImageViewer, ViewTransform, clamp_offset, fit_image};
@@ -16,9 +16,9 @@ fn preview_paints_both_animation_frames() {
     let frames = [[255, 0, 0, 255], [0, 0, 255, 255]]
         .map(|color| Frame::new(RgbaImage::from_pixel(32, 24, Rgba(color))));
     let image = Arc::new(RenderImage::new(Vec::from(frames)));
-    let window = cx.add_window(|window, _| {
+    let window = cx.add_window(|window, cx| {
         window.activate_window();
-        ImageViewer::new(image.clone(), "Animation".into())
+        ImageViewer::new(image.clone(), "Animation".into(), cx)
     });
     cx.run_until_parked();
     window
@@ -34,6 +34,61 @@ fn preview_paints_both_animation_frames() {
         })
         .unwrap();
     cx.quit();
+}
+
+#[test]
+fn arrow_keys_pan_after_keyboard_zoom_while_the_toolbar_has_focus() {
+    let mut cx = TestAppContext::single();
+    cx.update(kit::init);
+    let image = Arc::new(RenderImage::new([Frame::new(RgbaImage::new(64, 64))]));
+    let handle = cx.add_window(|_, cx| ImageViewer::new(image, "Badge".into(), cx));
+    let mut window = VisualTestContext::from_window(*handle, &cx);
+    cx.run_until_parked();
+    handle
+        .update(&mut cx, |view, window, cx| {
+            view.focus.focus(window, cx);
+            window.focus_next(cx);
+            window.focus_next(cx);
+        })
+        .unwrap();
+    window.update(|window, cx| window.draw(cx).clear(cx));
+    press_key(&mut window, "enter");
+    handle
+        .update(&mut cx, |view, window, cx| {
+            assert_eq!(view.transform.zoom, Some(1.));
+            window.focus_next(cx);
+        })
+        .unwrap();
+    window.update(|window, cx| window.draw(cx).clear(cx));
+    press_key(&mut window, "enter");
+    press_key(&mut window, "down");
+    handle
+        .update(&mut cx, |view, window, cx| {
+            assert!(view.transform.can_pan());
+            assert_eq!(view.transform.offset.x, px(0.));
+            assert!(view.transform.offset.y < px(0.));
+            view.focus.focus(window, cx);
+        })
+        .unwrap();
+    window.update(|window, cx| window.draw(cx).clear(cx));
+    press_key(&mut window, "up");
+    handle
+        .update(&mut cx, |view, _, _| {
+            assert_eq!(view.transform.offset, point(px(0.), px(0.)));
+        })
+        .unwrap();
+    cx.quit();
+}
+
+fn press_key(window: &mut VisualTestContext, key: &str) {
+    let keystroke =
+        window.update(|_, cx| Keystroke::parse_with_os(key, cx.platform_info().os).unwrap());
+    window.simulate_event(KeyDownEvent {
+        keystroke: keystroke.clone(),
+        is_held: false,
+        prefer_character_input: false,
+    });
+    window.simulate_event(KeyUpEvent { keystroke });
 }
 
 #[test]

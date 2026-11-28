@@ -11,20 +11,22 @@ use axlauncher_ui::kit::Size;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
     ActiveTheme, App, AvailableSpace, Bounds, Button, ButtonVariants, ClickEvent, Context,
-    CursorStyle, DialogEntrance, Disableable, DragMoveEvent, IconName, IntoElement, MouseButton,
-    MouseDownEvent, PinchEvent, Pixels, Point, Render, RenderImage, Role, ScrollEvent,
-    SharedString, Sizable, Window, WindowExt, canvas, div, h_flex, img, point,
+    CursorStyle, DialogEntrance, Disableable, DragMoveEvent, FocusHandle, IconName, IntoElement,
+    KeyDownEvent, MouseButton, MouseDownEvent, PinchEvent, Pixels, Point, Render, RenderImage,
+    Role, ScrollEvent, SharedString, Sizable, Window, WindowExt, canvas, div, h_flex, img, point,
 };
 
 const MIN_ZOOM: f32 = 0.25;
 const MAX_ZOOM: f32 = 8.;
 const BUTTON_ZOOM_STEP: f32 = 1.25;
 const WHEEL_ZOOM_STEP: f32 = 1.15;
+const KEYBOARD_PAN_STEP_REMS: f32 = 2.;
 const OPENING_HORIZONTAL_INSET_REMS: f32 = 4.;
 const OPENING_VERTICAL_INSET_REMS: f32 = 8.;
 
 pub(super) fn open(image: Arc<RenderImage>, name: SharedString, window: &mut Window, cx: &mut App) {
-    let viewer = cx.new(|_| ImageViewer::new(image, name));
+    let viewer = cx.new(|cx| ImageViewer::new(image, name, cx));
+    let focus = viewer.read(cx).focus.clone();
     window.open_dialog(cx, move |dialog, window, cx| {
         let viewport = window.viewport_size();
         let viewer = viewer.clone();
@@ -41,6 +43,7 @@ pub(super) fn open(image: Arc<RenderImage>, name: SharedString, window: &mut Win
             .h(viewport.height)
             .content(move |content, _, _| content.p_0().min_h_0().child(viewer.clone()))
     });
+    focus.focus(window, cx);
 }
 
 struct ImageViewer {
@@ -50,10 +53,11 @@ struct ImageViewer {
     layout: Rc<Cell<ImageLayout>>,
     transform: ViewTransform,
     drag_origin: Option<(Point<Pixels>, Point<Pixels>)>,
+    focus: FocusHandle,
 }
 
 impl ImageViewer {
-    fn new(image: Arc<RenderImage>, name: SharedString) -> Self {
+    fn new(image: Arc<RenderImage>, name: SharedString, cx: &mut Context<'_, Self>) -> Self {
         let intrinsic = image
             .size(0)
             .map(|pixels| Pixels::from(i32::from(pixels) as f32));
@@ -64,6 +68,7 @@ impl ImageViewer {
             layout: Rc::default(),
             transform: ViewTransform::default(),
             drag_origin: None,
+            focus: cx.focus_handle().tab_stop(true),
         }
     }
 
@@ -94,6 +99,32 @@ impl ImageViewer {
                 .pan_to(offset + event.event.position - pointer, self.layout.get());
             cx.notify();
         }
+    }
+
+    fn pan_with_keyboard(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<'_, Self>,
+    ) {
+        if !self.transform.can_pan() || event.keystroke.modifiers.modified() {
+            return;
+        }
+        let step = window.rem_size() * KEYBOARD_PAN_STEP_REMS;
+        let delta = match event.keystroke.key.as_str() {
+            "left" => point(step, Pixels::ZERO),
+            "right" => point(-step, Pixels::ZERO),
+            "up" => point(Pixels::ZERO, step),
+            "down" => point(Pixels::ZERO, -step),
+            _ => return,
+        };
+        let layout = self.layout.get();
+        let offset = self.transform.bounds(layout).center() - layout.stage.center();
+        self.transform.pan_to(offset + delta, layout);
+        if self.transform.offset != offset {
+            cx.notify();
+        }
+        cx.stop_propagation();
     }
 
     fn click(&mut self, event: &ClickEvent, window: &mut Window, cx: &mut Context<'_, Self>) {
@@ -207,16 +238,22 @@ impl ImageViewer {
     }
 
     fn stage(&self, cx: &mut Context<'_, Self>) -> impl IntoElement + use<> {
+        let ring = cx.theme().ring;
         div()
             .id("markdown-image-preview")
             .absolute()
             .inset_0()
+            .track_focus(&self.focus)
+            .border_1()
+            .border_color(ring.opacity(0.))
+            .focus_visible(move |style| style.border_color(ring))
             .role(Role::Image)
             .aria_label(if self.name.is_empty() {
                 SharedString::from("Image preview")
             } else {
                 self.name.clone()
             })
+            .aria_description("Use the arrow keys to pan the zoomed image")
             .when(self.transform.can_pan(), |stage| {
                 stage.cursor(CursorStyle::OpenHand)
             })
@@ -243,9 +280,11 @@ impl ImageViewer {
 impl Render for ImageViewer {
     fn render(&mut self, _: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         div()
+            .id("image-preview")
             .relative()
             .size_full()
             .overflow_hidden()
+            .on_key_down(cx.listener(Self::pan_with_keyboard))
             .child(self.stage(cx))
             .when(!self.name.is_empty(), |view| view.child(self.caption(cx)))
             .child(self.toolbar(cx))

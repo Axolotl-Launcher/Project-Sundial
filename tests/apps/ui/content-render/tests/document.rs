@@ -75,8 +75,24 @@ fn opens_a_downloaded_svg_in_the_markdown_image_preview() {
     );
     let mut window = VisualTestContext::from_window(handle, &cx);
     window.run_until_parked();
-    window.simulate_click(point(px(20.), px(20.)), Modifiers::default());
-    window.update(|window, cx| assert!(window.has_active_dialog(cx)));
+    let trigger = window.update(|window, cx| {
+        window.focus_next(cx);
+        window.draw(cx).clear(cx);
+        window
+            .focused(cx)
+            .expect("the preview button is a tab stop")
+    });
+    press_key(&mut window, "enter");
+    window.update(|window, cx| {
+        assert!(window.has_active_dialog(cx));
+        assert!(!trigger.is_focused(window));
+        window.draw(cx).clear(cx);
+    });
+    press_key(&mut window, "escape");
+    window.update(|window, cx| {
+        assert!(!window.has_active_dialog(cx));
+        assert!(trigger.is_focused(window));
+    });
     cx.quit();
 }
 
