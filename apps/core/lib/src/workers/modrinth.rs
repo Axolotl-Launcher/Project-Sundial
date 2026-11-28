@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[path = "workers/modrinth_client.rs"]
+#[path = "modrinth_client.rs"]
 mod client;
 pub use client::{DesktopModrinth, ModrinthLease};
 pub(crate) use client::{configure, take_workers};
@@ -218,5 +218,5 @@ impl Reply {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/core/lib/src/modrinth.rs"]
+#[path = "../../../../../tests/apps/core/lib/src/workers/modrinth.rs"]
 mod tests;

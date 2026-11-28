@@ -13,15 +13,14 @@ use crate::{Event, Image, Lease, Service};
 
 type Worker = Arc<Service<Reply>>;
 type Slots = HashMap<[PathBuf; 3], Worker>;
-type Cooldown = tokio::sync::Mutex<Option<Instant>>;
 
 static WORKERS: OnceLock<Workers> = OnceLock::new();
+static COOLDOWN: tokio::sync::Mutex<Option<Instant>> = tokio::sync::Mutex::const_new(None);
 
 struct Workers {
     image: Image,
     executable: Result<PathBuf, String>,
     slots: Mutex<Option<Slots>>,
-    cooldown: Cooldown,
 }
 
 impl Workers {
@@ -30,7 +29,6 @@ impl Workers {
             image,
             executable,
             slots: Mutex::new(Some(HashMap::new())),
-            cooldown: Cooldown::default(),
         }
     }
 
@@ -70,7 +68,6 @@ pub(crate) fn take_workers() -> Vec<Worker> {
 pub struct DesktopModrinth {
     data: DataDir,
     worker: Worker,
-    cooldown: &'static Cooldown,
 }
 
 impl DesktopModrinth {
@@ -78,11 +75,7 @@ impl DesktopModrinth {
     pub fn new(data: DataDir) -> Result<Self, CatalogError> {
         let workers = WORKERS.get().ok_or(CatalogError::WorkerUnavailable)?;
         let worker = workers.for_data(&data)?;
-        Ok(Self {
-            data,
-            worker,
-            cooldown: &workers.cooldown,
-        })
+        Ok(Self { data, worker })
     }
 
     /// Keeps a started worker alive for a group of requests in this scope.
@@ -115,7 +108,7 @@ impl DesktopModrinth {
 
     async fn execute(&self, operation: Operation) -> Result<Payload, CatalogError> {
         operation.validate()?;
-        let mut cooldown = self.cooldown.lock().await;
+        let mut cooldown = COOLDOWN.lock().await;
         check_cooldown(*cooldown, Instant::now())?;
         let mut request = self
             .worker
@@ -159,5 +152,5 @@ async fn receive(
 }
 
 #[cfg(test)]
-#[path = "../../../../../tests/apps/core/lib/src/modrinth_client.rs"]
+#[path = "../../../../../tests/apps/core/lib/src/workers/modrinth_client.rs"]
 mod tests;

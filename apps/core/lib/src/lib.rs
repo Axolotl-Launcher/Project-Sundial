@@ -7,6 +7,7 @@ pub mod installation;
 pub mod instance_settings;
 #[path = "workers/java_discovery.rs"]
 pub mod java_discovery;
+#[path = "workers/modrinth.rs"]
 pub mod modrinth;
 
 mod account_client;
