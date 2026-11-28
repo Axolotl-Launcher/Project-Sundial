@@ -32,8 +32,7 @@ use std::time::Duration;
 use axlauncher_launch::classpath;
 use axlauncher_launch::rules::Target;
 use axlauncher_launch::version::{Processor, Version};
-use axlauncher_spi::credentials::sanitize_child_environment;
-use axlauncher_storage::GameDir;
+use axlauncher_storage::{GameDir, sanitize_child_environment};
 use axlauncher_worker::Cancellation;
 
 mod outputs;

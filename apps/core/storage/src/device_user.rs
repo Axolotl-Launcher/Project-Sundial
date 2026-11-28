@@ -138,7 +138,7 @@ fn machine_id() -> Option<String> {
 #[cfg(target_os = "macos")]
 fn machine_id() -> Option<String> {
     let mut command = std::process::Command::new("/usr/sbin/ioreg");
-    let output = axlauncher_spi::credentials::sanitize_child_environment(&mut command)
+    let output = crate::sanitize_child_environment(&mut command)
         .args(["-rd1", "-c", "IOPlatformExpertDevice"])
         .output()
         .ok()?;

@@ -19,7 +19,8 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
-use axlauncher_spi::{LaunchCommand, LaunchError, credentials::sanitize_child_environment};
+use axlauncher_spi::{LaunchCommand, LaunchError};
+use axlauncher_storage::sanitize_child_environment;
 
 use crate::platform;
 

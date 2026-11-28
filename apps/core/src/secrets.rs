@@ -5,8 +5,8 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 use axlauncher_network_spi::auth::ApiKey;
-use axlauncher_spi::credentials::CURSEFORGE_API_KEY;
 use axlauncher_spi::curseforge::CatalogError;
+use axlauncher_storage::CURSEFORGE_API_KEY;
 
 #[cfg(not(debug_assertions))]
 const BUILD_DEFAULT: Option<&str> = option_env!("CURSEFORGE_API_KEY");

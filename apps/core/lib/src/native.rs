@@ -3,8 +3,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
-use axlauncher_spi::credentials::sanitize_child_environment;
-use axlauncher_storage::{DataDir, ScratchSpace, WorkerLibrary};
+use axlauncher_storage::{DataDir, ScratchSpace, WorkerLibrary, sanitize_child_environment};
 
 pub(crate) const WORKER_ARGUMENT: &str = "--axlauncher-worker";
 

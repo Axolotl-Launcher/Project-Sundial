@@ -6,11 +6,10 @@ use std::time::Duration;
 use axlauncher_install::loader::check_files;
 use axlauncher_launch::Target;
 use axlauncher_network_spi::{FetchError, Network};
-use axlauncher_spi::credentials::CURSEFORGE_API_KEY;
 use axlauncher_spi::{
     Java, JavaMode, LoaderError, LoaderFile, LoaderKind, LoaderRequest, LoaderVersion, ModLoader,
 };
-use axlauncher_storage::GameAccess;
+use axlauncher_storage::{CURSEFORGE_API_KEY, GameAccess};
 
 use super::*;
 
