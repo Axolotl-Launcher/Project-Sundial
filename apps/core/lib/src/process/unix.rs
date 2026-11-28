@@ -29,7 +29,7 @@ impl Tree {
         if !exited {
             return Ok(false);
         }
-        terminate_group(leader)?;
+        terminate_exited_group(leader)?;
         self.leader_reaped = child.try_wait()?.is_some();
         if !self.leader_reaped {
             return Ok(false);
@@ -67,7 +67,7 @@ fn leader_exited(leader: libc::pid_t) -> io::Result<bool> {
 
 #[allow(
     unsafe_code,
-    reason = "The owned, unreaped leader pins the already isolated process group."
+    reason = "The owned leader still identifies the isolated process group."
 )]
 fn terminate_group(leader: libc::pid_t) -> io::Result<()> {
     if unsafe { libc::kill(-leader, libc::SIGKILL) } == 0 {
@@ -80,9 +80,18 @@ fn terminate_group(leader: libc::pid_t) -> io::Result<()> {
     Err(error)
 }
 
+// macOS reports EPERM when the group contains only the unreaped leader and
+// any descendants that are already zombies.
+fn terminate_exited_group(leader: libc::pid_t) -> io::Result<()> {
+    match terminate_group(leader) {
+        Err(error) if zombie_group(&error) => Ok(()),
+        result => result,
+    }
+}
+
 #[allow(
     unsafe_code,
-    reason = "The group was terminated while its leader was unreaped; signal zero is a non-destructive drain probe."
+    reason = "The leader was reaped and the group was terminated; signal zero is a non-destructive drain probe."
 )]
 fn group_empty(leader: libc::pid_t) -> io::Result<bool> {
     if unsafe { libc::kill(-leader, 0) } == 0 {
@@ -92,5 +101,12 @@ fn group_empty(leader: libc::pid_t) -> io::Result<bool> {
     if error.raw_os_error() == Some(libc::ESRCH) {
         return Ok(true);
     }
+    if zombie_group(&error) {
+        return Ok(true);
+    }
     Err(error)
+}
+
+fn zombie_group(error: &io::Error) -> bool {
+    cfg!(target_os = "macos") && error.raw_os_error() == Some(libc::EPERM)
 }
