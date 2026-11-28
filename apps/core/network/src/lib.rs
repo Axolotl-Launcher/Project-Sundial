@@ -294,6 +294,7 @@ impl Network for ReqwestNetwork {
             self.connect_failed(url)
         })
         .await
+        .map_err(FetchError::from)
     }
 }
 

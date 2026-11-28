@@ -5,10 +5,11 @@
 
 use std::{future::Future, sync::OnceLock, time::Duration};
 
-use axlauncher_network_spi::FetchError;
+pub use axlauncher_network::project_images::ProjectImageError;
 use tokio::{
     runtime::Runtime,
     sync::{Semaphore, oneshot},
+    time::Instant,
 };
 
 const IMAGE_TIMEOUT: Duration = Duration::from_secs(15);
@@ -17,24 +18,27 @@ static RUNTIME: OnceLock<Result<Runtime, String>> = OnceLock::new();
 static REQUESTS: Semaphore = Semaphore::const_new(MAX_ACTIVE_REQUESTS);
 
 /// Downloads a project description image on the shared network runtime.
-pub async fn project_image(url: String) -> Result<Vec<u8>, String> {
+pub async fn project_image(url: String) -> Result<Vec<u8>, ProjectImageError> {
     run_image_request(
         async move { axlauncher_network::project_images::project_image(&url).await },
         IMAGE_TIMEOUT,
+        &REQUESTS,
     )
     .await
 }
 
 async fn run_image_request(
-    request: impl Future<Output = Result<Vec<u8>, FetchError>> + Send + 'static,
+    request: impl Future<Output = Result<Vec<u8>, ProjectImageError>> + Send + 'static,
     timeout: Duration,
-) -> Result<Vec<u8>, String> {
+    requests: &'static Semaphore,
+) -> Result<Vec<u8>, ProjectImageError> {
+    let deadline = Instant::now() + timeout;
     let runtime = RUNTIME
         .get_or_init(image_runtime)
         .as_ref()
-        .map_err(Clone::clone)?;
+        .map_err(|error| ProjectImageError::Internal(error.clone()))?;
     let transfer = async {
-        let _permit = REQUESTS
+        let _permit = requests
             .acquire()
             .await
             .expect("the image semaphore is never closed");
@@ -45,18 +49,17 @@ async fn run_image_request(
         tokio::select! {
             biased;
             () = reply.closed() => {}
-            result = tokio::time::timeout(timeout, transfer) => {
-                let result = match result {
-                    Ok(result) => result.map_err(|error| error.to_string()),
-                    Err(_) => Err("The project image request timed out".to_owned()),
-                };
+            result = tokio::time::timeout_at(deadline, transfer) => {
+                let result = result.unwrap_or_else(|_| {
+                    Err(ProjectImageError::Timeout("request deadline elapsed".into()))
+                });
                 let _ = reply.send(result);
             }
         }
     });
     response
         .await
-        .map_err(|_| "The project image task ended without a response".to_owned())?
+        .map_err(|_| ProjectImageError::Internal("task ended without a response".into()))?
 }
 
 fn image_runtime() -> Result<Runtime, String> {

@@ -59,7 +59,9 @@ impl ContentDebug {
             base_url_invalid: false,
             content_type: ContentType::Markdown,
             preview: None,
-            renderer: ContentRenderer::new(project_image),
+            renderer: ContentRenderer::new(|url| async move {
+                project_image(url).await.map_err(|error| error.to_string())
+            }),
             height: DEFAULT_HEIGHT,
             resize_focus: cx.focus_handle().tab_stop(true),
             resize_start: None,

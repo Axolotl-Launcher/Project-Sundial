@@ -28,7 +28,7 @@ pub(super) async fn open(
     range: Option<RangeRequest<'_>>,
     key: Option<&HeaderValue>,
     connect_failed: impl FnOnce(),
-) -> Result<DownloadResponse<ResponseBody>, FetchError> {
+) -> Result<DownloadResponse<ResponseBody>, TransferError> {
     let mut request = client.get(url).header(ACCEPT_ENCODING, "identity");
     if let Some(key) = key {
         request = request.header("x-api-key", key.clone());
@@ -38,7 +38,7 @@ pub(super) async fn open(
     }
     if let Some(RangeRequest { interval, if_range }) = range {
         if interval.start >= interval.end {
-            return Err(FetchError::Fatal("empty byte range".into()));
+            return Err(FetchError::Fatal("empty byte range".into()).into());
         }
         request = request.header(
             RANGE,
@@ -50,7 +50,7 @@ pub(super) async fn open(
     }
     let response = tokio::time::timeout(RESPONSE_TIMEOUT, request.send())
         .await
-        .map_err(|_| FetchError::Retryable("download response timed out".into()))?
+        .map_err(|_| TransferError::Timeout("download response timed out".into()))?
         .map_err(|error| {
             if error.is_connect() {
                 connect_failed();
@@ -64,11 +64,9 @@ pub(super) async fn open(
         None => true,
     };
     if !compatible {
-        return Err(FetchError::Fatal(format!(
-            "unexpected download protocol {received:?}"
-        )));
+        return Err(FetchError::Fatal(format!("unexpected download protocol {received:?}")).into());
     }
-    describe(response).await
+    Ok(describe(response).await?)
 }
 
 async fn describe(response: Response) -> Result<DownloadResponse<ResponseBody>, FetchError> {
@@ -214,18 +212,45 @@ pub(super) struct ResponseBody {
 
 impl DownloadBody for ResponseBody {
     async fn next_chunk(&mut self) -> Result<Option<Bytes>, FetchError> {
+        Ok(self.read().await?)
+    }
+}
+
+impl ResponseBody {
+    pub(super) async fn read(&mut self) -> Result<Option<Bytes>, TransferError> {
         tokio::time::timeout(self.timeout, self.response.chunk())
             .await
-            .map_err(|_| FetchError::Retryable("download body read timed out".into()))?
+            .map_err(|_| TransferError::Timeout("download body read timed out".into()))?
             .map_err(request_error)
     }
 }
 
-fn request_error(error: reqwest::Error) -> FetchError {
+pub(super) enum TransferError {
+    Fetch(FetchError),
+    Redirect(String),
+    Timeout(String),
+}
+
+impl From<FetchError> for TransferError {
+    fn from(error: FetchError) -> Self {
+        Self::Fetch(error)
+    }
+}
+
+impl From<TransferError> for FetchError {
+    fn from(error: TransferError) -> Self {
+        match error {
+            TransferError::Fetch(error) => error,
+            TransferError::Redirect(detail) => Self::Fatal(detail),
+            TransferError::Timeout(detail) => Self::Retryable(detail),
+        }
+    }
+}
+
+fn request_error(error: reqwest::Error) -> TransferError {
     use std::error::Error as _;
     use std::fmt::Write as _;
 
-    let fatal = error.is_builder() || error.is_redirect();
     let error = error.without_url();
     let mut detail = error.to_string();
     let mut cause = error.source();
@@ -233,10 +258,14 @@ fn request_error(error: reqwest::Error) -> FetchError {
         let _ = write!(detail, ": {error}");
         cause = error.source();
     }
-    if fatal {
-        FetchError::Fatal(detail)
+    if error.is_redirect() {
+        TransferError::Redirect(detail)
+    } else if error.is_timeout() {
+        TransferError::Timeout(detail)
+    } else if error.is_builder() {
+        FetchError::Fatal(detail).into()
     } else {
-        FetchError::Retryable(detail)
+        FetchError::Retryable(detail).into()
     }
 }
 
