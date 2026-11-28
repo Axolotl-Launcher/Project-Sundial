@@ -37,3 +37,6 @@ Thumbs.db
 
 # Temporary agent plans and working files.
 /.agents/plans/
+
+# Local development files
+start-dev.ps1

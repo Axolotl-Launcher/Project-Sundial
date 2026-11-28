@@ -15,6 +15,8 @@ use axlauncher_ui::{
     h_flex,
 };
 
+use crate::i18n::{interpolate, tr};
+
 use super::super::RootView;
 
 mod editor;
@@ -24,13 +26,13 @@ impl RootView {
     pub(in crate::panel) fn render_memory(&self, cx: &mut Context<'_, Self>) -> AnyElement {
         let mode = self.settings.as_ref().map(|settings| settings.memory());
         let button = Button::new("configure-global-memory")
-            .label("Configure memory…")
+            .label(tr(cx, "settings.memory.configure"))
             .disabled(self.settings_readonly())
             .on_click(cx.listener(|view, _, window, cx| view.open_global_memory(window, cx)));
         GroupBox::new()
             .id("global-memory")
             .title(
-                Label::new("Minecraft memory")
+                Label::new(tr(cx, "settings.memory.title"))
                     .text_sm()
                     .text_color(cx.theme().muted_foreground),
             )
@@ -38,7 +40,7 @@ impl RootView {
                 h_flex()
                     .gap_3()
                     .items_center()
-                    .child(Label::new(global_label(mode)))
+                    .child(Label::new(global_label(mode, cx)))
                     .child(button),
             )
             .into_any_element()
@@ -55,8 +57,8 @@ impl RootView {
         let view = cx.weak_entity();
         let saved = settings.memory().manual_heap();
         open_editor(
-            "Minecraft memory".into(),
-            "Automatic",
+            tr(cx, "settings.memory.title").into(),
+            tr(cx, "settings.memory.automatic"),
             saved,
             MaximumHeap::default(),
             window,
@@ -92,12 +94,13 @@ impl RootView {
     }
 }
 
-fn global_label(mode: Option<MemoryAllocation>) -> String {
+fn global_label(mode: Option<MemoryAllocation>, cx: &axlauncher_ui::App) -> String {
     match mode {
-        Some(MemoryAllocation::Automatic) => "Automatic allocation".into(),
-        Some(MemoryAllocation::Manual(heap)) => {
-            format!("{} MiB maximum", heap.mib())
-        }
-        None => "Settings unavailable".into(),
+        Some(MemoryAllocation::Automatic) => tr(cx, "settings.memory.automatic-allocation").into(),
+        Some(MemoryAllocation::Manual(heap)) => interpolate(
+            tr(cx, "settings.memory.maximum"),
+            &[("heap", &heap.mib().to_string())],
+        ),
+        None => tr(cx, "settings.memory.unavailable").into(),
     }
 }

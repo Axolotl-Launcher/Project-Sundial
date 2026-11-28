@@ -10,6 +10,8 @@ use axlauncher_ui::{
     ElementId, GroupBox, Input, IntoElement, Label, Render, Window, h_flex, v_flex,
 };
 
+use crate::i18n::{interpolate, tr};
+
 use super::login::{Method, Stage};
 use super::{AccountAction, AccountSnapshot, AccountsPanel};
 
@@ -21,16 +23,18 @@ impl Render for AccountsPanel {
         let unavailable = self.service.is_none() || self.is_busy();
         let identity = selected.map_or_else(
             || {
-                format!(
-                    "Launch as {} · temporary offline player",
-                    self.player_name(cx)
+                interpolate(
+                    tr(cx, "accounts.identity.temporary"),
+                    &[("name", &self.player_name(cx))],
                 )
             },
             |account| {
-                format!(
-                    "Launch as {} · {}",
-                    account.name(),
-                    account_provider(account)
+                interpolate(
+                    tr(cx, "accounts.identity.selected"),
+                    &[
+                        ("name", account.name()),
+                        ("provider", account_provider(account, cx)),
+                    ],
                 )
             },
         );
@@ -40,7 +44,11 @@ impl Render for AccountsPanel {
             .map(|snapshot| Self::account_rows(snapshot, unavailable, cx));
         GroupBox::new()
             .id("accounts")
-            .title(Label::new("Accounts").text_sm().text_color(muted))
+            .title(
+                Label::new(tr(cx, "accounts.title"))
+                    .text_sm()
+                    .text_color(muted),
+            )
             .child(
                 v_flex()
                     .gap_3()
@@ -72,7 +80,7 @@ impl AccountsPanel {
             .flex_wrap()
             .child(
                 Button::new("sign-in-microsoft")
-                    .label("Sign in with Microsoft…")
+                    .label(tr(cx, "accounts.microsoft.sign-in"))
                     .disabled(disabled)
                     .on_click(
                         cx.listener(|view, _, _, cx| view.sign_in(Method::Browser, None, cx)),
@@ -80,14 +88,14 @@ impl AccountsPanel {
             )
             .child(
                 Button::new("sign-in-device")
-                    .label("Use a device code…")
+                    .label(tr(cx, "accounts.microsoft.device"))
                     .ghost()
                     .disabled(disabled)
                     .on_click(cx.listener(|view, _, _, cx| view.sign_in(Method::Device, None, cx))),
             )
             .child(
                 Button::new("add-offline-account")
-                    .label("Add offline account…")
+                    .label(tr(cx, "accounts.offline.open"))
                     .track_focus(&self.offline_trigger)
                     .disabled(disabled || self.add_offline)
                     .toggled(self.add_offline)
@@ -104,18 +112,18 @@ impl AccountsPanel {
         v_flex()
             .track_focus(&self.offline_scope)
             .gap_2()
-            .child(Label::new("Player name").text_sm())
+            .child(Label::new(tr(cx, "accounts.offline.player-name")).text_sm())
             .child(
                 Input::new(&self.name)
                     .id("saved-offline-name")
-                    .aria_label("Player name")
+                    .aria_label(tr(cx, "accounts.offline.player-name"))
                     .w_64(),
             )
-            .child(Label::new("UUID (optional)").text_sm())
+            .child(Label::new(tr(cx, "accounts.offline.uuid")).text_sm())
             .child(
                 Input::new(&self.uuid)
                     .id("saved-offline-uuid")
-                    .aria_label("UUID (optional)")
+                    .aria_label(tr(cx, "accounts.offline.uuid"))
                     .w_80(),
             )
             .child(
@@ -123,7 +131,7 @@ impl AccountsPanel {
                     .gap_2()
                     .child(
                         Button::new("save-offline-account")
-                            .label("Add account")
+                            .label(tr(cx, "accounts.offline.add"))
                             .disabled(self.is_busy())
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.submit_offline_form(window, cx)
@@ -132,7 +140,7 @@ impl AccountsPanel {
                     .child(
                         Button::new("cancel-offline-account")
                             .ghost()
-                            .label("Cancel")
+                            .label(tr(cx, "accounts.offline.cancel"))
                             .disabled(self.is_busy())
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.close_offline_form(window, cx)
@@ -144,14 +152,15 @@ impl AccountsPanel {
 
     fn login_status(&self, cx: &mut Context<'_, Self>) -> AnyElement {
         let attempt = self.login.as_ref().expect("sign-in in progress");
+        let starting = tr(cx, "accounts.microsoft.starting");
         let controls = if attempt.cancellation.0.is_saving() {
-            Label::new("Saving account").into_any_element()
+            Label::new(tr(cx, "accounts.status.saving")).into_any_element()
         } else {
             match &attempt.stage {
-                Stage::Starting => Label::new("Starting Microsoft sign-in").into_any_element(),
+                Stage::Starting => Label::new(starting).into_any_element(),
                 Stage::Browser { url } => h_flex()
                     .gap_2()
-                    .child(Label::new("Continue in your browser"))
+                    .child(Label::new(tr(cx, "accounts.microsoft.continue-browser")))
                     .child(Self::open_browser(url, cx))
                     .into_any_element(),
                 Stage::Device { url, code } => Self::device_controls(url, code, cx),
@@ -164,7 +173,7 @@ impl AccountsPanel {
             .child(
                 Button::new("cancel-sign-in")
                     .ghost()
-                    .label("Cancel sign-in")
+                    .label(tr(cx, "accounts.microsoft.cancel"))
                     .disabled(!attempt.cancellation.0.is_pending())
                     .on_click(cx.listener(|view, _, _, cx| view.cancel_sign_in(cx))),
             )
@@ -198,7 +207,7 @@ impl AccountsPanel {
         cx: &Context<'_, Self>,
     ) -> AnyElement {
         let id = account.id();
-        let label = account_label(account, persistence);
+        let label = account_label(account, persistence, cx);
         let details = if selected {
             format!("{label} · Selected")
         } else {
@@ -222,11 +231,11 @@ impl AccountsPanel {
                     .gap_2()
                     .child(
                         Button::new(account_element("select-account", id))
-                            .label("Use account")
+                            .label(tr(cx, "accounts.use"))
                             .accessibility_label(format!(
                                 "Use {} {} account",
                                 account.name(),
-                                account_kind(id)
+                                account_kind(id, cx)
                             ))
                             .disabled(disabled || selected)
                             .on_click(cx.listener(move |view, _, _, cx| {
@@ -236,11 +245,11 @@ impl AccountsPanel {
                     .children(reauth)
                     .child(
                         Button::new(account_element("remove-account", id))
-                            .label("Remove")
+                            .label(tr(cx, "accounts.remove"))
                             .accessibility_label(format!(
                                 "Remove {} {} account",
                                 account.name(),
-                                account_kind(id)
+                                account_kind(id, cx)
                             ))
                             .ghost()
                             .disabled(disabled)
@@ -256,7 +265,7 @@ impl AccountsPanel {
         let id = account.id();
         let server = account.server().map(|server| (id, server.url().to_owned()));
         Button::new(account_element("reauthenticate", id))
-            .label("Sign in again…")
+            .label(tr(cx, "accounts.reauthenticate"))
             .accessibility_label(format!("Sign in again as {}", account.name()))
             .ghost()
             .disabled(disabled)
@@ -281,7 +290,7 @@ impl AccountsPanel {
 
     fn temporary_button(disabled: bool, cx: &Context<'_, Self>) -> Button {
         Button::new("use-temporary-player")
-            .label("Use temporary player")
+            .label(tr(cx, "accounts.temporary.use"))
             .ghost()
             .disabled(disabled)
             .on_click(
@@ -293,11 +302,14 @@ impl AccountsPanel {
         let code_to_copy = code.to_owned();
         h_flex()
             .gap_2()
-            .child(Label::new(format!("Device code  {code}")))
+            .child(Label::new(crate::i18n::interpolate(
+                tr(cx, "accounts.microsoft.code"),
+                &[("code", code)],
+            )))
             .child(
                 Button::new("copy-device-code")
                     .ghost()
-                    .label("Copy code")
+                    .label(tr(cx, "accounts.microsoft.copy-code"))
                     .on_click(cx.listener(move |_, _, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(code_to_copy.clone()));
                     })),
@@ -310,33 +322,37 @@ impl AccountsPanel {
         let url = url.to_owned();
         Button::new("open-sign-in-browser")
             .ghost()
-            .label("Open browser")
+            .label(tr(cx, "accounts.microsoft.open-browser"))
             .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url)))
     }
 }
 
-fn account_label(account: &Account, persistence: Option<Persistence>) -> String {
-    let kind = account_provider(account);
+fn account_label(
+    account: &Account,
+    persistence: Option<Persistence>,
+    cx: &axlauncher_ui::App,
+) -> String {
+    let kind = account_provider(account, cx);
     let status = match persistence {
-        Some(Persistence::SessionOnly) => " · This session only",
-        Some(Persistence::SignInRequired) => " · Sign-in required",
-        Some(Persistence::StoreUnavailable) => " · Credential store unavailable",
+        Some(Persistence::SessionOnly) => tr(cx, "accounts.persistence.session"),
+        Some(Persistence::SignInRequired) => tr(cx, "accounts.persistence.sign-in"),
+        Some(Persistence::StoreUnavailable) => tr(cx, "accounts.persistence.unavailable"),
         _ => "",
     };
     format!("{} · {kind}{status}", account.name())
 }
 
-fn account_provider(account: &Account) -> &str {
+fn account_provider<'a>(account: &'a Account, cx: &axlauncher_ui::App) -> &'a str {
     account
         .server()
-        .map_or_else(|| account_kind(account.id()), |server| server.name())
+        .map_or_else(|| account_kind(account.id(), cx), |server| server.name())
 }
 
-fn account_kind(id: AccountId) -> &'static str {
+fn account_kind(id: AccountId, cx: &axlauncher_ui::App) -> &'static str {
     match id {
-        AccountId::Offline(_) => "Offline",
+        AccountId::Offline(_) => tr(cx, "accounts.kind.offline"),
         AccountId::Microsoft(_) => "Microsoft",
-        AccountId::Yggdrasil { .. } => "Third party",
+        AccountId::Yggdrasil { .. } => tr(cx, "accounts.kind.third-party"),
     }
 }
 

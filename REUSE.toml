@@ -68,7 +68,7 @@ SPDX-License-Identifier = "GPL-3.0-only"
 # JSON cannot carry comments. turbo.jsonc is listed separately below because it
 # is JSONC and does accept `//`.
 [[annotations]]
-path = ["package.json", "**/package.json", "tsconfig.json"]
+path = ["package.json", "**/package.json", "apps/frontend/locales/*.json", "tsconfig.json"]
 SPDX-FileCopyrightText = "2026 Axolotl Team"
 SPDX-License-Identifier = "GPL-3.0-only"
 

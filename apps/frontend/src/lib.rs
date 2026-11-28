@@ -18,7 +18,10 @@ use axlauncher_core::storage::{DataDir, DataPath};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{Bounds, Palette, TitlebarOptions, WindowBounds, WindowOptions, kit, px, size};
 
+use crate::i18n::tr;
+
 mod file_picker;
+mod i18n;
 mod installation_progress;
 mod installations;
 mod launches;
@@ -89,6 +92,10 @@ pub fn run(images: WorkerImages) {
             cx.on_app_quit(move |cx| stop_workers(cx, &on_quit))
                 .detach();
             startup.palette.install(cx);
+            i18n::set_language(
+                i18n::configured_language(startup.loaded.settings.as_ref()),
+                cx,
+            );
             open_main_window(cx, startup);
         });
     wait_for_workers(shutdown.take().unwrap_or_else(WorkerImages::begin_shutdown));
@@ -143,10 +150,7 @@ fn open_main_window(cx: &mut kit::App, startup: Startup) {
 /// A coherent settings and instance view for the selected directories.
 pub(crate) fn load_at(paths: DataDir) -> Loaded {
     let (settings, origin, notice) = match load_settings(paths.path(DataPath::Root)) {
-        Ok(loaded) => {
-            let notice = settings_notice(&loaded.origin);
-            (Some(loaded.data), Some(loaded.origin), notice)
-        }
+        Ok(loaded) => (Some(loaded.data), Some(loaded.origin), None),
         Err(error) => (None, None, Some(error.to_string())),
     };
 
@@ -169,30 +173,38 @@ pub(crate) fn palette_for(theme: ThemeChoice) -> Palette {
 }
 
 /// Text for the one settings outcome a user needs to know about at startup.
-fn settings_notice(origin: &SettingsOrigin) -> Option<String> {
+pub(crate) fn settings_notice(origin: &SettingsOrigin, cx: &kit::App) -> Option<String> {
     match origin {
         SettingsOrigin::Created | SettingsOrigin::Stored => None,
-        SettingsOrigin::Quarantined { path } => Some(format!(
-            "settings.json was unreadable; moved to {} and defaults applied.",
-            path.display()
+        SettingsOrigin::Quarantined { path } => Some(i18n::interpolate(
+            tr(cx, "settings.notice.quarantined"),
+            &[("path", &path.display().to_string())],
         )),
-        SettingsOrigin::ReadOnlyOtherSchema { found } => Some(format!(
-            "settings.json uses schema {found}; this build writes schema 1, so defaults are in \
-             use and the file was left untouched."
+        SettingsOrigin::ReadOnlyOtherSchema { found } => Some(i18n::interpolate(
+            tr(cx, "settings.notice.read-only"),
+            &[
+                ("found", &found.to_string()),
+                (
+                    "supported",
+                    &axlauncher_core::state::SETTINGS_SCHEMA_VERSION.to_string(),
+                ),
+            ],
         )),
     }
 }
 
 /// A short description of where the loaded settings came from.
-pub(crate) fn describe_origin(origin: &SettingsOrigin) -> String {
+pub(crate) fn describe_origin(origin: &SettingsOrigin, cx: &kit::App) -> String {
     match origin {
-        SettingsOrigin::Created => "created with defaults".to_string(),
-        SettingsOrigin::Stored => "loaded from disk".to_string(),
-        SettingsOrigin::Quarantined { path } => {
-            format!("unreadable copy moved to {}", path.display())
-        }
-        SettingsOrigin::ReadOnlyOtherSchema { found } => {
-            format!("schema {found} left untouched")
-        }
+        SettingsOrigin::Created => tr(cx, "settings.origin.created").to_string(),
+        SettingsOrigin::Stored => tr(cx, "settings.origin.stored").to_string(),
+        SettingsOrigin::Quarantined { path } => i18n::interpolate(
+            tr(cx, "settings.origin.quarantined"),
+            &[("path", &path.display().to_string())],
+        ),
+        SettingsOrigin::ReadOnlyOtherSchema { found } => i18n::interpolate(
+            tr(cx, "settings.origin.read-only"),
+            &[("schema", &found.to_string())],
+        ),
     }
 }

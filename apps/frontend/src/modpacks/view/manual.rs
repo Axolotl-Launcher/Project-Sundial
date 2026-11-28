@@ -10,6 +10,8 @@ use axlauncher_ui::{
     Entity, IntoElement, Label, Link, Render, SharedString, WeakEntity, Window, h_flex, v_flex,
 };
 
+use crate::i18n::tr;
+
 use crate::file_picker::choose_file;
 use crate::modpacks::service::ManualFile;
 
@@ -64,14 +66,14 @@ impl ManualDownloads {
                     .child(
                         Link::new(SharedString::from(format!("download-{path}")))
                             .href(file.url().to_owned())
-                            .child("Open download page"),
+                            .child(tr(cx, "modpacks.manual.open-page")),
                     )
                     .child(
                         Button::new(SharedString::from(format!("select-{path}")))
                             .label(if chosen.is_some() {
-                                "Replace file…"
+                                tr(cx, "modpacks.manual.replace")
                             } else {
-                                "Choose file…"
+                                tr(cx, "modpacks.manual.choose")
                             })
                             .ghost()
                             .disabled(self.picking)
@@ -99,7 +101,7 @@ impl ManualDownloads {
         }
         self.picking = true;
         self.error = None;
-        let selection = choose_file("Choose the downloaded file", cx);
+        let selection = choose_file(tr(cx, "modpacks.manual.choose-downloaded"), cx);
         cx.spawn_in(window, async move |view, cx| {
             complete_selection(view, cx, target, selection.await);
         })
@@ -130,7 +132,7 @@ impl Render for ManualDownloads {
         let danger = cx.theme().danger;
         v_flex()
             .gap_2()
-            .child(Label::new("Files to download manually").text_sm())
+            .child(Label::new(tr(cx, "modpacks.manual.files")).text_sm())
             .children(self.pending.iter().map(|file| self.row(file, cx)))
             .when_some(self.error.clone(), |column, error| {
                 column.child(Label::new(error).text_sm().text_color(danger))

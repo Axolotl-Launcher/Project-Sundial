@@ -3,6 +3,8 @@
 
 //! A shared dialog for editing a single heap preference.
 
+use crate::i18n::tr;
+
 use axlauncher_core::domain::memory::MaximumHeap;
 use axlauncher_core::storage::PhysicalMemory;
 use axlauncher_ui::prelude::*;
@@ -134,12 +136,16 @@ impl MemoryEditor {
         cx.notify();
     }
 
-    fn render_maximum(&self) -> impl IntoElement + use<> {
+    fn render_maximum(&self, cx: &axlauncher_ui::App) -> impl IntoElement + use<> {
         h_flex()
             .id("maximum-heap")
             .gap_3()
             .items_center()
-            .child(Label::new("Maximum heap").text_sm().w_24())
+            .child(
+                Label::new(tr(cx, "settings.memory.editor.maximum"))
+                    .text_sm()
+                    .w_24(),
+            )
             .child(
                 h_flex()
                     .flex_1()
@@ -168,9 +174,9 @@ impl Render for MemoryEditor {
                     .selected_index(Some(usize::from(self.manual)))
                     .on_change(cx.listener(Self::set_mode)),
             )
-            .when(self.manual, |form| form.child(self.render_maximum()))
+            .when(self.manual, |form| form.child(self.render_maximum(cx)))
             .child(
-                Label::new("Heap options in the Minecraft version take priority.")
+                Label::new(tr(cx, "settings.memory.editor.priority"))
                     .text_sm()
                     .text_color(cx.theme().muted_foreground),
             )
@@ -194,13 +200,13 @@ impl Render for MemoryEditor {
                     .justify_end()
                     .child(
                         Button::new("cancel-memory")
-                            .label("Cancel")
+                            .label(tr(cx, "settings.memory.editor.cancel"))
                             .on_click(|_, window, cx| window.close_dialog(cx)),
                     )
                     .child(
                         Button::new("save-memory")
                             .primary()
-                            .label("Save")
+                            .label(tr(cx, "settings.memory.editor.save"))
                             .disabled(invalid)
                             .on_click(cx.listener(Self::save_clicked)),
                     ),

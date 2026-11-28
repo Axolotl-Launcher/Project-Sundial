@@ -17,6 +17,8 @@ use axlauncher_core::storage::DataDir;
 use axlauncher_ui::{AppContext, Task};
 use tokio::sync::watch;
 
+use crate::i18n::tr;
+
 use crate::installation_progress::{progress_message, should_report};
 
 pub(crate) enum Installation {
@@ -26,10 +28,10 @@ pub(crate) enum Installation {
 }
 
 impl Installation {
-    pub(crate) fn message(&self) -> String {
+    pub(crate) fn message(&self, cx: &axlauncher_ui::App) -> String {
         match self {
-            Self::Running(stage) => progress_message(*stage),
-            Self::Complete => "Game files ready".into(),
+            Self::Running(stage) => progress_message(*stage, cx),
+            Self::Complete => tr(cx, "install.ready").into(),
             Self::Failed(message) => message.clone(),
         }
     }

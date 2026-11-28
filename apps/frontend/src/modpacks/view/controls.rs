@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
+use crate::i18n::tr;
+
 use std::path::PathBuf;
 
 use axlauncher_modpack::{OptionId, OptionalFile, Pack};
@@ -8,10 +10,8 @@ use axlauncher_ui::{
     App, BackgroundExecutor, Checkbox, Disableable, ElementId, Label, SharedString, Window,
 };
 
-pub(super) fn data_pack_notice() -> Label {
-    Label::new(
-        "Data packs were saved in the instance’s datapacks folder. In vanilla Minecraft, add them when creating a world or copy them into an existing world’s datapacks folder.",
-    )
+pub(super) fn data_pack_notice(cx: &App) -> Label {
+    Label::new(tr(cx, "modpacks.datapacks"))
 }
 
 pub(super) fn preview_title(pack: &Pack) -> String {
@@ -22,12 +22,13 @@ pub(super) fn preview_title(pack: &Pack) -> String {
 }
 
 pub(super) fn restricted_download_option(
+    cx: &App,
     automatic: bool,
     busy: bool,
     change: impl Fn(&bool, &mut Window, &mut App) + 'static,
 ) -> Checkbox {
     Checkbox::new("modpack-auto-download-restricted")
-        .label("Try automatic downloads for restricted files")
+        .label(tr(cx, "modpacks.automatic-restricted"))
         .checked(automatic)
         .disabled(busy)
         .on_change(change)

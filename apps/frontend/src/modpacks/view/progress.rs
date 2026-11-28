@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Axolotl Team
 // SPDX-License-Identifier: GPL-3.0-only
 
+use crate::i18n::tr;
+
 use crate::installation_progress::{progress_message, should_report};
 use crate::modpacks::service::{GameState, PackState, ProgressUpdate};
 
@@ -22,26 +24,30 @@ impl Progress {
         true
     }
 
-    pub(crate) fn message(self) -> String {
+    pub(crate) fn message(self, cx: &axlauncher_ui::App) -> String {
         let pack = match self.pack {
-            PackState::Planning => "Resolving pack files".into(),
-            PackState::Downloading { processed, total } => {
-                format!("Pack downloads ({processed}/{total} files processed)")
-            }
-            PackState::Supplying => "Verifying selected files".into(),
-            PackState::ManualFiles => "Manual files required".into(),
-            PackState::Copying => "Copying bundled files".into(),
-            PackState::Ready => "Pack files ready".into(),
-            PackState::Failed => "Pack file error".into(),
-            PackState::Publishing => return "Publishing instance".into(),
+            PackState::Planning => tr(cx, "modpacks.progress.planning").into(),
+            PackState::Downloading { processed, total } => crate::i18n::interpolate(
+                tr(cx, "modpacks.progress.downloading"),
+                &[
+                    ("processed", &processed.to_string()),
+                    ("total", &total.to_string()),
+                ],
+            ),
+            PackState::Supplying => tr(cx, "modpacks.progress.verifying").into(),
+            PackState::ManualFiles => tr(cx, "modpacks.progress.manual").into(),
+            PackState::Copying => tr(cx, "modpacks.progress.copying").into(),
+            PackState::Ready => tr(cx, "modpacks.progress.ready").into(),
+            PackState::Failed => tr(cx, "modpacks.progress.failed").into(),
+            PackState::Publishing => return tr(cx, "modpacks.progress.publishing").into(),
         };
         match self.game {
             GameState::Pending => pack,
             GameState::Preparing(stage) => {
-                format!("{pack} · Minecraft ({})", progress_message(stage))
+                format!("{pack} · Minecraft ({})", progress_message(stage, cx))
             }
-            GameState::Ready => format!("{pack} · Minecraft ready"),
-            GameState::Failed => format!("{pack} · Minecraft preparation failed"),
+            GameState::Ready => format!("{pack} · {}", tr(cx, "modpacks.progress.game-ready")),
+            GameState::Failed => format!("{pack} · {}", tr(cx, "modpacks.progress.game-failed")),
         }
     }
 }

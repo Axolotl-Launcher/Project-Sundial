@@ -17,6 +17,8 @@ use axlauncher_ui::{
     h_flex, v_flex,
 };
 
+use crate::i18n::tr;
+
 use crate::file_picker::choose_file;
 
 mod instance;
@@ -251,7 +253,7 @@ impl Render for JavaPanel {
         GroupBox::new()
             .id("java")
             .title(
-                Label::new("Java")
+                Label::new(tr(cx, "settings.java.title"))
                     .text_sm()
                     .text_color(cx.theme().muted_foreground),
             )
@@ -299,13 +301,13 @@ fn java_toolbar(disabled: bool, cx: &mut Context<'_, JavaPanel>) -> impl IntoEle
         .gap_2()
         .child(
             Button::new("java-add")
-                .label("Add Java…")
+                .label(tr(cx, "settings.java.add"))
                 .disabled(disabled)
                 .on_click(cx.listener(|view, _, _, cx| view.add_java(cx))),
         )
         .child(
             Button::new("java-discover")
-                .label("Auto-detect Java")
+                .label(tr(cx, "settings.java.detect"))
                 .ghost()
                 .disabled(disabled)
                 .on_click(cx.listener(|view, _, _, cx| view.run(Operation::Discover, cx))),
@@ -389,7 +391,7 @@ fn runtime_actions(
         .map(|major| {
             let selected = path.to_owned();
             Button::new(java_id("java-prefer", path))
-                .label("Set as preferred")
+                .label(tr(cx, "settings.java.preferred"))
                 .tooltip(format!("Prefer this installation for Java {major}"))
                 .ghost()
                 .small()
@@ -406,8 +408,8 @@ fn runtime_actions(
         });
     let selected = path.to_owned();
     let remove = Button::new(java_id("java-remove", path))
-        .label("Remove")
-        .tooltip("Remove this installation from the Java list")
+        .label(tr(cx, "settings.java.remove"))
+        .tooltip(tr(cx, "settings.java.remove.description"))
         .ghost()
         .small()
         .disabled(disabled)

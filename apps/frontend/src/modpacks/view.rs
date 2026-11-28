@@ -15,6 +15,8 @@ use axlauncher_ui::{
     WeakEntity, Window, h_flex, v_flex,
 };
 
+use crate::i18n::tr;
+
 use crate::file_picker::choose_file;
 
 use super::service::PendingInstall;
@@ -103,7 +105,7 @@ impl Render for ModpackImport {
             .child(
                 h_flex().child(
                     Button::new("choose-modpack")
-                        .label("Import modpack…")
+                        .label(tr(cx, "modpacks.import"))
                         .track_focus(&self.trigger)
                         .loading(matches!(state, State::Inspecting))
                         .disabled(!self.enabled || !matches!(state, State::Idle))
@@ -126,7 +128,7 @@ impl Render for ModpackImport {
                 column.child(Label::new(error).text_sm().text_color(danger))
             })
             .when(self.root_data_packs, |column| {
-                column.child(controls::data_pack_notice())
+                column.child(controls::data_pack_notice(cx))
             })
             .into_any_element()
     }
@@ -143,7 +145,7 @@ impl ModpackImport {
         let waiting = preview.pending.is_some();
         let locked = progress.is_some() || waiting;
         let loader = pack.game().loader().map_or_else(
-            || "Vanilla".to_owned(),
+            || tr(cx, "modpacks.vanilla").to_owned(),
             |(kind, version)| format!("{kind} {version}"),
         );
         let muted = cx.theme().muted_foreground;
@@ -174,6 +176,7 @@ impl ModpackImport {
             })
             .when(pack.source() == PackSource::CurseForge, |column| {
                 column.child(restricted_download_option(
+                    cx,
                     preview.policy.auto_download_restricted(),
                     locked,
                     cx.listener(Self::set_automatic),
@@ -205,10 +208,12 @@ impl ModpackImport {
         v_flex()
             .gap_1()
             .child(
-                Label::new(format!(
-                    "Optional files · {} of {} selected",
-                    preview.selected.len(),
-                    optional.len()
+                Label::new(crate::i18n::interpolate(
+                    tr(cx, "modpacks.optional"),
+                    &[
+                        ("selected", &preview.selected.len().to_string()),
+                        ("total", &optional.len().to_string()),
+                    ],
                 ))
                 .text_sm(),
             )
@@ -245,13 +250,13 @@ impl ModpackImport {
         has_manual: bool,
         cx: &mut Context<'_, Self>,
     ) -> AnyElement {
-        let status = progress.map(Progress::message);
+        let status = progress.map(|progress| progress.message(cx));
         h_flex()
             .gap_2()
             .flex_wrap()
             .child(
                 Button::new("cancel-modpack")
-                    .label("Cancel")
+                    .label(tr(cx, "modpacks.cancel"))
                     .ghost()
                     .disabled(progress.is_some() || picking)
                     .on_click(cx.listener(|view, _, window, cx| view.close_modpack(window, cx))),
@@ -259,9 +264,9 @@ impl ModpackImport {
             .child(
                 Button::new("install-modpack")
                     .label(match (waiting, has_manual) {
-                        (true, true) => "Continue installation",
-                        (true, false) => "Retry installation",
-                        _ => "Install pack",
+                        (true, true) => tr(cx, "modpacks.continue"),
+                        (true, false) => tr(cx, "modpacks.retry"),
+                        _ => tr(cx, "modpacks.install"),
                     })
                     .primary()
                     .track_focus(&self.preview_focus)
@@ -282,7 +287,7 @@ impl ModpackImport {
         self.state = State::Inspecting;
         self.error = None;
         self.root_data_packs = false;
-        let selection = choose_file("Choose a modpack archive", cx);
+        let selection = choose_file(tr(cx, "modpacks.choose-archive"), cx);
         let executor = cx.background_executor().clone();
         cx.spawn_in(window, async move |view, cx| {
             let result = inspect_path(selection.await, executor).await;

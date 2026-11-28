@@ -201,3 +201,29 @@ fn saving_preserves_fields_written_by_a_newer_build() {
     assert!(text.contains("future_setting"), "{text}");
     assert!(text.contains("\"theme\": \"dark\""), "{text}");
 }
+
+#[test]
+fn the_launcher_language_defaults_and_persists_independently_of_minecraft() {
+    let temp = TempRoot::new();
+    let root = temp.path();
+    let path = seed(
+        root,
+        r#"{"schema_version":1,"data":{"default_game_language":"ja_jp"}}"#,
+    );
+    assert_eq!(
+        load_settings(root).unwrap().data.launcher_language,
+        LauncherLanguage::English
+    );
+
+    update_settings(root, |data| {
+        data.launcher_language = LauncherLanguage::SimplifiedChinese
+    })
+    .unwrap();
+
+    let data = load_settings(root).unwrap().data;
+    assert_eq!(data.launcher_language, LauncherLanguage::SimplifiedChinese);
+    assert_eq!(data.launcher_language.minecraft_code(), "zh_cn");
+    assert_eq!(data.default_game_language, "ja_jp");
+    let document: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert_eq!(document["data"]["launcher_language"], "zh-CN");
+}

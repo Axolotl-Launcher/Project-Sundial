@@ -14,6 +14,8 @@ use axlauncher_ui::{
     v_flex,
 };
 
+use crate::i18n::tr;
+
 use super::RootView;
 
 #[derive(Clone, Copy)]
@@ -29,6 +31,20 @@ impl SelectItem for SourceOption {
     fn value(&self) -> &SourcePreference {
         &self.0
     }
+}
+
+fn source_options(cx: &App) -> Vec<SourceOption> {
+    vec![
+        SourceOption(SourcePreference::Auto, tr(cx, "settings.sources.automatic")),
+        SourceOption(
+            SourcePreference::MirrorPreferred,
+            tr(cx, "settings.sources.mirror"),
+        ),
+        SourceOption(
+            SourcePreference::OfficialOnly,
+            tr(cx, "settings.sources.official"),
+        ),
+    ]
 }
 
 type SourceSelect = Entity<SelectState<Vec<SourceOption>>>;
@@ -68,11 +84,7 @@ impl SourceField {
         cx: &mut App,
     ) -> SourceSelect {
         let value = self.read(settings);
-        let options = vec![
-            SourceOption(SourcePreference::Auto, "Automatic"),
-            SourceOption(SourcePreference::MirrorPreferred, "Trust built-in mirror"),
-            SourceOption(SourcePreference::OfficialOnly, "Official only"),
-        ];
+        let options = source_options(cx);
         let index = options.iter().position(|option| option.0 == value);
         cx.new(|cx| SelectState::new(options, index.map(IndexPath::new), window, cx))
     }
@@ -95,6 +107,12 @@ impl DownloadSources {
         }
     }
 
+    pub(super) fn refresh_language(&self, window: &mut Window, cx: &mut App) {
+        for (_, select) in self.selectors() {
+            refresh_source_options(select, window, cx);
+        }
+    }
+
     fn sync(
         &mut self,
         settings: Option<&SettingsData>,
@@ -114,6 +132,16 @@ impl DownloadSources {
             (SourceField::Files, &self.files),
             (SourceField::MavenCentral, &self.maven_central),
         ]
+    }
+}
+
+fn refresh_source_options(select: &SourceSelect, window: &mut Window, cx: &mut App) {
+    let selection = select.read(cx).selected_value().copied();
+    select.update(cx, |state, cx| {
+        state.set_items(source_options(cx), window, cx)
+    });
+    if let Some(selection) = selection {
+        sync_select(select, selection, window, cx);
     }
 }
 
@@ -235,7 +263,7 @@ impl RootView {
         GroupBox::new()
             .id("service-sources")
             .title(
-                Label::new("Service sources")
+                Label::new(tr(cx, "settings.sources.title"))
                     .text_sm()
                     .text_color(cx.theme().muted_foreground),
             )
@@ -247,19 +275,19 @@ impl RootView {
                             .flex_wrap()
                             .gap_4()
                             .child(source_select(
-                                "Minecraft metadata source",
+                                tr(cx, "settings.sources.metadata"),
                                 "download-metadata-source",
                                 &sources.metadata,
                                 disabled,
                             ))
                             .child(source_select(
-                                "Minecraft file source",
+                                tr(cx, "settings.sources.files"),
                                 "download-file-source",
                                 &sources.files,
                                 disabled,
                             ))
                             .child(source_select(
-                                "Maven Central source",
+                                tr(cx, "settings.sources.maven"),
                                 "maven-central-source",
                                 &sources.maven_central,
                                 disabled,
@@ -284,7 +312,7 @@ impl RootView {
             .pt_2()
             .child(
                 Switch::new("fallen-proxy")
-                    .label("Use Fallen-Proxy for Minecraft authentication")
+                    .label(tr(cx, "settings.sources.fallen-proxy.label"))
                     .checked(self.fallen_proxy().is_some())
                     .disabled(disabled)
                     .on_change(cx.listener(|view, enabled, window, cx| {
@@ -292,7 +320,7 @@ impl RootView {
                     })),
             )
             .child(
-                Label::new("Forwards Minecraft sign-in and in-game session requests through a third-party service.")
+                Label::new(tr(cx, "settings.sources.fallen-proxy.description"))
                     .id("fallen-proxy-description")
                     .text_xs()
                     .text_color(cx.theme().muted_foreground),

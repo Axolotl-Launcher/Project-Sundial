@@ -17,6 +17,8 @@ use axlauncher_ui::{
 use futures::{FutureExt, StreamExt};
 use tokio::sync::{mpsc, oneshot};
 
+use crate::i18n::tr;
+
 use super::DownloadOptions;
 
 const RESULTS_PER_PAGE: usize = 10;
@@ -228,11 +230,11 @@ impl BatchDebug {
         };
         v_flex()
             .gap_2()
-            .child(Label::new("Batch URLs").text_sm())
+            .child(Label::new(tr(cx, "download-debug.batch.label")).text_sm())
             .child(
                 Textarea::new(&self.input)
                     .accessibility_id("download-batch-urls")
-                    .aria_label("Batch URLs, one per line")
+                    .aria_label(tr(cx, "download-debug.batch.hint"))
                     .w_full()
                     .h_24()
                     .readonly(running),
@@ -260,14 +262,14 @@ impl BatchDebug {
             .gap_2()
             .child(
                 Button::new("start-batch-download")
-                    .label("Run batch test")
+                    .label(tr(cx, "download-debug.batch.start"))
                     .disabled(self.is_running() || self.paths.is_none())
                     .on_click(cx.listener(|view, _, _, cx| view.start_batch_probe(cx))),
             )
             .when(self.is_running(), |row| {
                 row.child(
                     Button::new("cancel-batch-download")
-                        .label("Cancel batch")
+                        .label(tr(cx, "download-debug.batch.cancel"))
                         .ghost()
                         .disabled(self.cancel.is_none())
                         .on_click(cx.listener(|view, _, _, cx| view.cancel_batch_probe(cx))),

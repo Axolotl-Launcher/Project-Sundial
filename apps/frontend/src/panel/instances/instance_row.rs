@@ -10,9 +10,11 @@ use axlauncher_core::desktop::installation::install_key;
 use axlauncher_core::state::profile::DiscoveredProfile;
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{
-    App, Button, ButtonVariants, Disableable, Div, ElementId, Hsla, IntoElement, Label, StyledExt,
-    div,
+    ActiveTheme, App, Button, ButtonVariants, Disableable, Div, ElementId, IntoElement, Label,
+    StyledExt, div,
 };
+
+use crate::i18n::tr;
 
 use crate::installations::Installation;
 use crate::launches::Launch;
@@ -47,7 +49,7 @@ pub(super) fn row(
     installations: Option<&HashMap<String, Installation>>,
     launch: Option<&(String, Launch)>,
     launch_pending: bool,
-    muted: Hsla,
+    cx: &App,
     on_action: impl Fn(RowAction, &mut App) + Clone + 'static,
 ) -> Div {
     let action = instance.profile.game().and_then(|game| {
@@ -72,7 +74,7 @@ pub(super) fn row(
                     launch_pending,
                     recorded: game.version_id.is_some(),
                 },
-                muted,
+                cx,
                 on_action.clone(),
             )
         })
@@ -81,16 +83,19 @@ pub(super) fn row(
     let select = Button::new(ElementId::Name(
         format!("inspect:{}", path.display()).into(),
     ))
-    .label("Select")
+    .label(tr(cx, "instances.select"))
     .toggled(selected)
-    .accessibility_label(format!("Select {}", instance.profile.instance.name))
+    .accessibility_label(crate::i18n::interpolate(
+        tr(cx, "instances.select-name"),
+        &[("name", &instance.profile.instance.name)],
+    ))
     .on_click(move |_, _, cx| on_action(RowAction::Select, cx));
     div()
         .h_flex()
         .justify_between()
         .items_start()
         .gap_3()
-        .child(description(instance, muted))
+        .child(description(instance, cx))
         .child(
             div()
                 .h_flex()
@@ -101,10 +106,10 @@ pub(super) fn row(
         )
 }
 
-fn description(instance: &DiscoveredProfile, muted: Hsla) -> impl IntoElement + use<> {
+fn description(instance: &DiscoveredProfile, cx: &App) -> impl IntoElement + use<> {
     let profile = &instance.profile;
     let details = profile.game().map_or_else(
-        || "No Minecraft version".to_string(),
+        || tr(cx, "instances.no-version").to_string(),
         |game| match &game.loader {
             Some(loader) => format!("{} · {}", game.minecraft, loader.kind),
             None => game.minecraft.clone(),
@@ -133,13 +138,13 @@ fn description(instance: &DiscoveredProfile, muted: Hsla) -> impl IntoElement + 
                 format!("instance-detail:{directory}").into(),
             ))
             .text_xs()
-            .text_color(muted),
+            .text_color(cx.theme().muted_foreground),
         )
 }
 
 fn instance_actions(
     state: ActionState<'_>,
-    muted: Hsla,
+    cx: &App,
     on_action: impl Fn(RowAction, &mut App) + Clone + 'static,
 ) -> Div {
     let ActionState {
@@ -159,9 +164,9 @@ fn instance_actions(
     };
     let busy =
         launch.is_some_and(Launch::is_active) || matches!(slot, Some(Installation::Running(_)));
-    let message = action_message(installation, launch);
+    let message = action_message(installation, launch, cx);
     let install_button = install.and_then(|_| {
-        let label = install_label(slot, recorded)?;
+        let label = install_label(slot, recorded, cx)?;
         let on_action = on_action.clone();
         Some(
             Button::new(ElementId::Name(
@@ -173,10 +178,9 @@ fn instance_actions(
             .on_click(move |_, _, cx| on_action(RowAction::Install, cx)),
         )
     });
-    let buttons =
-        div().h_flex().gap_2().children(install_button).children(
-            launchable.then(|| launch_button(directory, busy || launch_pending, on_action)),
-        );
+    let buttons = div().h_flex().gap_2().children(install_button).children(
+        launchable.then(|| launch_button(directory, busy || launch_pending, on_action, cx)),
+    );
     div()
         .v_flex()
         .gap_1()
@@ -189,34 +193,38 @@ fn instance_actions(
                         format!("install-status:{}", directory.display()).into(),
                     ))
                     .text_xs()
-                    .text_color(muted),
+                    .text_color(cx.theme().muted_foreground),
             )
         })
 }
 
 /// The line under the buttons, or nothing when there is nothing to say.
-fn action_message(installation: Option<&Installation>, launch: Option<&Launch>) -> Option<String> {
+fn action_message(
+    installation: Option<&Installation>,
+    launch: Option<&Launch>,
+    cx: &App,
+) -> Option<String> {
     match (installation, launch) {
-        (_, Some(status)) if status.is_active() => Some(status.message().to_owned()),
+        (_, Some(status)) if status.is_active() => Some(status.message(cx).to_owned()),
         (Some(status @ (Installation::Running(_) | Installation::Failed(_))), _) => {
-            Some(status.message())
+            Some(status.message(cx))
         }
         (Some(Installation::Complete), Some(Launch::NeedsInstall(_))) => {
-            Some(Installation::Complete.message())
+            Some(Installation::Complete.message(cx))
         }
-        (_, Some(status)) => Some(status.message().to_owned()),
-        (installation, None) => installation.map(Installation::message),
+        (_, Some(status)) => Some(status.message(cx).to_owned()),
+        (installation, None) => installation.map(|status| status.message(cx)),
     }
 }
 
 /// The Install button's label, or nothing when it must not be shown.
-fn install_label(slot: Option<&Installation>, recorded: bool) -> Option<&'static str> {
+fn install_label(slot: Option<&Installation>, recorded: bool, cx: &App) -> Option<&'static str> {
     match slot {
-        None => Some("Install"),
-        Some(Installation::Failed(_)) => Some("Retry"),
+        None => Some(tr(cx, "instances.install")),
+        Some(Installation::Failed(_)) => Some(tr(cx, "instances.install.retry")),
         Some(Installation::Running(_)) => None,
         Some(Installation::Complete) if recorded => None,
-        Some(Installation::Complete) => Some("Install"),
+        Some(Installation::Complete) => Some(tr(cx, "instances.install")),
     }
 }
 
@@ -224,11 +232,12 @@ fn launch_button(
     directory: &Path,
     busy: bool,
     on_action: impl Fn(RowAction, &mut App) + 'static,
+    cx: &App,
 ) -> Button {
     Button::new(ElementId::Name(
         format!("launch:{}", directory.display()).into(),
     ))
-    .label("Launch")
+    .label(tr(cx, "instances.launch"))
     .disabled(busy)
     .on_click(move |_, _, cx| on_action(RowAction::Launch, cx))
 }

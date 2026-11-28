@@ -10,6 +10,8 @@ use axlauncher_ui::{
     StyledExt, Window, div, h_flex, v_flex,
 };
 
+use crate::i18n::tr;
+
 use crate::installations::Installation;
 
 use super::RootView;
@@ -25,12 +27,12 @@ pub(super) enum Page {
 }
 
 impl Page {
-    fn label(self) -> &'static str {
+    fn label(self, cx: &axlauncher_ui::App) -> &'static str {
         match self {
-            Self::Home => "Home",
-            Self::Instances => "Instances",
-            Self::Settings => "Settings",
-            Self::Debug => "Debug",
+            Self::Home => tr(cx, "navigation.home"),
+            Self::Instances => tr(cx, "navigation.instances"),
+            Self::Settings => tr(cx, "navigation.settings"),
+            Self::Debug => tr(cx, "navigation.debug"),
         }
     }
 
@@ -48,9 +50,9 @@ impl RootView {
     fn render_sidebar(&self, cx: &Context<'_, Self>) -> Sidebar<SidebarMenu> {
         let collapsed = self.sidebar_collapsed;
         let toggle_label = if collapsed {
-            "Expand sidebar"
+            tr(cx, "navigation.sidebar.expand")
         } else {
-            "Collapse sidebar"
+            tr(cx, "navigation.sidebar.collapse")
         };
         let toggle = sidebar_button(
             "toggle-sidebar",
@@ -86,7 +88,7 @@ impl RootView {
     }
 
     fn navigation_button(&self, page: Page, cx: &Context<'_, Self>) -> Button {
-        let label = page.label();
+        let label = page.label(cx);
         sidebar_button(
             ElementId::named_usize("navigate", page as usize),
             page.icon(),
@@ -106,22 +108,29 @@ impl RootView {
             .child(
                 h_flex()
                     .justify_between()
-                    .child(Label::new(self.page.label()).text_xl())
+                    .child(Label::new(self.page.label(cx)).text_xl())
                     .child(
                         Button::new("reload-all")
-                            .label("Reload")
+                            .label(tr(cx, "navigation.reload"))
                             .ghost()
                             .disabled(self.paths.is_none())
                             .on_click(cx.listener(|view, _, window, cx| view.reload(window, cx))),
                     ),
             )
-            .when_some(self.notice.clone(), |header, notice| {
-                header.child(
-                    Label::new(notice)
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground),
-                )
-            })
+            .when_some(
+                self.notice.clone().or_else(|| {
+                    self.origin
+                        .as_ref()
+                        .and_then(|origin| crate::settings_notice(origin, cx))
+                }),
+                |header, notice| {
+                    header.child(
+                        Label::new(notice)
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground),
+                    )
+                },
+            )
     }
 
     fn page_sections(&mut self, cx: &mut Context<'_, Self>) -> Vec<AnyElement> {
@@ -145,7 +154,11 @@ impl RootView {
         let muted = cx.theme().muted_foreground;
         GroupBox::new()
             .id("download-debug")
-            .title(Label::new("Download debug").text_sm().text_color(muted))
+            .title(
+                Label::new(tr(cx, "navigation.download-debug"))
+                    .text_sm()
+                    .text_color(muted),
+            )
             .child(
                 v_flex()
                     .gap_3()
@@ -159,7 +172,7 @@ impl RootView {
     fn render_modpack_progress(&self, cx: &Context<'_, Self>) -> Option<Label> {
         let (name, progress) = self.modpack.read(cx).install_progress()?;
         Some(
-            Label::new(format!("{name} · {}", progress.message()))
+            Label::new(format!("{name} · {}", progress.message(cx)))
                 .id(ElementId::Name("download-progress:modpack".into()))
                 .text_sm()
                 .text_color(cx.theme().muted_foreground),
@@ -182,7 +195,7 @@ impl RootView {
             .into_iter()
             .take(MAX_VISIBLE_INSTALLATIONS)
             .map(|(version, state)| {
-                Label::new(format!("{version} · {}", state.message()))
+                Label::new(format!("{version} · {}", state.message(cx)))
                     .id(ElementId::Name(
                         format!("download-progress:{version}").into(),
                     ))

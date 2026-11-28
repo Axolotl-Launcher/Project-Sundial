@@ -30,8 +30,6 @@ use super::{
     sources::DownloadOptions,
 };
 
-pub const LAUNCHER_LANGUAGE: &str = "en_us";
-
 pub enum Player {
     Offline(Session),
     Online {
@@ -67,7 +65,13 @@ impl LaunchJob {
         let language = settings
             .and_then(|settings| normalize_game_language(&settings.default_game_language))
             .filter(|language| !language.is_empty())
-            .unwrap_or_else(|| LAUNCHER_LANGUAGE.to_owned());
+            .unwrap_or_else(|| {
+                settings
+                    .map(|settings| settings.launcher_language)
+                    .unwrap_or_default()
+                    .minecraft_code()
+                    .to_owned()
+            });
         Some(Self {
             request: LaunchRequest {
                 game_root: if game.is_runtime_isolated() {

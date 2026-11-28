@@ -15,6 +15,8 @@ use axlauncher_ui::{
     Task, WeakEntity, Window, h_flex, v_flex,
 };
 
+use crate::i18n::tr;
+
 use super::{AccountsPanel, DesktopAccounts, SignInCancellation};
 
 type ResultState = Result<Outcome, String>;
@@ -107,9 +109,9 @@ impl Form {
         self.request = None;
     }
 
-    fn button(&self, disabled: bool) -> Button {
+    fn button(&self, disabled: bool, cx: &App) -> Button {
         Button::new("third-party-sign-in")
-            .label("Third-party sign-in…")
+            .label(tr(cx, "accounts.third-party.open"))
             .track_focus(&self.trigger)
             .disabled(disabled || self.open)
             .toggled(self.open)
@@ -136,7 +138,7 @@ impl Form {
                 let buttons = choice.profiles.iter().cloned().map(choose);
                 v_flex()
                     .gap_2()
-                    .child(Label::new("Choose a Minecraft profile"))
+                    .child(Label::new(tr(cx, "accounts.third-party.choose-profile")))
                     .child(h_flex().gap_2().flex_wrap().children(buttons))
                     .into_any_element()
             }
@@ -275,18 +277,18 @@ impl Form {
 impl AccountsPanel {
     pub(super) fn third_party_button(&self, disabled: bool, cx: &Context<'_, Self>) -> Button {
         self.third_party
-            .button(disabled)
+            .button(disabled, cx)
             .on_click(cx.listener(|view, _, window, cx| view.open_third_party(None, window, cx)))
     }
 
     pub(super) fn render_third_party(&self, cx: &Context<'_, Self>) -> AnyElement {
         let submit = Button::new("third-party-submit")
             .primary()
-            .label("Sign in")
+            .label(tr(cx, "accounts.third-party.sign-in"))
             .on_click(cx.listener(|view, _, window, cx| view.submit_third_party(window, cx)));
         let cancel = Button::new("third-party-cancel")
             .ghost()
-            .label("Cancel")
+            .label(tr(cx, "accounts.third-party.cancel"))
             .on_click(cx.listener(|view, _, window, cx| view.cancel_third_party(window, cx)));
         self.third_party.render(
             submit,

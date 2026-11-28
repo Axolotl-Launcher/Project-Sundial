@@ -16,6 +16,8 @@ use axlauncher_ui::{
     Sizable, WeakEntity, Window, h_flex, v_flex,
 };
 
+use crate::i18n::tr;
+
 use super::{
     RootView,
     java::{InstancePicker, memory::open_editor},
@@ -229,7 +231,11 @@ impl RootView {
 
         GroupBox::new()
             .id("instances")
-            .title(Label::new("Instances").text_sm().text_color(muted))
+            .title(
+                Label::new(tr(cx, "instances.title"))
+                    .text_sm()
+                    .text_color(muted),
+            )
             .child(
                 v_flex()
                     .gap_3()
@@ -243,15 +249,18 @@ impl RootView {
                     .when(
                         profiles.instances.is_empty() && profiles.issues.is_empty(),
                         |column| {
-                            column
-                                .child(Label::new("No profiles found.").text_sm().text_color(muted))
+                            column.child(
+                                Label::new(tr(cx, "instances.empty"))
+                                    .text_sm()
+                                    .text_color(muted),
+                            )
                         },
                     )
                     .child(self.profile_creation.clone())
                     .when(
                         !profiles.instances.is_empty()
                             && self.accounts.read(cx).selected().is_none(),
-                        |column| column.child(self.offline_player()),
+                        |column| column.child(self.offline_player(cx)),
                     )
                     .children(profiles.instances.iter().map(|entry| {
                         let selected = self.instances.selected.as_ref() == Some(&entry.directory);
@@ -262,7 +271,7 @@ impl RootView {
                             self.launches.get(&entry.directory),
                             self.account_selection_pending(cx)
                                 || self.java_write_pending(entry.profile.id(), cx),
-                            muted,
+                            cx,
                             Self::row_listener(entry.directory.clone(), cx),
                         );
                         v_flex()
@@ -317,14 +326,14 @@ impl RootView {
         self.install_game(directory, &game, cx);
     }
 
-    fn offline_player(&self) -> impl IntoElement + use<> {
+    fn offline_player(&self, cx: &axlauncher_ui::App) -> impl IntoElement + use<> {
         h_flex()
             .gap_3()
-            .child(Label::new("Offline player name").text_sm())
+            .child(Label::new(tr(cx, "instances.offline-player")).text_sm())
             .child(
                 Input::new(&self.player_input)
                     .id("offline-player-name")
-                    .aria_label("Offline player name")
+                    .aria_label(tr(cx, "instances.offline-player"))
                     .w_48(),
             )
     }

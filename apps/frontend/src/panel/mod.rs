@@ -14,6 +14,8 @@ use axlauncher_core::storage::{DataDir, DataPath};
 use axlauncher_ui::prelude::*;
 use axlauncher_ui::{Context, Entity, InputEvent, InputState, Window};
 
+use crate::i18n::tr;
+
 use crate::installations::Installation;
 use crate::launches::Launch;
 use crate::modpacks::{ImportEvent, ModpackImport};
@@ -25,6 +27,7 @@ mod download_debug;
 mod environment;
 mod instances;
 mod java;
+mod language;
 mod profile_creation;
 mod service_sources;
 mod shell;
@@ -52,6 +55,7 @@ pub(crate) struct RootView {
     installations: HashMap<PathBuf, HashMap<String, Installation>>,
     launches: HashMap<PathBuf, (String, Launch)>,
     environment: environment::EnvironmentState,
+    language_picker: language::LanguagePicker,
     activity: activity::ActivityLog,
 }
 
@@ -61,7 +65,7 @@ impl RootView {
         let root_text = Self::data_root_text(loaded.paths.as_ref());
         let root_input = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("Data directory")
+                .placeholder(tr(cx, "settings.data-directory.label"))
                 .default_value(root_text)
         });
         let player_input = cx.new(|cx| InputState::new(window, cx).placeholder(DEFAULT_PLAYER));
@@ -87,6 +91,7 @@ impl RootView {
             .as_ref()
             .map_or("", |settings| settings.default_game_language.as_str());
         let environment = Self::new_environment(game_language, window, cx);
+        let language_picker = Self::new_language_picker(window, cx);
         let java = Self::new_java_panel(loaded.paths.clone(), cx);
         let mut view = Self {
             page: shell::Page::Home,
@@ -109,6 +114,7 @@ impl RootView {
             installations: HashMap::new(),
             launches: HashMap::new(),
             environment,
+            language_picker,
             activity: activity::ActivityLog::new(),
         };
 
@@ -334,7 +340,9 @@ impl RootView {
         self.paths = loaded.paths;
         self.modpack
             .update(cx, |view, cx| view.set_enabled(self.paths.is_some(), cx));
+        let language = crate::i18n::configured_language(loaded.settings.as_ref());
         self.set_settings(loaded.settings, cx);
+        self.apply_launcher_language(language, window, cx);
         self.accounts.update(cx, |accounts, cx| {
             accounts.reload(self.paths.as_ref(), same_data, window, cx)
         });

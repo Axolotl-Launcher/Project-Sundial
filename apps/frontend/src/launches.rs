@@ -6,6 +6,8 @@
 //! The module starts the launch and hands the view what it observes. Presenting
 //! the result belongs to the panel that owns the row.
 
+use crate::i18n::tr;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -30,11 +32,11 @@ impl Launch {
         matches!(self, Self::Starting | Self::Running)
     }
 
-    pub(crate) fn message(&self) -> &str {
+    pub(crate) fn message(&self, cx: &axlauncher_ui::App) -> &str {
         match self {
-            Self::Starting => "Checking files and starting Minecraft",
-            Self::Running => "Minecraft running",
-            Self::Exited => "Minecraft closed",
+            Self::Starting => tr(cx, "launch.starting"),
+            Self::Running => tr(cx, "launch.running"),
+            Self::Exited => tr(cx, "launch.exited"),
             Self::NeedsInstall(error) | Self::Failed(error) => error,
         }
     }

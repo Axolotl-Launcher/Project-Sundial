@@ -7,6 +7,8 @@ use axlauncher_ui::{
     IntoElement, Label, Render, Select, SharedString, Window, h_flex, rems, v_flex,
 };
 
+use crate::i18n::tr;
+
 use super::{CatalogStatus, LoaderCatalog, ProfileCreation};
 
 enum LoaderNotice<'a> {
@@ -15,11 +17,11 @@ enum LoaderNotice<'a> {
 }
 
 impl CatalogStatus {
-    fn placeholder(&self, idle: &'static str) -> SharedString {
+    fn placeholder(&self, cx: &App, idle: &'static str) -> SharedString {
         match self {
-            Self::Loading => "Loading versions…",
-            Self::Empty => "No versions available",
-            Self::Failed(_) => "Versions unavailable",
+            Self::Loading => tr(cx, "instances.create.status.loading"),
+            Self::Empty => tr(cx, "instances.create.status.empty"),
+            Self::Failed(_) => tr(cx, "instances.create.status.failed"),
             Self::Idle | Self::Ready => idle,
         }
         .into()
@@ -35,8 +37,9 @@ impl LoaderCatalog {
         }
     }
 
-    fn placeholder(&self) -> SharedString {
-        self.status.placeholder("Choose Minecraft first")
+    fn placeholder(&self, cx: &App) -> SharedString {
+        self.status
+            .placeholder(cx, tr(cx, "instances.create.minecraft.choose-first"))
     }
 }
 
@@ -46,11 +49,11 @@ impl Render for ProfileCreation {
         let has_loader = self.loader_kind(cx).is_some();
         let name = Input::new(&self.name)
             .id("new-profile-name")
-            .aria_label("Instance name")
+            .aria_label(tr(cx, "instances.create.name"))
             .disabled(disabled);
         let loader = Select::new(&self.loader)
-            .placeholder("Choose a loader")
-            .accessibility_label("Mod loader")
+            .placeholder(tr(cx, "instances.create.loader.choose"))
+            .accessibility_label(tr(cx, "instances.create.loader"))
             .disabled(disabled);
         v_flex()
             .gap_2()
@@ -59,29 +62,38 @@ impl Render for ProfileCreation {
                     .gap_3()
                     .items_end()
                     .flex_wrap()
-                    .child(field("profile-name-label", "Instance name", name).w_40())
+                    .child(
+                        field("profile-name-label", tr(cx, "instances.create.name"), name).w_40(),
+                    )
                     .child(
                         field(
                             "profile-minecraft-label",
-                            "Minecraft version",
-                            self.minecraft_input(disabled),
+                            tr(cx, "instances.create.minecraft.label"),
+                            self.minecraft_input(disabled, cx),
                         )
                         .w_48(),
                     )
-                    .child(field("profile-loader-label", "Mod loader", loader).w_32())
+                    .child(
+                        field(
+                            "profile-loader-label",
+                            tr(cx, "instances.create.loader"),
+                            loader,
+                        )
+                        .w_32(),
+                    )
                     .when(has_loader, |row| {
                         row.child(
                             field(
                                 "profile-loader-version-label",
-                                "Loader version",
-                                self.build_input(disabled),
+                                tr(cx, "instances.create.loader.version"),
+                                self.build_input(disabled, cx),
                             )
                             .w_48(),
                         )
                     })
                     .child(
                         Button::new("new-profile-create")
-                            .label("Create")
+                            .label(tr(cx, "instances.create.submit"))
                             .primary()
                             .disabled(disabled || self.profile(cx).is_none())
                             .on_click(cx.listener(|form, _, _, cx| form.submit(cx))),
@@ -97,9 +109,9 @@ impl Render for ProfileCreation {
 impl ProfileCreation {
     fn version_mode_button(&self, disabled: bool, cx: &mut Context<'_, Self>) -> Button {
         let label = if self.manual {
-            "Browse versions"
+            tr(cx, "instances.create.browse")
         } else {
-            "Enter versions manually"
+            tr(cx, "instances.create.manual")
         };
         Button::new("new-profile-version-mode")
             .self_start()
@@ -126,7 +138,7 @@ impl ProfileCreation {
     ) -> Option<AnyElement> {
         match status {
             CatalogStatus::Empty => Some(
-                Label::new("Mojang returned an empty version list.")
+                Label::new(tr(cx, "instances.create.minecraft.empty"))
                     .text_sm()
                     .into_any_element(),
             ),
@@ -134,7 +146,7 @@ impl ProfileCreation {
                 "minecraft-versions-error",
                 format!("Could not load Minecraft versions. {error}"),
                 Button::new("minecraft-versions-retry")
-                    .label("Retry Minecraft versions")
+                    .label(tr(cx, "instances.create.minecraft.retry"))
                     .on_click(
                         cx.listener(|view, _, window, cx| view.load_minecraft_versions(window, cx)),
                     ),
@@ -147,7 +159,7 @@ impl ProfileCreation {
     fn loader_feedback(catalog: &LoaderCatalog, cx: &mut Context<'_, Self>) -> Option<AnyElement> {
         match catalog.notice() {
             Some(LoaderNotice::Empty) => Some(
-                Label::new("This loader has no builds for the selected Minecraft version.")
+                Label::new(tr(cx, "instances.create.loader.empty"))
                     .text_sm()
                     .into_any_element(),
             ),
@@ -155,7 +167,7 @@ impl ProfileCreation {
                 "loader-versions-error",
                 format!("Could not load loader versions. {error}"),
                 Button::new("loader-versions-retry")
-                    .label("Retry loader versions")
+                    .label(tr(cx, "instances.create.loader.retry"))
                     .on_click(
                         cx.listener(|view, _, window, cx| view.load_loader_versions(window, cx)),
                     ),
@@ -167,35 +179,38 @@ impl ProfileCreation {
 }
 
 impl ProfileCreation {
-    fn minecraft_input(&self, disabled: bool) -> AnyElement {
+    fn minecraft_input(&self, disabled: bool, cx: &App) -> AnyElement {
         if self.manual {
             return Input::new(&self.manual_game)
                 .id("new-profile-minecraft-manual")
-                .aria_label("Minecraft version")
+                .aria_label(tr(cx, "instances.create.minecraft.label"))
                 .disabled(disabled)
                 .into_any_element();
         }
         Select::new(&self.minecraft)
-            .accessibility_label("Minecraft version")
-            .placeholder(self.minecraft_status.placeholder("Choose a version"))
-            .search_placeholder("Search versions or types")
+            .accessibility_label(tr(cx, "instances.create.minecraft.label"))
+            .placeholder(
+                self.minecraft_status
+                    .placeholder(cx, tr(cx, "instances.create.minecraft.choose")),
+            )
+            .search_placeholder(tr(cx, "instances.create.minecraft.search"))
             .menu_width(rems(20.))
             .disabled(disabled || !matches!(self.minecraft_status, CatalogStatus::Ready))
             .into_any_element()
     }
 
-    fn build_input(&self, disabled: bool) -> AnyElement {
+    fn build_input(&self, disabled: bool, cx: &App) -> AnyElement {
         if self.manual {
             return Input::new(&self.manual_build)
                 .id("new-profile-loader-manual")
-                .aria_label("Loader version")
+                .aria_label(tr(cx, "instances.create.loader.version"))
                 .disabled(disabled)
                 .into_any_element();
         }
         Select::new(&self.loader_version)
-            .accessibility_label("Loader version")
-            .placeholder(self.loader_catalog.placeholder())
-            .search_placeholder("Search loader versions")
+            .accessibility_label(tr(cx, "instances.create.loader.version"))
+            .placeholder(self.loader_catalog.placeholder(cx))
+            .search_placeholder(tr(cx, "instances.create.loader.search"))
             .menu_width(rems(17.))
             .disabled(disabled || !self.loader_catalog.is_ready())
             .into_any_element()

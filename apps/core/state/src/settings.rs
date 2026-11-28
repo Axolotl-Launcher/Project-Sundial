@@ -57,6 +57,9 @@ pub struct SettingsData {
     memory: MemoryAllocation,
     #[serde(default)]
     pub theme: ThemeChoice,
+    /// The language of the launcher interface.
+    #[serde(default)]
+    pub launcher_language: LauncherLanguage,
     /// The initial Minecraft language, with an empty value following the launcher.
     #[serde(default)]
     pub default_game_language: String,
@@ -89,6 +92,26 @@ pub struct SettingsData {
     pub extra: BTreeMap<String, serde_json::Value>,
 }
 
+/// A language supported by the launcher interface.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LauncherLanguage {
+    #[default]
+    #[serde(rename = "en-US")]
+    English,
+    #[serde(rename = "zh-CN")]
+    SimplifiedChinese,
+}
+
+impl LauncherLanguage {
+    /// The matching language code used in Minecraft options.
+    pub const fn minecraft_code(self) -> &'static str {
+        match self {
+            Self::English => "en_us",
+            Self::SimplifiedChinese => "zh_cn",
+        }
+    }
+}
+
 impl SettingsData {
     pub const fn memory(&self) -> MemoryAllocation {
         self.memory
@@ -113,6 +136,7 @@ impl Default for SettingsData {
         Self {
             memory: MemoryAllocation::default(),
             theme: ThemeChoice::default(),
+            launcher_language: LauncherLanguage::default(),
             default_game_language: String::new(),
             max_concurrent_downloads: default_download_concurrency(),
             max_concurrent_writes: default_concurrency(),

@@ -10,6 +10,8 @@ use axlauncher_ui::{
     Label, ScrollableElement, div, h_flex, v_flex,
 };
 
+use crate::i18n::tr;
+
 use super::{Inspection, Output, RootView};
 
 impl RootView {
@@ -25,17 +27,21 @@ impl RootView {
 
         GroupBox::new()
             .id("launch-diagnostics")
-            .title(Label::new("Launch diagnostics").text_sm().text_color(muted))
+            .title(
+                Label::new(tr(cx, "launch.diagnostics.title"))
+                    .text_sm()
+                    .text_color(muted),
+            )
             .child(
                 v_flex()
                     .gap_3()
-                    .child(self.inspection_target(muted))
+                    .child(self.inspection_target(muted, cx))
                     .child(
                         h_flex()
                             .gap_3()
                             .child(
                                 Button::new("launch-inspect")
-                                    .label("Inspect version")
+                                    .label(tr(cx, "launch.diagnostics.inspect"))
                                     .disabled(disabled)
                                     .on_click(
                                         cx.listener(|view, _, _, cx| {
@@ -45,7 +51,7 @@ impl RootView {
                             )
                             .child(
                                 Button::new("launch-preview")
-                                    .label("Preview command")
+                                    .label(tr(cx, "launch.diagnostics.preview"))
                                     .disabled(disabled || self.account_selection_pending(cx))
                                     .on_click(
                                         cx.listener(|view, _, _, cx| view.inspect_launch(true, cx)),
@@ -54,7 +60,7 @@ impl RootView {
                     )
                     .when(busy, |column| {
                         column.child(
-                            Label::new("Reading local game files")
+                            Label::new(tr(cx, "launch.diagnostics.reading"))
                                 .text_xs()
                                 .text_color(muted),
                         )
@@ -64,9 +70,9 @@ impl RootView {
             .into_any_element()
     }
 
-    fn inspection_target(&self, muted: Hsla) -> AnyElement {
+    fn inspection_target(&self, muted: Hsla, cx: &axlauncher_ui::App) -> AnyElement {
         let Some(entry) = self.instances.selected() else {
-            return Label::new("Select a profile to inspect its game version.")
+            return Label::new(tr(cx, "launch.diagnostics.select-profile"))
                 .text_xs()
                 .text_color(muted)
                 .into_any_element();

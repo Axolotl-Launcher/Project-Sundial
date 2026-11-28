@@ -277,7 +277,11 @@ impl RootView {
         launch: Launch,
         cx: &mut Context<'_, Self>,
     ) {
-        let message = format!("{} ({version}): {}", directory.display(), launch.message());
+        let message = format!(
+            "{} ({version}): {}",
+            directory.display(),
+            launch.message(cx)
+        );
         match launch {
             Launch::Starting | Launch::Running => self.activity.info(message),
             Launch::Exited => self.activity.success(message),

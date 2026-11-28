@@ -12,6 +12,8 @@ use axlauncher_ui::{
     IntoElement, Label, ScrollableElement, div, h_flex, px, v_flex,
 };
 
+use crate::i18n::tr;
+
 use super::RootView;
 
 const MAX_ENTRIES: usize = 100;
@@ -103,12 +105,20 @@ impl RootView {
         let rows = self.activity.rows(cx);
         GroupBox::new()
             .id("activity")
-            .title(Label::new("Activity").text_sm().text_color(muted))
+            .title(
+                Label::new(tr(cx, "activity.title"))
+                    .text_sm()
+                    .text_color(muted),
+            )
             .child(
                 v_flex()
                     .gap_2()
                     .when(rows.is_empty(), |column| {
-                        column.child(Label::new("No activity yet.").text_xs().text_color(muted))
+                        column.child(
+                            Label::new(tr(cx, "activity.empty"))
+                                .text_xs()
+                                .text_color(muted),
+                        )
                     })
                     .child(
                         div()
@@ -120,7 +130,7 @@ impl RootView {
                     .child(
                         h_flex().justify_end().child(
                             Button::new("activity-clear")
-                                .label("Clear")
+                                .label(tr(cx, "activity.clear"))
                                 .ghost()
                                 .on_click(cx.listener(|view, _, _, cx| {
                                     view.activity.clear();

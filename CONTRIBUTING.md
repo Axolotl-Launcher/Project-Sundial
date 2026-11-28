@@ -399,3 +399,22 @@ such as the root README, JSON files, and generated lockfiles. Run
 
 Conventional Commits, `Signed-off-by` required, plus `Assisted-by:` when a tool
 wrote part of the change. See `AGENTS.md` for the full convention.
+
+## Desktop translations
+
+The desktop launcher reads bundled string catalogs in `apps/frontend/locales/`.
+Use a stable, feature-scoped key in `en-US.json`, and add the corresponding
+translation to `zh-CN.json`. Put complete sentences in the catalog; named
+arguments such as `{code}` may be reordered, but their names must not change.
+Keep technical diagnostics and user-supplied content separate from interface copy.
+
+The root `crowdin.yml` configures the source and export paths for a file-based
+Crowdin project. A maintainer can connect the repository in Crowdin's GitHub
+integration, select the default branch and that configuration file, and set
+English as the source and Chinese Simplified as the target. Upload the existing
+Chinese translations once before enabling synchronization, then review the
+integration's translation pull requests like any other code change. No Crowdin
+credentials or runtime connection are needed by the launcher.
+
+Run `cargo test -p axlauncher_frontend --locked i18n::tests` to check catalog
+coverage and named arguments.

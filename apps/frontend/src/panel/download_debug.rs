@@ -20,6 +20,8 @@ use axlauncher_ui::{
 use futures::future::{Either, select};
 use tokio::sync::oneshot;
 
+use crate::i18n::tr;
+
 mod batch;
 
 const SAMPLE_INTERVAL: Duration = Duration::from_millis(300);
@@ -53,13 +55,16 @@ impl ProbeStatus {
         matches!(self, Self::Running | Self::Cancelling)
     }
 
-    fn message(&self) -> Option<String> {
+    fn message(&self, cx: &App) -> Option<String> {
         match self {
             Self::Idle => None,
-            Self::Running => Some("Test download running…".into()),
-            Self::Cancelling => Some("Cancelling test download…".into()),
-            Self::Cancelled => Some("Test download cancelled".into()),
-            Self::Complete(path) => Some(format!("Saved {}", path.display())),
+            Self::Running => Some(tr(cx, "download-debug.running").into()),
+            Self::Cancelling => Some(tr(cx, "download-debug.cancelling").into()),
+            Self::Cancelled => Some(tr(cx, "download-debug.cancelled").into()),
+            Self::Complete(path) => Some(crate::i18n::interpolate(
+                tr(cx, "download-debug.saved"),
+                &[("path", &path.display().to_string())],
+            )),
             Self::Failed(error) => Some(error.clone()),
         }
     }
@@ -196,7 +201,7 @@ impl DownloadDebug {
         let destination = paths.path(DataPath::DownloadProbe).to_owned();
         let url = self.url.read(cx).value().trim().to_owned();
         if url.is_empty() {
-            self.status = ProbeStatus::Failed("Enter a download URL.".into());
+            self.status = ProbeStatus::Failed(tr(cx, "download-debug.url.required").into());
             cx.notify();
             return;
         }
@@ -267,28 +272,28 @@ impl DownloadDebug {
         let running = self.status.is_running();
         v_flex()
             .gap_1()
-            .child(Label::new("Test URL").text_sm())
+            .child(Label::new(tr(cx, "download-debug.url")).text_sm())
             .child(
                 h_flex()
                     .gap_2()
                     .child(
                         Input::new(&self.url)
                             .id("download-debug-url")
-                            .aria_label("Test URL")
+                            .aria_label(tr(cx, "download-debug.url"))
                             .min_w_0()
                             .flex_1()
                             .disabled(running),
                     )
                     .child(
                         Button::new("start-download-probe")
-                            .label("Test download")
+                            .label(tr(cx, "download-debug.start"))
                             .disabled(running || self.paths.is_none())
                             .on_click(cx.listener(|view, _, _, cx| view.start_download_probe(cx))),
                     )
                     .when(running, |row| {
                         row.child(
                             Button::new("cancel-download-probe")
-                                .label("Cancel")
+                                .label(tr(cx, "download-debug.cancel"))
                                 .ghost()
                                 .disabled(self.cancel.is_none())
                                 .on_click(
@@ -308,7 +313,7 @@ impl Render for DownloadDebug {
             .gap_3()
             .child(self.render_stats())
             .child(self.render_download_probe(cx))
-            .when_some(self.status.message(), |column, message| {
+            .when_some(self.status.message(cx), |column, message| {
                 column.child(Label::new(message).text_sm().text_color(status_color))
             })
             .child(self.batch.clone())
