@@ -79,11 +79,6 @@ impl RootView {
                     .menu_width(rems(12.))
                     .disabled(self.settings_readonly()),
             )
-            .child(
-                Label::new(tr(cx, "settings.launcher-language.description"))
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground),
-            )
     }
 
     fn save_launcher_language(

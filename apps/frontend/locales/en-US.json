@@ -149,7 +149,6 @@
   "settings.java.remove": "Remove",
   "settings.java.remove.description": "Remove this installation from the Java list",
   "settings.java.title": "Java",
-  "settings.launcher-language.description": "Applies immediately. Minecraft language is set separately below.",
   "settings.launcher-language.label": "Launcher language",
   "settings.launcher-language.save-error": "Could not save the launcher language: {error}",
   "settings.load-error": "Settings could not be loaded.",

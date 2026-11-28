@@ -149,7 +149,6 @@
   "settings.java.remove": "移除",
   "settings.java.remove.description": "从 Java 列表中移除此安装项",
   "settings.java.title": "Java",
-  "settings.launcher-language.description": "立即生效。Minecraft 游戏语言可在下方单独设置。",
   "settings.launcher-language.label": "启动器语言",
   "settings.launcher-language.save-error": "无法保存启动器语言：{error}",
   "settings.load-error": "无法加载设置。",

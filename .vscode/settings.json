@@ -1,0 +1,10 @@
+// SPDX-FileCopyrightText: 2026 Axolotl Team
+// SPDX-License-Identifier: GPL-3.0-only
+
+{
+  // Cargo package roots do not cover all of our cross-package #[path] modules. Adding this to remove error calls in rust-analyzer.
+  "rust-analyzer.vfs.extraIncludes": [
+    "${workspaceFolder}/tests",
+    "${workspaceFolder}/platforms"
+  ]
+}
