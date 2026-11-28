@@ -51,6 +51,12 @@ impl Route {
 #[derive(Serialize, Deserialize)]
 pub struct Transfer {
     route: Route,
+    file: File,
+}
+
+/// A download job descriptor without transport configuration or credentials.
+#[derive(Serialize, Deserialize)]
+pub struct File {
     sources: Vec<String>,
     #[serde(with = "crate::path")]
     destination: PathBuf,
@@ -67,8 +73,25 @@ impl Transfer {
         job: DownloadJob<'_>,
         digest: Option<ExtraDigest>,
     ) -> std::io::Result<Self> {
+        Ok(Self::with_file(route, File::new(job, digest)?))
+    }
+
+    pub(super) fn with_file(route: Route, file: File) -> Self {
+        Self { route, file }
+    }
+
+    pub fn route(&self) -> &Route {
+        &self.route
+    }
+
+    pub fn file(&self) -> &File {
+        &self.file
+    }
+}
+
+impl File {
+    pub fn new(job: DownloadJob<'_>, digest: Option<ExtraDigest>) -> std::io::Result<Self> {
         Ok(Self {
-            route,
             sources: job
                 .sources
                 .iter()
@@ -81,10 +104,6 @@ impl Transfer {
             batch: job.batch,
             digest,
         })
-    }
-
-    pub fn route(&self) -> &Route {
-        &self.route
     }
 
     pub fn sources(&self) -> Vec<&str> {

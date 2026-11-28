@@ -1,0 +1,22 @@
+[package]
+name = "axlauncher_java_discovery"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "System Java candidate enumeration for the embedded discovery worker"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+axlauncher_launch = { workspace = true }
+axlauncher_storage = { workspace = true }
+axlauncher_worker = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[target."cfg(windows)".dependencies]
+dunce = { workspace = true }
+
+[lints]
+workspace = true

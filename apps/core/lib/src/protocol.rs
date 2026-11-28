@@ -6,8 +6,18 @@ const MAX_FRAME: usize = 16 * 1024 * 1024;
 
 #[derive(Deserialize, Serialize)]
 pub(super) enum Input<Command> {
-    Request { id: u64, command: Command },
-    Cancel { id: u64 },
+    Request {
+        id: u64,
+        command: Command,
+    },
+    Callback {
+        id: u64,
+        callback: u64,
+        response: serde_json::Value,
+    },
+    Cancel {
+        id: u64,
+    },
     Shutdown,
 }
 
@@ -24,6 +34,7 @@ pub(super) enum Output<Reply> {
 pub enum Event<Reply> {
     Reply(Reply),
     Finished(Result<(), String>),
+    Disconnected,
 }
 
 pub(super) fn encode(value: &impl Serialize) -> io::Result<Vec<u8>> {

@@ -151,7 +151,7 @@ impl DesktopAccounts {
                 Some(Event::Reply(Reply::Cancelled)) => final_reply = None,
                 Some(Event::Reply(reply)) => final_reply = Some(reply),
                 Some(Event::Finished(result)) => return result.map(|()| final_reply),
-                None => return Err("The account worker closed its reply pipe.".into()),
+                Some(Event::Disconnected) | None => return disconnected(),
             }
         }
     }
@@ -161,4 +161,8 @@ impl Drop for DesktopAccounts {
     fn drop(&mut self) {
         self.close();
     }
+}
+
+fn disconnected<T>() -> Result<T, String> {
+    Err("The account worker exited or sent an invalid reply. Try again.".into())
 }

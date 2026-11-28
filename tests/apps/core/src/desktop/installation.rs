@@ -29,35 +29,15 @@ fn installation_keys_follow_the_profile_not_its_resolved_version() {
 }
 
 #[test]
-fn preparing_shared_game_files_does_not_publish_a_staged_profile() {
-    let temporary = tempfile::tempdir().unwrap();
-    let data = DataDir::isolated(temporary.path()).unwrap();
-    let id = "1.21.11";
-    let game_paths = data.game();
-    let client = game_paths.version_path(id, axlauncher_storage::VersionPath::ClientJar);
-    std::fs::create_dir_all(client.parent().unwrap()).unwrap();
-    std::fs::write(client, b"jar").unwrap();
-    let manifest = format!(
-        r#"{{"id":"{id}","downloads":{{"client":{{"size":3,"url":"https://example.invalid/client.jar"}}}}}}"#
-    );
-    std::fs::write(
-        game_paths.version_path(id, axlauncher_storage::VersionPath::Document),
-        manifest,
-    )
-    .unwrap();
-    let profiles = data.path(axlauncher_storage::DataPath::Profiles);
-    let staged = profile::StagedProfile::new(profiles).unwrap();
-    let game = Game::new(id);
-    let target = InstallTarget::for_game(&game).unwrap();
-
-    let version = prepare(&data, target, DownloadOptions::from_settings(None), |_| {}).unwrap();
-    assert_eq!(version, id);
-    assert!(profile::discover(profiles).instances.is_empty());
-    let profile = profile::Profile::new("Pack", Some(game));
-    let directory = staged.publish_installed(profile, &version).unwrap();
-    let saved = profile::read(&directory).unwrap().unwrap();
-    assert_eq!(saved.game().unwrap().effective_version(), Some(id));
-    assert_eq!(saved.install.status, profile::InstallStatus::Ready);
+fn desktop_does_not_fall_back_to_in_process_installation() {
+    let temp = tempfile::tempdir().unwrap();
+    let data = DataDir::isolated(temp.path()).unwrap();
+    let target = InstallTarget::for_game(&Game::new("1.21.11")).unwrap();
+    let error = prepare(&data, target, DownloadOptions::from_settings(None), |_| {
+        panic!("the host ran an installation without an image");
+    })
+    .unwrap_err();
+    assert!(error.contains("installation worker is unavailable"));
 }
 
 #[test]
@@ -78,6 +58,10 @@ fn a_loader_is_complete_only_after_its_version_is_recorded() {
             .effective_version(),
         Some(version)
     );
+    assert!(persist_loader_result(&directory, Err("installer failed".into())).is_err());
+    let saved = profile::read(&directory).unwrap().unwrap();
+    assert_eq!(saved.game().unwrap().effective_version(), Some(version));
+    assert_eq!(saved.install.status, profile::InstallStatus::Failed);
 
     let missing = temporary.path().join("removed");
     assert!(persist_loader_result(&missing, Ok(version.to_owned())).is_err());

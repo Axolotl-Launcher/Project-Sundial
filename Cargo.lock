@@ -687,23 +687,60 @@ name = "axlauncher_install"
 version = "0.1.0"
 dependencies = [
  "axlauncher_domain",
- "axlauncher_download_engine",
  "axlauncher_download_spi",
  "axlauncher_launch",
  "axlauncher_network",
  "axlauncher_network_spi",
  "axlauncher_spi",
  "axlauncher_storage",
- "futures",
  "hex",
  "serde",
  "serde_json",
- "sha1_smol",
  "sha2 0.11.1",
+ "tempfile",
+]
+
+[[package]]
+name = "axlauncher_install_runtime"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_download_engine",
+ "axlauncher_download_spi",
+ "axlauncher_install",
+ "axlauncher_launch",
+ "axlauncher_loader",
+ "axlauncher_network",
+ "axlauncher_network_spi",
+ "axlauncher_spi",
+ "axlauncher_storage",
+ "axlauncher_worker",
+ "futures",
+ "serde",
+ "serde_json",
+ "sha1_smol",
  "tempfile",
  "tokio",
  "xz2",
  "zip",
+]
+
+[[package]]
+name = "axlauncher_instance_settings"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_domain",
+ "axlauncher_worker",
+]
+
+[[package]]
+name = "axlauncher_java_discovery"
+version = "0.1.0"
+dependencies = [
+ "axlauncher_launch",
+ "axlauncher_storage",
+ "axlauncher_worker",
+ "dunce",
+ "tempfile",
 ]
 
 [[package]]
@@ -748,6 +785,7 @@ version = "0.1.0"
 dependencies = [
  "axlauncher_core",
  "axlauncher_download_engine",
+ "axlauncher_install_runtime",
  "axlauncher_modpack",
  "serde",
  "serde_json",
@@ -838,9 +876,13 @@ name = "axlauncher_policy_tests"
 version = "0.1.0"
 dependencies = [
  "axlauncher_content",
+ "axlauncher_core",
+ "axlauncher_domain",
  "axlauncher_download_spi",
  "axlauncher_install",
+ "axlauncher_install_runtime",
  "axlauncher_launch",
+ "axlauncher_network",
  "axlauncher_network_spi",
  "axlauncher_spi",
  "axlauncher_state",
@@ -871,6 +913,7 @@ version = "0.1.0"
 dependencies = [
  "axlauncher_domain",
  "axlauncher_network_spi",
+ "serde",
 ]
 
 [[package]]
@@ -927,11 +970,15 @@ dependencies = [
 name = "axlauncher_worker"
 version = "0.1.0"
 dependencies = [
+ "axlauncher_domain",
  "axlauncher_download_spi",
+ "axlauncher_install",
  "axlauncher_network",
  "axlauncher_network_spi",
+ "axlauncher_spi",
  "axlauncher_storage",
  "futures",
+ "libc",
  "libloading",
  "serde",
  "serde_json",
@@ -939,6 +986,7 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

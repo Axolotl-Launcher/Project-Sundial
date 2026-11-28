@@ -15,7 +15,7 @@ use axlauncher_download_spi::MissingFile;
 use axlauncher_launch::natives::classifier_download;
 use axlauncher_launch::rules::{self, Target};
 use axlauncher_launch::version::{Artifact, Library};
-use axlauncher_storage::{AssetPath, GameDir, VersionPath, write_atomic};
+use axlauncher_storage::{AssetPath, GameDir, VersionPath};
 use serde::Deserialize;
 
 /// How many leading hash characters select an asset object's directory.
@@ -246,72 +246,19 @@ fn needs_download(path: &Path, expected_size: Option<u64>) -> bool {
     }
 }
 
-/// How many entries of a flat asset tree a report names individually.
-const MAX_FLAT_FAILURES: usize = 8;
-
-/// Copies every object `index` lists into the flat tree the game reads.
-///
-/// This runs after the objects are on disk, because the objects are its only
-/// source: the game wants `sounds/step/grass1.ogg`, and the store holds it
-/// under its hash. A file already in place with the right size is left alone,
-/// so a re-run costs one metadata call per asset.
-///
-/// Failure paths are capped at [`MAX_FLAT_FAILURES`] so a wholly unwritable
-/// tree reports the reason rather than one line per asset.
-pub fn materialise_flat(
+/// Destinations that still need a copy of an object from the asset store.
+pub fn missing_flat_copies<'index>(
     game_root: &GameDir,
     index_id: &str,
-    index: &AssetIndexDocument,
-) -> Vec<String> {
-    index
-        .flat_root(game_root, index_id)
-        .map_or_else(Vec::new, |root| {
-            materialise_flat_at(game_root, &root, index)
-        })
-}
-
-fn materialise_flat_at(
-    game_root: &GameDir,
-    root: &Path,
-    index: &AssetIndexDocument,
-) -> Vec<String> {
-    let mut failures = Vec::new();
-
-    for (name, object) in index.objects() {
-        let Some(source) = game_root.asset_object(&object.hash) else {
-            continue;
-        };
-        let destination = root.join(name.replace('/', std::path::MAIN_SEPARATOR_STR));
-        if !needs_download(&destination, Some(object.size)) {
-            continue;
-        }
-        let Err(error) = copy_object(&source, &destination) else {
-            continue;
-        };
-        if failures.len() < MAX_FLAT_FAILURES {
-            failures.push(format!("{}: {error}", destination.display()));
-        }
-    }
-    failures
-}
-
-/// The first missing or incomplete copy in the tree the game reads.
-pub(crate) fn missing_flat_asset(
-    game_root: &GameDir,
-    index_id: &str,
-    index: &AssetIndexDocument,
-) -> Option<PathBuf> {
-    let root = index.flat_root(game_root, index_id)?;
-    index.objects().find_map(|(name, object)| {
-        let path = root.join(name.replace('/', std::path::MAIN_SEPARATOR_STR));
-        needs_download(&path, Some(object.size)).then_some(path)
+    index: &'index AssetIndexDocument,
+) -> impl Iterator<Item = (PathBuf, &'index str)> {
+    let root = index.flat_root(game_root, index_id);
+    index.objects().filter_map(move |(name, object)| {
+        let path = root
+            .as_ref()?
+            .join(name.replace('/', std::path::MAIN_SEPARATOR_STR));
+        needs_download(&path, Some(object.size)).then_some((path, object.hash.as_str()))
     })
-}
-
-/// Copies one object into the flat tree, creating its parent.
-fn copy_object(source: &Path, destination: &Path) -> std::io::Result<()> {
-    let bytes = fs::read(source)?;
-    write_atomic(destination, &bytes)
 }
 
 #[cfg(test)]

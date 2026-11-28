@@ -12,12 +12,15 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use axlauncher_core::install::{loader, prepare};
+use axlauncher_core::install::loader;
 use axlauncher_core::launch::{Target, chain, version};
 use axlauncher_core::network::ReqwestNetwork;
 use axlauncher_core::state::profile::{Game, Profile, StagedProfile};
-use axlauncher_core::storage::{AtomicFile, DataDir, DataPath, GameDir, VersionPath, write_atomic};
+use axlauncher_core::storage::{
+    AtomicFile, DataDir, DataPath, GameAccess, GameDir, VersionPath, write_atomic,
+};
 use axlauncher_download_engine::Direct;
+use axlauncher_install_runtime::prepare;
 use axlauncher_modpack::MultiMcExport;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -62,6 +65,7 @@ async fn convert(input: &Path, data: &DataDir) -> Result<PathBuf> {
         file.commit(&destination)
     })?;
     let game_root = GameDir::isolated(staging.directory());
+    let lock = game_root.lock(GameAccess::Install)?;
     let target = Target::host();
     let network = ReqwestNetwork::desktop()?;
     let base_id = base::prepare(&network, data, &game_root, &requirements, &target).await?;
@@ -88,6 +92,7 @@ async fn convert(input: &Path, data: &DataDir) -> Result<PathBuf> {
         &serde_json::to_vec_pretty(&effective)?,
     )?;
     loader::check_files(&game_root, &effective.id, &target)?;
+    drop(lock);
     Ok(staging.publish_installed(profile, &effective.id)?)
 }
 

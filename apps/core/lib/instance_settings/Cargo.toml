@@ -1,0 +1,16 @@
+[package]
+name = "axlauncher_instance_settings"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Validation for on-demand instance settings edits"
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+axlauncher_domain = { workspace = true }
+axlauncher_worker = { workspace = true }
+
+[lints]
+workspace = true

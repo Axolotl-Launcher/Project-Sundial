@@ -61,7 +61,7 @@ fn a_memory_override_roundtrips_and_following_global_removes_it() {
     std::thread::scope(|scope| {
         scope.spawn(|| {
             start.wait();
-            set_memory(&directory, profile.id(), Some(heap)).unwrap();
+            set_memory_if_current(&directory, profile.id(), None, Some(heap), || true).unwrap();
         });
         scope.spawn(|| {
             start.wait();
@@ -74,9 +74,9 @@ fn a_memory_override_roundtrips_and_following_global_removes_it() {
     let raw = fs::read(Document::Profile.path(&directory)).unwrap();
     let document: serde_json::Value = serde_json::from_slice(&raw).unwrap();
     assert_eq!(document["memory"], serde_json::json!({"maximum_mib": 6144}));
-    assert!(set_memory(&directory, "other-id", None).is_err());
+    assert!(set_memory_if_current(&directory, "other-id", Some(heap), None, || true).is_err());
     assert_eq!(read(&directory).unwrap().unwrap().memory(), Some(heap));
-    set_memory(&directory, profile.id(), None).unwrap();
+    set_memory_if_current(&directory, profile.id(), Some(heap), None, || true).unwrap();
     let raw = fs::read(Document::Profile.path(&directory)).unwrap();
     let document: serde_json::Value = serde_json::from_slice(&raw).unwrap();
     assert!(document.get("memory").is_none());

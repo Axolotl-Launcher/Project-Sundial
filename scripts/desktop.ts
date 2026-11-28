@@ -77,6 +77,14 @@ function sign(image: string, identity: string, staging: string): string {
   return copy;
 }
 
+function runEmbeddedSmoke(executable: string, env: NodeJS.ProcessEnv, rest: string[]): number {
+  return exec("cargo", [
+    "test", "--locked", "-p", "axlauncher_policy_tests", "--test", "embedded_workers", "--", "--ignored",
+    "--test-threads=1",
+    ...rest.filter((argument) => argument !== "--release"),
+  ], { ...env, AXLAUNCHER_EXECUTABLE: executable, AXLAUNCHER_SMOKE_EXE: executable });
+}
+
 async function main(args: string[]): Promise<number> {
   const [mode, ...rest] = args;
   const platform = platforms[process.platform];
@@ -94,14 +102,27 @@ async function main(args: string[]): Promise<number> {
   }
   let downloads = await library("axlauncher_download_engine", profile);
   let accounts = await library("axlauncher_accounts", profile);
+  let javaDiscovery = await library("axlauncher_java_discovery", profile);
+  let instanceSettings = await library("axlauncher_instance_settings", profile);
+  let install = await library("axlauncher_install_runtime", profile);
   const identity = process.platform === "darwin" ? process.env.AXLAUNCHER_MACOS_SIGN_IDENTITY : undefined;
   const staging = identity ? mkdtempSync(join(tmpdir(), "axlauncher-sign-")) : undefined;
   try {
     if (identity && staging) {
       downloads = sign(downloads, identity, staging);
       accounts = sign(accounts, identity, staging);
+      javaDiscovery = sign(javaDiscovery, identity, staging);
+      instanceSettings = sign(instanceSettings, identity, staging);
+      install = sign(install, identity, staging);
     }
-    const env = { ...process.env, AXLAUNCHER_DOWNLOAD_IMAGE: downloads, AXLAUNCHER_ACCOUNT_IMAGE: accounts };
+    const env = {
+      ...process.env,
+      AXLAUNCHER_DOWNLOAD_IMAGE: downloads,
+      AXLAUNCHER_ACCOUNT_IMAGE: accounts,
+      AXLAUNCHER_JAVA_DISCOVERY_IMAGE: javaDiscovery,
+      AXLAUNCHER_INSTANCE_SETTINGS_IMAGE: instanceSettings,
+      AXLAUNCHER_INSTALL_IMAGE: install,
+    };
     if (mode === "exec") {
       const [command, ...parameters] = rest;
       if (!command) throw new Error("Provide the command to run with embedded worker images");
@@ -114,10 +135,7 @@ async function main(args: string[]): Promise<number> {
         ({ executable }) => executable,
         env,
       );
-      return exec("cargo", [
-        "test", "--locked", "-p", "axlauncher_policy_tests", "--test", "embedded_workers", "--", "--ignored",
-        ...rest.filter((argument) => argument !== "--release"),
-      ], { ...env, AXLAUNCHER_SMOKE_EXE: executable });
+      return runEmbeddedSmoke(executable, env, rest);
     }
     const command = commands[mode];
     if (!command) throw new Error(`Unknown desktop command: ${mode}`);

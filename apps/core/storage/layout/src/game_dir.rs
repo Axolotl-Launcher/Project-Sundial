@@ -22,6 +22,7 @@ pub enum VersionPath {
     ClientJar,
     Natives,
     LogConfig,
+    ProcessorIncomplete,
 }
 
 /// Positions named by an asset index.
@@ -82,6 +83,9 @@ impl GameDir {
             VersionPath::ClientJar => self.versions.join(id).join(format!("{id}.jar")),
             VersionPath::Natives => self.root.join("natives").join(id),
             VersionPath::LogConfig => self.root.join("log_configs").join(id),
+            VersionPath::ProcessorIncomplete => {
+                self.versions.join(id).join(".processors-incomplete")
+            }
         }
     }
 

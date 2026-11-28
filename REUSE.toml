@@ -40,6 +40,9 @@ SPDX-License-Identifier = "GPL-3.0-only"
 [[annotations]]
 path = [
   "apps/core/lib/**",
+  "apps/core/install/src/loader.rs",
+  "apps/core/install/src/prepare.rs",
+  "apps/core/install/src/vanilla.rs",
   "apps/core/spi/download/**",
   "apps/core/spi/network/Cargo.toml",
   "apps/core/spi/network/src/lib.rs",
@@ -47,7 +50,13 @@ path = [
   "platforms/entry.rs",
   "scripts/desktop.ts",
   "tests/apps/core/lib/**",
+  "apps/core/src/desktop/instance_settings.rs",
+  "apps/frontend/src/panel/memory_edits.rs",
+  "tests/apps/core/src/desktop/instance_settings.rs",
+  "tests/apps/core/state/src/profile/update.rs",
+  "tests/apps/frontend/src/panel/memory_edits.rs",
   "tests/tests/embedded_workers.rs",
+  "tests/tests/embedded_workers/**",
   "tests/tests/unsafe_boundaries.rs",
 ]
 SPDX-FileCopyrightText = "2026 Axolotl Team"

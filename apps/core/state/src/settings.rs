@@ -22,8 +22,9 @@ use std::path::{Path, PathBuf};
 use axlauncher_domain::memory::MemoryAllocation;
 use axlauncher_storage::{Document, ManagedFile, write_atomic};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-use crate::document::{self, Existing};
+use crate::document::{self, Existing, Schema};
 
 /// The only settings schema this build writes.
 pub const SETTINGS_SCHEMA_VERSION: u32 = 1;
@@ -159,6 +160,8 @@ pub enum SettingsError {
     Quarantine { path: PathBuf, source: io::Error },
     RefusedSchema { path: PathBuf, found: u32 },
     RefusedUnreadable { path: PathBuf },
+    ChangedMemory,
+    Cancelled,
 }
 
 impl fmt::Display for SettingsError {
@@ -185,6 +188,11 @@ impl fmt::Display for SettingsError {
                     path.display()
                 )
             }
+            Self::ChangedMemory => write!(
+                formatter,
+                "The global memory setting changed. Reopen the editor to continue."
+            ),
+            Self::Cancelled => write!(formatter, "The settings edit was cancelled."),
         }
     }
 }
@@ -195,7 +203,7 @@ impl std::error::Error for SettingsError {
             Self::Read { source, .. }
             | Self::Write { source, .. }
             | Self::Quarantine { source, .. } => Some(source),
-            Self::RefusedSchema { .. } | Self::RefusedUnreadable { .. } => None,
+            _ => None,
         }
     }
 }
@@ -224,20 +232,22 @@ pub fn load_settings(root: &Path) -> Result<LoadedSettings, SettingsError> {
         Err(source) => return Err(SettingsError::Read { path, source }),
     };
 
+    let schema = match serde_json::from_slice::<Schema>(&bytes) {
+        Ok(schema) => schema,
+        Err(_) => return quarantine(path, ManagedFile::SettingsQuarantine.path(root)),
+    };
+    if schema.schema_version != SETTINGS_SCHEMA_VERSION {
+        return Ok(LoadedSettings {
+            data: SettingsData::default(),
+            origin: SettingsOrigin::ReadOnlyOtherSchema {
+                found: schema.schema_version,
+            },
+        });
+    }
     let document = match serde_json::from_slice::<SettingsDocument>(&bytes) {
         Ok(document) => document,
         Err(_) => return quarantine(path, ManagedFile::SettingsQuarantine.path(root)),
     };
-
-    if document.schema_version != SETTINGS_SCHEMA_VERSION {
-        return Ok(LoadedSettings {
-            data: SettingsData::default(),
-            origin: SettingsOrigin::ReadOnlyOtherSchema {
-                found: document.schema_version,
-            },
-        });
-    }
-
     Ok(LoadedSettings {
         data: document.data,
         origin: SettingsOrigin::Stored,
@@ -295,12 +305,77 @@ pub fn update_settings(
     Ok(data)
 }
 
+/// A memory edit preserves the latest unrelated settings and envelope fields.
+pub fn set_memory_if_current(
+    root: &Path,
+    expected: MemoryAllocation,
+    memory: MemoryAllocation,
+    begin_commit: impl FnOnce() -> bool,
+) -> Result<SettingsData, SettingsError> {
+    let _guard = lock_settings(root)?;
+    let path = Document::Settings.path(root);
+    let (mut data, mut document) = editable_settings(&path)?;
+    if data.memory != expected {
+        return Err(SettingsError::ChangedMemory);
+    }
+    data.set_memory(memory);
+    document["data"]["memory"] = serde_json::to_value(memory).expect("memory serializes");
+    if !begin_commit() {
+        return Err(SettingsError::Cancelled);
+    }
+    write_document(&path, &document)?;
+    Ok(data)
+}
+
+fn editable_settings(path: &Path) -> Result<(SettingsData, Value), SettingsError> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            let data = SettingsData::default();
+            let document = SettingsDocument {
+                schema_version: SETTINGS_SCHEMA_VERSION,
+                data: data.clone(),
+            };
+            return Ok((
+                data,
+                serde_json::to_value(document).expect("settings serialize"),
+            ));
+        }
+        Err(source) => {
+            return Err(SettingsError::Read {
+                path: path.to_owned(),
+                source,
+            });
+        }
+    };
+    let unreadable = || SettingsError::RefusedUnreadable {
+        path: path.to_owned(),
+    };
+    let schema: Schema = serde_json::from_slice(&bytes).map_err(|_| unreadable())?;
+    if schema.schema_version != SETTINGS_SCHEMA_VERSION {
+        return Err(SettingsError::RefusedSchema {
+            path: path.to_owned(),
+            found: schema.schema_version,
+        });
+    }
+    let parsed: SettingsDocument = serde_json::from_slice(&bytes).map_err(|_| unreadable())?;
+    let document: Value = serde_json::from_slice(&bytes).map_err(|_| unreadable())?;
+    if !document.get("data").is_some_and(Value::is_object) {
+        return Err(unreadable());
+    }
+    Ok((parsed.data, document))
+}
+
 fn write_settings(path: &Path, data: &SettingsData) -> Result<(), SettingsError> {
     let document = SettingsDocument {
         schema_version: SETTINGS_SCHEMA_VERSION,
         data: data.clone(),
     };
-    let bytes = serde_json::to_vec_pretty(&document).expect("settings document serializes");
+    write_document(path, &document)
+}
+
+fn write_document(path: &Path, document: &impl Serialize) -> Result<(), SettingsError> {
+    let bytes = serde_json::to_vec_pretty(document).expect("settings document serializes");
     write_atomic(path, &bytes).map_err(|source| SettingsError::Write {
         path: path.to_path_buf(),
         source,

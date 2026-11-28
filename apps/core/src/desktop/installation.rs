@@ -5,30 +5,16 @@
 
 use std::path::Path;
 
-use axlauncher_download_spi::FileDownloader;
-use axlauncher_install::{
-    loader::{self, LoaderInstallError, LoaderInstalled},
-    prepare::{Prepared, Progress},
-    vanilla,
-};
-use axlauncher_launch::Target;
-use axlauncher_network_spi::Network;
-use axlauncher_spi::{LoaderKind, LoaderRequest, ModLoader};
+use axlauncher_install::prepare::Progress;
+use axlauncher_spi::LoaderKind;
 use axlauncher_state::profile::{self, Game};
 use axlauncher_storage::DataDir;
+use axlauncher_worker::{Cancellation, installation as worker};
 
 use super::{java, on_worker, sources::DownloadOptions};
 
 /// What a profile asks to install, independent of the version ID produced by a loader.
-pub struct InstallTarget {
-    game_version: String,
-    loader: Option<LoaderSelection>,
-}
-
-struct LoaderSelection {
-    kind: LoaderKind,
-    version: Option<String>,
-}
+pub struct InstallTarget(worker::Target);
 
 impl InstallTarget {
     /// Shared installations exclude isolated runtimes and unsupported loaders.
@@ -38,10 +24,7 @@ impl InstallTarget {
         }
         let game_version = game.minecraft.clone();
         if game.is_vanilla() {
-            return Some(Self {
-                game_version,
-                loader: None,
-            });
+            return Some(Self(worker::Target::new(game_version, None)));
         }
         let loader = game.loader.as_ref()?;
         let kind = LoaderKind::parse(&loader.kind)?;
@@ -54,26 +37,27 @@ impl InstallTarget {
             .map(str::trim)
             .filter(|version| !version.is_empty())
             .map(str::to_owned);
-        Some(Self {
+        Some(Self(worker::Target::new(
             game_version,
-            loader: Some(LoaderSelection { kind, version }),
-        })
+            Some((kind, version)),
+        )))
     }
 
     /// A loader slot follows the requested game, loader kind and selected build.
     pub fn key(&self) -> String {
-        let Some(loader) = &self.loader else {
-            return self.game_version.clone();
+        let minecraft = self.0.game_version();
+        let Some((kind, build)) = self.0.loader() else {
+            return minecraft.to_owned();
         };
-        let key = format!("{}:{}", self.game_version, loader.kind);
-        match &loader.version {
+        let key = format!("{minecraft}:{kind}");
+        match build {
             Some(version) => format!("{key}:{version}"),
             None => key,
         }
     }
 
     pub fn is_loader(&self) -> bool {
-        self.loader.is_some()
+        self.0.loader().is_some()
     }
 }
 
@@ -108,13 +92,21 @@ pub fn prepare(
     options: DownloadOptions,
     report: impl FnMut(Progress),
 ) -> Result<String, String> {
-    on_worker(async {
-        if let Some(selection) = target.loader {
-            return download_loader(data, target.game_version, selection, options, report).await;
-        }
-        download_vanilla(data, &target.game_version, options, report).await?;
-        Ok(target.game_version)
-    })
+    let command = worker::Command::new(
+        data,
+        target.0,
+        options.mirrors(),
+        options.concurrency(),
+        java::install_snapshot(data),
+    );
+    on_worker(worker::install(
+        data,
+        command,
+        options.downloader(data),
+        Cancellation::default(),
+        |path, major| java::register_provisioned(data, &path, major),
+        report,
+    ))
     .map_err(|error| error.to_string())?
 }
 
@@ -130,104 +122,6 @@ fn persist_loader_result(
         let _ = profile::mark_failed(directory);
     }
     recorded
-}
-
-async fn download_vanilla(
-    data: &DataDir,
-    id: &str,
-    options: DownloadOptions,
-    mut report: impl FnMut(Progress),
-) -> Result<(), String> {
-    let concurrency = options.concurrency();
-    let network = options.network()?;
-    let prepared = vanilla::install(
-        &network,
-        &options.downloader(data),
-        data.game(),
-        id,
-        &Target::host(),
-        concurrency,
-        &mut report,
-    )
-    .await?;
-    ensure_complete(&prepared)?;
-    java::prepare_for_version(&network, data, id, report).await
-}
-
-async fn download_loader(
-    data: &DataDir,
-    game_version: String,
-    selection: LoaderSelection,
-    options: DownloadOptions,
-    report: impl FnMut(Progress),
-) -> Result<String, String> {
-    let concurrency = options.concurrency();
-    let network = options.network()?;
-    let provider = axlauncher_loader::provider(network.clone(), selection.kind)
-        .map_err(|error| error.to_string())?;
-    let request = LoaderRequest {
-        game_version,
-        loader_version: selection.version,
-    };
-    let installed = install_loader(
-        data,
-        &network,
-        &options.downloader(data),
-        &provider,
-        request,
-        concurrency,
-        report,
-    )
-    .await?;
-    ensure_complete(&installed.prepared)?;
-    Ok(installed.version_id)
-}
-
-async fn install_loader(
-    data: &DataDir,
-    network: &impl Network,
-    downloader: &impl FileDownloader,
-    provider: &impl ModLoader,
-    request: LoaderRequest,
-    concurrency: usize,
-    mut report: impl FnMut(Progress),
-) -> Result<LoaderInstalled, String> {
-    let initial_java = java::managed(data);
-    let operation = loader::InstallRequest {
-        network,
-        downloader,
-        loader: provider,
-        java: &initial_java,
-        game_root: data.game(),
-        request,
-        target: &Target::host(),
-        concurrency,
-    };
-    let required = match operation.install(&mut report).await {
-        Err(LoaderInstallError::Java { required }) => required,
-        result => return result.map_err(|error| error.to_string()),
-    };
-
-    java::provision(network, data, required, &mut report).await?;
-    // Provisioning registered the runtime after the original list was loaded.
-    let refreshed_java = java::managed(data);
-    loader::InstallRequest {
-        java: &refreshed_java,
-        ..operation
-    }
-    .install(report)
-    .await
-    .map_err(|error| error.to_string())
-}
-
-fn ensure_complete(prepared: &Prepared) -> Result<(), String> {
-    match prepared.failures.first() {
-        None => Ok(()),
-        Some(first) => Err(format!(
-            "Could not prepare {} file(s). {first}",
-            prepared.failures.len()
-        )),
-    }
 }
 
 #[cfg(test)]

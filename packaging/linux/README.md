@@ -30,6 +30,10 @@ internal build product: the release publishes the image, not the tree.
 `checks.portable` proves the tree is self-contained, since the packaging job
 only checks the layout of what it receives.
 
+The portable build checks that its wrapper can load the verified embedded Java
+discovery and installation images, then shut each worker down. These probe
+images are not shipped.
+
 ## Layout
 
 `$ORIGIN/../lib` fixes the layout a native package must produce:

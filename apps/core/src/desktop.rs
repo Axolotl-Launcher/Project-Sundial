@@ -7,9 +7,9 @@ use std::future::Future;
 
 pub mod catalog;
 pub mod installation;
+pub mod instance_settings;
 pub mod java;
 pub mod launching;
-pub mod memory;
 pub mod project_images;
 pub mod sources;
 

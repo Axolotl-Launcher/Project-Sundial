@@ -92,7 +92,10 @@ let
 
       src = dummySrc;
 
-      buildPhase = environment + common.buildPhase { patchImages = false; };
+      buildPhase = environment + common.buildPhase {
+        patchImages = false;
+        smoke = false;
+      };
 
       installPhase = ''
         mkdir -p "$out"

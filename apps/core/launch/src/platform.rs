@@ -40,13 +40,13 @@ pub(crate) fn name(mode: JavaMode) -> &'static str {
 }
 
 /// The Java executable for `mode` directly under `directory`.
-pub(crate) fn executable_in(directory: &Path, mode: JavaMode) -> Option<PathBuf> {
+pub fn executable_in(directory: &Path, mode: JavaMode) -> Option<PathBuf> {
     let candidate = directory.join(name(mode));
     candidate.is_file().then_some(candidate)
 }
 
 /// The Java executable for `mode` inside a JDK home, which keeps it in `bin/`.
-pub(crate) fn executable_in_home(home: &Path, mode: JavaMode) -> Option<PathBuf> {
+pub fn executable_in_home(home: &Path, mode: JavaMode) -> Option<PathBuf> {
     executable_in(&java_bin(home), mode)
 }
 
@@ -68,13 +68,50 @@ pub(crate) fn managed_home(root: &Path) -> PathBuf {
     root.to_path_buf()
 }
 
-pub(crate) fn bundle_home(root: &Path) -> PathBuf {
+/// The Java home inside a macOS bundle.
+pub fn bundle_home(root: &Path) -> PathBuf {
     root.join("Contents").join("Home")
 }
 
 /// The Java executable in a launcher-managed runtime directory.
-pub(crate) fn managed_executable(root: &Path, mode: JavaMode) -> Option<PathBuf> {
+pub fn managed_executable(root: &Path, mode: JavaMode) -> Option<PathBuf> {
     executable_in_home(&managed_home(root), mode)
+}
+
+#[cfg(windows)]
+const EXCLUDED_JAVA_DIRECTORIES: &[&str] = &[
+    "javapath",
+    "java8path",
+    "common files",
+    "netease",
+    "wpsystem",
+];
+
+/// Rejects Windows paths that pass through an excluded directory.
+pub fn excluded_from_discovery(path: &Path) -> bool {
+    #[cfg(windows)]
+    return path
+        .components()
+        .filter_map(|part| part.as_os_str().to_str())
+        .any(|name| {
+            EXCLUDED_JAVA_DIRECTORIES
+                .iter()
+                .any(|excluded| name.eq_ignore_ascii_case(excluded))
+        });
+
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        false
+    }
+}
+
+/// Rejects exploratory Windows directory names containing an exclusion keyword.
+#[cfg(windows)]
+pub fn contains_excluded_java_directory(lowercase_name: &str) -> bool {
+    EXCLUDED_JAVA_DIRECTORIES
+        .iter()
+        .any(|excluded| lowercase_name.contains(excluded))
 }
 
 /// Every Java executable for `mode` on a `PATH`-shaped list, in path order.

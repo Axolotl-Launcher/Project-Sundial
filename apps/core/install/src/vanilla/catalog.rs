@@ -26,8 +26,8 @@ pub struct MinecraftVersion {
     id: String,
     #[serde(rename = "type")]
     manifest_type: String,
-    pub(super) url: String,
-    pub(super) sha1: String,
+    url: String,
+    sha1: String,
 }
 
 impl MinecraftCatalog {
@@ -59,6 +59,14 @@ impl MinecraftVersion {
     pub fn manifest_type(&self) -> &str {
         &self.manifest_type
     }
+
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    pub fn sha1(&self) -> &str {
+        &self.sha1
+    }
 }
 
 /// Fetches Mojang's catalog without downloading any game files.
@@ -66,10 +74,7 @@ pub async fn versions(network: &impl Network) -> Result<MinecraftCatalog, String
     fetch_catalog(network, Ok).await
 }
 
-pub(super) async fn find_version(
-    network: &impl Network,
-    id: &str,
-) -> Result<MinecraftVersion, String> {
+pub async fn find_version(network: &impl Network, id: &str) -> Result<MinecraftVersion, String> {
     fetch_catalog(network, |catalog| {
         catalog
             .into_version(id)
