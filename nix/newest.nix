@@ -77,6 +77,14 @@ in
         # in the platform binary.
         install -Dm644 libjava-discovery.so \
           "$workerProbe/java-discovery-image"
+        # The install hooks rewrite toolchain and vendored-source paths in the
+        # platform binary, including the embedded worker bytes. Normalize the
+        # standalone images the same way so the launcher can verify them byte
+        # for byte at startup.
+        removeReferencesToVendoredSources "$installImage"
+        removeReferencesToRustToolchain "$installImage"
+        removeReferencesToVendoredSources "$workerProbe"
+        removeReferencesToRustToolchain "$workerProbe"
       '';
     }
   );

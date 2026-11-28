@@ -77,6 +77,14 @@ function sign(image: string, identity: string, staging: string): string {
   return copy;
 }
 
+function runEmbeddedSmoke(executable: string, env: NodeJS.ProcessEnv, rest: string[]): number {
+  return exec("cargo", [
+    "test", "--locked", "-p", "axlauncher_policy_tests", "--test", "embedded_workers", "--", "--ignored",
+    "--test-threads=1",
+    ...rest.filter((argument) => argument !== "--release"),
+  ], { ...env, AXLAUNCHER_EXECUTABLE: executable, AXLAUNCHER_SMOKE_EXE: executable });
+}
+
 async function main(args: string[]): Promise<number> {
   const [mode, ...rest] = args;
   const platform = platforms[process.platform];
@@ -127,10 +135,7 @@ async function main(args: string[]): Promise<number> {
         ({ executable }) => executable,
         env,
       );
-      return exec("cargo", [
-        "test", "--locked", "-p", "axlauncher_policy_tests", "--test", "embedded_workers", "--", "--ignored",
-        ...rest.filter((argument) => argument !== "--release"),
-      ], { ...env, AXLAUNCHER_EXECUTABLE: executable, AXLAUNCHER_SMOKE_EXE: executable });
+      return runEmbeddedSmoke(executable, env, rest);
     }
     const command = commands[mode];
     if (!command) throw new Error(`Unknown desktop command: ${mode}`);
