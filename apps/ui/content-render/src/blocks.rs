@@ -234,5 +234,5 @@ fn is_whitespace(node: &Node) -> bool {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/plugins/content-render/src/blocks.rs"]
+#[path = "../../../../tests/apps/ui/content-render/src/blocks.rs"]
 mod tests;

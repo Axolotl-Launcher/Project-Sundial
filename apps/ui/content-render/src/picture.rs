@@ -147,5 +147,5 @@ fn aspect_ratio(size: Size<Pixels>) -> f32 {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/plugins/content-render/src/picture.rs"]
+#[path = "../../../../tests/apps/ui/content-render/src/picture.rs"]
 mod tests;

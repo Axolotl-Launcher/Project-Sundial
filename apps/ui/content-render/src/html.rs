@@ -137,5 +137,5 @@ pub(super) fn inner_html(node: Handle) -> Option<String> {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/plugins/content-render/src/html.rs"]
+#[path = "../../../../tests/apps/ui/content-render/src/html.rs"]
 mod tests;

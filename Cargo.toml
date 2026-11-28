@@ -27,9 +27,9 @@ members = [
   "apps/core/storage/layout",
   "apps/core/telemetry",
   "apps/frontend",
-  "apps/plugins/content-render",
   "apps/plugins/modpack",
   "apps/ui",
+  "apps/ui/content-render",
   "platforms/linux",
   "platforms/macos",
   "platforms/windows",
@@ -131,7 +131,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 keyring = "4.2.0"
 
 axlauncher_content = { path = "apps/core/content" }
-axlauncher_content_render = { path = "apps/plugins/content-render" }
+axlauncher_content_render = { path = "apps/ui/content-render" }
 axlauncher_core = { path = "apps/core" }
 axlauncher_domain = { path = "apps/core/domain" }
 axlauncher_download_engine = { path = "apps/core/lib/download_engine" }

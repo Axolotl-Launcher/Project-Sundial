@@ -131,8 +131,8 @@ the user's network routing.
 | `axlauncher_telemetry` | [telemetry](../../apps/core/telemetry/src/lib.rs) | Event sink implementation, currently `LoggingTelemetry`. |
 | `axlauncher_core` | [core](../../apps/core/src/lib.rs) | Application-facing system re-exports and desktop request orchestration. Delegates each operation to its owning system or SPI provider. |
 | `axlauncher_ui` | [ui](../../apps/ui/src/lib.rs) | Palette, theme installation and component re-exports. |
+| `axlauncher_content_render` | [content-render](../../apps/ui/content-render/src/lib.rs) | UI library for native Markdown and HTML rendering, with shared link and image handling. It uses `axlauncher_ui` for rendering and an injected image transport. HTTP access stays with `network`. |
 | `axlauncher_frontend` | [frontend](../../apps/frontend/src/lib.rs) | Root view, interaction state, windows and UI task lifecycle. |
-| `axlauncher_content_render` | [content-render](../../apps/plugins/content-render/src/lib.rs) | Native rendering of explicitly typed Markdown and HTML documents, with shared link and image handling. It uses `axlauncher_ui` for rendering and an injected image transport. HTTP access stays with `network`. |
 | `axlauncher_modpack` | [modpack](../../apps/plugins/modpack/src/lib.rs) | Registered readers for modpack distribution inputs, plus file selection and override planning. It may depend on provider contracts, never their implementations. |
 | `axlauncher_mmc_convert` | [mmc-convert](../../tools/mmc-convert/src/main.rs) | Standalone conversion of selected MultiMC exports with custom launch components into native, isolated profiles. It uses the modpack archive reader and the core facade. |
 | `axlauncher_platform_windows` | [Windows](../../platforms/windows/src/main.rs) | Windows executable entry point. |

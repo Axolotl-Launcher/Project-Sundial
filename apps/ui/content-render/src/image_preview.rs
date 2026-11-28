@@ -371,5 +371,5 @@ fn fit_image(intrinsic: Size<Pixels>, available: Size<Pixels>) -> Size<Pixels> {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/plugins/content-render/src/image_preview.rs"]
+#[path = "../../../../tests/apps/ui/content-render/src/image_preview.rs"]
 mod tests;

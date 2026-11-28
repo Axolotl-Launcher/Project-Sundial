@@ -206,5 +206,5 @@ fn decode(bytes: Vec<u8>) -> image::ImageResult<Arc<RenderImage>> {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/apps/plugins/content-render/src/images.rs"]
+#[path = "../../../../tests/apps/ui/content-render/src/images.rs"]
 mod tests;
